@@ -13,7 +13,11 @@ struct MenuBarRootView: View {
                 .foregroundStyle(DesignTokens.Colors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
-            PageURLField(text: $runtime.pageURLText, onSubmit: runtime.validatePageURL)
+            PageURLField(
+                text: $runtime.pageURLText,
+                focusRequest: runtime.pageURLFocusRequest,
+                onSubmit: runtime.validatePageURL
+            )
 
             if let validationMessage = runtime.validationMessage {
                 Label(
@@ -25,6 +29,10 @@ struct MenuBarRootView: View {
                     runtime.validationFailed ? DesignTokens.Colors.error : DesignTokens.Colors.secondaryText
                 )
                 .accessibilityLabel(validationMessage)
+            }
+
+            if let activePage = runtime.activePage {
+                PagePickerView(pages: [activePage], onPin: runtime.pin)
             }
 
             Divider()
