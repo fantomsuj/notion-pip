@@ -7,6 +7,7 @@ public enum ExternalURLSource: String, Equatable, Sendable {
 public enum ExternalURLRouteError: Error, Equatable, Sendable {
     case inputTooLong
     case unsupportedScheme
+    case invalidRouteShape
     case unknownAction(String)
     case missingPageURL
     case missingSource
@@ -27,13 +28,30 @@ public enum ExternalURLRoute: Equatable, Sendable {
             return .failure(.unsupportedScheme)
         }
 
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.user == nil,
+              components.password == nil,
+              components.port == nil,
+              components.fragment == nil,
+              components.path.isEmpty
+        else {
+            return .failure(.invalidRouteShape)
+        }
+
         let action = url.host?.lowercased() ?? ""
-        guard action == "pin", url.path.isEmpty || url.path == "/" else {
+        guard action == "pin" else {
             return .failure(.unknownAction(action))
         }
 
-        guard let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else {
+        guard let queryItems = components.queryItems else {
             return .failure(.missingPageURL)
+        }
+        let itemsByName = Dictionary(grouping: queryItems, by: \.name)
+        guard Set(itemsByName.keys).isSubset(of: ["url", "source"]),
+              itemsByName["url", default: []].count <= 1,
+              itemsByName["source", default: []].count <= 1
+        else {
+            return .failure(.invalidRouteShape)
         }
         guard let rawPageURL = singleValue(named: "url", in: queryItems),
               let pageURL = URL(string: rawPageURL)

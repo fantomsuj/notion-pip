@@ -45,6 +45,56 @@ final class ExternalURLRouteTests: XCTestCase {
         XCTAssertEqual(ExternalURLRoute.parse(routeURL), .failure(.unsupportedScheme))
     }
 
+    func testUserInfoIsRejected() throws {
+        var components = exactRouteComponents()
+        components.user = "user"
+        components.password = "password"
+
+        try assertRejected(XCTUnwrap(components.url))
+    }
+
+    func testPortIsRejected() throws {
+        var components = exactRouteComponents()
+        components.port = 8_443
+
+        try assertRejected(XCTUnwrap(components.url))
+    }
+
+    func testFragmentIsRejected() throws {
+        var components = exactRouteComponents()
+        components.fragment = "ignored"
+
+        try assertRejected(XCTUnwrap(components.url))
+    }
+
+    func testRootPathIsRejected() throws {
+        var components = exactRouteComponents()
+        components.path = "/"
+
+        try assertRejected(XCTUnwrap(components.url))
+    }
+
+    func testUnknownQueryItemIsRejected() throws {
+        var components = exactRouteComponents()
+        components.queryItems?.append(URLQueryItem(name: "trace", value: "untrusted"))
+
+        try assertRejected(XCTUnwrap(components.url))
+    }
+
+    func testNilValuedDuplicateURLItemIsRejected() throws {
+        var components = exactRouteComponents()
+        components.queryItems?.append(URLQueryItem(name: "url", value: nil))
+
+        try assertRejected(XCTUnwrap(components.url))
+    }
+
+    func testNilValuedDuplicateSourceItemIsRejected() throws {
+        var components = exactRouteComponents()
+        components.queryItems?.append(URLQueryItem(name: "source", value: nil))
+
+        try assertRejected(XCTUnwrap(components.url))
+    }
+
     func testMissingURLAndSourceAreRejected() throws {
         let missingURL = try XCTUnwrap(URL(string: "notion-pip://pin?source=chrome-extension"))
         let missingSource = try XCTUnwrap(
@@ -74,13 +124,33 @@ final class ExternalURLRouteTests: XCTestCase {
     }
 
     private func route(action: String, source: String) throws -> URL {
-        var components = URLComponents()
-        components.scheme = "notion-pip"
+        var components = exactRouteComponents()
         components.host = action
         components.queryItems = [
             URLQueryItem(name: "url", value: "https://www.notion.so/\(pageID)"),
             URLQueryItem(name: "source", value: source),
         ]
         return try XCTUnwrap(components.url)
+    }
+
+    private func exactRouteComponents() -> URLComponents {
+        var components = URLComponents()
+        components.scheme = "notion-pip"
+        components.host = "pin"
+        components.queryItems = [
+            URLQueryItem(name: "url", value: "https://www.notion.so/\(pageID)"),
+            URLQueryItem(name: "source", value: "chrome-extension"),
+        ]
+        return components
+    }
+
+    private func assertRejected(
+        _ routeURL: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard case .failure = ExternalURLRoute.parse(routeURL) else {
+            return XCTFail("Expected route to be rejected: \(routeURL)", file: file, line: line)
+        }
     }
 }
