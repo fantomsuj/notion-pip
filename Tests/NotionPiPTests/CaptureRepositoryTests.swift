@@ -490,6 +490,74 @@ final class CaptureRepositoryTests: XCTestCase {
         XCTAssertTrue(recordsAfterLaterSave.isEmpty)
     }
 
+    func testNewActiveSaveHelperFetchFailureLeavesPriorActiveAndNoNewDraft() async throws {
+        let failure = FailNextCaptureRepositoryFetch()
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(referenceDate),
+            beforeHelperFetch: failure.check
+        )
+        let priorActive = try await repository.saveDraft(
+            mutation(id: "capture-a", title: "Prior active"),
+            expectedRevision: 0
+        )
+
+        failure.failNext(.otherActiveDrafts)
+        do {
+            _ = try await repository.saveDraft(
+                mutation(id: "capture-b", title: "Failed new active"),
+                expectedRevision: 0
+            )
+            XCTFail("Expected injected new-active save helper-fetch failure")
+        } catch is FailNextCaptureRepositoryFetch.ExpectedFailure {}
+
+        let priorAfterFailure = try await repository.draft(id: priorActive.id)
+        let newAfterFailure = try await repository.draft(id: "capture-b")
+        XCTAssertEqual(priorAfterFailure, priorActive)
+        XCTAssertNil(newAfterFailure)
+
+        _ = try await repository.saveDraft(
+            mutation(id: "unrelated", title: "Later save", disposition: .stashed),
+            expectedRevision: 0
+        )
+        let priorAfterLaterSave = try await repository.draft(id: priorActive.id)
+        let newAfterLaterSave = try await repository.draft(id: "capture-b")
+        XCTAssertEqual(priorAfterLaterSave, priorActive)
+        XCTAssertNil(newAfterLaterSave)
+    }
+
+    func testExistingActiveSaveHelperFetchFailureLeavesContentUnchanged() async throws {
+        let failure = FailNextCaptureRepositoryFetch()
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(referenceDate),
+            beforeHelperFetch: failure.check
+        )
+        let active = try await repository.saveDraft(
+            mutation(id: "capture-a", title: "Original"),
+            expectedRevision: 0
+        )
+
+        failure.failNext(.otherActiveDrafts)
+        do {
+            _ = try await repository.saveDraft(
+                mutation(id: active.id, title: "Failed update"),
+                expectedRevision: active.revision
+            )
+            XCTFail("Expected injected existing-active save helper-fetch failure")
+        } catch is FailNextCaptureRepositoryFetch.ExpectedFailure {}
+
+        let activeAfterFailure = try await repository.draft(id: active.id)
+        XCTAssertEqual(activeAfterFailure, active)
+
+        _ = try await repository.saveDraft(
+            mutation(id: "unrelated", title: "Later save", disposition: .stashed),
+            expectedRevision: 0
+        )
+        let activeAfterLaterSave = try await repository.draft(id: active.id)
+        XCTAssertEqual(activeAfterLaterSave, active)
+    }
+
     private func mutation(
         id: String,
         title: String,
