@@ -46,6 +46,16 @@ export type BridgeRequest =
       snapshot: Omit<EditorSnapshot, "revision">;
     });
 
+export type BridgeRequestOf<T extends BridgeRequest["type"]> = Extract<
+  BridgeRequest,
+  { type: T }
+>;
+
+export type BridgeRequestPayload<T extends BridgeRequest["type"]> = Omit<
+  BridgeRequestOf<T>,
+  keyof RequestBase | "type"
+>;
+
 export type BridgeResultKind =
   | "ready"
   | "changed"
@@ -94,18 +104,53 @@ const requestTypes = new Set([
   "resolveConflict",
 ]);
 
-export function makeRequest(
-  type: BridgeRequest["type"],
+export function makeRequest<T extends BridgeRequest["type"]>(
+  type: T,
   id: string,
-  payload: Record<string, unknown>,
-): BridgeRequest {
+  payload: BridgeRequestPayload<T>,
+): BridgeRequestOf<T> {
   if (!requestTypes.has(type as string)) {
     throw new Error(`Unsupported bridge request: ${String(type)}`);
   }
-  if (id.length === 0) {
-    throw new Error("Bridge request ID must not be empty");
+  if (id.trim().length === 0 || new TextEncoder().encode(id).length > 128) {
+    throw new Error("Bridge request ID must be nonempty and at most 128 bytes");
   }
-  return { version: BRIDGE_VERSION, id, type, ...payload } as BridgeRequest;
+  const base = { version: BRIDGE_VERSION, id };
+  switch (type) {
+    case "ready":
+      return { ...base, type: "ready" } as BridgeRequestOf<T>;
+    case "changed":
+    case "save":
+    case "stash": {
+      const value = payload as unknown as BridgeRequestPayload<"changed">;
+      return {
+        ...base,
+        type,
+        snapshot: value.snapshot,
+        expectedRevision: value.expectedRevision,
+      } as BridgeRequestOf<T>;
+    }
+    case "restore": {
+      const value = payload as unknown as BridgeRequestPayload<"restore">;
+      return {
+        ...base,
+        type,
+        draftID: value.draftID,
+        expectedRevision: value.expectedRevision,
+      } as BridgeRequestOf<T>;
+    }
+    case "resolveConflict": {
+      const value = payload as unknown as BridgeRequestPayload<"resolveConflict">;
+      return {
+        ...base,
+        type,
+        action: value.action,
+        snapshot: value.snapshot,
+      } as BridgeRequestOf<T>;
+    }
+    default:
+      throw new Error(`Unsupported bridge request: ${String(type)}`);
+  }
 }
 
 export function isBridgeReply(value: unknown): value is BridgeReply {

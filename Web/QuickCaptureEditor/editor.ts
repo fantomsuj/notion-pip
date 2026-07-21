@@ -8,6 +8,7 @@ import {
   makeRequest,
   type BridgeReply,
   type BridgeRequest,
+  type BridgeRequestPayload,
   type ConflictAction,
   type EditorSnapshot,
   type JSONValue,
@@ -55,6 +56,7 @@ export class DebouncedChangePublisher {
     expectedRevision: () => number;
   } | undefined;
   private deliveryTail: Promise<void> = Promise.resolve();
+  private actionTail: Promise<void> = Promise.resolve();
   private failedRequest: BridgeRequest | undefined;
   private readonly delayMilliseconds: number;
   private readonly send: (request: BridgeRequest) => void | Promise<void>;
@@ -90,6 +92,7 @@ export class DebouncedChangePublisher {
     this.timer = undefined;
     const pending = this.pending;
     this.pending = undefined;
+    let pendingRequestCreated = false;
     const delivery = this.deliveryTail.then(async () => {
       if (this.failedRequest !== undefined) {
         await this.deliver(this.failedRequest);
@@ -99,11 +102,26 @@ export class DebouncedChangePublisher {
           snapshot: pending.snapshot,
           expectedRevision: pending.expectedRevision(),
         });
+        pendingRequestCreated = true;
         await this.deliver(request);
       }
+    }).catch((error) => {
+      if (pending !== undefined && !pendingRequestCreated && this.pending === undefined) {
+        this.pending = pending;
+      }
+      throw error;
     });
     this.deliveryTail = delivery.catch(() => {});
     await delivery;
+  }
+
+  async performAfterPendingChange<T>(action: () => Promise<T>): Promise<T> {
+    const operation = this.actionTail.then(async () => {
+      await this.flush();
+      return action();
+    });
+    this.actionTail = operation.then(() => {}, () => {});
+    return operation;
   }
 
   private async deliver(request: BridgeRequest): Promise<void> {
@@ -123,8 +141,16 @@ export async function runAfterPendingChange<T>(
   publisher: DebouncedChangePublisher,
   action: () => Promise<T>,
 ): Promise<T> {
-  await publisher.flush();
-  return action();
+  return publisher.performAfterPendingChange(action);
+}
+
+export function requireAutosaveAcknowledgement(reply: BridgeReply): BridgeReply {
+  if (!reply.ok
+      && reply.error.code === "persistenceFailure"
+      && reply.error.recoverable) {
+    throw new Error(reply.error.message);
+  }
+  return reply;
 }
 
 export class BridgeClient {
@@ -142,7 +168,10 @@ export class BridgeClient {
     this.timeoutMilliseconds = timeoutMilliseconds;
   }
 
-  async request(type: BridgeRequest["type"], payload: Record<string, unknown>): Promise<BridgeReply> {
+  async request<T extends BridgeRequest["type"]>(
+    type: T,
+    payload: BridgeRequestPayload<T>,
+  ): Promise<BridgeReply> {
     const id = this.nextID();
     const request = makeRequest(type, id, payload);
     return this.dispatch(request);
@@ -190,6 +219,11 @@ function bootstrap(): void {
   if (bridge === undefined || editorElement === null || titleElement === null || statusElement === null) return;
   const titleInput = titleElement;
   const status = statusElement;
+  const saveButton = document.querySelector<HTMLButtonElement>("#save");
+  const stashButton = document.querySelector<HTMLButtonElement>("#stash");
+  const formattingButtons = Array.from(
+    document.querySelectorAll<HTMLButtonElement>("[data-command]"),
+  );
 
   let snapshot: EditorSnapshot = {
     draftID: "",
@@ -198,6 +232,8 @@ function bootstrap(): void {
     document: normalizeDocument(null),
   };
   let applyingNativeSnapshot = false;
+  let recoveryLocked = false;
+  let userActionPending = false;
   const client = new BridgeClient((request) => bridge.postMessage(request));
   const editor = new Editor({
     element: editorElement,
@@ -205,7 +241,7 @@ function bootstrap(): void {
     content: snapshot.document as JSONContent,
     autofocus: "end",
     onUpdate: ({ editor: updatedEditor }) => {
-      if (applyingNativeSnapshot || snapshot.draftID.length === 0) return;
+      if (applyingNativeSnapshot || recoveryLocked || snapshot.draftID.length === 0) return;
       status.dataset.state = "saving";
       status.textContent = "Saving…";
       changes.changed(
@@ -221,10 +257,9 @@ function bootstrap(): void {
   const changes = new DebouncedChangePublisher(
     300,
     async (request) => {
-      await client.dispatch(request).then((reply) => {
-        applyReply(reply);
-        return reply;
-      });
+      const reply = await client.dispatch(request);
+      applyReply(reply);
+      requireAutosaveAcknowledgement(reply);
     },
     () => crypto.randomUUID(),
     (error) => reportFailure(error),
@@ -260,18 +295,38 @@ function bootstrap(): void {
     status.textContent = value instanceof Error ? value.message : "The draft could not be saved.";
   }
 
+  function refreshMutationControls(): void {
+    const disabled = recoveryLocked || userActionPending;
+    titleInput.disabled = recoveryLocked;
+    editor.setEditable(!recoveryLocked);
+    if (saveButton !== null) saveButton.disabled = disabled;
+    if (stashButton !== null) stashButton.disabled = disabled;
+    formattingButtons.forEach((button) => { button.disabled = recoveryLocked; });
+  }
+
+  async function performUserAction<T>(action: () => Promise<T>): Promise<T> {
+    userActionPending = true;
+    refreshMutationControls();
+    try {
+      return await runAfterPendingChange(changes, action);
+    } finally {
+      userActionPending = false;
+      refreshMutationControls();
+    }
+  }
+
   titleInput.addEventListener("input", () => {
-    if (snapshot.draftID.length === 0) return;
+    if (recoveryLocked || snapshot.draftID.length === 0) return;
     changes.changed(
       { draftID: snapshot.draftID, title: titleInput.value, document: normalizeDocument(editor.getJSON()) },
       () => snapshot.revision ?? 0,
     );
   });
-  document.querySelectorAll<HTMLButtonElement>("[data-command]").forEach((button) => {
+  formattingButtons.forEach((button) => {
     button.addEventListener("click", () => executeToolbarCommand(editor, button.dataset.command ?? ""));
   });
-  document.querySelector<HTMLButtonElement>("#save")?.addEventListener("click", async () => {
-    void runAfterPendingChange(changes, () => client.request("save", {
+  saveButton?.addEventListener("click", async () => {
+    void performUserAction(() => client.request("save", {
       snapshot: {
         draftID: snapshot.draftID,
         title: titleInput.value,
@@ -280,8 +335,8 @@ function bootstrap(): void {
       expectedRevision: snapshot.revision ?? 0,
     })).then(applyReply).catch(reportFailure);
   });
-  document.querySelector<HTMLButtonElement>("#stash")?.addEventListener("click", async () => {
-    void runAfterPendingChange(changes, () => client.request("stash", {
+  stashButton?.addEventListener("click", async () => {
+    void performUserAction(() => client.request("stash", {
       snapshot: {
         draftID: snapshot.draftID,
         title: titleInput.value,
@@ -302,28 +357,38 @@ function bootstrap(): void {
       .then((reply) => { applyReply(reply); return reply; })
       .catch((error) => { reportFailure(error); throw error; }),
     resolveConflict: (action, operationID) => runAfterPendingChange(changes, async () => {
-      if (conflictResolution?.operationID === operationID) {
-        if (conflictResolution.action !== action) {
-          throw new Error("Conflict recovery operation does not match its original action");
-        }
-      } else {
-        conflictResolution = {
-          action,
-          operationID,
-          request: makeRequest("resolveConflict", operationID, {
+      recoveryLocked = true;
+      refreshMutationControls();
+      try {
+        // An edit can arrive while the action's first flush is awaiting native I/O.
+        // Lock first, then drain once more so the final live snapshot has no queued predecessor.
+        await changes.flush();
+        if (conflictResolution?.operationID === operationID) {
+          if (conflictResolution.action !== action) {
+            throw new Error("Conflict recovery operation does not match its original action");
+          }
+        } else {
+          conflictResolution = {
             action,
-            snapshot: {
-              draftID: snapshot.draftID,
-              title: titleInput.value,
-              document: normalizeDocument(editor.getJSON()),
-            },
-          }),
-        };
+            operationID,
+            request: makeRequest("resolveConflict", operationID, {
+              action,
+              snapshot: {
+                draftID: snapshot.draftID,
+                title: titleInput.value,
+                document: normalizeDocument(editor.getJSON()),
+              },
+            }),
+          };
+        }
+        const reply = await client.dispatch(conflictResolution.request);
+        applyReply(reply);
+        if (!reply.ok) throw new Error(reply.error.message);
+        return reply;
+      } finally {
+        recoveryLocked = false;
+        refreshMutationControls();
       }
-      const reply = await client.dispatch(conflictResolution.request);
-      applyReply(reply);
-      if (!reply.ok) throw new Error(reply.error.message);
-      return reply;
     }).catch((error) => {
       reportFailure(error);
       throw error;

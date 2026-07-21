@@ -6,6 +6,7 @@ import {
   DebouncedChangePublisher,
   executeToolbarCommand,
   normalizeDocument,
+  requireAutosaveAcknowledgement,
   runAfterPendingChange,
   type EditorCommandTarget,
 } from "./editor.ts";
@@ -189,6 +190,106 @@ test("failed change retries the identical request then allows later edits", asyn
   assert.deepEqual(failures, ["acknowledgement lost"]);
 });
 
+test("newer pending work survives repeated failure of the earlier exact request", async () => {
+  const requests: BridgeRequest[] = [];
+  let attempt = 0;
+  let sequence = 0;
+  let revision = 1;
+  const publisher = new DebouncedChangePublisher(
+    1_000,
+    async (request) => {
+      requests.push(structuredClone(request));
+      attempt += 1;
+      if (attempt <= 2) throw new Error(`offline-${attempt}`);
+      if (request.type === "changed") revision += 1;
+    },
+    () => `change-${++sequence}`,
+  );
+
+  publisher.changed({ draftID: "draft-1", title: "A", document: null }, () => revision);
+  await assert.rejects(publisher.flush(), /offline-1/);
+  publisher.changed({ draftID: "draft-1", title: "B", document: null }, () => revision);
+  await assert.rejects(publisher.flush(), /offline-2/);
+  await publisher.flush();
+
+  assert.equal(requests.length, 4);
+  assert.deepEqual(requests[1], requests[0]);
+  assert.deepEqual(requests[2], requests[0]);
+  assert.equal(requests[3]?.type, "changed");
+  if (requests[3]?.type === "changed") {
+    assert.equal(requests[3].id, "change-2");
+    assert.equal(requests[3].snapshot.title, "B");
+    assert.equal(requests[3].expectedRevision, 2);
+  }
+});
+
+test("rapid save and stash actions serialize through their acknowledgements", async () => {
+  const publisher = new DebouncedChangePublisher(1_000, async () => {});
+  let active = 0;
+  let maximumActive = 0;
+  let finishSave: (() => void) | undefined;
+  const order: string[] = [];
+
+  const save = runAfterPendingChange(publisher, async () => {
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    order.push("save-start");
+    await new Promise<void>((resolve) => { finishSave = resolve; });
+    order.push("save-end");
+    active -= 1;
+  });
+  const stash = runAfterPendingChange(publisher, async () => {
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    order.push("stash");
+    active -= 1;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(order, ["save-start"]);
+  finishSave?.();
+  await Promise.all([save, stash]);
+  assert.equal(maximumActive, 1);
+  assert.deepEqual(order, ["save-start", "save-end", "stash"]);
+});
+
+test("recoverable persistence negative acknowledgement retains the exact autosave request", async () => {
+  const requests: BridgeRequest[] = [];
+  let attempt = 0;
+  const publisher = new DebouncedChangePublisher(
+    1_000,
+    async (request) => {
+      requests.push(structuredClone(request));
+      attempt += 1;
+      requireAutosaveAcknowledgement(attempt === 1
+        ? {
+            version: 1,
+            id: request.id,
+            ok: false,
+            error: {
+              code: "persistenceFailure",
+              message: "Disk unavailable",
+              recoverable: true,
+            },
+          }
+        : {
+            version: 1,
+            id: request.id,
+            ok: true,
+            result: { kind: "changed", revision: 2 },
+          });
+    },
+    () => "negative-ack-change",
+  );
+
+  publisher.changed({ draftID: "draft-1", title: "Unsaved", document: null }, 1);
+  await assert.rejects(publisher.flush(), /Disk unavailable/);
+  await publisher.flush();
+
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[1], requests[0]);
+});
+
 test("timer delivery rejection is observed instead of becoming unhandled", async () => {
   const failures: string[] = [];
   const unhandled: unknown[] = [];
@@ -226,6 +327,15 @@ test("protocol creates only allowlisted versioned request shapes", () => {
     id: "ready-1",
     type: "ready",
   });
+  assert.deepEqual(
+    makeRequest("ready", "ready-2", {
+      version: 99,
+      id: "attacker",
+      type: "save",
+      credential: "secret",
+    } as never),
+    { version: 1, id: "ready-2", type: "ready" },
+  );
   assert.throws(() => makeRequest("eval" as "ready", "bad", {}), /Unsupported bridge request/);
 });
 

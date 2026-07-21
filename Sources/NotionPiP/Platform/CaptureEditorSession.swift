@@ -82,6 +82,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     private let repository: CaptureRepository
     private let draftID: () -> String
     private let openInNotion: () -> Void
+    private let beforeConflictResolution: (CaptureEditorSnapshot) async -> Void
     private let conflictResolver: any CaptureConflictResolving
     private let scriptHandler: WeakScriptMessageHandler
     private let editorDocumentURL: URL
@@ -99,11 +100,13 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         repository: CaptureRepository,
         draftID: @escaping () -> String = { UUID().uuidString.lowercased() },
         openInNotion: @escaping () -> Void = {},
+        beforeConflictResolution: @escaping (CaptureEditorSnapshot) async -> Void = { _ in },
         conflictResolver: any CaptureConflictResolving = WebKitCaptureConflictResolver()
     ) {
         self.repository = repository
         self.draftID = draftID
         self.openInNotion = openInNotion
+        self.beforeConflictResolution = beforeConflictResolution
         self.conflictResolver = conflictResolver
 
         let documentURL = Self.bundledEditorURL
@@ -301,6 +304,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         snapshot: CaptureEditorSnapshot
     ) async -> CaptureBridgeReply {
         do {
+        await beforeConflictResolution(snapshot)
         switch action {
         case .reloadLatest:
             guard let latest = try await repository.draft(id: snapshot.draftID) else {
