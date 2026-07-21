@@ -14,15 +14,25 @@ enum CaptureRepositoryError: Error, Equatable {
     case invalidStoredValue(String)
 }
 
+enum CaptureRepositoryHelperFetch: Equatable, Sendable {
+    case activeDraft
+    case otherActiveDrafts
+    case returnDraft
+}
+
+typealias CaptureRepositoryHelperFetchCheck = @Sendable (CaptureRepositoryHelperFetch) throws -> Void
+
 actor CaptureRepository {
     private let container: ModelContainer
     private let context: ModelContext
     private let clock: any CaptureClock
+    private let beforeHelperFetch: CaptureRepositoryHelperFetchCheck
 
     init(
         storeURL: URL? = nil,
         inMemory: Bool = false,
-        clock: any CaptureClock = SystemCaptureClock()
+        clock: any CaptureClock = SystemCaptureClock(),
+        beforeHelperFetch: @escaping CaptureRepositoryHelperFetchCheck = { _ in }
     ) throws {
         let schema = Schema(versionedSchema: NotionPiPSchemaV1.self)
         let configuration: ModelConfiguration
@@ -41,6 +51,7 @@ actor CaptureRepository {
         context = ModelContext(container)
         context.autosaveEnabled = false
         self.clock = clock
+        self.beforeHelperFetch = beforeHelperFetch
     }
 
     func saveDraft(_ mutation: DraftMutation, expectedRevision: Int) throws -> CaptureDraftSnapshot {
@@ -84,22 +95,18 @@ actor CaptureRepository {
                 )
             }
 
-            if mutation.disposition == .active {
-                try stashOtherActiveDrafts(except: model.stableID, at: now)
+            return try commit {
+                if mutation.disposition == .active {
+                    try stashOtherActiveDrafts(except: model.stableID, at: now)
+                }
+                model.title = mutation.title
+                model.editorDocument = canonicalEditor
+                model.sourceDocument = canonicalSource
+                model.dispositionRawValue = mutation.disposition.rawValue
+                model.updatedAt = now
+                model.revision += 1
+                return try snapshot(model)
             }
-            model.title = mutation.title
-            model.editorDocument = canonicalEditor
-            model.sourceDocument = canonicalSource
-            model.dispositionRawValue = mutation.disposition.rawValue
-            model.updatedAt = now
-            model.revision += 1
-            do {
-                try context.save()
-            } catch {
-                context.rollback()
-                throw error
-            }
-            return try snapshot(model)
         }
 
         guard expectedRevision == 0 else {
@@ -108,32 +115,28 @@ actor CaptureRepository {
         guard mutation.disposition != .abandoned else {
             throw CaptureRepositoryError.invalidNewDraftDisposition(mutation.disposition)
         }
-        let returnDraftID: String?
-        if mutation.disposition == .active {
-            returnDraftID = try activeDraft(except: mutation.id)?.stableID
-            try stashOtherActiveDrafts(except: mutation.id, at: now)
-        } else {
-            returnDraftID = nil
+        return try commit {
+            let returnDraftID: String?
+            if mutation.disposition == .active {
+                returnDraftID = try activeDraft(except: mutation.id)?.stableID
+                try stashOtherActiveDrafts(except: mutation.id, at: now)
+            } else {
+                returnDraftID = nil
+            }
+            let model = CaptureDraftModel(
+                stableID: mutation.id,
+                revision: 1,
+                title: mutation.title,
+                editorDocument: canonicalEditor,
+                sourceDocument: canonicalSource,
+                dispositionRawValue: mutation.disposition.rawValue,
+                createdAt: now,
+                updatedAt: now,
+                returnDraftID: returnDraftID
+            )
+            context.insert(model)
+            return try snapshot(model)
         }
-        let model = CaptureDraftModel(
-            stableID: mutation.id,
-            revision: 1,
-            title: mutation.title,
-            editorDocument: canonicalEditor,
-            sourceDocument: canonicalSource,
-            dispositionRawValue: mutation.disposition.rawValue,
-            createdAt: now,
-            updatedAt: now,
-            returnDraftID: returnDraftID
-        )
-        context.insert(model)
-        do {
-            try context.save()
-        } catch {
-            context.rollback()
-            throw error
-        }
-        return try snapshot(model)
     }
 
     func restoreDraft(id: String, expectedRevision: Int) throws -> CaptureDraftSnapshot {
@@ -150,19 +153,15 @@ actor CaptureRepository {
             throw CaptureRepositoryError.invalidDraftTransition(from: currentDisposition, to: .active)
         }
         let now = clock.now()
-        model.returnDraftID = try activeDraft(except: id)?.stableID
-        try stashOtherActiveDrafts(except: id, at: now)
-        model.dispositionRawValue = DraftDisposition.active.rawValue
-        model.captureRecordID = nil
-        model.updatedAt = now
-        model.revision += 1
-        do {
-            try context.save()
-        } catch {
-            context.rollback()
-            throw error
+        return try commit {
+            model.returnDraftID = try activeDraft(except: id)?.stableID
+            try stashOtherActiveDrafts(except: id, at: now)
+            model.dispositionRawValue = DraftDisposition.active.rawValue
+            model.captureRecordID = nil
+            model.updatedAt = now
+            model.revision += 1
+            return try snapshot(model)
         }
-        return try snapshot(model)
     }
 
     func stashDraft(id: String, expectedRevision: Int) throws -> CaptureDraftSnapshot {
@@ -179,19 +178,15 @@ actor CaptureRepository {
             throw CaptureRepositoryError.invalidDraftTransition(from: currentDisposition, to: .stashed)
         }
         let now = clock.now()
-        let returnDraftID = model.returnDraftID
-        model.dispositionRawValue = DraftDisposition.stashed.rawValue
-        model.returnDraftID = nil
-        model.updatedAt = now
-        model.revision += 1
-        try reactivateReturnDraft(id: returnDraftID, at: now)
-        do {
-            try context.save()
-        } catch {
-            context.rollback()
-            throw error
+        return try commit {
+            let returnDraftID = model.returnDraftID
+            model.dispositionRawValue = DraftDisposition.stashed.rawValue
+            model.returnDraftID = nil
+            model.updatedAt = now
+            model.revision += 1
+            try reactivateReturnDraft(id: returnDraftID, at: now)
+            return try snapshot(model)
         }
-        return try snapshot(model)
     }
 
     func enqueue(
@@ -239,21 +234,17 @@ actor CaptureRepository {
             deliveredAt: nil,
             updatedAt: now
         )
-        context.insert(record)
-        let returnDraftID = draft.returnDraftID
-        draft.dispositionRawValue = DraftDisposition.abandoned.rawValue
-        draft.captureRecordID = record.stableID
-        draft.returnDraftID = nil
-        draft.updatedAt = now
-        draft.revision += 1
-        try reactivateReturnDraft(id: returnDraftID, at: now)
-        do {
-            try context.save()
-        } catch {
-            context.rollback()
-            throw error
+        return try commit {
+            context.insert(record)
+            let returnDraftID = draft.returnDraftID
+            draft.dispositionRawValue = DraftDisposition.abandoned.rawValue
+            draft.captureRecordID = record.stableID
+            draft.returnDraftID = nil
+            draft.updatedAt = now
+            draft.revision += 1
+            try reactivateReturnDraft(id: returnDraftID, at: now)
+            return try snapshot(record)
         }
-        return try snapshot(record)
     }
 
     func draft(id: String) throws -> CaptureDraftSnapshot? {
@@ -308,27 +299,18 @@ actor CaptureRepository {
                 continue
             }
             guard let nextAttemptAt = model.nextAttemptAt, nextAttemptAt <= now else { continue }
-            model.stateRawValue = DeliveryState.inFlight.rawValue
-            model.inFlightAt = now
-            model.nextAttemptAt = nil
-            model.attemptCount += 1
-            model.updatedAt = now
-            model.revision += 1
-            do {
-                try context.save()
-            } catch {
-                context.rollback()
-                throw error
+            return try commit {
+                model.stateRawValue = DeliveryState.inFlight.rawValue
+                model.inFlightAt = now
+                model.nextAttemptAt = nil
+                model.attemptCount += 1
+                model.updatedAt = now
+                model.revision += 1
+                return try snapshot(model)
             }
-            return try snapshot(model)
         }
         if changedForAttention {
-            do {
-                try context.save()
-            } catch {
-                context.rollback()
-                throw error
-            }
+            try commit {}
         }
         return nil
     }
@@ -336,47 +318,42 @@ actor CaptureRepository {
     func recoverInterruptedWork(at now: Date) throws -> Int {
         let interrupted = try context.fetch(FetchDescriptor<CaptureRecordModel>())
             .filter { $0.stateRawValue == DeliveryState.inFlight.rawValue }
-        for model in interrupted {
-            if model.destinationKind == "managed" {
-                model.stateRawValue = DeliveryState.retrying.rawValue
-                model.nextAttemptAt = now
-                model.requiresManagedCheck = true
-                setSafeError(
-                    SafeDeliveryError(
-                        code: "interruptedManagedDelivery",
-                        message: "Checking for an earlier managed delivery before retrying.",
-                        statusCode: nil,
-                        retryAfter: nil
-                    ),
-                    on: model
-                )
-            } else {
-                model.stateRawValue = DeliveryState.uncertain.rawValue
-                model.nextAttemptAt = nil
-                model.requiresManagedCheck = false
-                setSafeError(
-                    SafeDeliveryError(
-                        code: "interruptedManualAppend",
-                        message: "Manual append outcome needs review.",
-                        statusCode: nil,
-                        retryAfter: nil
-                    ),
-                    on: model
-                )
+        guard !interrupted.isEmpty else { return 0 }
+        return try commit {
+            for model in interrupted {
+                if model.destinationKind == "managed" {
+                    model.stateRawValue = DeliveryState.retrying.rawValue
+                    model.nextAttemptAt = now
+                    model.requiresManagedCheck = true
+                    setSafeError(
+                        SafeDeliveryError(
+                            code: "interruptedManagedDelivery",
+                            message: "Checking for an earlier managed delivery before retrying.",
+                            statusCode: nil,
+                            retryAfter: nil
+                        ),
+                        on: model
+                    )
+                } else {
+                    model.stateRawValue = DeliveryState.uncertain.rawValue
+                    model.nextAttemptAt = nil
+                    model.requiresManagedCheck = false
+                    setSafeError(
+                        SafeDeliveryError(
+                            code: "interruptedManualAppend",
+                            message: "Manual append outcome needs review.",
+                            statusCode: nil,
+                            retryAfter: nil
+                        ),
+                        on: model
+                    )
+                }
+                model.inFlightAt = nil
+                model.updatedAt = now
+                model.revision += 1
             }
-            model.inFlightAt = nil
-            model.updatedAt = now
-            model.revision += 1
+            return interrupted.count
         }
-        if !interrupted.isEmpty {
-            do {
-                try context.save()
-            } catch {
-                context.rollback()
-                throw error
-            }
-        }
-        return interrupted.count
     }
 
     func markDelivered(
@@ -387,18 +364,19 @@ actor CaptureRepository {
         guard let model = try recordModel(id: recordID) else {
             throw CaptureRepositoryError.recordNotFound(recordID)
         }
-        model.stateRawValue = DeliveryState.delivered.rawValue
-        model.nextAttemptAt = nil
-        model.inFlightAt = nil
-        model.deliveredAt = now
-        model.updatedAt = now
-        model.remoteIdentity = receipt.remoteIdentity
-        model.fingerprint = receipt.fingerprint
-        model.requiresManagedCheck = false
-        clearSafeError(on: model)
-        model.revision += 1
-        try saveTransition()
-        return try snapshot(model)
+        return try commit {
+            model.stateRawValue = DeliveryState.delivered.rawValue
+            model.nextAttemptAt = nil
+            model.inFlightAt = nil
+            model.deliveredAt = now
+            model.updatedAt = now
+            model.remoteIdentity = receipt.remoteIdentity
+            model.fingerprint = receipt.fingerprint
+            model.requiresManagedCheck = false
+            clearSafeError(on: model)
+            model.revision += 1
+            return try snapshot(model)
+        }
     }
 
     func markRetrying(
@@ -456,15 +434,17 @@ actor CaptureRepository {
         guard let model = try recordModel(id: recordID) else {
             throw CaptureRepositoryError.recordNotFound(recordID)
         }
-        model.operationJournal = try CanonicalJSON.encode([
+        let operationJournal = try CanonicalJSON.encode([
             "blocksToArchive": blocksToArchive.sorted(),
             "replacementBlockIDs": replacementBlockIDs.sorted(),
             "stage": "replacementWrittenAwaitingArchive",
         ])
-        model.updatedAt = clock.now()
-        model.revision += 1
-        try saveTransition()
-        return try snapshot(model)
+        return try commit {
+            model.operationJournal = operationJournal
+            model.updatedAt = clock.now()
+            model.revision += 1
+            return try snapshot(model)
+        }
     }
 
     func applyRetention(at now: Date, policy: RetentionPolicy) throws -> RetentionResult {
@@ -484,20 +464,16 @@ actor CaptureRepository {
             guard let captureRecordID = $0.captureRecordID else { return true }
             return deletableRecordIDs.contains(captureRecordID)
         }
-        deletableRecords.forEach(context.delete)
-        deletableDrafts.forEach(context.delete)
-        if !deletableRecords.isEmpty || !deletableDrafts.isEmpty {
-            do {
-                try context.save()
-            } catch {
-                context.rollback()
-                throw error
-            }
-        }
-        return RetentionResult(
+        let result = RetentionResult(
             deletedRecords: deletableRecords.count,
             deletedDrafts: deletableDrafts.count
         )
+        guard !deletableRecords.isEmpty || !deletableDrafts.isEmpty else { return result }
+        return try commit {
+            deletableRecords.forEach(context.delete)
+            deletableDrafts.forEach(context.delete)
+            return result
+        }
     }
 
     private func draftModel(id: String) throws -> CaptureDraftModel? {
@@ -509,7 +485,8 @@ actor CaptureRepository {
     }
 
     private func activeDraft(except id: String) throws -> CaptureDraftModel? {
-        try context.fetch(FetchDescriptor<CaptureDraftModel>())
+        try beforeHelperFetch(.activeDraft)
+        return try context.fetch(FetchDescriptor<CaptureDraftModel>())
             .filter {
                 $0.stableID != id
                     && $0.dispositionRawValue == DraftDisposition.active.rawValue
@@ -522,8 +499,9 @@ actor CaptureRepository {
     }
 
     private func reactivateReturnDraft(id: String?, at now: Date) throws {
-        guard let id,
-              let returnDraft = try draftModel(id: id),
+        guard let id else { return }
+        try beforeHelperFetch(.returnDraft)
+        guard let returnDraft = try draftModel(id: id),
               returnDraft.dispositionRawValue == DraftDisposition.stashed.rawValue,
               returnDraft.captureRecordID == nil
         else { return }
@@ -544,20 +522,23 @@ actor CaptureRepository {
         guard let model = try recordModel(id: recordID) else {
             throw CaptureRepositoryError.recordNotFound(recordID)
         }
-        model.stateRawValue = state.rawValue
-        model.nextAttemptAt = nextAttemptAt
-        model.inFlightAt = nil
-        model.requiresManagedCheck = requiresManagedCheck
-        model.updatedAt = now
-        model.revision += 1
-        setSafeError(safeError, on: model)
-        try saveTransition()
-        return try snapshot(model)
+        return try commit {
+            model.stateRawValue = state.rawValue
+            model.nextAttemptAt = nextAttemptAt
+            model.inFlightAt = nil
+            model.requiresManagedCheck = requiresManagedCheck
+            model.updatedAt = now
+            model.revision += 1
+            setSafeError(safeError, on: model)
+            return try snapshot(model)
+        }
     }
 
-    private func saveTransition() throws {
+    private func commit<Result>(_ changes: () throws -> Result) throws -> Result {
         do {
+            let result = try changes()
             try context.save()
+            return result
         } catch {
             context.rollback()
             throw error
@@ -579,6 +560,7 @@ actor CaptureRepository {
     }
 
     private func stashOtherActiveDrafts(except id: String, at now: Date) throws {
+        try beforeHelperFetch(.otherActiveDrafts)
         for draft in try context.fetch(FetchDescriptor<CaptureDraftModel>())
         where draft.stableID != id && draft.dispositionRawValue == DraftDisposition.active.rawValue {
             draft.dispositionRawValue = DraftDisposition.stashed.rawValue

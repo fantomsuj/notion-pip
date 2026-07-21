@@ -377,17 +377,154 @@ final class CaptureRepositoryTests: XCTestCase {
         XCTAssertEqual(allDrafts.filter { $0.disposition == .active }.map(\.id), [first.id])
     }
 
-    private func mutation(id: String, title: String) -> DraftMutation {
+    func testRestoreHelperFetchFailureRollsBackBeforeLaterSave() async throws {
+        let failure = FailNextCaptureRepositoryFetch()
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(referenceDate),
+            beforeHelperFetch: failure.check
+        )
+        let first = try await repository.saveDraft(mutation(id: "capture-a", title: "A"), expectedRevision: 0)
+        let second = try await repository.saveDraft(mutation(id: "capture-b", title: "B"), expectedRevision: 0)
+        let fetchedFirstBefore = try await repository.draft(id: first.id)
+        let fetchedSecondBefore = try await repository.draft(id: second.id)
+        let firstBefore = try XCTUnwrap(fetchedFirstBefore)
+        let secondBefore = try XCTUnwrap(fetchedSecondBefore)
+
+        failure.failNext(.otherActiveDrafts)
+        do {
+            _ = try await repository.restoreDraft(id: firstBefore.id, expectedRevision: firstBefore.revision)
+            XCTFail("Expected injected restore helper-fetch failure")
+        } catch is FailNextCaptureRepositoryFetch.ExpectedFailure {}
+
+        let firstAfterFailure = try await repository.draft(id: first.id)
+        let secondAfterFailure = try await repository.draft(id: second.id)
+        XCTAssertEqual(firstAfterFailure, firstBefore)
+        XCTAssertEqual(secondAfterFailure, secondBefore)
+
+        _ = try await repository.saveDraft(
+            mutation(id: "unrelated", title: "Later save", disposition: .stashed),
+            expectedRevision: 0
+        )
+        let firstAfterLaterSave = try await repository.draft(id: first.id)
+        let secondAfterLaterSave = try await repository.draft(id: second.id)
+        XCTAssertEqual(firstAfterLaterSave, firstBefore)
+        XCTAssertEqual(secondAfterLaterSave, secondBefore)
+    }
+
+    func testStashHelperFetchFailureRollsBackBeforeLaterSave() async throws {
+        let failure = FailNextCaptureRepositoryFetch()
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(referenceDate),
+            beforeHelperFetch: failure.check
+        )
+        let first = try await repository.saveDraft(mutation(id: "capture-a", title: "A"), expectedRevision: 0)
+        let second = try await repository.saveDraft(mutation(id: "capture-b", title: "B"), expectedRevision: 0)
+        let fetchedFirstBefore = try await repository.draft(id: first.id)
+        let fetchedSecondBefore = try await repository.draft(id: second.id)
+        let firstBefore = try XCTUnwrap(fetchedFirstBefore)
+        let secondBefore = try XCTUnwrap(fetchedSecondBefore)
+
+        failure.failNext(.returnDraft)
+        do {
+            _ = try await repository.stashDraft(id: second.id, expectedRevision: second.revision)
+            XCTFail("Expected injected stash helper-fetch failure")
+        } catch is FailNextCaptureRepositoryFetch.ExpectedFailure {}
+
+        let firstAfterFailure = try await repository.draft(id: first.id)
+        let secondAfterFailure = try await repository.draft(id: second.id)
+        XCTAssertEqual(firstAfterFailure, firstBefore)
+        XCTAssertEqual(secondAfterFailure, secondBefore)
+
+        _ = try await repository.saveDraft(
+            mutation(id: "unrelated", title: "Later save", disposition: .stashed),
+            expectedRevision: 0
+        )
+        let firstAfterLaterSave = try await repository.draft(id: first.id)
+        let secondAfterLaterSave = try await repository.draft(id: second.id)
+        XCTAssertEqual(firstAfterLaterSave, firstBefore)
+        XCTAssertEqual(secondAfterLaterSave, secondBefore)
+    }
+
+    func testEnqueueHelperFetchFailureRollsBackBeforeLaterSave() async throws {
+        let failure = FailNextCaptureRepositoryFetch()
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(referenceDate),
+            beforeHelperFetch: failure.check
+        )
+        let first = try await repository.saveDraft(mutation(id: "capture-a", title: "A"), expectedRevision: 0)
+        let second = try await repository.saveDraft(mutation(id: "capture-b", title: "B"), expectedRevision: 0)
+        let fetchedFirstBefore = try await repository.draft(id: first.id)
+        let fetchedSecondBefore = try await repository.draft(id: second.id)
+        let firstBefore = try XCTUnwrap(fetchedFirstBefore)
+        let secondBefore = try XCTUnwrap(fetchedSecondBefore)
+
+        failure.failNext(.returnDraft)
+        do {
+            _ = try await repository.enqueue(
+                draftID: second.id,
+                expectedRevision: second.revision,
+                destination: .managed(databaseID: "database-1")
+            )
+            XCTFail("Expected injected enqueue helper-fetch failure")
+        } catch is FailNextCaptureRepositoryFetch.ExpectedFailure {}
+
+        let firstAfterFailure = try await repository.draft(id: first.id)
+        let secondAfterFailure = try await repository.draft(id: second.id)
+        let recordsAfterFailure = try await repository.records()
+        XCTAssertEqual(firstAfterFailure, firstBefore)
+        XCTAssertEqual(secondAfterFailure, secondBefore)
+        XCTAssertTrue(recordsAfterFailure.isEmpty)
+
+        _ = try await repository.saveDraft(
+            mutation(id: "unrelated", title: "Later save", disposition: .stashed),
+            expectedRevision: 0
+        )
+        let firstAfterLaterSave = try await repository.draft(id: first.id)
+        let secondAfterLaterSave = try await repository.draft(id: second.id)
+        let recordsAfterLaterSave = try await repository.records()
+        XCTAssertEqual(firstAfterLaterSave, firstBefore)
+        XCTAssertEqual(secondAfterLaterSave, secondBefore)
+        XCTAssertTrue(recordsAfterLaterSave.isEmpty)
+    }
+
+    private func mutation(
+        id: String,
+        title: String,
+        disposition: DraftDisposition = .active
+    ) -> DraftMutation {
         DraftMutation(
             id: id,
             title: title,
             editorDocument: jsonData(["type": "doc", "content": [["type": "paragraph", "content": [["type": "text", "text": title]]]]]),
             sourceDocument: nil,
-            disposition: .active
+            disposition: disposition
         )
     }
 
     private var referenceDate: Date {
         Date(timeIntervalSinceReferenceDate: 0)
+    }
+}
+
+private final class FailNextCaptureRepositoryFetch: @unchecked Sendable {
+    struct ExpectedFailure: Error {}
+
+    private let lock = NSLock()
+    private var checkpoint: CaptureRepositoryHelperFetch?
+
+    func failNext(_ checkpoint: CaptureRepositoryHelperFetch) {
+        lock.withLock { self.checkpoint = checkpoint }
+    }
+
+    func check(_ checkpoint: CaptureRepositoryHelperFetch) throws {
+        try lock.withLock {
+            if self.checkpoint == checkpoint {
+                self.checkpoint = nil
+                throw ExpectedFailure()
+            }
+        }
     }
 }
