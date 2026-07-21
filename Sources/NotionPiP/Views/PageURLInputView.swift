@@ -31,7 +31,7 @@ struct PageURLInputView: View {
     }
 }
 
-struct PageURLInputPanelContent: View {
+struct PageURLInputWindowContent: View {
     @ObservedObject var state: PageURLInputState
     let onSubmit: () -> Void
 

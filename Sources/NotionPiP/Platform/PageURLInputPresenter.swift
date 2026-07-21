@@ -14,28 +14,40 @@ protocol PageURLInputWindow: AnyObject {
 }
 
 @MainActor
-final class PageURLInputPresenter: PageURLInputPresenting {
-    private let window: any PageURLInputWindow
-    private let requestFieldFocus: () -> Void
-
-    convenience init(state: PageURLInputState, onSubmit: @escaping () -> Void) {
-        let panel = KeyCapablePageURLInputPanel(
+enum PageURLInputWindowFactory {
+    static func makeDefault(
+        state: PageURLInputState,
+        onSubmit: @escaping () -> Void
+    ) -> any PageURLInputWindow {
+        let window = KeyCapablePageURLInputWindow(
             contentRect: CGRect(x: 0, y: 0, width: 440, height: 180),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        panel.title = "Pin Notion Page"
-        panel.level = .floating
-        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
-        panel.center()
-        panel.contentView = NSHostingView(
-            rootView: PageURLInputPanelContent(state: state, onSubmit: onSubmit)
+        window.title = "Pin Notion Page"
+        window.level = .floating
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        window.hidesOnDeactivate = false
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.contentView = NSHostingView(
+            rootView: PageURLInputWindowContent(state: state, onSubmit: onSubmit)
         )
+        return window
+    }
+}
 
-        self.init(window: panel, requestFieldFocus: state.requestFocus)
+@MainActor
+final class PageURLInputPresenter: PageURLInputPresenting {
+    private let window: any PageURLInputWindow
+    private let requestFieldFocus: () -> Void
+
+    convenience init(state: PageURLInputState, onSubmit: @escaping () -> Void) {
+        self.init(
+            window: PageURLInputWindowFactory.makeDefault(state: state, onSubmit: onSubmit),
+            requestFieldFocus: state.requestFocus
+        )
     }
 
     init(window: any PageURLInputWindow, requestFieldFocus: @escaping () -> Void) {
@@ -53,7 +65,7 @@ final class PageURLInputPresenter: PageURLInputPresenting {
     }
 }
 
-private final class KeyCapablePageURLInputPanel: NSPanel, PageURLInputWindow {
+private final class KeyCapablePageURLInputWindow: NSWindow, PageURLInputWindow {
     override var canBecomeKey: Bool {
         true
     }

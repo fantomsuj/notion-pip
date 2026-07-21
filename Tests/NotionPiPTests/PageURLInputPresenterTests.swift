@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import XCTest
 @testable import NotionPiP
@@ -6,6 +7,16 @@ import XCTest
 final class PageURLInputPresenterTests: XCTestCase {
     private let firstPageID = "0123456789abcdef0123456789abcdef"
     private let secondPageID = "fedcba9876543210fedcba9876543210"
+
+    func testDefaultInputWindowIsWindowButNotPanel() {
+        let window = PageURLInputWindowFactory.makeDefault(
+            state: PageURLInputState(),
+            onSubmit: {}
+        )
+
+        XCTAssertTrue(window is NSWindow)
+        XCTAssertFalse(window is NSPanel)
+    }
 
     func testInvalidShortcutPresentsKeysAndFocusesEntryWithoutChangingActivePage() throws {
         let panel = FakePanelCoordinator()
