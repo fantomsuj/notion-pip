@@ -479,6 +479,110 @@ test("stash transition locks before draining and captures only after the old dra
   assert.deepEqual(order, ["changed", "changed-acknowledged", "capture-stash", "dispatch-stash"]);
 });
 
+test("definitive old-draft autosave rejection cancels the transition without retaining a retry", async () => {
+  let transitionCaptured = false;
+  let locked = false;
+  let retryAvailable = false;
+  const publisher = new DebouncedChangePublisher(
+    1_000,
+    async (request) => {
+      requireAutosaveAcknowledgement({
+        version: 1,
+        id: request.id,
+        ok: false,
+        error: {
+          code: "staleRevision",
+          message: "A newer draft revision is available.",
+          recoverable: true,
+          latest: {
+            draftID: "draft-1",
+            title: "Latest",
+            document: normalizeDocument(null),
+            revision: 2,
+          },
+        },
+      });
+    },
+    () => "stale-old-draft-change",
+  );
+  publisher.changed({ draftID: "draft-1", title: "Current work", document: null }, 1);
+  const gate = new EditorTransitionGate(
+    publisher,
+    async () => { throw new Error("transition must not dispatch"); },
+    () => true,
+    (value) => { locked = value; },
+    (available) => { retryAvailable = available; },
+  );
+
+  await assert.rejects(gate.perform({
+    key: "restore:other:1",
+    expectedKind: "restored",
+    makeRequest: () => {
+      transitionCaptured = true;
+      return makeRequest("restore", "restore-after-stale", {
+        draftID: "other",
+        expectedRevision: 1,
+      });
+    },
+  }), /newer draft revision/);
+
+  assert.equal(transitionCaptured, false);
+  assert.equal(locked, false);
+  assert.equal(retryAvailable, false);
+  await publisher.flush();
+});
+
+test("missing old draft keeps the transition locked with the exact autosave retry", async () => {
+  let locked = false;
+  let retryAvailable = false;
+  let transitionCaptured = false;
+  const publisher = new DebouncedChangePublisher(
+    1_000,
+    async (request) => {
+      requireAutosaveAcknowledgement({
+        version: 1,
+        id: request.id,
+        ok: false,
+        error: {
+          code: "draftNotFound",
+          message: "This draft is no longer available.",
+          recoverable: true,
+        },
+      });
+    },
+    () => "missing-old-draft-change",
+  );
+  publisher.changed({ draftID: "draft-1", title: "Visible work", document: null }, 1);
+  const gate = new EditorTransitionGate(
+    publisher,
+    async () => { throw new Error("transition must not dispatch"); },
+    () => true,
+    (value) => { locked = value; },
+    (available) => { retryAvailable = available; },
+  );
+
+  await assert.rejects(gate.perform({
+    key: "stash:missing-draft",
+    expectedKind: "stashed",
+    makeRequest: () => {
+      transitionCaptured = true;
+      return makeRequest("stash", "stash-missing-draft", {
+        snapshot: {
+          draftID: "draft-1",
+          title: "Visible work",
+          document: normalizeDocument(null),
+        },
+        expectedRevision: 1,
+      });
+    },
+  }), /no longer available/);
+
+  assert.equal(transitionCaptured, false);
+  assert.equal(locked, true);
+  assert.equal(retryAvailable, true);
+  assert.equal(gate.hasPendingTransition, true);
+});
+
 test("ambiguous conflict acknowledgement stays locked and retries the exact captured request", async () => {
   const requests: BridgeRequest[] = [];
   let locked = false;
@@ -532,6 +636,68 @@ test("ambiguous conflict acknowledgement stays locked and retries the exact capt
   if (requests[1]?.type === "resolveConflict") {
     assert.equal(requests[1].snapshot.title, "Captured before timeout");
   }
+});
+
+test("applied terminal conflict receipt replays without redispatch or reapply", async () => {
+  const requests: BridgeRequest[] = [];
+  let applyCount = 0;
+  let capturedTitle = "Captured work";
+  const publisher = new DebouncedChangePublisher(1_000, async () => {});
+  const reply = {
+    version: 1 as const,
+    id: "terminal-conflict",
+    ok: true as const,
+    result: {
+      kind: "conflictResolved" as const,
+      revision: 1,
+      snapshot: {
+        draftID: "copy-1",
+        title: "Captured work",
+        document: normalizeDocument(null),
+        revision: 1,
+      },
+    },
+  };
+  const gate = new EditorTransitionGate(
+    publisher,
+    async (request) => {
+      requests.push(structuredClone(request));
+      return reply;
+    },
+    () => { applyCount += 1; return true; },
+    () => {},
+  );
+  const operation = () => ({
+    key: "conflict:terminal-conflict:saveAsNew",
+    expectedKind: "conflictResolved" as const,
+    retainTerminalReceipt: true,
+    makeRequest: () => makeRequest("resolveConflict", "terminal-conflict", {
+      action: "saveAsNew",
+      snapshot: {
+        draftID: "draft-1",
+        title: capturedTitle,
+        document: normalizeDocument(null),
+      },
+    }),
+  });
+
+  const first = await gate.perform(operation());
+  capturedTitle = "New editor state after applied success";
+  const replay = await gate.perform(operation());
+
+  assert.deepEqual(replay, first);
+  assert.equal(requests.length, 1);
+  assert.equal(applyCount, 1);
+
+  await assert.rejects(gate.perform({
+    key: "restore:ambiguous-draft:1",
+    expectedKind: "restored",
+    makeRequest: () => makeRequest("restore", "ambiguous-restore", {
+      draftID: "ambiguous-draft",
+      expectedRevision: 1,
+    }),
+  }), /Malformed bridge reply/);
+  await assert.rejects(gate.perform(operation()), /pending transition/);
 });
 
 test("ambiguous transition rejects a different operation until the exact request succeeds", async () => {

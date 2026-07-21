@@ -179,6 +179,125 @@ final class CaptureEditorFlowTests: XCTestCase {
         XCTAssertEqual(draftsAfterRetry, draftsAfterFailure)
     }
 
+    func testStashFailureAfterPersistReconcilesOnExactRetry() async throws {
+        var identifiers = ["draft-1", "draft-2"].makeIterator()
+        let failure = StashTransitionFailureOnce(step: .persisted)
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(captureFlowReferenceDate)
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! },
+            afterStashTransitionStep: { try failure.throwOnce(at: $0) }
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        let request = CaptureBridgeRequest.stash(
+            id: "stash-failed-after-persist",
+            snapshot: bridgeSnapshot(
+                id: "draft-1",
+                title: "Persisted before interruption",
+                text: "durable work"
+            ),
+            expectedRevision: 1
+        )
+
+        let ambiguous = await session.handle(request)
+        let draftsAfterFailure = try await repository.drafts()
+        let exactRetry = await session.handle(request)
+
+        XCTAssertEqual(ambiguous.error?.code, .persistenceFailure)
+        XCTAssertEqual(draftsAfterFailure.count, 1)
+        XCTAssertEqual(draftsAfterFailure[0].disposition, .active)
+        XCTAssertEqual(draftsAfterFailure[0].revision, 2)
+        XCTAssertEqual(draftsAfterFailure[0].title, "Persisted before interruption")
+        XCTAssertEqual(exactRetry.result?.kind, .stashed)
+        XCTAssertEqual(exactRetry.result?.snapshot?.draftID, "draft-2")
+        let draftsAfterRetry = try await repository.drafts()
+        XCTAssertEqual(draftsAfterRetry.count, 2)
+        XCTAssertEqual(draftsAfterRetry.first(where: { $0.id == "draft-1" })?.disposition, .stashed)
+        XCTAssertEqual(draftsAfterRetry.first(where: { $0.id == "draft-2" })?.disposition, .active)
+    }
+
+    func testStashFailureAfterStashCreatesSuccessorOnExactRetry() async throws {
+        var identifiers = ["draft-1", "draft-2"].makeIterator()
+        let failure = StashTransitionFailureOnce(step: .stashed)
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(captureFlowReferenceDate)
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! },
+            afterStashTransitionStep: { try failure.throwOnce(at: $0) }
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        let request = CaptureBridgeRequest.stash(
+            id: "stash-failed-after-stash",
+            snapshot: bridgeSnapshot(
+                id: "draft-1",
+                title: "Stashed before interruption",
+                text: "durable work"
+            ),
+            expectedRevision: 1
+        )
+
+        let ambiguous = await session.handle(request)
+        let draftsAfterFailure = try await repository.drafts()
+        let exactRetry = await session.handle(request)
+
+        XCTAssertEqual(ambiguous.error?.code, .persistenceFailure)
+        XCTAssertEqual(draftsAfterFailure.count, 1)
+        XCTAssertEqual(draftsAfterFailure[0].disposition, .stashed)
+        XCTAssertEqual(draftsAfterFailure[0].title, "Stashed before interruption")
+        XCTAssertEqual(exactRetry.result?.kind, .stashed)
+        XCTAssertEqual(exactRetry.result?.snapshot?.draftID, "draft-2")
+        let draftsAfterRetry = try await repository.drafts()
+        XCTAssertEqual(draftsAfterRetry.count, 2)
+        XCTAssertEqual(draftsAfterRetry.first(where: { $0.id == "draft-1" })?.disposition, .stashed)
+        XCTAssertEqual(draftsAfterRetry.first(where: { $0.id == "draft-2" })?.disposition, .active)
+    }
+
+    func testStashReconciliationFailureRemainsAmbiguousUntilSuccessorExists() async throws {
+        var identifiers = ["draft-1", "draft-2"].makeIterator()
+        let failure = StashTransitionFailureOnce(steps: [.persisted, .stashed])
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(captureFlowReferenceDate)
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! },
+            afterStashTransitionStep: { try failure.throwOnce(at: $0) }
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        let request = CaptureBridgeRequest.stash(
+            id: "stash-reconciliation-retry",
+            snapshot: bridgeSnapshot(
+                id: "draft-1",
+                title: "Survives repeated interruption",
+                text: "durable work"
+            ),
+            expectedRevision: 1
+        )
+
+        let failedAfterPersist = await session.handle(request)
+        let failedDuringReconciliation = await session.handle(request)
+        let draftsBeforeSuccessor = try await repository.drafts()
+        let success = await session.handle(request)
+
+        XCTAssertEqual(failedAfterPersist.error?.code, .persistenceFailure)
+        XCTAssertEqual(failedDuringReconciliation.error?.code, .persistenceFailure)
+        XCTAssertEqual(draftsBeforeSuccessor.count, 1)
+        XCTAssertEqual(draftsBeforeSuccessor[0].disposition, .stashed)
+        XCTAssertEqual(success.result?.kind, .stashed)
+        XCTAssertEqual(success.result?.snapshot?.draftID, "draft-2")
+        let draftsAfterSuccess = try await repository.drafts()
+        XCTAssertEqual(draftsAfterSuccess.count, 2)
+        XCTAssertEqual(draftsAfterSuccess.first(where: { $0.id == "draft-1" })?.disposition, .stashed)
+        XCTAssertEqual(draftsAfterSuccess.first(where: { $0.id == "draft-2" })?.disposition, .active)
+    }
+
     func testLostRestoreAcknowledgementReplaysExactReceiptWithoutSwitchingBack() async throws {
         var identifiers = ["draft-1", "draft-2"].makeIterator()
         let repository = try CaptureRepository(
@@ -723,4 +842,23 @@ private final class PostCommitTransitionFailureOnce {
 
 private enum PostCommitTransitionTestError: Error {
     case lostAcknowledgement
+}
+
+@MainActor
+private final class StashTransitionFailureOnce {
+    private var steps: [CaptureStashTransitionStep]
+
+    init(step: CaptureStashTransitionStep) {
+        steps = [step]
+    }
+
+    init(steps: [CaptureStashTransitionStep]) {
+        self.steps = steps
+    }
+
+    func throwOnce(at currentStep: CaptureStashTransitionStep) throws {
+        guard steps.first == currentStep else { return }
+        steps.removeFirst()
+        throw PostCommitTransitionTestError.lostAcknowledgement
+    }
 }

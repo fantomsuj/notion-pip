@@ -131,7 +131,11 @@ export class DebouncedChangePublisher {
       if (this.failedRequest === request) this.failedRequest = undefined;
     } catch (value) {
       const error = value instanceof Error ? value : new Error("Bridge delivery failed");
-      this.failedRequest = request;
+      if (error instanceof AutosaveAcknowledgementError && error.abortsPendingTransition) {
+        if (this.failedRequest === request) this.failedRequest = undefined;
+      } else {
+        this.failedRequest = request;
+      }
       this.onDeliveryError(error);
       throw error;
     }
@@ -146,12 +150,23 @@ export async function runAfterPendingChange<T>(
 }
 
 export function requireAutosaveAcknowledgement(reply: BridgeReply): BridgeReply {
-  if (!reply.ok
-      && reply.error.code === "persistenceFailure"
-      && reply.error.recoverable) {
-    throw new Error(reply.error.message);
+  if (!reply.ok) {
+    throw new AutosaveAcknowledgementError(
+      reply.error.message,
+      reply.error.code === "staleRevision",
+    );
   }
   return reply;
+}
+
+class AutosaveAcknowledgementError extends Error {
+  readonly abortsPendingTransition: boolean;
+
+  constructor(message: string, abortsPendingTransition: boolean) {
+    super(message);
+    this.name = "AutosaveAcknowledgementError";
+    this.abortsPendingTransition = abortsPendingTransition;
+  }
 }
 
 export class BridgeClient {
@@ -203,6 +218,7 @@ export interface EditorTransitionOperation {
   makeRequest: () => BridgeRequest;
   drainPendingChanges?: boolean;
   unlockOnDefinitiveRejection?: boolean;
+  retainTerminalReceipt?: boolean;
 }
 
 interface PendingEditorTransition extends EditorTransitionOperation {
@@ -213,6 +229,10 @@ export class EditorTransitionGate {
   private pending: PendingEditorTransition | undefined;
   private operationTail: Promise<void> = Promise.resolve();
   private locked = true;
+  private readonly terminalReceipts = new Map<
+    string,
+    { expectedKind: BridgeResultKind; reply: BridgeReply }
+  >();
   private readonly changes: DebouncedChangePublisher;
   private readonly dispatch: (request: BridgeRequest) => Promise<unknown>;
   private readonly applyReply: (reply: BridgeReply) => boolean;
@@ -258,6 +278,13 @@ export class EditorTransitionGate {
     if (this.pending !== undefined && this.pending.key !== operation.key) {
       throw new Error("A pending transition must be acknowledged before another operation");
     }
+    const terminal = this.terminalReceipts.get(operation.key);
+    if (terminal !== undefined) {
+      if (terminal.expectedKind !== operation.expectedKind) {
+        throw new Error("Terminal transition receipt does not match the requested result kind");
+      }
+      return terminal.reply;
+    }
     this.setLocked(true);
     this.pending ??= { ...operation };
     const pending = this.pending;
@@ -278,7 +305,7 @@ export class EditorTransitionGate {
         if (!this.applyReply(value)) {
           throw new Error("State transition reply could not be applied");
         }
-        this.completePendingTransition();
+        this.completePendingTransition(value);
         return value;
       }
 
@@ -290,12 +317,30 @@ export class EditorTransitionGate {
       }
       throw new Error(value.error.message);
     } catch (error) {
-      this.onRetryAvailabilityChanged(true);
+      if (error instanceof AutosaveAcknowledgementError
+          && error.abortsPendingTransition
+          && pending.request === undefined) {
+        this.completePendingTransition();
+      } else {
+        this.onRetryAvailabilityChanged(true);
+      }
       throw error;
     }
   }
 
-  private completePendingTransition(): void {
+  private completePendingTransition(reply?: BridgeReply): void {
+    const completed = this.pending;
+    if (reply !== undefined && completed?.retainTerminalReceipt === true) {
+      this.terminalReceipts.set(completed.key, {
+        expectedKind: completed.expectedKind,
+        reply,
+      });
+      while (this.terminalReceipts.size > 64) {
+        const oldest = this.terminalReceipts.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        this.terminalReceipts.delete(oldest);
+      }
+    }
     this.pending = undefined;
     this.onRetryAvailabilityChanged(false);
     this.setLocked(false);
@@ -497,6 +542,7 @@ function bootstrap(): void {
       .perform({
         key: `restore:${draftID}:${expectedRevision}`,
         expectedKind: "restored",
+        retainTerminalReceipt: true,
         makeRequest: () => makeRequest(
           "restore",
           crypto.randomUUID(),
@@ -507,6 +553,8 @@ function bootstrap(): void {
     resolveConflict: (action, operationID) => transitions.perform({
       key: `conflict:${operationID}:${action}`,
       expectedKind: "conflictResolved",
+      drainPendingChanges: false,
+      retainTerminalReceipt: true,
       makeRequest: () => makeRequest("resolveConflict", operationID, {
         action,
         snapshot: {

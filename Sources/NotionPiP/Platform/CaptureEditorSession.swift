@@ -12,6 +12,11 @@ enum CaptureEditorStatus: Equatable, Sendable {
     case failed(String)
 }
 
+enum CaptureStashTransitionStep: Equatable, Sendable {
+    case persisted
+    case stashed
+}
+
 struct CaptureConflict: Equatable, Sendable {
     let currentWork: CaptureEditorSnapshot
     let latest: CaptureEditorSnapshot
@@ -98,6 +103,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     private let openInNotion: () -> Void
     private let beforeBridgeRequest: (CaptureBridgeRequest) async -> Void
     private let beforeConflictResolution: (CaptureEditorSnapshot) async -> Void
+    private let afterStashTransitionStep: (CaptureStashTransitionStep) async throws -> Void
     private let afterStateTransitionCommit: (
         CaptureBridgeRequest,
         CaptureBridgeReply
@@ -122,6 +128,9 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         openInNotion: @escaping () -> Void = {},
         beforeBridgeRequest: @escaping (CaptureBridgeRequest) async -> Void = { _ in },
         beforeConflictResolution: @escaping (CaptureEditorSnapshot) async -> Void = { _ in },
+        afterStashTransitionStep: @escaping (
+            CaptureStashTransitionStep
+        ) async throws -> Void = { _ in },
         afterStateTransitionCommit: @escaping (
             CaptureBridgeRequest,
             CaptureBridgeReply
@@ -133,6 +142,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         self.openInNotion = openInNotion
         self.beforeBridgeRequest = beforeBridgeRequest
         self.beforeConflictResolution = beforeConflictResolution
+        self.afterStashTransitionStep = afterStashTransitionStep
         self.afterStateTransitionCommit = afterStateTransitionCommit
         self.conflictResolver = conflictResolver
 
@@ -215,10 +225,12 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
                         snapshot,
                         expectedRevision: expectedRevision
                     )
+                    try await afterStashTransitionStep(.persisted)
                     _ = try await repository.stashDraft(
                         id: snapshot.draftID,
                         expectedRevision: stored.revision
                     )
+                    try await afterStashTransitionStep(.stashed)
                     let next = try await activeOrNewDraft()
                     status = .stashed
                     conflict = nil
@@ -304,8 +316,12 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
                 return invalidStateTransitionReplay(id: id)
             }
             if let reconciled = await reconcileStateTransition(operation, id: id) {
-                ambiguousStateTransitions[id] = nil
-                rememberStateTransition(id: id, operation: operation, reply: reconciled)
+                if reconciled.result != nil {
+                    ambiguousStateTransitions[id] = nil
+                    rememberStateTransition(id: id, operation: operation, reply: reconciled)
+                } else if reconciled.error?.code != .persistenceFailure {
+                    ambiguousStateTransitions[id] = nil
+                }
                 return reconciled
             }
         }
@@ -373,15 +389,36 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
             switch operation {
             case let .stash(snapshot, expectedRevision):
                 guard let stored = try await repository.draft(id: snapshot.draftID),
-                      stored.disposition == .stashed,
-                      stored.revision > expectedRevision,
                       stored.title == snapshot.title,
-                      stored.editorDocument == (try CaptureBridgeProtocol.canonicalDocument(snapshot.document)),
-                      let active = try await repository.drafts().first(where: {
-                          $0.id != snapshot.draftID && $0.disposition == .active
-                      })
+                      stored.editorDocument == (try CaptureBridgeProtocol.canonicalDocument(snapshot.document))
                 else { return nil }
-                let next = try bridgeSnapshot(active)
+                let next: CaptureEditorSnapshot
+                switch stored.disposition {
+                case .active:
+                    guard expectedRevision < Int.max,
+                          stored.revision == expectedRevision + 1
+                    else { return nil }
+                    do {
+                        _ = try await repository.stashDraft(
+                            id: snapshot.draftID,
+                            expectedRevision: stored.revision
+                        )
+                        try await afterStashTransitionStep(.stashed)
+                        next = try await activeOrNewDraft()
+                    } catch {
+                        return ambiguousStateTransitionFailure(id: id)
+                    }
+                case .stashed:
+                    guard stored.revision > expectedRevision else { return nil }
+                    do {
+                        try await afterStashTransitionStep(.stashed)
+                        next = try await activeOrNewDraft()
+                    } catch {
+                        return ambiguousStateTransitionFailure(id: id)
+                    }
+                case .abandoned:
+                    return nil
+                }
                 status = .stashed
                 conflict = nil
                 return .success(id: id, result: .stashed(next))
@@ -461,6 +498,16 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
             code: .invalidMessage,
             message: "State transition request did not match its original operation.",
             recoverable: false
+        )
+    }
+
+    private func ambiguousStateTransitionFailure(id: String) -> CaptureBridgeReply {
+        status = .failed("Could not confirm the saved draft transition.")
+        return .failure(
+            id: id,
+            code: .persistenceFailure,
+            message: "Could not confirm the saved draft transition.",
+            recoverable: true
         )
     }
 
