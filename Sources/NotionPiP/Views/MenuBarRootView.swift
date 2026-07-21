@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct MenuBarRootView: View {
+    @Environment(\.openWindow) private var openWindow
     @ObservedObject var runtime: AppRuntime
 
     var body: some View {
@@ -17,6 +18,13 @@ struct MenuBarRootView: View {
                 state: runtime.pageURLInputState,
                 onSubmit: runtime.validatePageURL
             )
+
+            Button {
+                openWindow(id: "quick-capture")
+            } label: {
+                Label("Quick Capture", systemImage: "square.and.pencil")
+            }
+            .keyboardShortcut("n")
 
             if let activePage = runtime.activePage {
                 PagePickerView(pages: [activePage], onPin: runtime.pin)
