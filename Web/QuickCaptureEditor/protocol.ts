@@ -70,7 +70,7 @@ export interface BridgeErrorReply {
   id: string;
   ok: false;
   error: {
-    code: string;
+    code: BridgeErrorCode;
     message: string;
     recoverable: boolean;
     latest?: EditorSnapshot;
@@ -78,6 +78,12 @@ export interface BridgeErrorReply {
 }
 
 export type BridgeReply = BridgeSuccessReply | BridgeErrorReply;
+export type BridgeErrorCode =
+  | "invalidMessage"
+  | "staleRevision"
+  | "draftNotFound"
+  | "persistenceFailure"
+  | "unsupportedAction";
 
 const requestTypes = new Set([
   "ready",
@@ -108,7 +114,7 @@ export function isBridgeReply(value: unknown): value is BridgeReply {
     ? new Set(["version", "id", "ok", "result"])
     : new Set(["version", "id", "ok", "error"]);
   if (!hasExactKeys(value, baseKeys)) return false;
-  if (value.version !== BRIDGE_VERSION || typeof value.id !== "string" || value.id.length === 0) {
+  if (value.version !== BRIDGE_VERSION || !isBoundedString(value.id, 1, 128)) {
     return false;
   }
   if (value.ok === true) return isResult(value.result);
@@ -118,37 +124,75 @@ export function isBridgeReply(value: unknown): value is BridgeReply {
 
 function isResult(value: unknown): boolean {
   if (!isRecord(value)) return false;
-  if (!hasOnlyKeys(value, new Set(["kind", "revision", "snapshot"]))) return false;
-  const kinds = new Set<unknown>([
-    "ready",
-    "changed",
-    "saved",
-    "stashed",
-    "restored",
-    "conflictResolved",
-  ]);
-  return kinds.has(value.kind)
-    && (value.revision === undefined || Number.isSafeInteger(value.revision))
-    && (value.snapshot === undefined || isSnapshot(value.snapshot, true));
+  switch (value.kind) {
+    case "ready":
+    case "stashed":
+    case "restored":
+      return hasExactKeys(value, new Set(["kind", "revision", "snapshot"]))
+        && isRevision(value.revision)
+        && isSnapshot(value.snapshot)
+        && value.snapshot.revision === value.revision;
+    case "changed":
+    case "saved":
+      return hasExactKeys(value, new Set(["kind", "revision"]))
+        && isRevision(value.revision);
+    case "conflictResolved": {
+      if (hasExactKeys(value, new Set(["kind"]))) return true;
+      return hasExactKeys(value, new Set(["kind", "revision", "snapshot"]))
+        && isRevision(value.revision)
+        && isSnapshot(value.snapshot)
+        && value.snapshot.revision === value.revision;
+    }
+    default:
+      return false;
+  }
 }
 
 function isError(value: unknown): boolean {
   if (!isRecord(value)) return false;
-  if (!hasOnlyKeys(value, new Set(["code", "message", "recoverable", "latest"]))) return false;
-  return typeof value.code === "string"
-    && typeof value.message === "string"
+  const fields = value.latest === undefined
+    ? new Set(["code", "message", "recoverable"])
+    : new Set(["code", "message", "recoverable", "latest"]);
+  const codes = new Set<unknown>([
+    "invalidMessage",
+    "staleRevision",
+    "draftNotFound",
+    "persistenceFailure",
+    "unsupportedAction",
+  ]);
+  return hasExactKeys(value, fields)
+    && codes.has(value.code)
+    && isBoundedString(value.message, 1, 32_768)
     && typeof value.recoverable === "boolean"
-    && (value.latest === undefined || isSnapshot(value.latest, true));
+    && (value.code === "staleRevision" || value.latest === undefined)
+    && (value.latest === undefined || isSnapshot(value.latest));
 }
 
-function isSnapshot(value: unknown, includesRevision: boolean): boolean {
+function isSnapshot(value: unknown): value is EditorSnapshot & { revision: number } {
   if (!isRecord(value)) return false;
-  const keys = new Set(["draftID", "title", "document"]);
-  if (includesRevision) keys.add("revision");
-  return hasOnlyKeys(value, keys)
-    && typeof value.draftID === "string"
-    && typeof value.title === "string"
-    && (!includesRevision || Number.isSafeInteger(value.revision));
+  return hasExactKeys(value, new Set(["draftID", "title", "document", "revision"]))
+    && isBoundedString(value.draftID, 1, 256)
+    && value.draftID.trim().length > 0
+    && isBoundedString(value.title, 0, 32_768)
+    && isRevision(value.revision)
+    && isDocument(value.document);
+}
+
+function isDocument(value: unknown): value is Record<string, JSONValue> {
+  return isRecord(value)
+    && hasExactKeys(value, new Set(["type", "content"]))
+    && value.type === "doc"
+    && Array.isArray(value.content);
+}
+
+function isRevision(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isBoundedString(value: unknown, minimum: number, maximumUTF8Bytes: number): value is string {
+  return typeof value === "string"
+    && value.length >= minimum
+    && new TextEncoder().encode(value).length <= maximumUTF8Bytes;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -158,8 +202,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function hasExactKeys(value: Record<string, unknown>, expected: Set<string>): boolean {
   const keys = Object.keys(value);
   return keys.length === expected.size && keys.every((key) => expected.has(key));
-}
-
-function hasOnlyKeys(value: Record<string, unknown>, allowed: Set<string>): boolean {
-  return Object.keys(value).every((key) => allowed.has(key));
 }

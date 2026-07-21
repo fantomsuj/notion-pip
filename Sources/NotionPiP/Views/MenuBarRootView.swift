@@ -20,7 +20,10 @@ struct MenuBarRootView: View {
             )
 
             Button {
-                openWindow(id: "quick-capture")
+                QuickCaptureLaunchAction.perform(
+                    activate: { NSApp.activate(ignoringOtherApps: true) },
+                    openWindow: { openWindow(id: "quick-capture") }
+                )
             } label: {
                 Label("Quick Capture", systemImage: "square.and.pencil")
             }

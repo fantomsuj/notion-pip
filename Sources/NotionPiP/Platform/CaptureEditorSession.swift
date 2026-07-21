@@ -19,49 +19,92 @@ struct CaptureConflict: Equatable, Sendable {
 }
 
 @MainActor
-protocol CaptureReplyApplying: AnyObject {
-    func apply(_ reply: CaptureBridgeReply, to webView: WKWebView) async throws
+protocol CaptureConflictResolving: AnyObject {
+    func resolve(
+        _ action: CaptureConflictAction,
+        operationID: String,
+        in webView: WKWebView
+    ) async throws
 }
 
 @MainActor
-final class WebKitCaptureReplyApplier: CaptureReplyApplying {
-    func apply(_ reply: CaptureBridgeReply, to webView: WKWebView) async throws {
-        let replyObject = try CaptureBridgeProtocol.replyObject(reply)
-        _ = try await webView.callAsyncJavaScript(
-            "return window.NotionPiPBridge.applyNativeReply(reply)",
-            arguments: ["reply": replyObject],
+final class WebKitCaptureConflictResolver: CaptureConflictResolving {
+    func resolve(
+        _ action: CaptureConflictAction,
+        operationID: String,
+        in webView: WKWebView
+    ) async throws {
+        let value = try await webView.callAsyncJavaScript(
+            "return await window.NotionPiPBridge.resolveConflict(action, operationID)",
+            arguments: [
+                "action": action.rawValue,
+                "operationID": operationID,
+            ],
             in: nil,
             contentWorld: .page
         )
+        guard let reply = value as? [String: Any],
+              reply["version"] as? Int == CaptureBridgeReply.version,
+              reply["id"] as? String == operationID,
+              reply["ok"] as? Bool == true,
+              let result = reply["result"] as? [String: Any],
+              result["kind"] as? String == CaptureBridgeResultKind.conflictResolved.rawValue
+        else {
+            throw CaptureConflictResolverError.invalidReply
+        }
     }
+}
+
+private enum CaptureConflictResolverError: Error {
+    case invalidReply
+}
+
+private struct PendingConflictResolution {
+    let action: CaptureConflictAction
+    let operationID: String
+    let originalConflict: CaptureConflict
+}
+
+private struct ConflictResolutionOperation: Equatable {
+    let action: CaptureConflictAction
+    let snapshot: CaptureEditorSnapshot
 }
 
 @MainActor
 final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessageHandling {
     @Published private(set) var status: CaptureEditorStatus = .loading
     @Published private(set) var conflict: CaptureConflict?
+    @Published private(set) var isResolvingConflict = false
 
     let webView: WKWebView
-    let installedHandlerNames: Set<String> = [CaptureBridgeProtocol.handlerName]
+    private(set) var installedHandlerNames: Set<String> = [CaptureBridgeProtocol.handlerName]
 
     private let repository: CaptureRepository
     private let draftID: () -> String
     private let openInNotion: () -> Void
-    private let replyApplier: any CaptureReplyApplying
+    private let conflictResolver: any CaptureConflictResolving
     private let scriptHandler: WeakScriptMessageHandler
     private let editorDocumentURL: URL
     private let resourceRootURL: URL
+    private var pendingConflictResolution: PendingConflictResolution?
+    private var inFlightConflictResolutions: [
+        String: (operation: ConflictResolutionOperation, task: Task<CaptureBridgeReply, Never>)
+    ] = [:]
+    private var committedConflictResolutions: [
+        String: (operation: ConflictResolutionOperation, result: CaptureBridgeResult)
+    ] = [:]
+    private var committedConflictResolutionOrder: [String] = []
 
     init(
         repository: CaptureRepository,
         draftID: @escaping () -> String = { UUID().uuidString.lowercased() },
         openInNotion: @escaping () -> Void = {},
-        replyApplier: any CaptureReplyApplying = WebKitCaptureReplyApplier()
+        conflictResolver: any CaptureConflictResolving = WebKitCaptureConflictResolver()
     ) {
         self.repository = repository
         self.draftID = draftID
         self.openInNotion = openInNotion
-        self.replyApplier = replyApplier
+        self.conflictResolver = conflictResolver
 
         let documentURL = Self.bundledEditorURL
         editorDocumentURL = documentURL
@@ -116,26 +159,27 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
                 }
 
             case let .save(id, snapshot, expectedRevision):
-                guard let stored = try await repository.draft(id: snapshot.draftID) else {
-                    return .failure(
-                        id: id,
-                        code: .draftNotFound,
-                        message: "This draft is no longer available.",
-                        recoverable: true
+                do {
+                    let stored = try await persistSuppliedSnapshot(
+                        snapshot,
+                        expectedRevision: expectedRevision
                     )
+                    status = .saved(revision: stored.revision)
+                    conflict = nil
+                    return .success(id: id, result: .saved(revision: stored.revision))
+                } catch let error as CaptureRepositoryError {
+                    return await repositoryFailure(error, id: id, currentWork: snapshot)
                 }
-                guard stored.revision == expectedRevision else {
-                    let latest = try bridgeSnapshot(stored)
-                    return staleReply(id: id, currentWork: snapshot, latest: latest)
-                }
-                status = .saved(revision: stored.revision)
-                return .success(id: id, result: .saved(revision: stored.revision))
 
             case let .stash(id, snapshot, expectedRevision):
                 do {
+                    let stored = try await persistSuppliedSnapshot(
+                        snapshot,
+                        expectedRevision: expectedRevision
+                    )
                     _ = try await repository.stashDraft(
                         id: snapshot.draftID,
-                        expectedRevision: expectedRevision
+                        expectedRevision: stored.revision
                     )
                     let next = try await activeOrNewDraft()
                     status = .stashed
@@ -156,7 +200,11 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
                 return .success(id: id, result: .restored(snapshot))
 
             case let .resolveConflict(id, action, snapshot):
-                return try await resolveConflict(id: id, action: action, snapshot: snapshot)
+                return await idempotentResolveConflict(
+                    id: id,
+                    action: action,
+                    snapshot: snapshot
+                )
             }
         } catch let error as CaptureRepositoryError {
             return await repositoryFailure(error, id: request.id, currentWork: nil)
@@ -172,28 +220,87 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     }
 
     func resolve(_ action: CaptureConflictAction) async {
-        guard let originalConflict = conflict else { return }
-        let reply = await handle(
-            .resolveConflict(
-                id: UUID().uuidString.lowercased(),
+        guard !isResolvingConflict else { return }
+        let pending: PendingConflictResolution
+        if let existing = pendingConflictResolution, existing.action == action {
+            pending = existing
+        } else {
+            guard let originalConflict = conflict else { return }
+            pending = PendingConflictResolution(
                 action: action,
-                snapshot: originalConflict.currentWork
+                operationID: UUID().uuidString.lowercased(),
+                originalConflict: originalConflict
             )
-        )
-        guard action != .openInNotion, reply.result != nil else { return }
+            pendingConflictResolution = pending
+        }
+
+        isResolvingConflict = true
+        defer { isResolvingConflict = false }
         do {
-            try await replyApplier.apply(reply, to: webView)
+            try await conflictResolver.resolve(
+                action,
+                operationID: pending.operationID,
+                in: webView
+            )
+            pendingConflictResolution = nil
+            if action != .openInNotion {
+                conflict = nil
+            }
         } catch {
-            conflict = originalConflict
+            conflict = pending.originalConflict
             status = .failed("The editor could not apply the recovered draft.")
         }
     }
 
-    private func resolveConflict(
+    private func idempotentResolveConflict(
         id: String,
         action: CaptureConflictAction,
         snapshot: CaptureEditorSnapshot
-    ) async throws -> CaptureBridgeReply {
+    ) async -> CaptureBridgeReply {
+        let operation = ConflictResolutionOperation(action: action, snapshot: snapshot)
+        if let committed = committedConflictResolutions[id] {
+            guard committed.operation == operation else {
+                return invalidConflictReplay(id: id)
+            }
+            return .success(id: id, result: committed.result)
+        }
+        if let inFlight = inFlightConflictResolutions[id] {
+            guard inFlight.operation == operation else {
+                return invalidConflictReplay(id: id)
+            }
+            return await inFlight.task.value
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else {
+                return CaptureBridgeReply.failure(
+                    id: id,
+                    code: .persistenceFailure,
+                    message: "Conflict recovery is no longer available.",
+                    recoverable: true
+                )
+            }
+            return await self.performConflictResolution(
+                id: id,
+                action: action,
+                snapshot: snapshot
+            )
+        }
+        inFlightConflictResolutions[id] = (operation, task)
+        let reply = await task.value
+        inFlightConflictResolutions[id] = nil
+        if let result = reply.result {
+            rememberCommittedConflictResolution(id: id, operation: operation, result: result)
+        }
+        return reply
+    }
+
+    private func performConflictResolution(
+        id: String,
+        action: CaptureConflictAction,
+        snapshot: CaptureEditorSnapshot
+    ) async -> CaptureBridgeReply {
+        do {
         switch action {
         case .reloadLatest:
             guard let latest = try await repository.draft(id: snapshot.draftID) else {
@@ -224,6 +331,39 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
             openInNotion()
             return .success(id: id, result: .conflictResolved(nil))
         }
+        } catch let error as CaptureRepositoryError {
+            return await repositoryFailure(error, id: id, currentWork: snapshot)
+        } catch {
+            status = .failed("Could not recover this draft.")
+            return .failure(
+                id: id,
+                code: .persistenceFailure,
+                message: "Could not recover this draft.",
+                recoverable: true
+            )
+        }
+    }
+
+    private func invalidConflictReplay(id: String) -> CaptureBridgeReply {
+        .failure(
+            id: id,
+            code: .invalidMessage,
+            message: "Conflict recovery request did not match its original operation.",
+            recoverable: false
+        )
+    }
+
+    private func rememberCommittedConflictResolution(
+        id: String,
+        operation: ConflictResolutionOperation,
+        result: CaptureBridgeResult
+    ) {
+        committedConflictResolutions[id] = (operation, result)
+        committedConflictResolutionOrder.append(id)
+        if committedConflictResolutionOrder.count > 64 {
+            let expired = committedConflictResolutionOrder.removeFirst()
+            committedConflictResolutions[expired] = nil
+        }
     }
 
     private func activeOrNewDraft() async throws -> CaptureEditorSnapshot {
@@ -242,6 +382,35 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
             expectedRevision: 0
         )
         return try bridgeSnapshot(created)
+    }
+
+    private func persistSuppliedSnapshot(
+        _ snapshot: CaptureEditorSnapshot,
+        expectedRevision: Int
+    ) async throws -> CaptureDraftSnapshot {
+        guard let stored = try await repository.draft(id: snapshot.draftID) else {
+            throw CaptureRepositoryError.draftNotFound(snapshot.draftID)
+        }
+        guard stored.revision == expectedRevision else {
+            throw CaptureRepositoryError.staleRevision(
+                expected: expectedRevision,
+                actual: stored.revision
+            )
+        }
+        let canonicalDocument = try CaptureBridgeProtocol.canonicalDocument(snapshot.document)
+        if stored.title == snapshot.title, stored.editorDocument == canonicalDocument {
+            return stored
+        }
+        return try await repository.saveDraft(
+            DraftMutation(
+                id: snapshot.draftID,
+                title: snapshot.title,
+                editorDocument: canonicalDocument,
+                sourceDocument: stored.sourceDocument,
+                disposition: stored.disposition
+            ),
+            expectedRevision: expectedRevision
+        )
     }
 
     private func mutation(_ snapshot: CaptureEditorSnapshot, id: String) throws -> DraftMutation {
@@ -333,6 +502,16 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
             return
         }
         webView.loadFileURL(editorDocumentURL, allowingReadAccessTo: resourceRootURL)
+    }
+
+    func tearDownBridge() {
+        guard installedHandlerNames.remove(CaptureBridgeProtocol.handlerName) != nil else { return }
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: CaptureBridgeProtocol.handlerName,
+            contentWorld: .page
+        )
+        scriptHandler.delegate = nil
+        webView.navigationDelegate = nil
     }
 
     private static let emptyDocument = Data(

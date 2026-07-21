@@ -99,7 +99,14 @@ final class CaptureEditorFlowTests: XCTestCase {
         let stashReply = await session.handle(
             .stash(id: "stash", snapshot: firstSnapshot, expectedRevision: 1)
         )
-        let restoreReply = await session.handle(.restore(id: "restore", draftID: "draft-1", expectedRevision: 2))
+        let stashed = try await repository.draft(id: "draft-1")
+        let restoreReply = await session.handle(
+            .restore(
+                id: "restore",
+                draftID: "draft-1",
+                expectedRevision: try XCTUnwrap(stashed?.revision)
+            )
+        )
 
         XCTAssertEqual(stashReply.result?.kind, .stashed)
         XCTAssertEqual(stashReply.result?.snapshot?.draftID, "draft-2")
@@ -137,6 +144,69 @@ final class CaptureEditorFlowTests: XCTestCase {
         XCTAssertEqual(session.conflict?.availableActions, CaptureConflictAction.allCases)
     }
 
+    func testSavePersistsSuppliedSnapshotBeforeAcknowledging() async throws {
+        let repository = try CaptureRepository(inMemory: true, clock: TestCaptureClock(captureFlowReferenceDate))
+        let session = CaptureEditorSession(repository: repository, draftID: { "draft-1" })
+        _ = await session.handle(.ready(id: "ready"))
+        let supplied = bridgeSnapshot(id: "draft-1", title: "Explicit save", text: "save body")
+
+        let reply = await session.handle(.save(id: "save", snapshot: supplied, expectedRevision: 1))
+
+        XCTAssertEqual(reply.result?.kind, .saved)
+        XCTAssertEqual(reply.result?.revision, 2)
+        let fetched = try await repository.draft(id: "draft-1")
+        let stored = try XCTUnwrap(fetched)
+        XCTAssertEqual(stored.title, "Explicit save")
+        XCTAssertEqual(stored.editorDocument, try CanonicalJSON.canonicalize(supplied.document))
+    }
+
+    func testStashPersistsDifferentSuppliedContentBeforeTransitionAndRestore() async throws {
+        var identifiers = ["draft-1", "draft-2"].makeIterator()
+        let repository = try CaptureRepository(inMemory: true, clock: TestCaptureClock(captureFlowReferenceDate))
+        let session = CaptureEditorSession(repository: repository, draftID: { identifiers.next()! })
+        _ = await session.handle(.ready(id: "ready"))
+        let supplied = bridgeSnapshot(id: "draft-1", title: "Stash this", text: "stash body")
+
+        let stash = await session.handle(.stash(id: "stash", snapshot: supplied, expectedRevision: 1))
+        let fetched = try await repository.draft(id: "draft-1")
+        let stored = try XCTUnwrap(fetched)
+        let restore = await session.handle(
+            .restore(id: "restore", draftID: "draft-1", expectedRevision: stored.revision)
+        )
+
+        XCTAssertEqual(stash.result?.kind, .stashed)
+        XCTAssertEqual(stored.disposition, .stashed)
+        XCTAssertEqual(stored.title, "Stash this")
+        XCTAssertEqual(stored.editorDocument, try CanonicalJSON.canonicalize(supplied.document))
+        XCTAssertEqual(restore.result?.snapshot?.title, "Stash this")
+        XCTAssertEqual(restore.result?.snapshot?.document, try CanonicalJSON.canonicalize(supplied.document))
+    }
+
+    func testQuickCaptureLaunchActivatesAppBeforeOpeningWindow() {
+        var events: [String] = []
+
+        QuickCaptureLaunchAction.perform(
+            activate: { events.append("activate") },
+            openWindow: { events.append("open") }
+        )
+
+        XCTAssertEqual(events, ["activate", "open"])
+    }
+
+    func testBridgeCanTearDownAndSessionIsNotRetainedByHandler() async throws {
+        weak var weakSession: CaptureEditorSession?
+        var session: CaptureEditorSession? = CaptureEditorSession(
+            repository: try CaptureRepository(inMemory: true)
+        )
+        weakSession = session
+
+        session?.tearDownBridge()
+        XCTAssertEqual(session?.installedHandlerNames, [])
+        session = nil
+
+        XCTAssertNil(weakSession)
+    }
+
     func testSaveAsNewPreservesConflictingWorkInANewDraft() async throws {
         var identifiers = ["draft-1", "draft-copy"].makeIterator()
         let repository = try CaptureRepository(inMemory: true, clock: TestCaptureClock(captureFlowReferenceDate))
@@ -166,13 +236,53 @@ final class CaptureEditorFlowTests: XCTestCase {
         XCTAssertNil(session.conflict)
     }
 
-    func testNativeConflictResolutionAppliesTypedReplyBackToTheEditor() async throws {
+    func testNativeConflictResolutionUsesTheLatestLiveEditorSnapshot() async throws {
+        var identifiers = ["draft-1", "draft-copy"].makeIterator()
         let repository = try CaptureRepository(inMemory: true, clock: TestCaptureClock(captureFlowReferenceDate))
-        let applier = CaptureReplyApplierSpy()
+        let resolver = CaptureConflictResolverSpy()
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! },
+            conflictResolver: resolver
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "draft-1",
+                title: "Native latest",
+                editorDocument: proseMirror("native"),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 1
+        )
+        let cachedWork = bridgeSnapshot(id: "draft-1", title: "Cached work", text: "cached")
+        let liveWork = bridgeSnapshot(id: "draft-1", title: "Newest live work", text: "newest")
+        _ = await session.handle(.changed(id: "stale", snapshot: cachedWork, expectedRevision: 1))
+        resolver.onResolve = { action, operationID, _ in
+            let reply = await session.handle(
+                .resolveConflict(id: operationID, action: action, snapshot: liveWork)
+            )
+            guard reply.result != nil else { throw CaptureConflictResolverTestError.failedReply }
+        }
+
+        await session.resolve(.saveAsNew)
+
+        XCTAssertEqual(resolver.calls.count, 1)
+        XCTAssertEqual(resolver.calls.first?.action, .saveAsNew)
+        let copy = try await repository.draft(id: "draft-copy")
+        XCTAssertEqual(copy?.title, "Newest live work")
+        XCTAssertEqual(copy?.editorDocument, try CanonicalJSON.canonicalize(liveWork.document))
+        XCTAssertNil(session.conflict)
+    }
+
+    func testConflictResolutionIsSingleFlight() async throws {
+        let repository = try CaptureRepository(inMemory: true, clock: TestCaptureClock(captureFlowReferenceDate))
+        let resolver = BlockingCaptureConflictResolver()
         let session = CaptureEditorSession(
             repository: repository,
             draftID: { "draft-1" },
-            replyApplier: applier
+            conflictResolver: resolver
         )
         _ = await session.handle(.ready(id: "ready"))
         _ = try await repository.saveDraft(
@@ -188,11 +298,65 @@ final class CaptureEditorFlowTests: XCTestCase {
         let editorWork = bridgeSnapshot(id: "draft-1", title: "Editor work", text: "editor")
         _ = await session.handle(.changed(id: "stale", snapshot: editorWork, expectedRevision: 1))
 
-        await session.resolve(.reloadLatest)
+        let first = Task { await session.resolve(.saveAsNew) }
+        while resolver.calls.isEmpty { await Task.yield() }
+        let second = Task { await session.resolve(.saveAsNew) }
+        await Task.yield()
 
-        XCTAssertEqual(applier.replies.count, 1)
-        XCTAssertEqual(applier.replies.first?.result?.kind, .conflictResolved)
-        XCTAssertEqual(applier.replies.first?.result?.snapshot?.title, "Native latest")
+        XCTAssertEqual(resolver.calls.count, 1)
+        XCTAssertTrue(session.isResolvingConflict)
+        resolver.resume()
+        await first.value
+        await second.value
+        XCTAssertEqual(resolver.calls.count, 1)
+        XCTAssertFalse(session.isResolvingConflict)
+    }
+
+    func testConflictResolutionRetryReusesCommittedOperationWithoutCreatingAnotherCopy() async throws {
+        var identifiers = ["draft-1", "draft-copy"].makeIterator()
+        let repository = try CaptureRepository(inMemory: true, clock: TestCaptureClock(captureFlowReferenceDate))
+        let resolver = CaptureConflictResolverSpy()
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! },
+            conflictResolver: resolver
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "draft-1",
+                title: "Native latest",
+                editorDocument: proseMirror("native"),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 1
+        )
+        let editorWork = bridgeSnapshot(id: "draft-1", title: "Newest work", text: "newest")
+        _ = await session.handle(.changed(id: "stale", snapshot: editorWork, expectedRevision: 1))
+        var shouldThrowAfterCommit = true
+        resolver.onResolve = { action, operationID, _ in
+            let reply = await session.handle(
+                .resolveConflict(id: operationID, action: action, snapshot: editorWork)
+            )
+            guard reply.result != nil else { throw CaptureConflictResolverTestError.failedReply }
+            if shouldThrowAfterCommit {
+                shouldThrowAfterCommit = false
+                throw CaptureConflictResolverTestError.applyFailed
+            }
+        }
+
+        await session.resolve(.saveAsNew)
+        XCTAssertNotNil(session.conflict)
+        let firstOperationID = try XCTUnwrap(resolver.calls.first?.operationID)
+
+        await session.resolve(.saveAsNew)
+
+        XCTAssertEqual(resolver.calls.count, 2)
+        XCTAssertEqual(resolver.calls.last?.operationID, firstOperationID)
+        let drafts = try await repository.drafts()
+        XCTAssertEqual(drafts.filter { $0.id == "draft-copy" }.count, 1)
+        XCTAssertNil(session.conflict)
     }
 
     func testCaptureUsesNonpersistentStoreAndNoHandlerLeaksIntoNotionWebView() async throws {
@@ -259,10 +423,46 @@ private func proseMirror(_ text: String) -> Data {
 private let captureFlowReferenceDate = Date(timeIntervalSince1970: 1_700_000_000)
 
 @MainActor
-private final class CaptureReplyApplierSpy: CaptureReplyApplying {
-    private(set) var replies: [CaptureBridgeReply] = []
-
-    func apply(_ reply: CaptureBridgeReply, to webView: WKWebView) async throws {
-        replies.append(reply)
+private final class CaptureConflictResolverSpy: CaptureConflictResolving {
+    struct Call: Equatable {
+        let action: CaptureConflictAction
+        let operationID: String
     }
+
+    private(set) var calls: [Call] = []
+    var onResolve: ((CaptureConflictAction, String, WKWebView) async throws -> Void)?
+
+    func resolve(
+        _ action: CaptureConflictAction,
+        operationID: String,
+        in webView: WKWebView
+    ) async throws {
+        calls.append(Call(action: action, operationID: operationID))
+        try await onResolve?(action, operationID, webView)
+    }
+}
+
+@MainActor
+private final class BlockingCaptureConflictResolver: CaptureConflictResolving {
+    private(set) var calls: [(CaptureConflictAction, String)] = []
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func resolve(
+        _ action: CaptureConflictAction,
+        operationID: String,
+        in webView: WKWebView
+    ) async throws {
+        calls.append((action, operationID))
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func resume() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+private enum CaptureConflictResolverTestError: Error {
+    case failedReply
+    case applyFailed
 }

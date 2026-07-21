@@ -54,19 +54,23 @@ export class DebouncedChangePublisher {
     snapshot: Omit<EditorSnapshot, "revision">;
     expectedRevision: () => number;
   } | undefined;
-  private lastDelivery: Promise<void> = Promise.resolve();
+  private deliveryTail: Promise<void> = Promise.resolve();
+  private failedRequest: BridgeRequest | undefined;
   private readonly delayMilliseconds: number;
   private readonly send: (request: BridgeRequest) => void | Promise<void>;
   private readonly nextID: () => string;
+  private readonly onDeliveryError: (error: Error) => void;
 
   constructor(
     delayMilliseconds: number,
     send: (request: BridgeRequest) => void | Promise<void>,
     nextID: () => string = () => crypto.randomUUID(),
+    onDeliveryError: (error: Error) => void = () => {},
   ) {
     this.delayMilliseconds = delayMilliseconds;
     this.send = send;
     this.nextID = nextID;
+    this.onDeliveryError = onDeliveryError;
   }
 
   changed(
@@ -78,7 +82,7 @@ export class DebouncedChangePublisher {
       expectedRevision: typeof expectedRevision === "number" ? () => expectedRevision : expectedRevision,
     };
     if (this.timer !== undefined) clearTimeout(this.timer);
-    this.timer = setTimeout(() => { void this.flush(); }, this.delayMilliseconds);
+    this.timer = setTimeout(() => { void this.flush().catch(() => {}); }, this.delayMilliseconds);
   }
 
   async flush(): Promise<void> {
@@ -86,16 +90,32 @@ export class DebouncedChangePublisher {
     this.timer = undefined;
     const pending = this.pending;
     this.pending = undefined;
-    if (pending !== undefined) {
-      const previousDelivery = this.lastDelivery;
-      this.lastDelivery = previousDelivery.then(async () => {
-        await this.send(makeRequest("changed", this.nextID(), {
+    const delivery = this.deliveryTail.then(async () => {
+      if (this.failedRequest !== undefined) {
+        await this.deliver(this.failedRequest);
+      }
+      if (pending !== undefined) {
+        const request = makeRequest("changed", this.nextID(), {
           snapshot: pending.snapshot,
           expectedRevision: pending.expectedRevision(),
-        }));
-      });
+        });
+        await this.deliver(request);
+      }
+    });
+    this.deliveryTail = delivery.catch(() => {});
+    await delivery;
+  }
+
+  private async deliver(request: BridgeRequest): Promise<void> {
+    try {
+      await this.send(request);
+      if (this.failedRequest === request) this.failedRequest = undefined;
+    } catch (value) {
+      const error = value instanceof Error ? value : new Error("Bridge delivery failed");
+      this.failedRequest = request;
+      this.onDeliveryError(error);
+      throw error;
     }
-    await this.lastDelivery;
   }
 }
 
@@ -110,13 +130,16 @@ export async function runAfterPendingChange<T>(
 export class BridgeClient {
   private readonly send: (request: BridgeRequest) => Promise<unknown>;
   private readonly nextID: () => string;
+  private readonly timeoutMilliseconds: number;
 
   constructor(
     send: (request: BridgeRequest) => Promise<unknown>,
     nextID: () => string = () => crypto.randomUUID(),
+    timeoutMilliseconds = 5_000,
   ) {
     this.send = send;
     this.nextID = nextID;
+    this.timeoutMilliseconds = timeoutMilliseconds;
   }
 
   async request(type: BridgeRequest["type"], payload: Record<string, unknown>): Promise<BridgeReply> {
@@ -126,7 +149,18 @@ export class BridgeClient {
   }
 
   async dispatch(request: BridgeRequest): Promise<BridgeReply> {
-    const value = await this.send(request);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const value = await Promise.race([
+      this.send(request),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("Native bridge acknowledgement timed out")),
+          this.timeoutMilliseconds,
+        );
+      }),
+    ]).finally(() => {
+      if (timeout !== undefined) clearTimeout(timeout);
+    });
     if (!isBridgeReply(value)) throw new Error("Malformed bridge reply");
     if (value.id !== request.id) throw new Error("Bridge reply correlation ID mismatch");
     return value;
@@ -143,7 +177,7 @@ declare global {
     NotionPiPBridge?: {
       applyNativeReply(reply: unknown): boolean;
       restore(draftID: string, expectedRevision: number): Promise<BridgeReply>;
-      resolveConflict(action: ConflictAction): Promise<BridgeReply>;
+      resolveConflict(action: ConflictAction, operationID: string): Promise<BridgeReply>;
     };
   }
 }
@@ -184,12 +218,22 @@ function bootstrap(): void {
       );
     },
   });
-  const changes = new DebouncedChangePublisher(300, async (request) => {
-    await client.dispatch(request).then((reply) => {
-      applyReply(reply);
-      return reply;
-    });
-  });
+  const changes = new DebouncedChangePublisher(
+    300,
+    async (request) => {
+      await client.dispatch(request).then((reply) => {
+        applyReply(reply);
+        return reply;
+      });
+    },
+    () => crypto.randomUUID(),
+    (error) => reportFailure(error),
+  );
+  let conflictResolution: {
+    action: ConflictAction;
+    operationID: string;
+    request: BridgeRequest;
+  } | undefined;
 
   function installSnapshot(next: EditorSnapshot): void {
     applyingNativeSnapshot = true;
@@ -211,6 +255,11 @@ function bootstrap(): void {
     }
   }
 
+  function reportFailure(value: unknown): void {
+    status.dataset.state = "error";
+    status.textContent = value instanceof Error ? value.message : "The draft could not be saved.";
+  }
+
   titleInput.addEventListener("input", () => {
     if (snapshot.draftID.length === 0) return;
     changes.changed(
@@ -229,7 +278,7 @@ function bootstrap(): void {
         document: normalizeDocument(editor.getJSON()),
       },
       expectedRevision: snapshot.revision ?? 0,
-    })).then(applyReply);
+    })).then(applyReply).catch(reportFailure);
   });
   document.querySelector<HTMLButtonElement>("#stash")?.addEventListener("click", async () => {
     void runAfterPendingChange(changes, () => client.request("stash", {
@@ -239,7 +288,7 @@ function bootstrap(): void {
         document: normalizeDocument(editor.getJSON()),
       },
       expectedRevision: snapshot.revision ?? 0,
-    })).then(applyReply);
+    })).then(applyReply).catch(reportFailure);
   });
 
   window.NotionPiPBridge = {
@@ -250,20 +299,38 @@ function bootstrap(): void {
     },
     restore: (draftID, expectedRevision) => client
       .request("restore", { draftID, expectedRevision })
-      .then((reply) => { applyReply(reply); return reply; }),
-    resolveConflict: (action) => client
-      .request("resolveConflict", {
-        action,
-        snapshot: {
-          draftID: snapshot.draftID,
-          title: titleInput.value,
-          document: normalizeDocument(editor.getJSON()),
-        },
-      })
-      .then((reply) => { applyReply(reply); return reply; }),
+      .then((reply) => { applyReply(reply); return reply; })
+      .catch((error) => { reportFailure(error); throw error; }),
+    resolveConflict: (action, operationID) => runAfterPendingChange(changes, async () => {
+      if (conflictResolution?.operationID === operationID) {
+        if (conflictResolution.action !== action) {
+          throw new Error("Conflict recovery operation does not match its original action");
+        }
+      } else {
+        conflictResolution = {
+          action,
+          operationID,
+          request: makeRequest("resolveConflict", operationID, {
+            action,
+            snapshot: {
+              draftID: snapshot.draftID,
+              title: titleInput.value,
+              document: normalizeDocument(editor.getJSON()),
+            },
+          }),
+        };
+      }
+      const reply = await client.dispatch(conflictResolution.request);
+      applyReply(reply);
+      if (!reply.ok) throw new Error(reply.error.message);
+      return reply;
+    }).catch((error) => {
+      reportFailure(error);
+      throw error;
+    }),
   };
 
-  void client.request("ready", {}).then(applyReply);
+  void client.request("ready", {}).then(applyReply).catch(reportFailure);
 }
 
 function canonicalize(value: unknown): unknown {

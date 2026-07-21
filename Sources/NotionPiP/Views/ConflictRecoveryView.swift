@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ConflictRecoveryView: View {
     let conflict: CaptureConflict
+    let isResolving: Bool
     let resolve: (CaptureConflictAction) -> Void
 
     var body: some View {
@@ -34,6 +35,6 @@ struct ConflictRecoveryView: View {
 
     private func recoveryButton(_ title: String, action: CaptureConflictAction) -> some View {
         Button(title) { resolve(action) }
-            .disabled(!conflict.availableActions.contains(action))
+            .disabled(isResolving || !conflict.availableActions.contains(action))
     }
 }

@@ -23,11 +23,22 @@ struct QuickCaptureView: View {
                 .accessibilityLabel("Quick Capture rich text editor")
 
             if let conflict = session.conflict {
-                ConflictRecoveryView(conflict: conflict) { action in
+                ConflictRecoveryView(
+                    conflict: conflict,
+                    isResolving: session.isResolvingConflict
+                ) { action in
                     Task { await session.resolve(action) }
                 }
             }
         }
+    }
+}
+
+@MainActor
+enum QuickCaptureLaunchAction {
+    static func perform(activate: () -> Void, openWindow: () -> Void) {
+        activate()
+        openWindow()
     }
 }
 

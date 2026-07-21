@@ -160,6 +160,66 @@ test("overlapping changes serialize and resolve revision after the prior acknowl
   if (requests[1]?.type === "changed") assert.equal(requests[1].expectedRevision, 2);
 });
 
+test("failed change retries the identical request then allows later edits", async () => {
+  const requests: BridgeRequest[] = [];
+  const failures: string[] = [];
+  let revision = 1;
+  let sequence = 0;
+  const publisher = new DebouncedChangePublisher(
+    1_000,
+    async (request) => {
+      requests.push(structuredClone(request));
+      if (requests.length === 1) throw new Error("acknowledgement lost");
+      if (request.type === "changed" && request.snapshot.title === "A") revision = 2;
+    },
+    () => `change-${++sequence}`,
+    (error) => failures.push(error.message),
+  );
+
+  publisher.changed({ draftID: "draft-1", title: "A", document: null }, () => revision);
+  await assert.rejects(publisher.flush(), /acknowledgement lost/);
+  publisher.changed({ draftID: "draft-1", title: "B", document: null }, () => revision);
+  await publisher.flush();
+
+  assert.equal(requests.length, 3);
+  assert.deepEqual(requests[1], requests[0]);
+  assert.equal(requests[0]?.id, "change-1");
+  assert.equal(requests[2]?.id, "change-2");
+  if (requests[2]?.type === "changed") assert.equal(requests[2].expectedRevision, 2);
+  assert.deepEqual(failures, ["acknowledgement lost"]);
+});
+
+test("timer delivery rejection is observed instead of becoming unhandled", async () => {
+  const failures: string[] = [];
+  const unhandled: unknown[] = [];
+  const listener = (error: unknown) => unhandled.push(error);
+  process.on("unhandledRejection", listener);
+  try {
+    const publisher = new DebouncedChangePublisher(
+      1,
+      async () => { throw new Error("offline"); },
+      () => "change-timer",
+      (error) => failures.push(error.message),
+    );
+    publisher.changed({ draftID: "draft-1", title: "A", document: null }, 1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(failures, ["offline"]);
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", listener);
+  }
+});
+
+test("bridge client times out a missing native acknowledgement", async () => {
+  const client = new BridgeClient(
+    async () => new Promise<unknown>(() => {}),
+    () => "timeout-1",
+    5,
+  );
+
+  await assert.rejects(client.request("ready", {}), /timed out/);
+});
+
 test("protocol creates only allowlisted versioned request shapes", () => {
   assert.deepEqual(makeRequest("ready", "ready-1", {}), {
     version: 1,
@@ -173,4 +233,74 @@ test("reply guard rejects malformed, unknown-field, and unversioned replies", ()
   assert.equal(isBridgeReply({ version: 1, id: "r", ok: false, error: { code: "staleRevision", message: "Conflict", recoverable: true } }), true);
   assert.equal(isBridgeReply({ version: 2, id: "r", ok: true, result: { kind: "ready" } }), false);
   assert.equal(isBridgeReply({ version: 1, id: "r", ok: true, result: { kind: "ready" }, token: "secret" }), false);
+});
+
+test("reply guard enforces kind-specific result and snapshot contracts", () => {
+  const snapshot = {
+    draftID: "draft-1",
+    title: "Note",
+    document: { type: "doc", content: [{ type: "paragraph" }] },
+    revision: 2,
+  };
+  assert.equal(isBridgeReply({ version: 1, id: "r", ok: true, result: { kind: "ready", revision: 2, snapshot } }), true);
+  assert.equal(isBridgeReply({ version: 1, id: "r", ok: true, result: { kind: "ready", revision: 2 } }), false);
+  assert.equal(isBridgeReply({ version: 1, id: "r", ok: true, result: { kind: "changed", revision: -1 } }), false);
+  assert.equal(isBridgeReply({ version: 1, id: "r", ok: true, result: { kind: "saved", revision: 2, snapshot } }), false);
+  assert.equal(isBridgeReply({ version: 1, id: "r", ok: true, result: { kind: "conflictResolved" } }), true);
+  assert.equal(isBridgeReply({ version: 1, id: "r", ok: true, result: { kind: "conflictResolved", snapshot } }), false);
+  assert.equal(isBridgeReply({ version: 1, id: "r", ok: true, result: { kind: "conflictResolved", revision: 2, snapshot } }), true);
+  assert.equal(isBridgeReply({ version: 1, id: "r", ok: true, result: { kind: "unknown", revision: 2 } }), false);
+});
+
+test("reply guard rejects incomplete documents unknown errors and invalid identifiers", () => {
+  const invalidSnapshot = {
+    draftID: "",
+    title: "Note",
+    document: { type: "doc" },
+    revision: 1,
+  };
+  assert.equal(isBridgeReply({ version: 1, id: "r", ok: true, result: { kind: "ready", revision: 1, snapshot: invalidSnapshot } }), false);
+  assert.equal(isBridgeReply({
+    version: 1,
+    id: "r",
+    ok: true,
+    result: {
+      kind: "ready",
+      revision: 1,
+      snapshot: {
+        draftID: "draft-1",
+        title: "Note",
+        document: { type: "doc", content: [], credential: "nope" },
+        revision: 1,
+      },
+    },
+  }), false);
+  assert.equal(isBridgeReply({
+    version: 1,
+    id: "r",
+    ok: false,
+    error: { code: "madeUp", message: "No", recoverable: false },
+  }), false);
+  assert.equal(isBridgeReply({
+    version: 1,
+    id: "r",
+    ok: false,
+    error: { code: "draftNotFound", message: "Missing", recoverable: true, extra: true },
+  }), false);
+  assert.equal(isBridgeReply({
+    version: 1,
+    id: "r",
+    ok: false,
+    error: {
+      code: "draftNotFound",
+      message: "Missing",
+      recoverable: true,
+      latest: {
+        draftID: "draft-1",
+        title: "Note",
+        document: { type: "doc", content: [] },
+        revision: 1,
+      },
+    },
+  }), false);
 });
