@@ -65,9 +65,23 @@ private struct PendingConflictResolution {
     let originalConflict: CaptureConflict
 }
 
-private struct ConflictResolutionOperation: Equatable {
-    let action: CaptureConflictAction
-    let snapshot: CaptureEditorSnapshot
+private enum CaptureStateTransitionOperation: Equatable {
+    case stash(snapshot: CaptureEditorSnapshot, expectedRevision: Int)
+    case restore(draftID: String, expectedRevision: Int)
+    case resolveConflict(action: CaptureConflictAction, snapshot: CaptureEditorSnapshot)
+
+    init?(_ request: CaptureBridgeRequest) {
+        switch request {
+        case let .stash(_, snapshot, expectedRevision):
+            self = .stash(snapshot: snapshot, expectedRevision: expectedRevision)
+        case let .restore(_, draftID, expectedRevision):
+            self = .restore(draftID: draftID, expectedRevision: expectedRevision)
+        case let .resolveConflict(_, action, snapshot):
+            self = .resolveConflict(action: action, snapshot: snapshot)
+        case .ready, .changed, .save:
+            return nil
+        }
+    }
 }
 
 @MainActor
@@ -82,31 +96,44 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     private let repository: CaptureRepository
     private let draftID: () -> String
     private let openInNotion: () -> Void
+    private let beforeBridgeRequest: (CaptureBridgeRequest) async -> Void
     private let beforeConflictResolution: (CaptureEditorSnapshot) async -> Void
+    private let afterStateTransitionCommit: (
+        CaptureBridgeRequest,
+        CaptureBridgeReply
+    ) async throws -> Void
     private let conflictResolver: any CaptureConflictResolving
     private let scriptHandler: WeakScriptMessageHandler
     private let editorDocumentURL: URL
     private let resourceRootURL: URL
     private var pendingConflictResolution: PendingConflictResolution?
-    private var inFlightConflictResolutions: [
-        String: (operation: ConflictResolutionOperation, task: Task<CaptureBridgeReply, Never>)
+    private var inFlightStateTransitions: [
+        String: (operation: CaptureStateTransitionOperation, task: Task<CaptureBridgeReply, Never>)
     ] = [:]
-    private var committedConflictResolutions: [
-        String: (operation: ConflictResolutionOperation, result: CaptureBridgeResult)
+    private var committedStateTransitions: [
+        String: (operation: CaptureStateTransitionOperation, reply: CaptureBridgeReply)
     ] = [:]
-    private var committedConflictResolutionOrder: [String] = []
+    private var committedStateTransitionOrder: [String] = []
+    private var ambiguousStateTransitions: [String: CaptureStateTransitionOperation] = [:]
 
     init(
         repository: CaptureRepository,
         draftID: @escaping () -> String = { UUID().uuidString.lowercased() },
         openInNotion: @escaping () -> Void = {},
+        beforeBridgeRequest: @escaping (CaptureBridgeRequest) async -> Void = { _ in },
         beforeConflictResolution: @escaping (CaptureEditorSnapshot) async -> Void = { _ in },
+        afterStateTransitionCommit: @escaping (
+            CaptureBridgeRequest,
+            CaptureBridgeReply
+        ) async throws -> Void = { _, _ in },
         conflictResolver: any CaptureConflictResolving = WebKitCaptureConflictResolver()
     ) {
         self.repository = repository
         self.draftID = draftID
         self.openInNotion = openInNotion
+        self.beforeBridgeRequest = beforeBridgeRequest
         self.beforeConflictResolution = beforeConflictResolution
+        self.afterStateTransitionCommit = afterStateTransitionCommit
         self.conflictResolver = conflictResolver
 
         let documentURL = Self.bundledEditorURL
@@ -136,6 +163,14 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     }
 
     func handle(_ request: CaptureBridgeRequest) async -> CaptureBridgeReply {
+        await beforeBridgeRequest(request)
+        if let operation = CaptureStateTransitionOperation(request) {
+            return await idempotentStateTransition(request, operation: operation)
+        }
+        return await perform(request)
+    }
+
+    private func perform(_ request: CaptureBridgeRequest) async -> CaptureBridgeReply {
         do {
             switch request {
             case let .ready(id):
@@ -203,7 +238,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
                 return .success(id: id, result: .restored(snapshot))
 
             case let .resolveConflict(id, action, snapshot):
-                return await idempotentResolveConflict(
+                return await performConflictResolution(
                     id: id,
                     action: action,
                     snapshot: snapshot
@@ -225,7 +260,11 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     func resolve(_ action: CaptureConflictAction) async {
         guard !isResolvingConflict else { return }
         let pending: PendingConflictResolution
-        if let existing = pendingConflictResolution, existing.action == action {
+        if let existing = pendingConflictResolution {
+            guard existing.action == action else {
+                status = .failed("Retry the pending recovery action before choosing another one.")
+                return
+            }
             pending = existing
         } else {
             guard let originalConflict = conflict else { return }
@@ -255,21 +294,30 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         }
     }
 
-    private func idempotentResolveConflict(
-        id: String,
-        action: CaptureConflictAction,
-        snapshot: CaptureEditorSnapshot
+    private func idempotentStateTransition(
+        _ request: CaptureBridgeRequest,
+        operation: CaptureStateTransitionOperation
     ) async -> CaptureBridgeReply {
-        let operation = ConflictResolutionOperation(action: action, snapshot: snapshot)
-        if let committed = committedConflictResolutions[id] {
-            guard committed.operation == operation else {
-                return invalidConflictReplay(id: id)
+        let id = request.id
+        if let ambiguous = ambiguousStateTransitions[id] {
+            guard ambiguous == operation else {
+                return invalidStateTransitionReplay(id: id)
             }
-            return .success(id: id, result: committed.result)
+            if let reconciled = await reconcileStateTransition(operation, id: id) {
+                ambiguousStateTransitions[id] = nil
+                rememberStateTransition(id: id, operation: operation, reply: reconciled)
+                return reconciled
+            }
         }
-        if let inFlight = inFlightConflictResolutions[id] {
+        if let committed = committedStateTransitions[id] {
+            guard committed.operation == operation else {
+                return invalidStateTransitionReplay(id: id)
+            }
+            return committed.reply
+        }
+        if let inFlight = inFlightStateTransitions[id] {
             guard inFlight.operation == operation else {
-                return invalidConflictReplay(id: id)
+                return invalidStateTransitionReplay(id: id)
             }
             return await inFlight.task.value
         }
@@ -283,19 +331,78 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
                     recoverable: true
                 )
             }
-            return await self.performConflictResolution(
-                id: id,
-                action: action,
-                snapshot: snapshot
-            )
+            let reply = await self.perform(request)
+            guard reply.result != nil else { return reply }
+            if case .resolveConflict = operation {
+                self.rememberStateTransition(id: id, operation: operation, reply: reply)
+            }
+            do {
+                try await self.afterStateTransitionCommit(request, reply)
+                return reply
+            } catch {
+                self.status = .failed("Could not confirm the saved draft transition.")
+                return .failure(
+                    id: id,
+                    code: .persistenceFailure,
+                    message: "Could not confirm the saved draft transition.",
+                    recoverable: true
+                )
+            }
         }
-        inFlightConflictResolutions[id] = (operation, task)
+        inFlightStateTransitions[id] = (operation, task)
         let reply = await task.value
-        inFlightConflictResolutions[id] = nil
-        if let result = reply.result {
-            rememberCommittedConflictResolution(id: id, operation: operation, result: result)
+        inFlightStateTransitions[id] = nil
+        if reply.result != nil {
+            ambiguousStateTransitions[id] = nil
+            rememberStateTransition(id: id, operation: operation, reply: reply)
+        } else if reply.error?.code == .persistenceFailure {
+            if committedStateTransitions[id] == nil {
+                rememberAmbiguousStateTransition(id: id, operation: operation)
+            }
+        } else {
+            ambiguousStateTransitions[id] = nil
         }
         return reply
+    }
+
+    private func reconcileStateTransition(
+        _ operation: CaptureStateTransitionOperation,
+        id: String
+    ) async -> CaptureBridgeReply? {
+        do {
+            switch operation {
+            case let .stash(snapshot, expectedRevision):
+                guard let stored = try await repository.draft(id: snapshot.draftID),
+                      stored.disposition == .stashed,
+                      stored.revision > expectedRevision,
+                      stored.title == snapshot.title,
+                      stored.editorDocument == (try CaptureBridgeProtocol.canonicalDocument(snapshot.document)),
+                      let active = try await repository.drafts().first(where: {
+                          $0.id != snapshot.draftID && $0.disposition == .active
+                      })
+                else { return nil }
+                let next = try bridgeSnapshot(active)
+                status = .stashed
+                conflict = nil
+                return .success(id: id, result: .stashed(next))
+
+            case let .restore(draftID, expectedRevision):
+                guard expectedRevision < Int.max,
+                      let restored = try await repository.draft(id: draftID),
+                      restored.disposition == .active,
+                      restored.revision == expectedRevision + 1
+                else { return nil }
+                let snapshot = try bridgeSnapshot(restored)
+                status = .saved(revision: restored.revision)
+                conflict = nil
+                return .success(id: id, result: .restored(snapshot))
+
+            case .resolveConflict:
+                return nil
+            }
+        } catch {
+            return nil
+        }
     }
 
     private func performConflictResolution(
@@ -348,25 +455,40 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         }
     }
 
-    private func invalidConflictReplay(id: String) -> CaptureBridgeReply {
+    private func invalidStateTransitionReplay(id: String) -> CaptureBridgeReply {
         .failure(
             id: id,
             code: .invalidMessage,
-            message: "Conflict recovery request did not match its original operation.",
+            message: "State transition request did not match its original operation.",
             recoverable: false
         )
     }
 
-    private func rememberCommittedConflictResolution(
+    private func rememberStateTransition(
         id: String,
-        operation: ConflictResolutionOperation,
-        result: CaptureBridgeResult
+        operation: CaptureStateTransitionOperation,
+        reply: CaptureBridgeReply
     ) {
-        committedConflictResolutions[id] = (operation, result)
-        committedConflictResolutionOrder.append(id)
-        if committedConflictResolutionOrder.count > 64 {
-            let expired = committedConflictResolutionOrder.removeFirst()
-            committedConflictResolutions[expired] = nil
+        let isNewReceipt = committedStateTransitions[id] == nil
+        committedStateTransitions[id] = (operation, reply)
+        if isNewReceipt {
+            committedStateTransitionOrder.append(id)
+        }
+        if committedStateTransitionOrder.count > 64 {
+            let expired = committedStateTransitionOrder.removeFirst()
+            committedStateTransitions[expired] = nil
+        }
+    }
+
+    private func rememberAmbiguousStateTransition(
+        id: String,
+        operation: CaptureStateTransitionOperation
+    ) {
+        ambiguousStateTransitions[id] = operation
+        if ambiguousStateTransitions.count > 64,
+           let expired = ambiguousStateTransitions.keys.sorted().first(where: { $0 != id })
+        {
+            ambiguousStateTransitions[expired] = nil
         }
     }
 

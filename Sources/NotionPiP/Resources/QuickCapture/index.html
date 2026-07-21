@@ -9,19 +9,20 @@
 </head>
 <body>
   <main aria-label="Quick Capture editor">
-    <input id="title" aria-label="Note title" autocomplete="off" placeholder="Title">
+    <input id="title" aria-label="Note title" autocomplete="off" placeholder="Title" disabled>
     <div class="toolbar" role="toolbar" aria-label="Formatting">
-      <button type="button" data-command="bold" aria-label="Bold"><strong>B</strong></button>
-      <button type="button" data-command="italic" aria-label="Italic"><em>I</em></button>
-      <button type="button" data-command="heading" aria-label="Heading">H2</button>
-      <button type="button" data-command="bulletList" aria-label="Bulleted list">• List</button>
-      <button type="button" data-command="orderedList" aria-label="Numbered list">1. List</button>
+      <button type="button" data-command="bold" aria-label="Bold" disabled><strong>B</strong></button>
+      <button type="button" data-command="italic" aria-label="Italic" disabled><em>I</em></button>
+      <button type="button" data-command="heading" aria-label="Heading" disabled>H2</button>
+      <button type="button" data-command="bulletList" aria-label="Bulleted list" disabled>• List</button>
+      <button type="button" data-command="orderedList" aria-label="Numbered list" disabled>1. List</button>
     </div>
     <div id="editor" aria-label="Note content"></div>
     <footer>
       <span id="status" role="status" aria-live="polite">Loading…</span>
-      <button id="stash" type="button">Stash</button>
-      <button id="save" class="primary" type="button">Save</button>
+      <button id="retry" type="button" hidden>Retry</button>
+      <button id="stash" type="button" disabled>Stash</button>
+      <button id="save" class="primary" type="button" disabled>Save</button>
     </footer>
   </main>
   <script src="editor.js"></script>

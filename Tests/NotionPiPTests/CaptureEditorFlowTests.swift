@@ -118,6 +118,203 @@ final class CaptureEditorFlowTests: XCTestCase {
         XCTAssertEqual(second?.disposition, .stashed)
     }
 
+    func testLostStashAcknowledgementReplaysExactReceiptWithoutSwitchingAgain() async throws {
+        var identifiers = ["draft-1", "draft-2"].makeIterator()
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(captureFlowReferenceDate)
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! }
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        let request = CaptureBridgeRequest.stash(
+            id: "stash-lost-ack",
+            snapshot: bridgeSnapshot(id: "draft-1", title: "Stashed once", text: "body"),
+            expectedRevision: 1
+        )
+
+        let committedButUnobserved = await session.handle(request)
+        let exactRetry = await session.handle(request)
+
+        XCTAssertEqual(exactRetry, committedButUnobserved)
+        XCTAssertEqual(exactRetry.result?.snapshot?.draftID, "draft-2")
+        let drafts = try await repository.drafts()
+        XCTAssertEqual(drafts.count, 2)
+        XCTAssertEqual(drafts.first(where: { $0.id == "draft-1" })?.disposition, .stashed)
+        XCTAssertEqual(drafts.first(where: { $0.id == "draft-2" })?.disposition, .active)
+    }
+
+    func testPostCommitStashFailureReconcilesRepositoryStateOnExactRetry() async throws {
+        var identifiers = ["draft-1", "draft-2"].makeIterator()
+        let failure = PostCommitTransitionFailureOnce()
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(captureFlowReferenceDate)
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! },
+            afterStateTransitionCommit: { request, _ in try failure.throwOnce(for: request) }
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        let request = CaptureBridgeRequest.stash(
+            id: "stash-post-commit-failure",
+            snapshot: bridgeSnapshot(id: "draft-1", title: "Committed", text: "durable body"),
+            expectedRevision: 1
+        )
+
+        let ambiguous = await session.handle(request)
+        let draftsAfterFailure = try await repository.drafts()
+        let exactRetry = await session.handle(request)
+
+        XCTAssertEqual(ambiguous.error?.code, .persistenceFailure)
+        XCTAssertEqual(draftsAfterFailure.count, 2)
+        XCTAssertEqual(draftsAfterFailure.first(where: { $0.id == "draft-1" })?.disposition, .stashed)
+        XCTAssertEqual(draftsAfterFailure.first(where: { $0.id == "draft-2" })?.disposition, .active)
+        XCTAssertEqual(exactRetry.result?.kind, .stashed)
+        XCTAssertEqual(exactRetry.result?.snapshot?.draftID, "draft-2")
+        let draftsAfterRetry = try await repository.drafts()
+        XCTAssertEqual(draftsAfterRetry, draftsAfterFailure)
+    }
+
+    func testLostRestoreAcknowledgementReplaysExactReceiptWithoutSwitchingBack() async throws {
+        var identifiers = ["draft-1", "draft-2"].makeIterator()
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(captureFlowReferenceDate)
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! }
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        let stash = await session.handle(
+            .stash(
+                id: "stash",
+                snapshot: bridgeSnapshot(id: "draft-1", title: "First", text: "body"),
+                expectedRevision: 1
+            )
+        )
+        let stashedDraft = try await repository.draft(id: "draft-1")
+        let storedRevision = try XCTUnwrap(stashedDraft?.revision)
+        XCTAssertEqual(stash.result?.snapshot?.draftID, "draft-2")
+        let request = CaptureBridgeRequest.restore(
+            id: "restore-lost-ack",
+            draftID: "draft-1",
+            expectedRevision: storedRevision
+        )
+
+        let committedButUnobserved = await session.handle(request)
+        let exactRetry = await session.handle(request)
+
+        XCTAssertEqual(exactRetry, committedButUnobserved)
+        XCTAssertEqual(exactRetry.result?.snapshot?.draftID, "draft-1")
+        let first = try await repository.draft(id: "draft-1")
+        let second = try await repository.draft(id: "draft-2")
+        XCTAssertEqual(first?.disposition, .active)
+        XCTAssertEqual(second?.disposition, .stashed)
+    }
+
+    func testPostCommitRestoreFailureReconcilesRepositoryStateOnExactRetry() async throws {
+        var identifiers = ["draft-1", "draft-2"].makeIterator()
+        let failure = PostCommitTransitionFailureOnce(kind: .restore)
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(captureFlowReferenceDate)
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! },
+            afterStateTransitionCommit: { request, _ in try failure.throwOnce(for: request) }
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        _ = await session.handle(
+            .stash(
+                id: "stash-before-restore",
+                snapshot: bridgeSnapshot(id: "draft-1", title: "First", text: "body"),
+                expectedRevision: 1
+            )
+        )
+        let stashed = try await repository.draft(id: "draft-1")
+        let expectedRevision = try XCTUnwrap(stashed?.revision)
+        let request = CaptureBridgeRequest.restore(
+            id: "restore-post-commit-failure",
+            draftID: "draft-1",
+            expectedRevision: expectedRevision
+        )
+
+        let ambiguous = await session.handle(request)
+        let draftsAfterFailure = try await repository.drafts()
+        let exactRetry = await session.handle(request)
+
+        XCTAssertEqual(ambiguous.error?.code, .persistenceFailure)
+        XCTAssertEqual(draftsAfterFailure.first(where: { $0.id == "draft-1" })?.disposition, .active)
+        XCTAssertEqual(draftsAfterFailure.first(where: { $0.id == "draft-2" })?.disposition, .stashed)
+        XCTAssertEqual(exactRetry.result?.kind, .restored)
+        XCTAssertEqual(exactRetry.result?.snapshot?.draftID, "draft-1")
+        let draftsAfterRetry = try await repository.drafts()
+        XCTAssertEqual(draftsAfterRetry, draftsAfterFailure)
+    }
+
+    func testStateTransitionReceiptRejectsRequestIDReuseWithDifferentPayload() async throws {
+        var identifiers = ["draft-1", "draft-2"].makeIterator()
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(captureFlowReferenceDate)
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! }
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        _ = await session.handle(
+            .stash(
+                id: "reused-transition-id",
+                snapshot: bridgeSnapshot(id: "draft-1", title: "Original", text: "body"),
+                expectedRevision: 1
+            )
+        )
+
+        let mismatch = await session.handle(
+            .stash(
+                id: "reused-transition-id",
+                snapshot: bridgeSnapshot(id: "draft-1", title: "Changed payload", text: "other"),
+                expectedRevision: 1
+            )
+        )
+
+        XCTAssertEqual(mismatch.error?.code, .invalidMessage)
+        let drafts = try await repository.drafts()
+        XCTAssertEqual(drafts.count, 2)
+    }
+
+    func testDefinitiveTransitionRejectionDoesNotReserveRequestID() async throws {
+        var identifiers = ["draft-1", "draft-2"].makeIterator()
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(captureFlowReferenceDate)
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! }
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        let snapshot = bridgeSnapshot(id: "draft-1", title: "Retry", text: "body")
+
+        let rejected = await session.handle(
+            .stash(id: "reusable-after-rejection", snapshot: snapshot, expectedRevision: 99)
+        )
+        let corrected = await session.handle(
+            .stash(id: "reusable-after-rejection", snapshot: snapshot, expectedRevision: 1)
+        )
+
+        XCTAssertEqual(rejected.error?.code, .staleRevision)
+        XCTAssertEqual(corrected.result?.kind, .stashed)
+        XCTAssertEqual(corrected.result?.snapshot?.draftID, "draft-2")
+    }
+
     func testStaleSavePreservesCurrentEditorWorkAndOffersRecovery() async throws {
         let repository = try CaptureRepository(inMemory: true, clock: TestCaptureClock(captureFlowReferenceDate))
         let session = CaptureEditorSession(repository: repository, draftID: { "draft-1" })
@@ -359,6 +556,35 @@ final class CaptureEditorFlowTests: XCTestCase {
         XCTAssertNil(session.conflict)
     }
 
+    func testPostCommitConflictFailureRetainsSuccessReceiptAndCreatesOneCopy() async throws {
+        var identifiers = ["draft-1", "draft-copy"].makeIterator()
+        let failure = PostCommitTransitionFailureOnce(kind: .conflict)
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(captureFlowReferenceDate)
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! },
+            afterStateTransitionCommit: { request, _ in try failure.throwOnce(for: request) }
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        let request = CaptureBridgeRequest.resolveConflict(
+            id: "conflict-post-commit-failure",
+            action: .saveAsNew,
+            snapshot: bridgeSnapshot(id: "draft-1", title: "One copy", text: "once")
+        )
+
+        let ambiguous = await session.handle(request)
+        let exactRetry = await session.handle(request)
+
+        XCTAssertEqual(ambiguous.error?.code, .persistenceFailure)
+        XCTAssertEqual(exactRetry.result?.kind, .conflictResolved)
+        XCTAssertEqual(exactRetry.result?.snapshot?.draftID, "draft-copy")
+        let drafts = try await repository.drafts()
+        XCTAssertEqual(drafts.filter { $0.id == "draft-copy" }.count, 1)
+    }
+
     func testCaptureUsesNonpersistentStoreAndNoHandlerLeaksIntoNotionWebView() async throws {
         let repository = try CaptureRepository(inMemory: true)
         let capture = CaptureEditorSession(repository: repository)
@@ -465,4 +691,36 @@ private final class BlockingCaptureConflictResolver: CaptureConflictResolving {
 private enum CaptureConflictResolverTestError: Error {
     case failedReply
     case applyFailed
+}
+
+@MainActor
+private final class PostCommitTransitionFailureOnce {
+    enum Kind {
+        case stash
+        case restore
+        case conflict
+    }
+
+    private let kind: Kind
+    private var hasThrown = false
+
+    init(kind: Kind = .stash) {
+        self.kind = kind
+    }
+
+    func throwOnce(for request: CaptureBridgeRequest) throws {
+        guard !hasThrown else { return }
+        switch (kind, request) {
+        case (.stash, .stash), (.restore, .restore), (.conflict, .resolveConflict):
+            break
+        default:
+            return
+        }
+        hasThrown = true
+        throw PostCommitTransitionTestError.lostAcknowledgement
+    }
+}
+
+private enum PostCommitTransitionTestError: Error {
+    case lostAcknowledgement
 }

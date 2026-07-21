@@ -5,6 +5,187 @@ import XCTest
 
 @MainActor
 final class CaptureWebViewIntegrationTests: XCTestCase {
+    func testEditorRemainsLockedUntilDelayedReadyInstallsAuthoritativeDraft() async throws {
+        let gate = BlockingBridgeRequestGate { request in
+            if case .ready = request { return true }
+            return false
+        }
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "ready-locked-draft" },
+            beforeBridgeRequest: { request in await gate.suspendIfMatched(request) }
+        )
+        try await waitUntil { gate.entered }
+
+        let attempted = try await attemptUserEditorInput(
+            title: "Must not be accepted before ready",
+            body: "early body",
+            in: session.webView
+        )
+
+        XCTAssertEqual(attempted["titleDisabled"] as? Bool, true)
+        XCTAssertEqual(attempted["editorEditable"] as? String, "false")
+        XCTAssertEqual(attempted["title"] as? String, "")
+        XCTAssertEqual(normalizedDOMText(attempted["body"] as? String), "")
+        let controls = try await editorLockState(in: session.webView)
+        XCTAssertEqual(controls["saveDisabled"] as? Bool, true)
+        XCTAssertEqual(controls["stashDisabled"] as? Bool, true)
+        XCTAssertEqual(controls["toolbarDisabled"] as? Bool, true)
+        gate.resume()
+        try await waitUntil { session.status == .ready }
+        let unlocked = try await editorLockState(in: session.webView)
+        XCTAssertEqual(unlocked["titleDisabled"] as? Bool, false)
+        XCTAssertEqual(unlocked["editorEditable"] as? String, "true")
+    }
+
+    func testStashLocksEveryMutationControlUntilNewDraftSnapshotIsApplied() async throws {
+        let gate = BlockingBridgeRequestGate { request in
+            if case .stash = request { return true }
+            return false
+        }
+        var identifiers = ["stash-locked-draft", "stash-next-draft"].makeIterator()
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! },
+            beforeBridgeRequest: { request in await gate.suspendIfMatched(request) }
+        )
+        try await waitUntil { session.status == .ready }
+        _ = try await editEditor(
+            title: "Captured before stash",
+            body: "captured stash body",
+            in: session.webView
+        )
+        _ = try await waitForDraft(repository, id: "stash-locked-draft") {
+            $0.title == "Captured before stash"
+        }
+
+        _ = try await session.webView.callAsyncJavaScript(
+            "document.querySelector('#stash').click(); return true",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        try await waitUntil { gate.entered }
+        let attempted = try await attemptUserEditorInput(
+            title: "Must not replace stashed capture",
+            body: "must not replace stash body",
+            in: session.webView
+        )
+
+        XCTAssertEqual(attempted["titleDisabled"] as? Bool, true)
+        XCTAssertEqual(attempted["editorEditable"] as? String, "false")
+        let controls = try await editorLockState(in: session.webView)
+        XCTAssertEqual(controls["saveDisabled"] as? Bool, true)
+        XCTAssertEqual(controls["stashDisabled"] as? Bool, true)
+        XCTAssertEqual(controls["toolbarDisabled"] as? Bool, true)
+        gate.resume()
+        _ = try await waitForDraft(repository, id: "stash-locked-draft") {
+            $0.disposition == .stashed
+        }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return document.querySelector('#title').value === '' && !document.querySelector('#title').disabled"
+        }
+        let stashedValue = try await repository.draft(id: "stash-locked-draft")
+        let stashed = try XCTUnwrap(stashedValue)
+        XCTAssertEqual(stashed.title, "Captured before stash")
+        XCTAssertTrue(String(decoding: stashed.editorDocument, as: UTF8.self).contains("captured stash body"))
+    }
+
+    func testRestoreDrainsQueuedOldDraftEditBeforeSwitchingSnapshots() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "restore-target",
+                title: "Stashed target",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"target body"}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .stashed
+            ),
+            expectedRevision: 0
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "old-active-draft" }
+        )
+        try await waitUntil { session.status == .ready }
+        _ = try await editEditor(
+            title: "Queued old draft edit",
+            body: "queued old draft body",
+            in: session.webView
+        )
+
+        let restoredValue = try await session.webView.callAsyncJavaScript(
+            "return await window.NotionPiPBridge.restore(draftID, expectedRevision)",
+            arguments: ["draftID": "restore-target", "expectedRevision": 1],
+            in: nil,
+            contentWorld: .page
+        )
+        let restoredReply = try XCTUnwrap(restoredValue as? [String: Any])
+
+        XCTAssertEqual(restoredReply["ok"] as? Bool, true, "\(restoredReply)")
+        let oldDraftValue = try await repository.draft(id: "old-active-draft")
+        let oldDraft = try XCTUnwrap(oldDraftValue)
+        XCTAssertEqual(oldDraft.title, "Queued old draft edit")
+        XCTAssertTrue(String(decoding: oldDraft.editorDocument, as: UTF8.self).contains("queued old draft body"))
+        XCTAssertEqual(oldDraft.disposition, .stashed)
+        let targetValue = try await repository.draft(id: "restore-target")
+        let target = try XCTUnwrap(targetValue)
+        XCTAssertEqual(target.disposition, .active)
+        let installed = try await editorDOM(in: session.webView)
+        XCTAssertEqual(installed["title"], "Stashed target")
+        XCTAssertEqual(normalizedDOMText(installed["body"]), "target body")
+    }
+
+    func testOlderSameDraftSnapshotCannotReplaceNewerLiveDOM() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "monotonic-draft" }
+        )
+        try await waitUntil { session.status == .ready }
+        _ = try await editEditor(
+            title: "Newer live title",
+            body: "newer live body",
+            in: session.webView
+        )
+        _ = try await waitForDraft(repository, id: "monotonic-draft") {
+            $0.revision == 2 && $0.title == "Newer live title"
+        }
+
+        let applied = try await session.webView.callAsyncJavaScript(
+            """
+            return window.NotionPiPBridge.applyNativeReply({
+              version: 1,
+              id: 'older-snapshot',
+              ok: true,
+              result: {
+                kind: 'restored',
+                revision: 1,
+                snapshot: {
+                  draftID: 'monotonic-draft',
+                  title: 'Older title',
+                  document: {
+                    type: 'doc',
+                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'older body' }] }],
+                  },
+                  revision: 1,
+                },
+              },
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? Bool
+        let installed = try await editorDOM(in: session.webView)
+
+        XCTAssertEqual(applied, true)
+        XCTAssertEqual(installed["title"], "Newer live title")
+        XCTAssertEqual(normalizedDOMText(installed["body"]), "newer live body")
+    }
+
     func testBundledEditorRunsRealReplyBridgeAndRestoresStashedContentAfterRelaunch() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -229,6 +410,7 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         XCTAssertEqual(unlocked["titleDisabled"] as? Bool, false)
         XCTAssertEqual(unlocked["editorEditable"] as? String, "true")
     }
+
 }
 
 @MainActor
@@ -309,6 +491,9 @@ private func editorLockState(in webView: WKWebView) async throws -> [String: Any
         return {
           titleDisabled: title.disabled,
           editorEditable: editor.getAttribute('contenteditable'),
+          saveDisabled: document.querySelector('#save').disabled,
+          stashDisabled: document.querySelector('#stash').disabled,
+          toolbarDisabled: Array.from(document.querySelectorAll('[data-command]')).every((button) => button.disabled),
         };
         """,
         arguments: [:],
@@ -386,6 +571,28 @@ private final class BlockingConflictResolutionGate {
     private var continuation: CheckedContinuation<Void, Never>?
 
     func suspend() async {
+        entered = true
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func resume() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+@MainActor
+private final class BlockingBridgeRequestGate {
+    private let matches: (CaptureBridgeRequest) -> Bool
+    private(set) var entered = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    init(matches: @escaping (CaptureBridgeRequest) -> Bool) {
+        self.matches = matches
+    }
+
+    func suspendIfMatched(_ request: CaptureBridgeRequest) async {
+        guard matches(request) else { return }
         entered = true
         await withCheckedContinuation { continuation = $0 }
     }

@@ -9,6 +9,7 @@ import {
   type BridgeReply,
   type BridgeRequest,
   type BridgeRequestPayload,
+  type BridgeResultKind,
   type ConflictAction,
   type EditorSnapshot,
   type JSONValue,
@@ -196,6 +197,124 @@ export class BridgeClient {
   }
 }
 
+export interface EditorTransitionOperation {
+  key: string;
+  expectedKind: BridgeResultKind;
+  makeRequest: () => BridgeRequest;
+  drainPendingChanges?: boolean;
+  unlockOnDefinitiveRejection?: boolean;
+}
+
+interface PendingEditorTransition extends EditorTransitionOperation {
+  request?: BridgeRequest;
+}
+
+export class EditorTransitionGate {
+  private pending: PendingEditorTransition | undefined;
+  private operationTail: Promise<void> = Promise.resolve();
+  private locked = true;
+  private readonly changes: DebouncedChangePublisher;
+  private readonly dispatch: (request: BridgeRequest) => Promise<unknown>;
+  private readonly applyReply: (reply: BridgeReply) => boolean;
+  private readonly onLockChanged: (locked: boolean) => void;
+  private readonly onRetryAvailabilityChanged: (available: boolean) => void;
+
+  constructor(
+    changes: DebouncedChangePublisher,
+    dispatch: (request: BridgeRequest) => Promise<unknown>,
+    applyReply: (reply: BridgeReply) => boolean,
+    onLockChanged: (locked: boolean) => void,
+    onRetryAvailabilityChanged: (available: boolean) => void = () => {},
+  ) {
+    this.changes = changes;
+    this.dispatch = dispatch;
+    this.applyReply = applyReply;
+    this.onLockChanged = onLockChanged;
+    this.onRetryAvailabilityChanged = onRetryAvailabilityChanged;
+    this.onLockChanged(true);
+  }
+
+  get isLocked(): boolean {
+    return this.locked;
+  }
+
+  get hasPendingTransition(): boolean {
+    return this.pending !== undefined;
+  }
+
+  async perform(operation: EditorTransitionOperation): Promise<BridgeReply> {
+    const execution = this.operationTail.then(() => this.execute(operation));
+    this.operationTail = execution.then(() => {}, () => {});
+    return execution;
+  }
+
+  async retryPending(): Promise<BridgeReply> {
+    const pending = this.pending;
+    if (pending === undefined) throw new Error("There is no pending transition to retry");
+    return this.perform(pending);
+  }
+
+  private async execute(operation: EditorTransitionOperation): Promise<BridgeReply> {
+    if (this.pending !== undefined && this.pending.key !== operation.key) {
+      throw new Error("A pending transition must be acknowledged before another operation");
+    }
+    this.setLocked(true);
+    this.pending ??= { ...operation };
+    const pending = this.pending;
+
+    try {
+      if (pending.request === undefined) {
+        if (pending.drainPendingChanges !== false) await this.changes.flush();
+        pending.request = pending.makeRequest();
+      }
+      const value = await this.dispatch(pending.request);
+      if (!isBridgeReply(value) || value.id !== pending.request.id) {
+        throw new Error("Malformed bridge reply for state transition");
+      }
+      if (value.ok) {
+        if (value.result.kind !== pending.expectedKind) {
+          throw new Error("Unexpected bridge result for state transition");
+        }
+        if (!this.applyReply(value)) {
+          throw new Error("State transition reply could not be applied");
+        }
+        this.completePendingTransition();
+        return value;
+      }
+
+      this.applyReply(value);
+      if (value.error.code !== "persistenceFailure"
+          && pending.unlockOnDefinitiveRejection !== false) {
+        this.completePendingTransition();
+        return value;
+      }
+      throw new Error(value.error.message);
+    } catch (error) {
+      this.onRetryAvailabilityChanged(true);
+      throw error;
+    }
+  }
+
+  private completePendingTransition(): void {
+    this.pending = undefined;
+    this.onRetryAvailabilityChanged(false);
+    this.setLocked(false);
+  }
+
+  private setLocked(locked: boolean): void {
+    if (this.locked === locked) return;
+    this.locked = locked;
+    this.onLockChanged(locked);
+  }
+}
+
+export function canInstallSnapshot(current: EditorSnapshot, next: EditorSnapshot): boolean {
+  if (current.draftID !== next.draftID) return true;
+  const currentRevision = current.revision ?? 0;
+  const nextRevision = next.revision ?? 0;
+  return nextRevision >= currentRevision;
+}
+
 declare global {
   interface Window {
     webkit?: {
@@ -207,6 +326,7 @@ declare global {
       applyNativeReply(reply: unknown): boolean;
       restore(draftID: string, expectedRevision: number): Promise<BridgeReply>;
       resolveConflict(action: ConflictAction, operationID: string): Promise<BridgeReply>;
+      retryPendingTransition(): Promise<BridgeReply>;
     };
   }
 }
@@ -221,6 +341,7 @@ function bootstrap(): void {
   const status = statusElement;
   const saveButton = document.querySelector<HTMLButtonElement>("#save");
   const stashButton = document.querySelector<HTMLButtonElement>("#stash");
+  const retryButton = document.querySelector<HTMLButtonElement>("#retry");
   const formattingButtons = Array.from(
     document.querySelectorAll<HTMLButtonElement>("[data-command]"),
   );
@@ -232,16 +353,17 @@ function bootstrap(): void {
     document: normalizeDocument(null),
   };
   let applyingNativeSnapshot = false;
-  let recoveryLocked = false;
+  let transitionLocked = true;
   let userActionPending = false;
   const client = new BridgeClient((request) => bridge.postMessage(request));
   const editor = new Editor({
     element: editorElement,
     extensions: [StarterKit],
     content: snapshot.document as JSONContent,
-    autofocus: "end",
+    autofocus: false,
+    editable: false,
     onUpdate: ({ editor: updatedEditor }) => {
-      if (applyingNativeSnapshot || recoveryLocked || snapshot.draftID.length === 0) return;
+      if (applyingNativeSnapshot || transitionLocked || snapshot.draftID.length === 0) return;
       status.dataset.state = "saving";
       status.textContent = "Saving…";
       changes.changed(
@@ -264,30 +386,29 @@ function bootstrap(): void {
     () => crypto.randomUUID(),
     (error) => reportFailure(error),
   );
-  let conflictResolution: {
-    action: ConflictAction;
-    operationID: string;
-    request: BridgeRequest;
-  } | undefined;
-
-  function installSnapshot(next: EditorSnapshot): void {
+  function installSnapshot(next: EditorSnapshot): boolean {
+    if (!canInstallSnapshot(snapshot, next)) return true;
     applyingNativeSnapshot = true;
     snapshot = next;
     titleInput.value = next.title;
     editor.commands.setContent(normalizeDocument(next.document) as JSONContent);
     applyingNativeSnapshot = false;
+    return true;
   }
 
-  function applyReply(reply: BridgeReply): void {
+  function applyReply(reply: BridgeReply): boolean {
     if (reply.ok) {
       if (reply.result.snapshot !== undefined) installSnapshot(reply.result.snapshot);
-      else if (reply.result.revision !== undefined) snapshot.revision = reply.result.revision;
+      else if (reply.result.revision !== undefined) {
+        snapshot.revision = Math.max(snapshot.revision ?? 0, reply.result.revision);
+      }
       status.dataset.state = "saved";
       status.textContent = "Saved";
     } else {
       status.dataset.state = "error";
       status.textContent = reply.error.message;
     }
+    return true;
   }
 
   function reportFailure(value: unknown): void {
@@ -296,13 +417,26 @@ function bootstrap(): void {
   }
 
   function refreshMutationControls(): void {
-    const disabled = recoveryLocked || userActionPending;
-    titleInput.disabled = recoveryLocked;
-    editor.setEditable(!recoveryLocked);
+    const disabled = transitionLocked || userActionPending;
+    titleInput.disabled = transitionLocked;
+    editor.setEditable(!transitionLocked);
     if (saveButton !== null) saveButton.disabled = disabled;
     if (stashButton !== null) stashButton.disabled = disabled;
-    formattingButtons.forEach((button) => { button.disabled = recoveryLocked; });
+    formattingButtons.forEach((button) => { button.disabled = transitionLocked; });
   }
+
+  const transitions = new EditorTransitionGate(
+    changes,
+    (request) => client.dispatch(request),
+    applyReply,
+    (locked) => {
+      transitionLocked = locked;
+      refreshMutationControls();
+    },
+    (available) => {
+      if (retryButton !== null) retryButton.hidden = !available;
+    },
+  );
 
   async function performUserAction<T>(action: () => Promise<T>): Promise<T> {
     userActionPending = true;
@@ -316,7 +450,7 @@ function bootstrap(): void {
   }
 
   titleInput.addEventListener("input", () => {
-    if (recoveryLocked || snapshot.draftID.length === 0) return;
+    if (transitionLocked || snapshot.draftID.length === 0) return;
     changes.changed(
       { draftID: snapshot.draftID, title: titleInput.value, document: normalizeDocument(editor.getJSON()) },
       () => snapshot.revision ?? 0,
@@ -336,14 +470,21 @@ function bootstrap(): void {
     })).then(applyReply).catch(reportFailure);
   });
   stashButton?.addEventListener("click", async () => {
-    void performUserAction(() => client.request("stash", {
-      snapshot: {
-        draftID: snapshot.draftID,
-        title: titleInput.value,
-        document: normalizeDocument(editor.getJSON()),
-      },
-      expectedRevision: snapshot.revision ?? 0,
-    })).then(applyReply).catch(reportFailure);
+    void transitions.perform({
+      key: "stash",
+      expectedKind: "stashed",
+      makeRequest: () => makeRequest("stash", crypto.randomUUID(), {
+        snapshot: {
+          draftID: snapshot.draftID,
+          title: titleInput.value,
+          document: normalizeDocument(editor.getJSON()),
+        },
+        expectedRevision: snapshot.revision ?? 0,
+      }),
+    }).catch(reportFailure);
+  });
+  retryButton?.addEventListener("click", () => {
+    void transitions.retryPending().catch(reportFailure);
   });
 
   window.NotionPiPBridge = {
@@ -352,50 +493,45 @@ function bootstrap(): void {
       applyReply(reply);
       return true;
     },
-    restore: (draftID, expectedRevision) => client
-      .request("restore", { draftID, expectedRevision })
-      .then((reply) => { applyReply(reply); return reply; })
+    restore: (draftID, expectedRevision) => transitions
+      .perform({
+        key: `restore:${draftID}:${expectedRevision}`,
+        expectedKind: "restored",
+        makeRequest: () => makeRequest(
+          "restore",
+          crypto.randomUUID(),
+          { draftID, expectedRevision },
+        ),
+      })
       .catch((error) => { reportFailure(error); throw error; }),
-    resolveConflict: (action, operationID) => runAfterPendingChange(changes, async () => {
-      recoveryLocked = true;
-      refreshMutationControls();
-      try {
-        // An edit can arrive while the action's first flush is awaiting native I/O.
-        // Lock first, then drain once more so the final live snapshot has no queued predecessor.
-        await changes.flush();
-        if (conflictResolution?.operationID === operationID) {
-          if (conflictResolution.action !== action) {
-            throw new Error("Conflict recovery operation does not match its original action");
-          }
-        } else {
-          conflictResolution = {
-            action,
-            operationID,
-            request: makeRequest("resolveConflict", operationID, {
-              action,
-              snapshot: {
-                draftID: snapshot.draftID,
-                title: titleInput.value,
-                document: normalizeDocument(editor.getJSON()),
-              },
-            }),
-          };
-        }
-        const reply = await client.dispatch(conflictResolution.request);
-        applyReply(reply);
-        if (!reply.ok) throw new Error(reply.error.message);
-        return reply;
-      } finally {
-        recoveryLocked = false;
-        refreshMutationControls();
-      }
+    resolveConflict: (action, operationID) => transitions.perform({
+      key: `conflict:${operationID}:${action}`,
+      expectedKind: "conflictResolved",
+      makeRequest: () => makeRequest("resolveConflict", operationID, {
+        action,
+        snapshot: {
+          draftID: snapshot.draftID,
+          title: titleInput.value,
+          document: normalizeDocument(editor.getJSON()),
+        },
+      }),
+    }).then((reply) => {
+      if (!reply.ok) throw new Error(reply.error.message);
+      return reply;
     }).catch((error) => {
       reportFailure(error);
       throw error;
     }),
+    retryPendingTransition: () => transitions.retryPending(),
   };
 
-  void client.request("ready", {}).then(applyReply).catch(reportFailure);
+  void transitions.perform({
+    key: "ready",
+    expectedKind: "ready",
+    drainPendingChanges: false,
+    unlockOnDefinitiveRejection: false,
+    makeRequest: () => makeRequest("ready", crypto.randomUUID(), {}),
+  }).catch(reportFailure);
 }
 
 function canonicalize(value: unknown): unknown {
