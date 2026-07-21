@@ -1,36 +1,60 @@
-import AppKit
 import Combine
 import Foundation
 import OSLog
 
 @MainActor
 final class AppRuntime: ObservableObject, ApplicationURLHandling {
-    @Published var pageURLText = ""
     @Published private(set) var pendingPage: NotionPageReference?
     @Published private(set) var activePage: NotionPageReference?
-    @Published private(set) var validationMessage: String?
-    @Published private(set) var validationFailed = false
-    @Published private(set) var pageURLFocusRequest = 0
+
+    let pageURLInputState: PageURLInputState
+
+    var pageURLText: String {
+        get { pageURLInputState.text }
+        set { pageURLInputState.text = newValue }
+    }
+
+    var validationMessage: String? {
+        pageURLInputState.validationMessage
+    }
+
+    var validationFailed: Bool {
+        pageURLInputState.validationFailed
+    }
+
+    var pageURLFocusRequest: Int {
+        pageURLInputState.focusRequest
+    }
 
     private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "shortcut")
     private let pinCoordinator: PinCoordinator
     private let shortcutRegistrar: any GlobalShortcutRegistering
+    private let pageURLInputPresenter: any PageURLInputPresenting
     private var started = false
 
     init(
         panelCoordinator: any PiPPanelCoordinating = PiPPanelCoordinator(),
         pasteboard: any PasteboardReading = SystemPasteboardReader(),
-        shortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar()
+        shortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar(),
+        pageURLInputPresenter: (any PageURLInputPresenting)? = nil
     ) {
-        let focusRelay = PageURLFocusRelay()
+        let inputState = PageURLInputState()
+        let submissionRelay = PageURLInputSubmissionRelay()
+        let inputPresenter = pageURLInputPresenter ?? PageURLInputPresenter(
+            state: inputState,
+            onSubmit: submissionRelay.submit
+        )
+
+        pageURLInputState = inputState
+        self.pageURLInputPresenter = inputPresenter
         pinCoordinator = PinCoordinator(
             panelCoordinator: panelCoordinator,
             pasteboard: pasteboard,
-            requestPageURLFocus: { focusRelay.request() }
+            requestPageURLFocus: inputPresenter.presentAndFocus
         )
         self.shortcutRegistrar = shortcutRegistrar
-        focusRelay.handler = { [weak self] in
-            self?.requestPageURLFocus()
+        submissionRelay.handler = { [weak self] in
+            self?.validatePageURL()
         }
     }
 
@@ -54,8 +78,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         case let .success(page):
             pendingPage = page
             activePage = page
-            validationFailed = false
-            validationMessage = page.displayTitle.map { "Pinned \($0)." } ?? "Pinned this page."
+            pageURLInputState.showPinned(page: page)
+            pageURLInputPresenter.hide()
         case .failure:
             showValidationFailure("Use an HTTPS notion.so page URL with a page ID.")
         }
@@ -79,22 +103,16 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         pendingPage = activePage
     }
 
-    private func requestPageURLFocus() {
-        pageURLFocusRequest += 1
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
     private func showValidationFailure(_ message: String) {
-        validationFailed = true
-        validationMessage = message
+        pageURLInputState.showValidationFailure(message)
     }
 }
 
 @MainActor
-private final class PageURLFocusRelay {
+private final class PageURLInputSubmissionRelay {
     var handler: () -> Void = {}
 
-    func request() {
+    func submit() {
         handler()
     }
 }

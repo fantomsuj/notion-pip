@@ -13,23 +13,10 @@ struct MenuBarRootView: View {
                 .foregroundStyle(DesignTokens.Colors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
-            PageURLField(
-                text: $runtime.pageURLText,
-                focusRequest: runtime.pageURLFocusRequest,
+            PageURLInputView(
+                state: runtime.pageURLInputState,
                 onSubmit: runtime.validatePageURL
             )
-
-            if let validationMessage = runtime.validationMessage {
-                Label(
-                    validationMessage,
-                    systemImage: runtime.validationFailed ? "exclamationmark.circle" : "checkmark.circle"
-                )
-                .font(.caption)
-                .foregroundStyle(
-                    runtime.validationFailed ? DesignTokens.Colors.error : DesignTokens.Colors.secondaryText
-                )
-                .accessibilityLabel(validationMessage)
-            }
 
             if let activePage = runtime.activePage {
                 PagePickerView(pages: [activePage], onPin: runtime.pin)

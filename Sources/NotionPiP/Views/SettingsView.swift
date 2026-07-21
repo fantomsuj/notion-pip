@@ -6,7 +6,10 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Page") {
-                PageURLField(text: $runtime.pageURLText, onSubmit: runtime.validatePageURL)
+                PageURLInputView(
+                    state: runtime.pageURLInputState,
+                    onSubmit: runtime.validatePageURL
+                )
             }
 
             Section("About") {

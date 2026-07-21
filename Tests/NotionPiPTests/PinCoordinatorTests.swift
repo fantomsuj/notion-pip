@@ -107,7 +107,8 @@ final class PinCoordinatorTests: XCTestCase {
         let runtime = AppRuntime(
             panelCoordinator: FakePanelCoordinator(),
             pasteboard: FakePasteboard(value: nil),
-            shortcutRegistrar: shortcut
+            shortcutRegistrar: shortcut,
+            pageURLInputPresenter: FakePageURLInputPresenter()
         )
 
         runtime.start()
