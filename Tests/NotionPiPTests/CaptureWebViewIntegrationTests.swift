@@ -51,7 +51,7 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
                 contentWorld: .page
             ) as? [String: String]
             XCTAssertEqual(edited?["title"], "Real WebKit")
-            XCTAssertEqual(edited?["body"], "real webkit body")
+            XCTAssertEqual(normalizedDOMText(edited?["body"]), "real webkit body")
 
             let saved = try await waitForDraft(repository, id: "web-draft") {
                 $0.revision == 2 && $0.title == "Real WebKit"
@@ -108,7 +108,7 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
             contentWorld: .page
         ) as? [String: String]
         XCTAssertEqual(restoredDOM?["title"], "Real WebKit")
-        XCTAssertEqual(restoredDOM?["body"], "real webkit body")
+        XCTAssertEqual(normalizedDOMText(restoredDOM?["body"]), "real webkit body")
     }
 
     func testNativeSaveAsNewCapturesNewestUnsentTiptapDocument() async throws {
@@ -138,7 +138,7 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
             body: "cached conflict body",
             in: session.webView
         )
-        XCTAssertEqual(staleDOM["body"], "cached conflict body")
+        XCTAssertEqual(normalizedDOMText(staleDOM["body"]), "cached conflict body")
         try await waitUntil { session.conflict != nil }
 
         let newestDOM = try await editEditor(
@@ -146,7 +146,7 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
             body: "newest unsent JS body",
             in: session.webView
         )
-        XCTAssertEqual(newestDOM["body"], "newest unsent JS body")
+        XCTAssertEqual(normalizedDOMText(newestDOM["body"]), "newest unsent JS body")
 
         await session.resolve(.saveAsNew)
 
@@ -157,7 +157,7 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         XCTAssertTrue(String(decoding: copy.editorDocument, as: UTF8.self).contains("newest unsent JS body"))
         let installed = try await editorDOM(in: session.webView)
         XCTAssertEqual(installed["title"], "Newest unsent JS work")
-        XCTAssertEqual(installed["body"], "newest unsent JS body")
+        XCTAssertEqual(normalizedDOMText(installed["body"]), "newest unsent JS body")
     }
 }
 
@@ -231,4 +231,8 @@ private func waitUntil(
 
 private enum CaptureWebViewIntegrationError: Error {
     case timeout
+}
+
+private func normalizedDOMText(_ value: String?) -> String? {
+    value?.trimmingCharacters(in: .whitespacesAndNewlines)
 }
