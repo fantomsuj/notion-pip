@@ -32,11 +32,13 @@ struct CaptureDraftSnapshot: Codable, Equatable, Sendable {
     let createdAt: Date
     let updatedAt: Date
     let captureRecordID: String?
+    let returnDraftID: String?
 }
 
 struct CaptureRecordSnapshot: Codable, Equatable, Sendable {
     let id: String
     let draftID: String
+    let enqueuedDraftRevision: Int
     let revision: Int
     let title: String
     let editorDocument: Data

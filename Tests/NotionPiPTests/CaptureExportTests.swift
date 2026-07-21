@@ -14,7 +14,20 @@ final class CaptureExportTests: XCTestCase {
                         "attrs": [
                             "keep": "visible",
                             "apiKey": "credential-value",
-                            "nested": [["Refresh-Token": "refresh-value", "safe": true]],
+                            "nested": [[
+                                "Refresh-Token": "refresh-value",
+                                "private_key": "private-key-value",
+                                "signingKey": "signing-key-value",
+                                "clientKey": "client-key-value",
+                                "authorizationHeader": "authorization-value",
+                                "tokenValue": "token-value",
+                                "secretValue": "secret-value",
+                                "monkey": "banana",
+                                "keyboardShortcut": "command-p",
+                                "tokenCount": 3,
+                                "secretary": "Alex",
+                                "safe": true,
+                            ]],
                         ],
                     ],
                 ],
@@ -32,7 +45,8 @@ final class CaptureExportTests: XCTestCase {
             disposition: .stashed,
             createdAt: fixedDate,
             updatedAt: fixedDate,
-            captureRecordID: nil
+            captureRecordID: nil,
+            returnDraftID: nil
         )
 
         let first = try CaptureExport.json(records: [recordB, recordA], drafts: [draft])
@@ -44,8 +58,18 @@ final class CaptureExportTests: XCTestCase {
         XCTAssertFalse(text.contains("refresh-value"))
         XCTAssertFalse(text.contains("password-value"))
         XCTAssertFalse(text.contains("draft-token"))
+        XCTAssertFalse(text.contains("private-key-value"))
+        XCTAssertFalse(text.contains("signing-key-value"))
+        XCTAssertFalse(text.contains("client-key-value"))
+        XCTAssertFalse(text.contains("authorization-value"))
+        XCTAssertFalse(text.contains("token-value"))
+        XCTAssertFalse(text.contains("secret-value"))
         XCTAssertFalse(text.localizedCaseInsensitiveContains("apiKey"))
         XCTAssertFalse(text.localizedCaseInsensitiveContains("authorization"))
+        XCTAssertTrue(text.contains(#""monkey":"banana""#))
+        XCTAssertTrue(text.contains(#""keyboardShortcut":"command-p""#))
+        XCTAssertTrue(text.contains(#""tokenCount":3"#))
+        XCTAssertTrue(text.contains(#""secretary":"Alex""#))
         XCTAssertTrue(text.contains(#""type":"mystery""#))
         XCTAssertTrue(text.contains(#""keep":"visible""#))
         XCTAssertTrue(text.contains(#""safe":"draft-safe""#))
@@ -70,7 +94,19 @@ final class CaptureExportTests: XCTestCase {
                 ],
                 [
                     "type": "mystery",
-                    "attrs": ["access_token": "remove-me", "safe": "recover-me"],
+                    "attrs": [
+                        "access_token": "remove-me",
+                        "private_key": "remove-private-key",
+                        "signingKey": "remove-signing-key",
+                        "clientKey": "remove-client-key",
+                        "authorizationHeader": "remove-authorization",
+                        "tokenValue": "remove-token-value",
+                        "secretValue": "remove-secret-value",
+                        "monkey": "keep-banana",
+                        "tokenCount": 4,
+                        "secretary": "keep-name",
+                        "safe": "recover-me",
+                    ],
                 ],
             ],
         ]
@@ -81,9 +117,19 @@ final class CaptureExportTests: XCTestCase {
         XCTAssertTrue(markdown.contains("## Heading"))
         XCTAssertTrue(markdown.contains("**Bold** and plain"))
         XCTAssertTrue(markdown.contains("Recovery JSON"))
-        XCTAssertTrue(markdown.contains(#"{"attrs":{"safe":"recover-me"},"type":"mystery"}"#))
+        XCTAssertTrue(markdown.contains(#""safe":"recover-me""#))
+        XCTAssertTrue(markdown.contains(#""type":"mystery""#))
         XCTAssertFalse(markdown.contains("remove-me"))
+        XCTAssertFalse(markdown.contains("remove-private-key"))
+        XCTAssertFalse(markdown.contains("remove-signing-key"))
+        XCTAssertFalse(markdown.contains("remove-client-key"))
+        XCTAssertFalse(markdown.contains("remove-authorization"))
+        XCTAssertFalse(markdown.contains("remove-token-value"))
+        XCTAssertFalse(markdown.contains("remove-secret-value"))
         XCTAssertFalse(markdown.localizedCaseInsensitiveContains("access_token"))
+        XCTAssertTrue(markdown.contains(#""monkey":"keep-banana""#))
+        XCTAssertTrue(markdown.contains(#""tokenCount":4"#))
+        XCTAssertTrue(markdown.contains(#""secretary":"keep-name""#))
     }
 
     func testMarkdownExportIsDeterministicAndIncludesUnresolvedStateAndSourceRecovery() throws {
@@ -117,6 +163,7 @@ final class CaptureExportTests: XCTestCase {
         CaptureRecordSnapshot(
             id: id,
             draftID: id,
+            enqueuedDraftRevision: 2,
             revision: 3,
             title: "Record \(id)",
             editorDocument: jsonData(editor),

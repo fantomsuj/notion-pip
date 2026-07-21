@@ -1,6 +1,8 @@
 import Foundation
 import SwiftData
 
+typealias PageRepositorySaveCheck = @Sendable () throws -> Void
+
 struct StoredPageSnapshot: Equatable, Sendable {
     let pageID: String
     let canonicalURL: URL
@@ -11,11 +13,17 @@ struct StoredPageSnapshot: Equatable, Sendable {
 actor PageRepository {
     private let context: ModelContext
     private let clock: any CaptureClock
+    private let beforeSave: PageRepositorySaveCheck
 
-    init(container: ModelContainer, clock: any CaptureClock = SystemCaptureClock()) {
+    init(
+        container: ModelContainer,
+        clock: any CaptureClock = SystemCaptureClock(),
+        beforeSave: @escaping PageRepositorySaveCheck = {}
+    ) {
         context = ModelContext(container)
         context.autosaveEnabled = false
         self.clock = clock
+        self.beforeSave = beforeSave
     }
 
     func pin(_ page: NotionPageReference) throws -> StoredPageSnapshot {
@@ -32,7 +40,13 @@ actor PageRepository {
         model.canonicalURL = page.canonicalURL.absoluteString
         model.displayTitle = page.displayTitle
         model.pinnedAt = now
-        try context.save()
+        do {
+            try beforeSave()
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
         return try snapshot(model)
     }
 
@@ -50,7 +64,13 @@ actor PageRepository {
         model.canonicalURL = page.canonicalURL.absoluteString
         model.displayTitle = page.displayTitle
         model.visitedAt = now
-        try context.save()
+        do {
+            try beforeSave()
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
         return try snapshot(model)
     }
 

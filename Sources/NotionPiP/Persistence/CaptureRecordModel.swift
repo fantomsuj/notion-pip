@@ -5,6 +5,7 @@ import SwiftData
 final class CaptureRecordModel {
     @Attribute(.unique) var stableID: String
     var draftID: String
+    var enqueuedDraftRevision: Int
     var revision: Int
     var title: String
     var editorDocument: Data
@@ -30,6 +31,7 @@ final class CaptureRecordModel {
     init(
         stableID: String,
         draftID: String,
+        enqueuedDraftRevision: Int,
         revision: Int,
         title: String,
         editorDocument: Data,
@@ -54,6 +56,7 @@ final class CaptureRecordModel {
     ) {
         self.stableID = stableID
         self.draftID = draftID
+        self.enqueuedDraftRevision = enqueuedDraftRevision
         self.revision = revision
         self.title = title
         self.editorDocument = editorDocument

@@ -12,6 +12,7 @@ final class CaptureDraftModel {
     var createdAt: Date
     var updatedAt: Date
     var captureRecordID: String?
+    var returnDraftID: String?
 
     init(
         stableID: String,
@@ -22,7 +23,8 @@ final class CaptureDraftModel {
         dispositionRawValue: String,
         createdAt: Date,
         updatedAt: Date,
-        captureRecordID: String? = nil
+        captureRecordID: String? = nil,
+        returnDraftID: String? = nil
     ) {
         self.stableID = stableID
         self.revision = revision
@@ -33,5 +35,6 @@ final class CaptureDraftModel {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.captureRecordID = captureRecordID
+        self.returnDraftID = returnDraftID
     }
 }

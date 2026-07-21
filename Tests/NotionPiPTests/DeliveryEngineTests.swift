@@ -48,6 +48,40 @@ final class DeliveryEngineTests: XCTestCase {
         XCTAssertEqual(createCallCount, 1)
     }
 
+    func testUnauthorizedStopsDrainBeforeClaimingLaterRecords() async throws {
+        let clock = TestCaptureClock(Date(timeIntervalSince1970: 10_000))
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        let first = try await seedRecord(
+            repository,
+            id: "a-first",
+            destination: .managed(databaseID: "database-1")
+        )
+        let second = try await seedRecord(
+            repository,
+            id: "b-second",
+            destination: .managed(databaseID: "database-1")
+        )
+        let transport = ScriptedDeliveryTransport(
+            createActions: [
+                .failure(.http(status: 401, retryAfter: nil, message: "Reconnect")),
+                .receipt(DeliveryReceipt(remoteIdentity: "must-not-send", fingerprint: nil)),
+            ]
+        )
+        let engine = DeliveryEngine(repository: repository, transport: transport, clock: clock)
+
+        let summary = try await engine.drain()
+
+        let events = await transport.events
+        let firstStored = try await fetchedRecord(repository, id: first.id)
+        let secondStored = try await fetchedRecord(repository, id: second.id)
+        XCTAssertTrue(summary.pausedForReconnect)
+        XCTAssertEqual(events, ["create"])
+        XCTAssertEqual(firstStored.state, .retrying)
+        XCTAssertNil(firstStored.nextAttemptAt)
+        XCTAssertEqual(secondStored.state, .queued)
+        XCTAssertEqual(secondStored.attemptCount, 0)
+    }
+
     func testManagedTimeoutChecksCaptureIDBeforeCreatingAgain() async throws {
         let clock = TestCaptureClock(Date(timeIntervalSince1970: 10_000))
         let repository = try CaptureRepository(inMemory: true, clock: clock)
@@ -232,6 +266,29 @@ final class DeliveryEngineTests: XCTestCase {
         XCTAssertEqual(manualStored.state, .uncertain)
     }
 
+    func testFailedStartupRecoveryIsRetriedOnNextDrain() async throws {
+        let clock = TestCaptureClock(Date(timeIntervalSince1970: 10_000))
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        let recovery = FlakyStartupRecovery()
+        let engine = DeliveryEngine(
+            repository: repository,
+            transport: ScriptedDeliveryTransport(),
+            clock: clock,
+            startupRecovery: { date in
+                try await recovery.recover(at: date)
+            }
+        )
+
+        do {
+            _ = try await engine.drain()
+            XCTFail("Expected first startup recovery to fail")
+        } catch is FlakyStartupRecovery.ExpectedFailure {}
+
+        _ = try await engine.drain()
+        let callCount = await recovery.callCount
+        XCTAssertEqual(callCount, 2)
+    }
+
     func testReplacementJournalIsPersistedBeforeArchiveCanStart() async throws {
         let clock = TestCaptureClock(Date(timeIntervalSince1970: 10_000))
         let repository = try CaptureRepository(inMemory: true, clock: clock)
@@ -277,6 +334,18 @@ final class DeliveryEngineTests: XCTestCase {
     ) async throws -> CaptureRecordSnapshot {
         let record = try await repository.record(id: id)
         return try XCTUnwrap(record)
+    }
+}
+
+private actor FlakyStartupRecovery {
+    struct ExpectedFailure: Error {}
+
+    private(set) var callCount = 0
+
+    func recover(at _: Date) throws -> Int {
+        callCount += 1
+        if callCount == 1 { throw ExpectedFailure() }
+        return 0
     }
 }
 

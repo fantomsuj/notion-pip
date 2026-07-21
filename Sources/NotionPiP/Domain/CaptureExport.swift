@@ -40,6 +40,7 @@ enum CaptureExport {
             "attemptCount": record.attemptCount,
             "destination": ["id": record.destination.identifier, "kind": record.destination.rawKind],
             "draftID": record.draftID,
+            "enqueuedDraftRevision": record.enqueuedDraftRevision,
             "editorDocument": try sanitizedDocument(record.editorDocument),
             "firstQueuedAt": dateString(record.firstQueuedAt),
             "id": record.id,
@@ -78,6 +79,7 @@ enum CaptureExport {
         ]
         setOptional(try draft.sourceDocument.map(sanitizedDocument), key: "sourceDocument", in: &result)
         setOptional(draft.captureRecordID, key: "captureRecordID", in: &result)
+        setOptional(draft.returnDraftID, key: "returnDraftID", in: &result)
         return result
     }
 
@@ -150,11 +152,69 @@ enum CaptureExport {
 
     private static func isCredentialShaped(_ key: String) -> Bool {
         let normalized = key.lowercased().filter(\.isLetter)
-        return normalized.contains("token")
-            || normalized.contains("secret")
-            || normalized.contains("authorization")
+        let words = keyWords(key)
+        if normalized == "key" || normalized == "token" || normalized == "secret" {
+            return true
+        }
+        if words.contains("authorization") || words.contains("password") {
+            return true
+        }
+        let credentialValueWords: Set<String> = ["value", "data", "credential", "header", "key"]
+        for (index, word) in words.enumerated() where word == "token" || word == "secret" {
+            if index == words.indices.last || credentialValueWords.contains(words[index + 1]) {
+                return true
+            }
+        }
+        let keyQualifiers: Set<String> = [
+            "api", "private", "signing", "client", "secret", "encryption", "access", "auth", "device", "public",
+        ]
+        if words.last == "key", words.dropLast().contains(where: keyQualifiers.contains) {
+            return true
+        }
+        let credentialSuffixes = [
+            "token",
+            "secret",
+            "authorization",
+            "apikey",
+            "privatekey",
+            "signingkey",
+            "clientkey",
+            "secretkey",
+            "encryptionkey",
+            "accesskey",
+            "authkey",
+            "devicekey",
+            "publickey",
+        ]
+        return credentialSuffixes.contains { normalized.hasSuffix($0) }
             || normalized.contains("password")
-            || normalized.contains("apikey")
+    }
+
+    private static func keyWords(_ key: String) -> [String] {
+        var words: [String] = []
+        var current = ""
+        var previousWasLowercaseOrNumber = false
+        func finishWord() {
+            if !current.isEmpty {
+                words.append(current)
+                current = ""
+            }
+        }
+
+        for character in key {
+            guard character.isLetter || character.isNumber else {
+                finishWord()
+                previousWasLowercaseOrNumber = false
+                continue
+            }
+            if character.isUppercase, previousWasLowercaseOrNumber {
+                finishWord()
+            }
+            current.append(contentsOf: character.lowercased())
+            previousWasLowercaseOrNumber = character.isLowercase || character.isNumber
+        }
+        finishWord()
+        return words
     }
 
     private static func canonicalJSONString(_ object: Any) throws -> String {

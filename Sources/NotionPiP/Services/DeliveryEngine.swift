@@ -17,6 +17,8 @@ protocol CaptureDeliveryTransport: Sendable {
     func appendManual(_ record: CaptureRecordSnapshot, pageID: String) async throws -> DeliveryReceipt
 }
 
+typealias DeliveryStartupRecovery = @Sendable (Date) async throws -> Int
+
 struct DeliveryDrainSummary: Equatable, Sendable {
     var claimed = 0
     var delivered = 0
@@ -28,6 +30,7 @@ actor DeliveryEngine {
     private let transport: any CaptureDeliveryTransport
     private let clock: any CaptureClock
     private let retryPolicy: RetryPolicy
+    private let startupRecovery: DeliveryStartupRecovery
     private var isDraining = false
     private var didPerformStartupRecovery = false
 
@@ -35,17 +38,22 @@ actor DeliveryEngine {
         repository: CaptureRepository,
         transport: any CaptureDeliveryTransport,
         clock: any CaptureClock = SystemCaptureClock(),
-        retryPolicy: RetryPolicy = RetryPolicy()
+        retryPolicy: RetryPolicy = RetryPolicy(),
+        startupRecovery: DeliveryStartupRecovery? = nil
     ) {
         self.repository = repository
         self.transport = transport
         self.clock = clock
         self.retryPolicy = retryPolicy
+        self.startupRecovery = startupRecovery ?? { date in
+            try await repository.recoverInterruptedWork(at: date)
+        }
     }
 
     func recoverInterruptedWork() async throws -> Int {
+        let recovered = try await startupRecovery(clock.now())
         didPerformStartupRecovery = true
-        return try await repository.recoverInterruptedWork(at: clock.now())
+        return recovered
     }
 
     func drain() async throws -> DeliveryDrainSummary {
@@ -54,8 +62,8 @@ actor DeliveryEngine {
         defer { isDraining = false }
 
         if !didPerformStartupRecovery {
+            _ = try await startupRecovery(clock.now())
             didPerformStartupRecovery = true
-            _ = try await repository.recoverInterruptedWork(at: clock.now())
         }
 
         var summary = DeliveryDrainSummary()
@@ -68,6 +76,7 @@ actor DeliveryEngine {
             } catch let error as DeliveryTransportError {
                 let paused = try await handle(error, for: record)
                 summary.pausedForReconnect = summary.pausedForReconnect || paused
+                if paused { break }
             } catch {
                 let fallback = DeliveryTransportError.transport(message: nil)
                 let paused = try await handle(fallback, for: record)
