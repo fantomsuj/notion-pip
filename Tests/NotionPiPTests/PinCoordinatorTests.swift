@@ -220,8 +220,9 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertFalse(panel.isVisible)
     }
 
-    func testScreenChangeRepositionsVisibleStashHandle() throws {
-        let panel = FakePanelWindow(frame: CGRect(x: 1_600, y: 800, width: 400, height: 360))
+    func testScreenChangeRepositionsVisibleStashHandleWithoutChangingPanelFrame() throws {
+        let originalFrame = CGRect(x: 1_600, y: 800, width: 400, height: 360)
+        let panel = FakePanelWindow(frame: originalFrame)
         let handle = FakeStashHandle()
         let coordinator = PiPPanelCoordinator(
             panel: panel,
@@ -239,10 +240,36 @@ final class PinCoordinatorTests: XCTestCase {
             visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 700)]
         )
 
-        XCTAssertEqual(panel.frame, CGRect(x: 600, y: 340, width: 400, height: 360))
+        XCTAssertEqual(panel.frame, originalFrame)
         XCTAssertEqual(handle.placements.last?.side, .right)
         XCTAssertEqual(handle.placements.last?.frame, CGRect(x: 964, y: 604, width: 36, height: 96))
         XCTAssertTrue(handle.isVisible)
+    }
+
+    func testRestorePreservesPreStashGeometryAfterTemporarySmallerScreen() throws {
+        let originalFrame = CGRect(x: 620, y: 80, width: 300, height: 680)
+        let largeScreen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let smallScreen = CGRect(x: 0, y: 0, width: 800, height: 400)
+        var currentVisibleFrames = [largeScreen]
+        let panel = FakePanelWindow(frame: originalFrame)
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { currentVisibleFrames }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.stash(visibleFrames: currentVisibleFrames))
+
+        currentVisibleFrames = [smallScreen]
+        coordinator.reclampPanelFrame(visibleFrames: currentVisibleFrames)
+        currentVisibleFrames = [largeScreen]
+        coordinator.reclampPanelFrame(visibleFrames: currentVisibleFrames)
+        handle.restore()
+
+        XCTAssertEqual(panel.frame, originalFrame)
+        XCTAssertTrue(panel.isVisible)
     }
 
     func testScreenChangePreservesMovedStashHandlePlacement() throws {

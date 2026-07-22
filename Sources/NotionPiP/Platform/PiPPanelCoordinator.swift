@@ -49,6 +49,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     private var screenConfigurationObserver: NSObjectProtocol?
     private var activeStashPlacement: PanelStashPlacement?
     private var didAttemptFirstPresentation = false
+    private var stashedPanelFrame: CGRect?
 
     var isVisible: Bool {
         panel.isVisible
@@ -143,6 +144,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         } else {
             pageLoader.reselect(page: page)
         }
+        restoreStashedPanelFrame()
         dismissStashHandle()
         panel.present()
         endFirstPresentation(measurement)
@@ -152,6 +154,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
 
     func hide() {
         pageLoader.panelDidHide()
+        restoreStashedPanelFrame()
         panel.orderOut()
         dismissStashHandle()
     }
@@ -159,6 +162,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     func showCurrentPage() -> Bool {
         guard currentPage != nil else { return false }
         let measurement = beginFirstPresentation()
+        restoreStashedPanelFrame()
         dismissStashHandle()
         panel.present()
         endFirstPresentation(measurement)
@@ -205,6 +209,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             return false
         }
 
+        stashedPanelFrame = panel.frame
         pageLoader.panelDidHide()
         panel.orderOut()
         presentStashHandle(stashHandle, placement: placement)
@@ -218,6 +223,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             return
         }
         let measurement = beginFirstPresentation()
+        restoreStashedPanelFrame()
         dismissStashHandle()
         panel.present()
         endFirstPresentation(measurement)
@@ -226,10 +232,12 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     }
 
     func reclampPanelFrame(visibleFrames: [CGRect]) {
-        panel.setFrame(
-            PanelFramePolicy.clamped(panel.frame, visibleFrames: visibleFrames),
-            display: true
-        )
+        if stashedPanelFrame == nil {
+            panel.setFrame(
+                PanelFramePolicy.clamped(panel.frame, visibleFrames: visibleFrames),
+                display: true
+            )
+        }
 
         guard stashHandle?.isVisible == true else { return }
         guard let activeStashPlacement,
@@ -287,6 +295,18 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
                 self?.activeStashPlacement = placement
             }
         )
+    }
+
+    private func restoreStashedPanelFrame() {
+        guard let stashedPanelFrame else { return }
+        panel.setFrame(
+            PanelFramePolicy.clamped(
+                stashedPanelFrame,
+                visibleFrames: visibleFramesProvider()
+            ),
+            display: false
+        )
+        self.stashedPanelFrame = nil
     }
 
     private static func defaultFrame(visibleFrames: [CGRect]) -> CGRect {
