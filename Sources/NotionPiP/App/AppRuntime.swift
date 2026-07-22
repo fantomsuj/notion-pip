@@ -44,6 +44,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     private let pageURLInputPresenter: any PageURLInputPresenting
     private let credentialVault: PersonalTokenCredentialVault
     private let notionClientFactory: (PersonalIntegrationToken) -> any NotionWorkspaceClient
+    private weak var setupOptionsPresenter: (any SetupOptionsPresenting)?
     private var previewTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var bootstrapTask: Task<Void, Never>?
@@ -56,6 +57,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         pasteboard: any PasteboardReading = SystemPasteboardReader(),
         shortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar(),
         pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
+        nativePageDocument: NativePageDocument? = nil,
         credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
         notionClientFactory: @escaping (PersonalIntegrationToken) -> any NotionWorkspaceClient = { token in
             NotionAPIClient(token: token)
@@ -63,7 +65,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     ) {
         let inputState = PageURLInputState()
         let submissionRelay = PageURLInputSubmissionRelay()
-        let nativePageDocument = NativePageDocument()
+        let nativePageDocument = nativePageDocument ?? NativePageDocument()
         let inputPresenter = pageURLInputPresenter ?? PageURLInputPresenter(
             state: inputState,
             onSubmit: submissionRelay.submit
@@ -98,12 +100,24 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
         do {
             try shortcutRegistrar.register { [weak self] in
-                self?.pinFromClipboard()
+                self?.handleGlobalShortcut()
             }
             started = true
         } catch {
             logger.error("Global shortcut registration failed")
         }
+    }
+
+    func bind(setupOptionsPresenter: any SetupOptionsPresenting) {
+        self.setupOptionsPresenter = setupOptionsPresenter
+    }
+
+    func handleMenuBarActivation() {
+        guard pinCoordinator.toggleCurrentPage() else {
+            setupOptionsPresenter?.show()
+            return
+        }
+        setupOptionsPresenter?.hide()
     }
 
     func validatePageURL() {
@@ -123,6 +137,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
     func activate(page: NotionPageReference, source: PageActivationSource) {
         pinCoordinator.pin(page: page)
+        setupOptionsPresenter?.hide()
         activePage = page
         pendingPage = page
         lastActivationSource = source
@@ -245,9 +260,11 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         }
     }
 
-    private func pinFromClipboard() {
-        guard let page = pinCoordinator.pageFromClipboard() else { return }
-        activate(page: page, source: .clipboard)
+    private func handleGlobalShortcut() {
+        guard pinCoordinator.toggleCurrentPage() else {
+            pageURLInputPresenter.presentAndFocus()
+            return
+        }
     }
 
     private func showValidationFailure(_ message: String) {

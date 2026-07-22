@@ -6,6 +6,7 @@ import {
   DebouncedChangePublisher,
   EditorTransitionGate,
   canInstallSnapshot,
+  conflictTransitionOperation,
   executeToolbarCommand,
   normalizeDocument,
   requireAutosaveAcknowledgement,
@@ -616,20 +617,15 @@ test("conflict capture discards the superseded queued autosave", async () => {
     () => {},
   );
 
-  await gate.perform({
-    key: "conflict:reload-latest:reloadLatest",
-    expectedKind: "conflictResolved",
-    drainPendingChanges: false,
-    discardPendingChanges: true,
-    makeRequest: () => makeRequest("resolveConflict", "reload-latest", {
-      action: "reloadLatest",
-      snapshot: {
-        draftID: "draft-1",
-        title: "Discard me",
-        document: normalizeDocument(null),
-      },
+  await gate.perform(conflictTransitionOperation(
+    "reloadLatest",
+    "reload-latest",
+    () => ({
+      draftID: "draft-1",
+      title: "Discard me",
+      document: normalizeDocument(null),
     }),
-  });
+  ));
   await new Promise((resolve) => setTimeout(resolve, 20));
 
   assert.equal(transitionRequests.length, 1);

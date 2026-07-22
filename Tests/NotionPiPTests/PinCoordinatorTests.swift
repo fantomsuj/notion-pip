@@ -53,6 +53,44 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.currentPage?.pageID, firstPageID)
     }
 
+    func testPanelCoordinatorTogglesLoadedPageVisibilityWithoutReloading() throws {
+        let panel = FakePanelWindow()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(panel: panel, pageLoader: loader)
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+
+        coordinator.show(page: page)
+        XCTAssertTrue(coordinator.toggleCurrentPage())
+        XCTAssertFalse(coordinator.isVisible)
+        XCTAssertTrue(coordinator.toggleCurrentPage())
+
+        XCTAssertTrue(coordinator.isVisible)
+        XCTAssertEqual(loader.activatedPages.map(\.pageID), [firstPageID])
+        XCTAssertEqual(coordinator.currentPage, page)
+    }
+
+    func testPanelCoordinatorCannotToggleWithoutCurrentPage() {
+        let panel = FakePanelWindow()
+        let coordinator = PiPPanelCoordinator(panel: panel, pageLoader: FakePageLoader())
+
+        XCTAssertFalse(coordinator.toggleCurrentPage())
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    func testPinCoordinatorExposesNarrowCurrentPageToggle() throws {
+        let panel = FakePanelCoordinator()
+        let coordinator = PinCoordinator(
+            panelCoordinator: panel,
+            pasteboard: FakePasteboard(value: nil),
+            requestPageURLFocus: {}
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        coordinator.pin(page: page)
+
+        XCTAssertTrue(coordinator.toggleCurrentPage())
+        XCTAssertFalse(panel.isVisible)
+    }
+
     func testPanelCoordinatorReclampsItsFrameAfterScreenConfigurationChange() {
         let panel = FakePanelWindow(frame: CGRect(x: 1_500, y: 800, width: 600, height: 700))
         let coordinator = PiPPanelCoordinator(panel: panel, pageLoader: FakePageLoader())
@@ -156,6 +194,7 @@ private final class FakePanelWindow: PiPPanelWindow {
     private(set) var presentCount = 0
     private(set) var orderOutCount = 0
     private(set) var frame: CGRect
+    private(set) var isVisible = false
 
     init(frame: CGRect = .zero) {
         self.frame = frame
@@ -163,10 +202,12 @@ private final class FakePanelWindow: PiPPanelWindow {
 
     func present() {
         presentCount += 1
+        isVisible = true
     }
 
     func orderOut() {
         orderOutCount += 1
+        isVisible = false
     }
 
     func setFrame(_ frame: CGRect, display: Bool) {
@@ -189,10 +230,12 @@ final class FakePanelCoordinator: PiPPanelCoordinating {
     private(set) var shownPages: [NotionPageReference] = []
     private(set) var replacedPages: [NotionPageReference] = []
     private(set) var hideCount = 0
+    private(set) var isVisible = false
 
     func show(page: NotionPageReference) {
         currentPage = page
         shownPages.append(page)
+        isVisible = true
     }
 
     func replace(page: NotionPageReference) {
@@ -202,6 +245,23 @@ final class FakePanelCoordinator: PiPPanelCoordinating {
 
     func hide() {
         hideCount += 1
+        isVisible = false
+    }
+
+    func showCurrentPage() -> Bool {
+        guard currentPage != nil else { return false }
+        isVisible = true
+        return true
+    }
+
+    func toggleCurrentPage() -> Bool {
+        guard currentPage != nil else { return false }
+        if isVisible {
+            hide()
+        } else {
+            _ = showCurrentPage()
+        }
+        return true
     }
 }
 

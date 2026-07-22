@@ -3,6 +3,7 @@ import SwiftUI
 struct PiPChromeView: View {
     @ObservedObject var webSession: NotionWebSession
     @ObservedObject var nativePageDocument: NativePageDocument
+    let commandModel: AppCommandModel
     let onHide: () -> Void
     @State private var surface: Surface = .notion
 
@@ -11,6 +12,18 @@ struct PiPChromeView: View {
         case notion = "Notion"
 
         var id: String { rawValue }
+    }
+
+    init(
+        webSession: NotionWebSession,
+        nativePageDocument: NativePageDocument,
+        commandModel: AppCommandModel = .noOp,
+        onHide: @escaping () -> Void
+    ) {
+        self.webSession = webSession
+        self.nativePageDocument = nativePageDocument
+        self.commandModel = commandModel
+        self.onHide = onHide
     }
 
     var body: some View {
@@ -48,6 +61,8 @@ struct PiPChromeView: View {
                 .pickerStyle(.segmented)
                 .frame(width: 138)
                 .accessibilityLabel("Page surface")
+
+                PiPAppCommandMenu(commandModel: commandModel)
 
                 Button(action: onHide) {
                     Image(systemName: "xmark")

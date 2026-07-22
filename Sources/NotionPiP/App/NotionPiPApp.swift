@@ -1,54 +1,20 @@
-import AppKit
 import SwiftUI
 
 @main
 struct NotionPiPApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var runtime: AppRuntime
-    @StateObject private var captureFeature: QuickCaptureFeatureRuntime
+    private let composition: AppComposition
 
     init() {
-        let runtime = AppRuntime()
-        _runtime = StateObject(wrappedValue: runtime)
-        _captureFeature = StateObject(
-            wrappedValue: QuickCaptureFeatureRuntime {
-                guard let page = runtime.activePage else { return }
-                NSWorkspace.shared.open(page.canonicalURL)
-            }
-        )
-        appDelegate.bind(urlHandler: runtime)
-        runtime.start()
+        let composition = AppComposition()
+        self.composition = composition
+        _runtime = StateObject(wrappedValue: composition.runtime)
+        appDelegate.bind(urlHandler: composition.runtime)
+        composition.runtime.start()
     }
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuBarRootView(runtime: runtime)
-        } label: {
-            Label("Notion PiP", systemImage: "rectangle.on.rectangle")
-        }
-        .menuBarExtraStyle(.window)
-
-        Window("Quick Capture", id: "quick-capture") {
-            if let session = captureFeature.session {
-                QuickCaptureView(session: session)
-                    .padding(DesignTokens.Spacing.container)
-                    .frame(minWidth: 440, minHeight: 400)
-            } else {
-                VStack(spacing: DesignTokens.Spacing.control) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.title2)
-                    Text("Quick Capture is unavailable")
-                        .font(.headline)
-                    Text(captureFeature.startupMessage ?? "The draft store could not be opened.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(DesignTokens.Spacing.container)
-                .frame(minWidth: 360, minHeight: 220)
-            }
-        }
-        .defaultSize(width: 520, height: 520)
-
         Settings {
             SettingsView(runtime: runtime)
         }
@@ -56,20 +22,60 @@ struct NotionPiPApp: App {
 }
 
 @MainActor
-private final class QuickCaptureFeatureRuntime: ObservableObject {
-    let session: CaptureEditorSession?
-    let startupMessage: String?
+private final class AppComposition {
+    let runtime: AppRuntime
+    private let quickCapturePresenter: AppWindowPresenter
+    private let settingsPresenter: AppWindowPresenter
+    private let setupOptionsPresenter: SetupOptionsPopoverPresenter
+    private let statusItemController: StatusItemController
 
-    init(openInNotion: @escaping () -> Void) {
-        do {
-            session = CaptureEditorSession(
-                repository: try CaptureRepository(),
-                openInNotion: openInNotion
-            )
-            startupMessage = nil
-        } catch {
-            session = nil
-            startupMessage = "Your local draft store could not be opened. Restart the app and try again."
+    init() {
+        let actionRelay = AppCommandActionRelay()
+        let commandModel = AppCommandModel(
+            quickCapture: { actionRelay.showQuickCapture() },
+            changePinnedPage: { actionRelay.showSetupOptions() },
+            settings: { actionRelay.showSettings() },
+            quit: { actionRelay.quit() }
+        )
+        let nativePageDocument = NativePageDocument()
+        let panelCoordinator = PiPPanelCoordinator(
+            nativePageDocument: nativePageDocument,
+            commandModel: commandModel
+        )
+        let runtime = AppRuntime(
+            panelCoordinator: panelCoordinator,
+            nativePageDocument: nativePageDocument
+        )
+        let quickCapturePresenter = AppWindowFactory.makeQuickCapture { [weak runtime] in
+            guard let page = runtime?.activePage else { return }
+            NSWorkspace.shared.open(page.canonicalURL)
         }
+        let settingsPresenter = AppWindowFactory.makeSettings(runtime: runtime)
+        let setupOptionsPresenter = SetupOptionsPopoverPresenter(
+            runtime: runtime,
+            onQuickCapture: { [weak quickCapturePresenter] in
+                quickCapturePresenter?.show()
+            },
+            onSettings: { [weak settingsPresenter] in
+                settingsPresenter?.show()
+            },
+            onQuit: { NSApp.terminate(nil) }
+        )
+        let statusItemController = StatusItemController(
+            runtime: runtime,
+            commandModel: commandModel,
+            setupOptionsPresenter: setupOptionsPresenter
+        )
+
+        actionRelay.quickCapturePresenter = quickCapturePresenter
+        actionRelay.setupOptionsPresenter = setupOptionsPresenter
+        actionRelay.settingsPresenter = settingsPresenter
+        runtime.bind(setupOptionsPresenter: setupOptionsPresenter)
+
+        self.runtime = runtime
+        self.quickCapturePresenter = quickCapturePresenter
+        self.settingsPresenter = settingsPresenter
+        self.setupOptionsPresenter = setupOptionsPresenter
+        self.statusItemController = statusItemController
     }
 }

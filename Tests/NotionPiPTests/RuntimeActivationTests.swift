@@ -19,21 +19,74 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
     }
 
-    func testClipboardActivationUsesUnifiedRuntimePath() {
+    func testShortcutShowsHiddenPinnedPanelWithoutRepinningOrReadingPasteboard() throws {
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
+        let pasteboard = RuntimePasteboard(value: "https://www.notion.so/Notes-\(secondPageID)")
+        let presenter = RuntimePageURLInputPresenter()
         let runtime = makeRuntime(
             panel: panel,
-            pasteboard: RuntimePasteboard(value: "https://www.notion.so/Notes-\(firstPageID)"),
-            shortcutRegistrar: shortcut
+            pasteboard: pasteboard,
+            shortcutRegistrar: shortcut,
+            pageURLInputPresenter: presenter
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        runtime.activate(page: page, source: .typedURL)
+        panel.hide()
+        runtime.start()
+
+        shortcut.handler?()
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.currentPage, page)
+        XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
+        XCTAssertEqual(pasteboard.readCount, 0)
+        XCTAssertEqual(presenter.presentAndFocusCount, 0)
+    }
+
+    func testShortcutHidesVisiblePinnedPanel() throws {
+        let panel = RuntimePanelCoordinator()
+        let shortcut = RuntimeShortcutRegistrar()
+        let pasteboard = RuntimePasteboard(value: nil)
+        let presenter = RuntimePageURLInputPresenter()
+        let runtime = makeRuntime(
+            panel: panel,
+            pasteboard: pasteboard,
+            shortcutRegistrar: shortcut,
+            pageURLInputPresenter: presenter
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        runtime.activate(page: page, source: .typedURL)
+        runtime.start()
+
+        shortcut.handler?()
+
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(panel.currentPage, page)
+        XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
+        XCTAssertEqual(pasteboard.readCount, 0)
+        XCTAssertEqual(presenter.presentAndFocusCount, 0)
+    }
+
+    func testShortcutPresentsAndFocusesURLInputWhenNoPageIsPinned() {
+        let panel = RuntimePanelCoordinator()
+        let shortcut = RuntimeShortcutRegistrar()
+        let pasteboard = RuntimePasteboard(value: nil)
+        let presenter = RuntimePageURLInputPresenter()
+        let runtime = makeRuntime(
+            panel: panel,
+            pasteboard: pasteboard,
+            shortcutRegistrar: shortcut,
+            pageURLInputPresenter: presenter
         )
         runtime.start()
 
         shortcut.handler?()
 
-        XCTAssertEqual(runtime.activePage?.pageID, firstPageID)
-        XCTAssertEqual(runtime.lastActivationSource, .clipboard)
-        XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
+        XCTAssertEqual(presenter.presentAndFocusCount, 1)
+        XCTAssertEqual(pasteboard.readCount, 0)
+        XCTAssertNil(panel.currentPage)
+        XCTAssertFalse(panel.isVisible)
     }
 
     func testExternalRouteActivationUsesUnifiedRuntimePath() throws {
@@ -58,6 +111,76 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(runtime.activePage, page)
         XCTAssertEqual(runtime.lastActivationSource, .notionSearch)
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
+    }
+
+    func testMenuBarActivationWithoutCurrentPageShowsSetupOptions() {
+        let panel = RuntimePanelCoordinator()
+        let setup = RuntimeSetupOptionsPresenter()
+        let runtime = makeRuntime(panel: panel)
+        runtime.bind(setupOptionsPresenter: setup)
+
+        runtime.handleMenuBarActivation()
+
+        XCTAssertEqual(setup.showCount, 1)
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    func testMenuBarActivationShowsHiddenCurrentPanelWithoutRepinning() throws {
+        let panel = RuntimePanelCoordinator()
+        let runtime = makeRuntime(panel: panel)
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        runtime.activate(page: page, source: .typedURL)
+        panel.hide()
+
+        runtime.handleMenuBarActivation()
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
+    }
+
+    func testMenuBarActivationHidesVisibleCurrentPanel() throws {
+        let panel = RuntimePanelCoordinator()
+        let runtime = makeRuntime(panel: panel)
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        runtime.activate(page: page, source: .typedURL)
+
+        runtime.handleMenuBarActivation()
+
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(panel.currentPage, page)
+    }
+
+    func testMenuBarActivationFallsBackToSetupWhenRuntimeAndPanelDisagree() throws {
+        let panel = RuntimePanelCoordinator()
+        let setup = RuntimeSetupOptionsPresenter()
+        let runtime = makeRuntime(panel: panel)
+        runtime.bind(setupOptionsPresenter: setup)
+        runtime.activate(
+            page: try makePage(id: firstPageID, title: "Roadmap"),
+            source: .typedURL
+        )
+        panel.loseCurrentPage()
+
+        runtime.handleMenuBarActivation()
+
+        XCTAssertEqual(setup.showCount, 1)
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    func testSuccessfulPageActivationDismissesSetupOptions() throws {
+        let panel = RuntimePanelCoordinator()
+        let setup = RuntimeSetupOptionsPresenter()
+        let runtime = makeRuntime(panel: panel)
+        runtime.bind(setupOptionsPresenter: setup)
+        setup.show()
+
+        runtime.activate(
+            page: try makePage(id: firstPageID, title: "Roadmap"),
+            source: .typedURL
+        )
+
+        XCTAssertFalse(setup.isShown)
+        XCTAssertEqual(setup.hideCount, 1)
     }
 
     func testNewestActivationPreventsLatePreviewFromReplacingIt() async throws {
@@ -138,6 +261,7 @@ final class RuntimeActivationTests: XCTestCase {
         panel: RuntimePanelCoordinator,
         pasteboard: any PasteboardReading = RuntimePasteboard(value: nil),
         shortcutRegistrar: any GlobalShortcutRegistering = RuntimeShortcutRegistrar(),
+        pageURLInputPresenter: RuntimePageURLInputPresenter = RuntimePageURLInputPresenter(),
         client: any NotionWorkspaceClient = ImmediatePreviewClient()
     ) -> AppRuntime {
         let store = RuntimeSecretStore()
@@ -147,7 +271,7 @@ final class RuntimeActivationTests: XCTestCase {
             panelCoordinator: panel,
             pasteboard: pasteboard,
             shortcutRegistrar: shortcutRegistrar,
-            pageURLInputPresenter: RuntimePageURLInputPresenter(),
+            pageURLInputPresenter: pageURLInputPresenter,
             credentialVault: vault,
             notionClientFactory: { _ in client }
         )
@@ -163,24 +287,72 @@ private final class RuntimePanelCoordinator: PiPPanelCoordinating {
     private(set) var currentPage: NotionPageReference?
     private(set) var shownPages: [NotionPageReference] = []
     private(set) var replacedPages: [NotionPageReference] = []
+    private(set) var isVisible = false
 
     func show(page: NotionPageReference) {
         currentPage = page
         shownPages.append(page)
+        isVisible = true
     }
 
     func replace(page: NotionPageReference) {
         currentPage = page
         replacedPages.append(page)
+        isVisible = true
     }
 
-    func hide() {}
+    func showCurrentPage() -> Bool {
+        guard currentPage != nil else { return false }
+        isVisible = true
+        return true
+    }
+
+    func hide() {
+        isVisible = false
+    }
+
+    func toggleCurrentPage() -> Bool {
+        guard currentPage != nil else { return false }
+        if isVisible {
+            hide()
+        } else {
+            _ = showCurrentPage()
+        }
+        return true
+    }
+
+    func loseCurrentPage() {
+        currentPage = nil
+        isVisible = false
+    }
+}
+
+@MainActor
+private final class RuntimeSetupOptionsPresenter: SetupOptionsPresenting {
+    private(set) var showCount = 0
+    private(set) var hideCount = 0
+    private(set) var isShown = false
+
+    func show() {
+        showCount += 1
+        isShown = true
+    }
+
+    func hide() {
+        hideCount += 1
+        isShown = false
+    }
+    func toggle() {}
 }
 
 private final class RuntimePasteboard: PasteboardReading {
     let value: String?
+    private(set) var readCount = 0
     init(value: String?) { self.value = value }
-    func readString() -> String? { value }
+    func readString() -> String? {
+        readCount += 1
+        return value
+    }
 }
 
 @MainActor
@@ -192,7 +364,11 @@ private final class RuntimeShortcutRegistrar: GlobalShortcutRegistering {
 
 @MainActor
 private final class RuntimePageURLInputPresenter: PageURLInputPresenting {
-    func presentAndFocus() {}
+    private(set) var presentAndFocusCount = 0
+
+    func presentAndFocus() {
+        presentAndFocusCount += 1
+    }
     func hide() {}
 }
 

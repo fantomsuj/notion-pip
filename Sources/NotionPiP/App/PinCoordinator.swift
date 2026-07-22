@@ -38,6 +38,10 @@ final class PinCoordinator {
         }
     }
 
+    func toggleCurrentPage() -> Bool {
+        panelCoordinator.toggleCurrentPage()
+    }
+
     func page(from urlString: String) -> Result<NotionPageReference, PinInputError> {
         let trimmedURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmedURL), !trimmedURL.isEmpty else {

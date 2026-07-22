@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 protocol PiPPanelWindow: AnyObject {
     var frame: CGRect { get }
+    var isVisible: Bool { get }
     func present()
     func orderOut()
     func setFrame(_ frame: CGRect, display: Bool)
@@ -13,8 +14,11 @@ protocol PiPPanelWindow: AnyObject {
 @MainActor
 protocol PiPPanelCoordinating: AnyObject {
     var currentPage: NotionPageReference? { get }
+    var isVisible: Bool { get }
     func show(page: NotionPageReference)
+    func showCurrentPage() -> Bool
     func hide()
+    func toggleCurrentPage() -> Bool
     func replace(page: NotionPageReference)
 }
 
@@ -29,7 +33,14 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     private(set) var currentPage: NotionPageReference?
     private var screenConfigurationObserver: NSObjectProtocol?
 
-    convenience init(nativePageDocument: NativePageDocument = NativePageDocument()) {
+    var isVisible: Bool {
+        panel.isVisible
+    }
+
+    convenience init(
+        nativePageDocument: NativePageDocument = NativePageDocument(),
+        commandModel: AppCommandModel = .noOp
+    ) {
         let webSession = NotionWebSession()
         let visibleFrames = NSScreen.screens.map(\.visibleFrame)
         let defaultFrame = Self.defaultFrame(visibleFrames: visibleFrames)
@@ -55,7 +66,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         panel.contentView = NSHostingView(
             rootView: PiPChromeView(
                 webSession: webSession,
-                nativePageDocument: nativePageDocument
+                nativePageDocument: nativePageDocument,
+                commandModel: commandModel
             ) { [weak panel] in
                 panel?.orderOut(nil)
             }
@@ -95,6 +107,23 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
 
     func hide() {
         panel.orderOut()
+    }
+
+    func showCurrentPage() -> Bool {
+        guard currentPage != nil else { return false }
+        panel.present()
+        logger.notice("Existing panel show requested")
+        return true
+    }
+
+    func toggleCurrentPage() -> Bool {
+        guard currentPage != nil else { return false }
+        if isVisible {
+            hide()
+        } else {
+            _ = showCurrentPage()
+        }
+        return true
     }
 
     func replace(page: NotionPageReference) {

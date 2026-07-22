@@ -125,6 +125,13 @@ export class DebouncedChangePublisher {
     return operation;
   }
 
+  discardPending(): void {
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.timer = undefined;
+    this.pending = undefined;
+    this.failedRequest = undefined;
+  }
+
   private async deliver(request: BridgeRequest): Promise<void> {
     try {
       await this.send(request);
@@ -217,8 +224,27 @@ export interface EditorTransitionOperation {
   expectedKind: BridgeResultKind;
   makeRequest: () => BridgeRequest;
   drainPendingChanges?: boolean;
+  discardPendingChanges?: boolean;
   unlockOnDefinitiveRejection?: boolean;
   retainTerminalReceipt?: boolean;
+}
+
+export function conflictTransitionOperation(
+  action: ConflictAction,
+  operationID: string,
+  snapshot: () => Omit<EditorSnapshot, "revision">,
+): EditorTransitionOperation {
+  return {
+    key: `conflict:${operationID}:${action}`,
+    expectedKind: "conflictResolved",
+    drainPendingChanges: false,
+    discardPendingChanges: true,
+    retainTerminalReceipt: true,
+    makeRequest: () => makeRequest("resolveConflict", operationID, {
+      action,
+      snapshot: snapshot(),
+    }),
+  };
 }
 
 interface PendingEditorTransition extends EditorTransitionOperation {
@@ -291,6 +317,7 @@ export class EditorTransitionGate {
 
     try {
       if (pending.request === undefined) {
+        if (pending.discardPendingChanges === true) this.changes.discardPending();
         if (pending.drainPendingChanges !== false) await this.changes.flush();
         pending.request = pending.makeRequest();
       }
@@ -550,20 +577,13 @@ function bootstrap(): void {
         ),
       })
       .catch((error) => { reportFailure(error); throw error; }),
-    resolveConflict: (action, operationID) => transitions.perform({
-      key: `conflict:${operationID}:${action}`,
-      expectedKind: "conflictResolved",
-      drainPendingChanges: false,
-      retainTerminalReceipt: true,
-      makeRequest: () => makeRequest("resolveConflict", operationID, {
-        action,
-        snapshot: {
-          draftID: snapshot.draftID,
-          title: titleInput.value,
-          document: normalizeDocument(editor.getJSON()),
-        },
-      }),
-    }).then((reply) => {
+    resolveConflict: (action, operationID) => transitions.perform(
+      conflictTransitionOperation(action, operationID, () => ({
+        draftID: snapshot.draftID,
+        title: titleInput.value,
+        document: normalizeDocument(editor.getJSON()),
+      })),
+    ).then((reply) => {
       if (!reply.ok) throw new Error(reply.error.message);
       return reply;
     }).catch((error) => {
