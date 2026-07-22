@@ -52,6 +52,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     private var restorePinnedPageTask: Task<Void, Never>?
     private var persistPinnedPageTask: Task<Void, Never>?
     private var activationGeneration = 0
+    private var pageSelectionGeneration = 0
     private var connectionGeneration = 0
     private var started = false
 
@@ -109,8 +110,27 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         bootstrapTask = Task { [weak self] in
             await self?.bootstrapPersonalTokenConnection()
         }
+        let expectedGeneration = pageSelectionGeneration
+        let pageRepository = pageRepository
+        let logger = logger
         restorePinnedPageTask = Task { [weak self] in
-            await self?.restorePinnedPage()
+            guard !Task.isCancelled, let pageRepository else { return }
+            do {
+                guard let storedPage = try await pageRepository.currentPinnedPage() else { return }
+                guard !Task.isCancelled else { return }
+                guard let page = try? NotionPageReference(validating: storedPage.canonicalURL),
+                      page.canonicalURL == storedPage.canonicalURL,
+                      page.pageID == storedPage.pageID
+                else {
+                    logger.error("Pinned page restore skipped page_id=\(storedPage.pageID, privacy: .public) category=invalid-stored-value")
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                self?.restorePinnedPage(page, expectedGeneration: expectedGeneration)
+            } catch {
+                guard !Task.isCancelled else { return }
+                logger.error("Pinned page restore failed category=repository-read")
+            }
         }
     }
 
@@ -150,6 +170,11 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         source: PageActivationSource,
         persist: Bool
     ) {
+        pageSelectionGeneration &+= 1
+        if persist {
+            restorePinnedPageTask?.cancel()
+            restorePinnedPageTask = nil
+        }
         pinCoordinator.pin(page: page)
         setupOptionsPresenter?.hide()
         activePage = page
@@ -292,24 +317,12 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         generation == connectionGeneration && !Task.isCancelled
     }
 
-    private func restorePinnedPage() async {
-        guard let pageRepository else { return }
-        let generation = activationGeneration
-
-        do {
-            guard let storedPage = try await pageRepository.currentPinnedPage() else { return }
-            guard let page = try? NotionPageReference(validating: storedPage.canonicalURL),
-                  page.canonicalURL == storedPage.canonicalURL,
-                  page.pageID == storedPage.pageID
-            else {
-                logger.error("Pinned page restore skipped page_id=\(storedPage.pageID, privacy: .public) category=invalid-stored-value")
-                return
-            }
-            guard generation == activationGeneration, !Task.isCancelled else { return }
-            activate(page: page, source: .restored, persist: false)
-        } catch {
-            logger.error("Pinned page restore failed category=repository-read")
-        }
+    private func restorePinnedPage(
+        _ page: NotionPageReference,
+        expectedGeneration: Int
+    ) {
+        guard expectedGeneration == pageSelectionGeneration, !Task.isCancelled else { return }
+        activate(page: page, source: .restored, persist: false)
     }
 
     private func enqueuePersistence(of page: NotionPageReference) {

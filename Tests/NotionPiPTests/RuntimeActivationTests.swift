@@ -296,7 +296,7 @@ final class RuntimeActivationTests: XCTestCase {
         let storedPage = try makeStoredPage(id: firstPageID, title: "Roadmap")
 
         runtime.start()
-        await repository.waitUntilRestoreRequested()
+        try await repository.waitUntilRestoreRequested()
         await repository.finishRestore(with: storedPage)
         await waitUntil { runtime.activePage?.pageID == self.firstPageID }
 
@@ -305,15 +305,15 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(panel.currentPage?.pageID, firstPageID)
     }
 
-    func testStartWithNoSavedPageLeavesPanelHidden() async {
+    func testStartWithNoSavedPageLeavesPanelHidden() async throws {
         let panel = RuntimePanelCoordinator()
         let repository = RuntimePinnedPageRepository()
         let runtime = makeRuntime(panel: panel, pageRepository: repository)
 
         runtime.start()
-        await repository.waitUntilRestoreRequested()
+        try await repository.waitUntilRestoreRequested()
         await repository.finishRestore(with: nil)
-        await repository.waitUntilRestoreReturned()
+        try await repository.waitUntilRestoreReturned()
         for _ in 0 ..< 3 { await Task.yield() }
 
         XCTAssertNil(runtime.activePage)
@@ -329,16 +329,52 @@ final class RuntimeActivationTests: XCTestCase {
         let typedPage = try makePage(id: secondPageID, title: "Typed")
 
         runtime.start()
-        await repository.waitUntilRestoreRequested()
+        try await repository.waitUntilRestoreRequested()
         runtime.activate(page: typedPage, source: .typedURL)
         await repository.finishRestore(with: storedPage)
-        await repository.waitUntilRestoreReturned()
-        await repository.waitUntilSaveCount(1)
+        try await repository.waitUntilRestoreReturned()
+        try await repository.waitUntilSaveCount(1)
         for _ in 0 ..< 3 { await Task.yield() }
 
         XCTAssertEqual(runtime.activePage, typedPage)
         XCTAssertEqual(runtime.lastActivationSource, .typedURL)
         XCTAssertEqual(panel.currentPage, typedPage)
+    }
+
+    func testActivationImmediatelyAfterStartWinsBeforeRestoreRequestBegins() async throws {
+        let panel = RuntimePanelCoordinator()
+        let storedPage = try makeStoredPage(id: firstPageID, title: "Stored")
+        let repository = RuntimePinnedPageRepository(immediateStoredPage: storedPage)
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let directPage = try makePage(id: secondPageID, title: "Direct")
+
+        runtime.start()
+        runtime.activate(page: directPage, source: .typedURL)
+        for _ in 0 ..< 10 { await Task.yield() }
+        let restoreRequestCount = await repository.restoreRequestCount()
+
+        XCTAssertEqual(runtime.activePage, directPage)
+        XCTAssertEqual(runtime.lastActivationSource, .typedURL)
+        XCTAssertEqual(panel.currentPage, directPage)
+        XCTAssertEqual(restoreRequestCount, 0)
+    }
+
+    func testDisconnectWhileRestoreIsDelayedStillRestoresSavedPage() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let storedPage = try makeStoredPage(id: firstPageID, title: "Stored")
+
+        runtime.start()
+        try await repository.waitUntilRestoreRequested()
+        runtime.disconnectPersonalToken()
+        await repository.finishRestore(with: storedPage)
+        try await repository.waitUntilRestoreReturned()
+        await waitUntil { runtime.activePage?.pageID == self.firstPageID }
+
+        XCTAssertEqual(runtime.activePage?.pageID, firstPageID)
+        XCTAssertEqual(runtime.lastActivationSource, .restored)
+        XCTAssertTrue(panel.isVisible)
     }
 
     func testActivationPersistsCanonicalReplacement() async throws {
@@ -350,7 +386,7 @@ final class RuntimeActivationTests: XCTestCase {
         )
 
         runtime.activate(page: page, source: .pagePicker)
-        await repository.waitUntilSaveCount(1)
+        try await repository.waitUntilSaveCount(1)
         let savedPages = await repository.savedPages()
 
         XCTAssertEqual(savedPages, [page])
@@ -365,13 +401,13 @@ final class RuntimeActivationTests: XCTestCase {
 
         runtime.activate(page: first, source: .typedURL)
         runtime.activate(page: second, source: .notionSearch)
-        await repository.waitUntilSaveCount(1)
+        try await repository.waitUntilSaveCount(1)
         let firstSaveIDs = await repository.savedPageIDs()
 
         XCTAssertEqual(firstSaveIDs, [firstPageID])
 
         await repository.finishSave(pageID: firstPageID)
-        await repository.waitUntilSaveCount(2)
+        try await repository.waitUntilSaveCount(2)
         let allSaveIDs = await repository.savedPageIDs()
 
         XCTAssertEqual(allSaveIDs, [firstPageID, secondPageID])
@@ -386,14 +422,14 @@ final class RuntimeActivationTests: XCTestCase {
         let second = try makePage(id: secondPageID, title: "Second")
 
         runtime.activate(page: first, source: .typedURL)
-        await repository.waitUntilFailedSaveCount(1)
+        try await repository.waitUntilFailedSaveCount(1)
         for _ in 0 ..< 3 { await Task.yield() }
 
         XCTAssertTrue(panel.isVisible)
         XCTAssertEqual(panel.currentPage, first)
 
         runtime.activate(page: second, source: .notionSearch)
-        await repository.waitUntilSaveCount(2)
+        try await repository.waitUntilSaveCount(2)
         let savedPageIDs = await repository.savedPageIDs()
 
         XCTAssertTrue(panel.isVisible)
@@ -414,9 +450,9 @@ final class RuntimeActivationTests: XCTestCase {
         )
 
         runtime.start()
-        await repository.waitUntilRestoreRequested()
+        try await repository.waitUntilRestoreRequested()
         await repository.finishRestore(with: corruptPage)
-        await repository.waitUntilRestoreReturned()
+        try await repository.waitUntilRestoreReturned()
         for _ in 0 ..< 3 { await Task.yield() }
 
         XCTAssertNil(runtime.activePage)
@@ -424,12 +460,12 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertFalse(panel.isVisible)
     }
 
-    func testStartingTwiceRequestsRestoreOnce() async {
+    func testStartingTwiceRequestsRestoreOnce() async throws {
         let repository = RuntimePinnedPageRepository()
         let runtime = makeRuntime(panel: RuntimePanelCoordinator(), pageRepository: repository)
 
         runtime.start()
-        await repository.waitUntilRestoreRequested()
+        try await repository.waitUntilRestoreRequested()
         runtime.start()
         for _ in 0 ..< 3 { await Task.yield() }
         let restoreRequestCount = await repository.restoreRequestCount()
@@ -605,9 +641,14 @@ private enum RuntimeRepositoryError: Error {
     case saveFailed
 }
 
+private enum RuntimeTestWaitError: Error {
+    case timedOut(String)
+}
+
 private actor RuntimePinnedPageRepository: PinnedPagePersisting {
     private let delaySaves: Bool
     private let failingPageIDs: Set<String>
+    private let immediateStoredPage: StoredPageSnapshot?
     private var restoreRequests = 0
     private var restoreReturned = false
     private var restoreContinuation: CheckedContinuation<StoredPageSnapshot?, any Error>?
@@ -615,13 +656,22 @@ private actor RuntimePinnedPageRepository: PinnedPagePersisting {
     private var failedSaves = 0
     private var saveContinuations: [String: CheckedContinuation<Void, Never>] = [:]
 
-    init(delaySaves: Bool = false, failingPageIDs: Set<String> = []) {
+    init(
+        delaySaves: Bool = false,
+        failingPageIDs: Set<String> = [],
+        immediateStoredPage: StoredPageSnapshot? = nil
+    ) {
         self.delaySaves = delaySaves
         self.failingPageIDs = failingPageIDs
+        self.immediateStoredPage = immediateStoredPage
     }
 
     func currentPinnedPage() async throws -> StoredPageSnapshot? {
         restoreRequests += 1
+        if let immediateStoredPage {
+            restoreReturned = true
+            return immediateStoredPage
+        }
         let page = try await withCheckedThrowingContinuation { continuation in
             restoreContinuation = continuation
         }
@@ -648,8 +698,8 @@ private actor RuntimePinnedPageRepository: PinnedPagePersisting {
         )
     }
 
-    func waitUntilRestoreRequested() async {
-        while restoreRequests == 0 { await Task.yield() }
+    func waitUntilRestoreRequested() async throws {
+        try await waitUntil({ restoreRequests > 0 }, operation: "restore request")
     }
 
     func finishRestore(with page: StoredPageSnapshot?) {
@@ -657,20 +707,20 @@ private actor RuntimePinnedPageRepository: PinnedPagePersisting {
         restoreContinuation = nil
     }
 
-    func waitUntilRestoreReturned() async {
-        while !restoreReturned { await Task.yield() }
+    func waitUntilRestoreReturned() async throws {
+        try await waitUntil({ restoreReturned }, operation: "restore return")
     }
 
     func restoreRequestCount() -> Int {
         restoreRequests
     }
 
-    func waitUntilSaveCount(_ count: Int) async {
-        while pagesSaved.count < count { await Task.yield() }
+    func waitUntilSaveCount(_ count: Int) async throws {
+        try await waitUntil({ pagesSaved.count >= count }, operation: "save count \(count)")
     }
 
-    func waitUntilFailedSaveCount(_ count: Int) async {
-        while failedSaves < count { await Task.yield() }
+    func waitUntilFailedSaveCount(_ count: Int) async throws {
+        try await waitUntil({ failedSaves >= count }, operation: "failed save count \(count)")
     }
 
     func savedPages() -> [NotionPageReference] {
@@ -683,6 +733,20 @@ private actor RuntimePinnedPageRepository: PinnedPagePersisting {
 
     func finishSave(pageID: String) {
         saveContinuations.removeValue(forKey: pageID)?.resume()
+    }
+
+    private func waitUntil(
+        _ condition: () -> Bool,
+        operation: String
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while !condition() {
+            guard clock.now < deadline else {
+                throw RuntimeTestWaitError.timedOut(operation)
+            }
+            await Task.yield()
+        }
     }
 }
 
