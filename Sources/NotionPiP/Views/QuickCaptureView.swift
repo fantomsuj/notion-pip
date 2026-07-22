@@ -5,21 +5,9 @@ struct QuickCaptureView: View {
     @ObservedObject var session: CaptureEditorSession
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.Spacing.control) {
-            HStack {
-                Label("Quick Capture", systemImage: "square.and.pencil")
-                    .font(.headline)
-                Spacer()
-                CaptureStatusView(status: session.status)
-            }
-
+        VStack(alignment: .leading, spacing: 0) {
             CaptureWebView(webView: session.webView)
                 .frame(minHeight: 280, idealHeight: 320)
-                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.card))
-                .overlay {
-                    RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
-                        .stroke(DesignTokens.Colors.border, lineWidth: 1)
-                }
                 .accessibilityLabel("Quick Capture rich text editor")
 
             if let conflict = session.conflict {
@@ -29,6 +17,7 @@ struct QuickCaptureView: View {
                 ) { action in
                     Task { await session.resolve(action) }
                 }
+                .padding(.top, DesignTokens.Spacing.control)
             }
         }
     }

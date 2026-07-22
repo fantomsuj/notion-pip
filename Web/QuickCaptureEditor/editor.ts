@@ -517,8 +517,7 @@ function bootstrap(): void {
   if (bridge === undefined || editorElement === null || titleElement === null || statusElement === null) return;
   const titleInput = titleElement;
   const status = statusElement;
-  const saveButton = document.querySelector<HTMLButtonElement>("#save");
-  const stashButton = document.querySelector<HTMLButtonElement>("#stash");
+  const newNoteButton = document.querySelector<HTMLButtonElement>("#new-note");
   const retryButton = document.querySelector<HTMLButtonElement>("#retry");
   const formattingButtons = Array.from(
     document.querySelectorAll<HTMLButtonElement>("[data-command]"),
@@ -532,12 +531,31 @@ function bootstrap(): void {
   };
   let applyingNativeSnapshot = false;
   let transitionLocked = true;
-  let userActionPending = false;
+  let pendingLaunchFocus: "title" | "body" | undefined;
   const client = new BridgeClient((request) => bridge.postMessage(request));
   const editor = new Editor({
     element: editorElement,
     extensions: [StarterKit],
     content: snapshot.document as JSONContent,
+    editorProps: {
+      attributes: {
+        role: "textbox",
+        "aria-label": "Note content",
+        "aria-multiline": "true",
+      },
+      handleKeyDown: (view, event) => {
+        const { $from, empty } = view.state.selection;
+        const isAtStartOfFirstBlock = empty
+          && $from.depth === 1
+          && $from.index(0) === 0
+          && $from.parentOffset === 0;
+        if (event.key !== "ArrowUp" || !isAtStartOfFirstBlock) return false;
+        event.preventDefault();
+        titleInput.focus();
+        titleInput.setSelectionRange(titleInput.value.length, titleInput.value.length);
+        return true;
+      },
+    },
     autofocus: false,
     editable: false,
     onUpdate: ({ editor: updatedEditor }) => {
@@ -564,6 +582,11 @@ function bootstrap(): void {
     () => crypto.randomUUID(),
     (error) => reportFailure(error),
   );
+  function focusBody(position: "start" | "end"): void {
+    editor.commands.focus(position, { scrollIntoView: false });
+    editor.view.focus();
+  }
+
   function installSnapshot(next: EditorSnapshot): boolean {
     if (!canInstallSnapshot(snapshot, next)) return true;
     applyingNativeSnapshot = true;
@@ -576,7 +599,14 @@ function bootstrap(): void {
 
   function applyReply(reply: BridgeReply): boolean {
     if (reply.ok) {
-      if (reply.result.snapshot !== undefined) installSnapshot(reply.result.snapshot);
+      if (reply.result.snapshot !== undefined) {
+        installSnapshot(reply.result.snapshot);
+        if (reply.result.kind === "ready") {
+          pendingLaunchFocus = titleInput.value.trim().length === 0 && editor.isEmpty
+            ? "title"
+            : "body";
+        }
+      }
       else if (reply.result.revision !== undefined) {
         snapshot.revision = Math.max(snapshot.revision ?? 0, reply.result.revision);
       }
@@ -595,12 +625,18 @@ function bootstrap(): void {
   }
 
   function refreshMutationControls(): void {
-    const disabled = transitionLocked || userActionPending;
     titleInput.disabled = transitionLocked;
     editor.setEditable(!transitionLocked);
-    if (saveButton !== null) saveButton.disabled = disabled;
-    if (stashButton !== null) stashButton.disabled = disabled;
+    if (newNoteButton !== null) newNoteButton.disabled = transitionLocked;
     formattingButtons.forEach((button) => { button.disabled = transitionLocked; });
+  }
+
+  function applyPendingLaunchFocus(): void {
+    const target = pendingLaunchFocus;
+    if (target === undefined || transitionLocked) return;
+    pendingLaunchFocus = undefined;
+    if (target === "title") titleInput.focus();
+    else focusBody("end");
   }
 
   const transitions = new EditorTransitionGate(
@@ -610,22 +646,12 @@ function bootstrap(): void {
     (locked) => {
       transitionLocked = locked;
       refreshMutationControls();
+      applyPendingLaunchFocus();
     },
     (available) => {
       if (retryButton !== null) retryButton.hidden = !available;
     },
   );
-
-  async function performUserAction<T>(action: () => Promise<T>): Promise<T> {
-    userActionPending = true;
-    refreshMutationControls();
-    try {
-      return await runAfterPendingChange(changes, action);
-    } finally {
-      userActionPending = false;
-      refreshMutationControls();
-    }
-  }
 
   titleInput.addEventListener("input", () => {
     if (transitionLocked || snapshot.draftID.length === 0) return;
@@ -634,20 +660,17 @@ function bootstrap(): void {
       () => snapshot.revision ?? 0,
     );
   });
+  titleInput.addEventListener("keydown", (event) => {
+    const atBoundary = titleInput.selectionStart === titleInput.value.length
+      && titleInput.selectionEnd === titleInput.value.length;
+    if (routeTitleKey({ key: event.key, atBoundary }) !== "focusBody") return;
+    event.preventDefault();
+    focusBody("start");
+  });
   formattingButtons.forEach((button) => {
     button.addEventListener("click", () => executeToolbarCommand(editor, button.dataset.command ?? ""));
   });
-  saveButton?.addEventListener("click", async () => {
-    void performUserAction(() => client.request("save", {
-      snapshot: {
-        draftID: snapshot.draftID,
-        title: titleInput.value,
-        document: normalizeDocument(editor.getJSON()),
-      },
-      expectedRevision: snapshot.revision ?? 0,
-    })).then(applyReply).catch(reportFailure);
-  });
-  stashButton?.addEventListener("click", async () => {
+  newNoteButton?.addEventListener("click", async () => {
     void transitions.perform({
       key: "stash",
       expectedKind: "stashed",
