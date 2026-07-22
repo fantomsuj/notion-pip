@@ -55,7 +55,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
 
     convenience init(
         webSession: NotionWebSession = NotionWebSession(),
-        nativePageDocument: NativePageDocument = NativePageDocument(),
         commandModel: AppCommandModel = .noOp
     ) {
         let stashHandle = PiPStashHandleController()
@@ -88,7 +87,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         panel.contentView = NSHostingView(
             rootView: PiPChromeView(
                 webSession: webSession,
-                nativePageDocument: nativePageDocument,
                 commandModel: commandModel,
                 onStash: { [weak self] in
                     self?.stash(visibleFrames: NSScreen.screens.map(\.visibleFrame))

@@ -11,7 +11,6 @@ import {
   displayTitle,
   executeBlockCommand,
   executeFormattingCommand,
-  executeToolbarCommand,
   filterBlockCommands,
   formattingState,
   isLinkPaste,
@@ -22,7 +21,6 @@ import {
   runAfterPendingChange,
   slashQueryAtSelection,
   type BlockCommandTarget,
-  type EditorCommandTarget,
   type FormattingCommandTarget,
 } from "./editor.ts";
 import {
@@ -67,23 +65,6 @@ test("editor normalization recursively orders attributes and removes undefined v
       content: [{ type: "paragraph", attrs: { a: 1, z: 2 } }],
     },
   );
-});
-
-test("toolbar commands use the focused Tiptap chain and reject unknown commands", () => {
-  const calls: string[] = [];
-  const chain = new Proxy(
-    {},
-    {
-      get: (_target, property) => () => {
-        calls.push(String(property));
-        return property === "run" ? true : chain;
-      },
-    },
-  ) as EditorCommandTarget;
-
-  assert.equal(executeToolbarCommand({ chain: () => chain }, "bold"), true);
-  assert.deepEqual(calls, ["focus", "toggleBold", "run"]);
-  assert.equal(executeToolbarCommand({ chain: () => chain }, "script"), false);
 });
 
 test("formatting state projects all supported active marks into a plain object", () => {
@@ -283,6 +264,14 @@ test("title keys route focus into the body at the intended boundaries", () => {
   assert.equal(routeTitleKey({ key: "ArrowDown", atBoundary: true }), "focusBody");
   assert.equal(routeTitleKey({ key: "ArrowDown", atBoundary: false }), "none");
   assert.equal(routeTitleKey({ key: "ArrowUp", atBoundary: true }), "none");
+  assert.equal(
+    routeTitleKey({ key: "Enter", atBoundary: true, isComposing: true }),
+    "none",
+  );
+  assert.equal(
+    routeTitleKey({ key: "Enter", atBoundary: true, keyCode: 229 }),
+    "none",
+  );
 });
 
 test("overlay keys route only while the slash menu is open", () => {
@@ -292,6 +281,14 @@ test("overlay keys route only while the slash menu is open", () => {
   assert.equal(routeOverlayKey({ key: "Escape", isOpen: true }), "dismiss");
   assert.equal(routeOverlayKey({ key: "Escape", isOpen: false }), "none");
   assert.equal(routeOverlayKey({ key: "Tab", isOpen: true }), "none");
+  assert.equal(
+    routeOverlayKey({ key: "Enter", isOpen: true, isComposing: true }),
+    "none",
+  );
+  assert.equal(
+    routeOverlayKey({ key: "Escape", isOpen: true, keyCode: 229 }),
+    "none",
+  );
 });
 
 test("changed messages debounce to the latest canonical snapshot and expected revision", async () => {
@@ -528,6 +525,36 @@ test("recoverable persistence negative acknowledgement retains the exact autosav
 
   assert.equal(requests.length, 2);
   assert.deepEqual(requests[1], requests[0]);
+});
+
+test("failed autosave publishes retry availability and retries only the exact retained request", async () => {
+  const requests: BridgeRequest[] = [];
+  const availability: boolean[] = [];
+  let attempt = 0;
+  const publisher = new DebouncedChangePublisher(
+    1_000,
+    async (request) => {
+      requests.push(structuredClone(request));
+      attempt += 1;
+      if (attempt === 1) throw new Error("Disk unavailable");
+    },
+    () => `autosave-${attempt + 1}`,
+    () => {},
+    (available) => availability.push(available),
+  );
+
+  publisher.changed({ draftID: "draft-1", title: "Exact edit", document: null }, 4);
+  await assert.rejects(publisher.flush(), /Disk unavailable/);
+  assert.equal(publisher.hasFailedRequest, true);
+  assert.deepEqual(availability, [true]);
+
+  await publisher.retryFailed();
+
+  assert.equal(publisher.hasFailedRequest, false);
+  assert.deepEqual(availability, [true, false]);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[1], requests[0]);
+  assert.equal(requests[1]?.id, "autosave-1");
 });
 
 test("timer delivery rejection is observed instead of becoming unhandled", async () => {

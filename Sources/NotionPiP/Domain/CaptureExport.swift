@@ -319,6 +319,7 @@ private struct MarkdownDocumentRenderer {
             switch mark["type"] as? String {
             case "bold": text = "**\(text)**"
             case "italic": text = "*\(text)*"
+            case "underline": text = "<u>\(text)</u>"
             case "strike": text = "~~\(text)~~"
             case "code": text = "`\(text)`"
             case "link":

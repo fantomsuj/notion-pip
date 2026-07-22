@@ -65,15 +65,12 @@ private final class AppComposition {
             settings: { actionRelay.showSettings() },
             quit: { actionRelay.quit() }
         )
-        let nativePageDocument = NativePageDocument()
         let panelCoordinator = PiPPanelCoordinator(
             webSession: webSession,
-            nativePageDocument: nativePageDocument,
             commandModel: commandModel
         )
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
-            nativePageDocument: nativePageDocument,
             pageRepository: pageRepository
         )
         webSession.onPageResolved = { [weak runtime] page in

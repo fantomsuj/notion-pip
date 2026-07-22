@@ -117,7 +117,6 @@ final class PersonalTokenConnectionTests: XCTestCase {
         XCTAssertEqual(runtime.connectionState, .failed("Notion did not accept this token. Reconnect to continue."))
         XCTAssertEqual(client.validationCount, 1)
         XCTAssertEqual(client.searchCount, 0)
-        XCTAssertEqual(client.previewCount, 0)
         XCTAssertFalse(connectionMessage(runtime.connectionState).contains(rawToken))
     }
 
@@ -150,7 +149,6 @@ private final class ConnectionTestClient: NotionWorkspaceClient {
     private let error: NotionAPIClientError?
     private(set) var validationCount = 0
     private(set) var searchCount = 0
-    private(set) var previewCount = 0
 
     init(connection: NotionConnectionSnapshot) {
         self.connection = connection
@@ -172,10 +170,6 @@ private final class ConnectionTestClient: NotionWorkspaceClient {
         searchCount += 1
         return []
     }
-    func fetchPagePreview(page: NotionPageReference) async throws -> NativePageSnapshot {
-        previewCount += 1
-        return NativePageSnapshot(pageID: page.pageID, title: "Unused", blocks: [], remoteFingerprint: "", fetchedAt: Date())
-    }
 }
 
 private actor DelayedConnectionTestClient: NotionWorkspaceClient {
@@ -194,10 +188,6 @@ private actor DelayedConnectionTestClient: NotionWorkspaceClient {
     }
 
     func searchPages(query: String) async throws -> [NotionPageSearchResult] { [] }
-
-    func fetchPagePreview(page: NotionPageReference) async throws -> NativePageSnapshot {
-        NativePageSnapshot(pageID: page.pageID, title: "Unused", blocks: [], remoteFingerprint: "", fetchedAt: Date())
-    }
 
     func waitUntilValidationStarts() async {
         while !validationStarted {
