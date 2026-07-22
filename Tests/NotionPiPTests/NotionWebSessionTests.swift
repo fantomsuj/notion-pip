@@ -133,6 +133,157 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(session.activePage, original)
     }
 
+    func testEditorActivityBridgeAcceptsOnlyMainFrameNotionHTTPSMessages() {
+        XCTAssertEqual(
+            NotionEditorActivityBridge.activity(
+                from: "typingStarted",
+                isMainFrame: true,
+                scheme: "https",
+                host: "www.notion.so"
+            ),
+            .typingStarted
+        )
+        XCTAssertEqual(
+            NotionEditorActivityBridge.activity(
+                from: "editingEnded",
+                isMainFrame: true,
+                scheme: "https",
+                host: "notion.so"
+            ),
+            .editingEnded
+        )
+
+        XCTAssertNil(
+            NotionEditorActivityBridge.activity(
+                from: "typingStarted",
+                isMainFrame: false,
+                scheme: "https",
+                host: "www.notion.so"
+            )
+        )
+        XCTAssertNil(
+            NotionEditorActivityBridge.activity(
+                from: "typingStarted",
+                isMainFrame: true,
+                scheme: "http",
+                host: "www.notion.so"
+            )
+        )
+        XCTAssertNil(
+            NotionEditorActivityBridge.activity(
+                from: "typingStarted",
+                isMainFrame: true,
+                scheme: "https",
+                host: "notion.example"
+            )
+        )
+        XCTAssertNil(
+            NotionEditorActivityBridge.activity(
+                from: ["activity": "typingStarted"],
+                isMainFrame: true,
+                scheme: "https",
+                host: "www.notion.so"
+            )
+        )
+    }
+
+    func testTypingActivityHidesTopControlsUntilEditingEnds() {
+        let session = NotionWebSession()
+        let chrome = PiPChromeView(
+            webSession: session,
+            nativePageDocument: NativePageDocument()
+        )
+
+        XCTAssertFalse(session.isTypingInPage)
+        XCTAssertTrue(chrome.showsTopControls)
+
+        session.handleEditorActivity(.typingStarted)
+
+        XCTAssertTrue(session.isTypingInPage)
+        XCTAssertFalse(chrome.showsTopControls)
+
+        session.handleEditorActivity(.editingEnded)
+
+        XCTAssertFalse(session.isTypingInPage)
+        XCTAssertTrue(chrome.showsTopControls)
+    }
+
+    func testVoiceOverKeepsTopControlsVisibleWhileTyping() {
+        XCTAssertFalse(
+            PiPChromeView.shouldShowTopControls(
+                isTypingInPage: true,
+                isVoiceOverEnabled: false,
+                isSwitchControlEnabled: false,
+                isFullKeyboardAccessEnabled: false
+            )
+        )
+        XCTAssertTrue(
+            PiPChromeView.shouldShowTopControls(
+                isTypingInPage: true,
+                isVoiceOverEnabled: true,
+                isSwitchControlEnabled: false,
+                isFullKeyboardAccessEnabled: false
+            )
+        )
+        XCTAssertTrue(
+            PiPChromeView.shouldShowTopControls(
+                isTypingInPage: true,
+                isVoiceOverEnabled: false,
+                isSwitchControlEnabled: true,
+                isFullKeyboardAccessEnabled: false
+            )
+        )
+        XCTAssertTrue(
+            PiPChromeView.shouldShowTopControls(
+                isTypingInPage: true,
+                isVoiceOverEnabled: false,
+                isSwitchControlEnabled: false,
+                isFullKeyboardAccessEnabled: true
+            )
+        )
+    }
+
+    func testEditorActivityScriptRunsAtDocumentStartInMainFrameOnly() throws {
+        let session = NotionWebSession()
+        let script = try XCTUnwrap(
+            session.webView.configuration.userContentController.userScripts.first
+        )
+
+        XCTAssertEqual(script.injectionTime, .atDocumentStart)
+        XCTAssertTrue(script.isForMainFrameOnly)
+        XCTAssertTrue(script.source.contains("beforeinput"))
+        XCTAssertTrue(script.source.contains("pointermove"))
+        XCTAssertTrue(script.source.contains("focusout"))
+        XCTAssertTrue(
+            script.source.contains(
+                "if (editableElement(event.target)) publishTypingStarted();"
+            )
+        )
+    }
+
+    func testNavigationResetsTypingActivity() throws {
+        let session = NotionWebSession()
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+        session.handleEditorActivity(.typingStarted)
+
+        navigationDelegate.webView?(session.webView, didStartProvisionalNavigation: nil)
+
+        XCTAssertFalse(session.isTypingInPage)
+    }
+
+    func testAdoptingResolvedSPAPageResetsTypingActivity() throws {
+        let session = NotionWebSession()
+        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        session.handleEditorActivity(.typingStarted)
+
+        session.adoptResolvedPage(
+            at: try XCTUnwrap(URL(string: "https://www.notion.so/Notes-\(secondPageID)"))
+        )
+
+        XCTAssertFalse(session.isTypingInPage)
+        XCTAssertEqual(session.activePage?.pageID, secondPageID)
+    }
+
     func testFailureStateShowsGenericMessageAndRetryWithoutExposingWebKitErrorText() throws {
         let session = NotionWebSession()
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
