@@ -42,12 +42,15 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     private let pinCoordinator: PinCoordinator
     private let shortcutRegistrar: any GlobalShortcutRegistering
     private let pageURLInputPresenter: any PageURLInputPresenting
+    private let pageRepository: (any PinnedPagePersisting)?
     private let credentialVault: PersonalTokenCredentialVault
     private let notionClientFactory: (PersonalIntegrationToken) -> any NotionWorkspaceClient
     private weak var setupOptionsPresenter: (any SetupOptionsPresenting)?
     private var previewTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var bootstrapTask: Task<Void, Never>?
+    private var restorePinnedPageTask: Task<Void, Never>?
+    private var persistPinnedPageTask: Task<Void, Never>?
     private var activationGeneration = 0
     private var connectionGeneration = 0
     private var started = false
@@ -58,6 +61,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         shortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar(),
         pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
         nativePageDocument: NativePageDocument? = nil,
+        pageRepository: (any PinnedPagePersisting)? = nil,
         credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
         notionClientFactory: @escaping (PersonalIntegrationToken) -> any NotionWorkspaceClient = { token in
             NotionAPIClient(token: token)
@@ -80,6 +84,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             requestPageURLFocus: inputPresenter.presentAndFocus
         )
         self.shortcutRegistrar = shortcutRegistrar
+        self.pageRepository = pageRepository
         self.credentialVault = credentialVault
         self.notionClientFactory = notionClientFactory
         submissionRelay.handler = { [weak self] in
@@ -91,20 +96,21 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         guard !started else {
             return
         }
-
-        defer {
-            bootstrapTask = Task { [weak self] in
-                await self?.bootstrapPersonalTokenConnection()
-            }
-        }
+        started = true
 
         do {
             try shortcutRegistrar.register { [weak self] in
                 self?.handleGlobalShortcut()
             }
-            started = true
         } catch {
             logger.error("Global shortcut registration failed")
+        }
+
+        bootstrapTask = Task { [weak self] in
+            await self?.bootstrapPersonalTokenConnection()
+        }
+        restorePinnedPageTask = Task { [weak self] in
+            await self?.restorePinnedPage()
         }
     }
 
@@ -136,6 +142,14 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     }
 
     func activate(page: NotionPageReference, source: PageActivationSource) {
+        activate(page: page, source: source, persist: true)
+    }
+
+    private func activate(
+        page: NotionPageReference,
+        source: PageActivationSource,
+        persist: Bool
+    ) {
         pinCoordinator.pin(page: page)
         setupOptionsPresenter?.hide()
         activePage = page
@@ -148,6 +162,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         nativePageDocument.restoreCachedPage(pageID: page.pageID)
         previewTask = Task { [weak self] in
             await self?.loadNativePagePreview(page, generation: generation)
+        }
+        if persist {
+            enqueuePersistence(of: page)
         }
     }
 
@@ -275,6 +292,40 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         generation == connectionGeneration && !Task.isCancelled
     }
 
+    private func restorePinnedPage() async {
+        guard let pageRepository else { return }
+        let generation = activationGeneration
+
+        do {
+            guard let storedPage = try await pageRepository.currentPinnedPage() else { return }
+            guard let page = try? NotionPageReference(validating: storedPage.canonicalURL),
+                  page.canonicalURL == storedPage.canonicalURL,
+                  page.pageID == storedPage.pageID
+            else {
+                logger.error("Pinned page restore skipped page_id=\(storedPage.pageID, privacy: .public) category=invalid-stored-value")
+                return
+            }
+            guard generation == activationGeneration, !Task.isCancelled else { return }
+            activate(page: page, source: .restored, persist: false)
+        } catch {
+            logger.error("Pinned page restore failed category=repository-read")
+        }
+    }
+
+    private func enqueuePersistence(of page: NotionPageReference) {
+        guard let pageRepository else { return }
+        let previousTask = persistPinnedPageTask
+        let logger = logger
+        persistPinnedPageTask = Task {
+            await previousTask?.value
+            do {
+                _ = try await pageRepository.replaceCurrent(with: page)
+            } catch {
+                logger.error("Pinned page save failed page_id=\(page.pageID, privacy: .public) category=repository-write")
+            }
+        }
+    }
+
     private func loadNativePagePreview(_ page: NotionPageReference, generation: Int) async {
         do {
             guard isNotionConnected else { return }
@@ -312,6 +363,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 }
 
 enum PageActivationSource: Equatable, Sendable {
+    case restored
     case typedURL
     case clipboard
     case externalRoute(ExternalURLSource)

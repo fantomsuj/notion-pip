@@ -289,11 +289,161 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertNil(runtime.searchError)
     }
 
+    func testStartRestoresSavedPageIntoVisiblePanel() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let storedPage = try makeStoredPage(id: firstPageID, title: "Roadmap")
+
+        runtime.start()
+        await repository.waitUntilRestoreRequested()
+        await repository.finishRestore(with: storedPage)
+        await waitUntil { runtime.activePage?.pageID == self.firstPageID }
+
+        XCTAssertEqual(runtime.lastActivationSource, .restored)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.currentPage?.pageID, firstPageID)
+    }
+
+    func testStartWithNoSavedPageLeavesPanelHidden() async {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+
+        runtime.start()
+        await repository.waitUntilRestoreRequested()
+        await repository.finishRestore(with: nil)
+        await repository.waitUntilRestoreReturned()
+        for _ in 0 ..< 3 { await Task.yield() }
+
+        XCTAssertNil(runtime.activePage)
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertNil(panel.currentPage)
+    }
+
+    func testTypedActivationWhileRestoreIsDelayedWins() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let storedPage = try makeStoredPage(id: firstPageID, title: "Stored")
+        let typedPage = try makePage(id: secondPageID, title: "Typed")
+
+        runtime.start()
+        await repository.waitUntilRestoreRequested()
+        runtime.activate(page: typedPage, source: .typedURL)
+        await repository.finishRestore(with: storedPage)
+        await repository.waitUntilRestoreReturned()
+        await repository.waitUntilSaveCount(1)
+        for _ in 0 ..< 3 { await Task.yield() }
+
+        XCTAssertEqual(runtime.activePage, typedPage)
+        XCTAssertEqual(runtime.lastActivationSource, .typedURL)
+        XCTAssertEqual(panel.currentPage, typedPage)
+    }
+
+    func testActivationPersistsCanonicalReplacement() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let page = try NotionPageReference(
+            validating: XCTUnwrap(URL(string: "https://notion.so/Roadmap-\(firstPageID)?source=test#fragment"))
+        )
+
+        runtime.activate(page: page, source: .pagePicker)
+        await repository.waitUntilSaveCount(1)
+        let savedPages = await repository.savedPages()
+
+        XCTAssertEqual(savedPages, [page])
+        XCTAssertEqual(savedPages.first?.canonicalURL, page.canonicalURL)
+    }
+
+    func testRapidActivationsPersistInActivationOrder() async throws {
+        let repository = RuntimePinnedPageRepository(delaySaves: true)
+        let runtime = makeRuntime(panel: RuntimePanelCoordinator(), pageRepository: repository)
+        let first = try makePage(id: firstPageID, title: "First")
+        let second = try makePage(id: secondPageID, title: "Second")
+
+        runtime.activate(page: first, source: .typedURL)
+        runtime.activate(page: second, source: .notionSearch)
+        await repository.waitUntilSaveCount(1)
+        let firstSaveIDs = await repository.savedPageIDs()
+
+        XCTAssertEqual(firstSaveIDs, [firstPageID])
+
+        await repository.finishSave(pageID: firstPageID)
+        await repository.waitUntilSaveCount(2)
+        let allSaveIDs = await repository.savedPageIDs()
+
+        XCTAssertEqual(allSaveIDs, [firstPageID, secondPageID])
+        await repository.finishSave(pageID: secondPageID)
+    }
+
+    func testFailedSaveDoesNotHidePanelOrPreventNextSave() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository(failingPageIDs: [firstPageID])
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let first = try makePage(id: firstPageID, title: "First")
+        let second = try makePage(id: secondPageID, title: "Second")
+
+        runtime.activate(page: first, source: .typedURL)
+        await repository.waitUntilFailedSaveCount(1)
+        for _ in 0 ..< 3 { await Task.yield() }
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.currentPage, first)
+
+        runtime.activate(page: second, source: .notionSearch)
+        await repository.waitUntilSaveCount(2)
+        let savedPageIDs = await repository.savedPageIDs()
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.currentPage, second)
+        XCTAssertEqual(savedPageIDs, [firstPageID, secondPageID])
+    }
+
+    func testCorruptRestoredPageLeavesRuntimeEmpty() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let mismatchedPage = try makeStoredPage(id: secondPageID, title: "Mismatch")
+        let corruptPage = StoredPageSnapshot(
+            pageID: firstPageID,
+            canonicalURL: mismatchedPage.canonicalURL,
+            displayTitle: mismatchedPage.displayTitle,
+            timestamp: mismatchedPage.timestamp
+        )
+
+        runtime.start()
+        await repository.waitUntilRestoreRequested()
+        await repository.finishRestore(with: corruptPage)
+        await repository.waitUntilRestoreReturned()
+        for _ in 0 ..< 3 { await Task.yield() }
+
+        XCTAssertNil(runtime.activePage)
+        XCTAssertNil(runtime.lastActivationSource)
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    func testStartingTwiceRequestsRestoreOnce() async {
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: RuntimePanelCoordinator(), pageRepository: repository)
+
+        runtime.start()
+        await repository.waitUntilRestoreRequested()
+        runtime.start()
+        for _ in 0 ..< 3 { await Task.yield() }
+        let restoreRequestCount = await repository.restoreRequestCount()
+
+        XCTAssertEqual(restoreRequestCount, 1)
+        await repository.finishRestore(with: nil)
+    }
+
     private func makeRuntime(
         panel: RuntimePanelCoordinator,
         pasteboard: any PasteboardReading = RuntimePasteboard(value: nil),
         shortcutRegistrar: any GlobalShortcutRegistering = RuntimeShortcutRegistrar(),
         pageURLInputPresenter: RuntimePageURLInputPresenter = RuntimePageURLInputPresenter(),
+        pageRepository: (any PinnedPagePersisting)? = nil,
         client: any NotionWorkspaceClient = ImmediatePreviewClient()
     ) -> AppRuntime {
         let store = RuntimeSecretStore()
@@ -304,6 +454,7 @@ final class RuntimeActivationTests: XCTestCase {
             pasteboard: pasteboard,
             shortcutRegistrar: shortcutRegistrar,
             pageURLInputPresenter: pageURLInputPresenter,
+            pageRepository: pageRepository,
             credentialVault: vault,
             notionClientFactory: { _ in client }
         )
@@ -311,6 +462,28 @@ final class RuntimeActivationTests: XCTestCase {
 
     private func makePage(id: String, title: String) throws -> NotionPageReference {
         try NotionPageReference(validating: XCTUnwrap(URL(string: "https://www.notion.so/\(title)-\(id)")))
+    }
+
+    private func makeStoredPage(id: String, title: String) throws -> StoredPageSnapshot {
+        let page = try makePage(id: id, title: title)
+        return StoredPageSnapshot(
+            pageID: page.pageID,
+            canonicalURL: page.canonicalURL,
+            displayTitle: page.displayTitle,
+            timestamp: .distantPast
+        )
+    }
+
+    private func waitUntil(
+        _ condition: @escaping @MainActor () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0 ..< 1_000 {
+            if condition() { return }
+            await Task.yield()
+        }
+        XCTFail("Condition was not met", file: file, line: line)
     }
 }
 
@@ -426,6 +599,91 @@ private final class RuntimeSecretStore: SecretStoring {
     func read() throws -> Data? { data }
     func write(_ data: Data) throws { self.data = data }
     func delete() throws { data = nil }
+}
+
+private enum RuntimeRepositoryError: Error {
+    case saveFailed
+}
+
+private actor RuntimePinnedPageRepository: PinnedPagePersisting {
+    private let delaySaves: Bool
+    private let failingPageIDs: Set<String>
+    private var restoreRequests = 0
+    private var restoreReturned = false
+    private var restoreContinuation: CheckedContinuation<StoredPageSnapshot?, any Error>?
+    private var pagesSaved: [NotionPageReference] = []
+    private var failedSaves = 0
+    private var saveContinuations: [String: CheckedContinuation<Void, Never>] = [:]
+
+    init(delaySaves: Bool = false, failingPageIDs: Set<String> = []) {
+        self.delaySaves = delaySaves
+        self.failingPageIDs = failingPageIDs
+    }
+
+    func currentPinnedPage() async throws -> StoredPageSnapshot? {
+        restoreRequests += 1
+        let page = try await withCheckedThrowingContinuation { continuation in
+            restoreContinuation = continuation
+        }
+        restoreReturned = true
+        return page
+    }
+
+    func replaceCurrent(with page: NotionPageReference) async throws -> StoredPageSnapshot {
+        pagesSaved.append(page)
+        if delaySaves {
+            await withCheckedContinuation { continuation in
+                saveContinuations[page.pageID] = continuation
+            }
+        }
+        if failingPageIDs.contains(page.pageID) {
+            failedSaves += 1
+            throw RuntimeRepositoryError.saveFailed
+        }
+        return StoredPageSnapshot(
+            pageID: page.pageID,
+            canonicalURL: page.canonicalURL,
+            displayTitle: page.displayTitle,
+            timestamp: .distantPast
+        )
+    }
+
+    func waitUntilRestoreRequested() async {
+        while restoreRequests == 0 { await Task.yield() }
+    }
+
+    func finishRestore(with page: StoredPageSnapshot?) {
+        restoreContinuation?.resume(returning: page)
+        restoreContinuation = nil
+    }
+
+    func waitUntilRestoreReturned() async {
+        while !restoreReturned { await Task.yield() }
+    }
+
+    func restoreRequestCount() -> Int {
+        restoreRequests
+    }
+
+    func waitUntilSaveCount(_ count: Int) async {
+        while pagesSaved.count < count { await Task.yield() }
+    }
+
+    func waitUntilFailedSaveCount(_ count: Int) async {
+        while failedSaves < count { await Task.yield() }
+    }
+
+    func savedPages() -> [NotionPageReference] {
+        pagesSaved
+    }
+
+    func savedPageIDs() -> [String] {
+        pagesSaved.map(\.pageID)
+    }
+
+    func finishSave(pageID: String) {
+        saveContinuations.removeValue(forKey: pageID)?.resume()
+    }
 }
 
 private actor ImmediatePreviewClient: NotionWorkspaceClient {
