@@ -2,14 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  BLOCK_COMMANDS,
   BridgeClient,
   DebouncedChangePublisher,
   EditorTransitionGate,
   canInstallSnapshot,
   conflictTransitionOperation,
+  displayTitle,
   executeToolbarCommand,
+  filterBlockCommands,
   normalizeDocument,
   requireAutosaveAcknowledgement,
+  routeOverlayKey,
+  routeTitleKey,
   runAfterPendingChange,
   type EditorCommandTarget,
 } from "./editor.ts";
@@ -55,6 +60,80 @@ test("toolbar commands use the focused Tiptap chain and reject unknown commands"
   assert.equal(executeToolbarCommand({ chain: () => chain }, "bold"), true);
   assert.deepEqual(calls, ["focus", "toggleBold", "run"]);
   assert.equal(executeToolbarCommand({ chain: () => chain }, "script"), false);
+});
+
+test("block commands expose the supported blocks in stable menu order", () => {
+  assert.deepEqual(BLOCK_COMMANDS.map((item) => item.id), [
+    "text",
+    "heading1",
+    "heading2",
+    "heading3",
+    "bulletList",
+    "orderedList",
+    "taskList",
+    "quote",
+    "codeBlock",
+    "divider",
+  ]);
+  assert.deepEqual(
+    BLOCK_COMMANDS.map((item) => item.command),
+    [
+      "setParagraph",
+      "toggleHeading",
+      "toggleHeading",
+      "toggleHeading",
+      "toggleBulletList",
+      "toggleOrderedList",
+      "toggleTaskList",
+      "toggleBlockquote",
+      "toggleCodeBlock",
+      "setHorizontalRule",
+    ],
+  );
+});
+
+test("block command filtering is case-insensitive and retains catalog order", () => {
+  assert.deepEqual(
+    filterBlockCommands("  HeAd  ").map((item) => item.id),
+    ["heading1", "heading2", "heading3"],
+  );
+  assert.deepEqual(
+    filterBlockCommands("list").map((item) => item.id),
+    ["bulletList", "orderedList", "taskList"],
+  );
+  assert.deepEqual(
+    filterBlockCommands("").map((item) => item.id),
+    BLOCK_COMMANDS.map((item) => item.id),
+  );
+});
+
+test("block command filtering matches aliases", () => {
+  assert.deepEqual(filterBlockCommands("todo").map((item) => item.id), ["taskList"]);
+  assert.deepEqual(filterBlockCommands("numbered").map((item) => item.id), ["orderedList"]);
+  assert.deepEqual(filterBlockCommands("hr").map((item) => item.id), ["divider"]);
+});
+
+test("display titles fall back without changing non-empty title text", () => {
+  assert.equal(displayTitle(""), "Untitled");
+  assert.equal(displayTitle("  \n"), "Untitled");
+  assert.equal(displayTitle("  Project notes  "), "  Project notes  ");
+});
+
+test("title keys route focus into the body at the intended boundaries", () => {
+  assert.equal(routeTitleKey({ key: "Enter", atBoundary: false }), "focusBody");
+  assert.equal(routeTitleKey({ key: "Tab", atBoundary: false }), "focusBody");
+  assert.equal(routeTitleKey({ key: "ArrowDown", atBoundary: true }), "focusBody");
+  assert.equal(routeTitleKey({ key: "ArrowDown", atBoundary: false }), "none");
+  assert.equal(routeTitleKey({ key: "ArrowUp", atBoundary: true }), "none");
+});
+
+test("overlay keys route only while the slash menu is open", () => {
+  assert.equal(routeOverlayKey({ key: "ArrowUp", isOpen: true }), "previous");
+  assert.equal(routeOverlayKey({ key: "ArrowDown", isOpen: true }), "next");
+  assert.equal(routeOverlayKey({ key: "Enter", isOpen: true }), "select");
+  assert.equal(routeOverlayKey({ key: "Escape", isOpen: true }), "dismiss");
+  assert.equal(routeOverlayKey({ key: "Escape", isOpen: false }), "none");
+  assert.equal(routeOverlayKey({ key: "Tab", isOpen: true }), "none");
 });
 
 test("changed messages debounce to the latest canonical snapshot and expected revision", async () => {
