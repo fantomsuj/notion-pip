@@ -24,7 +24,7 @@ No title or destination prompt is added in this slice. Notion owns the new page'
 
 ### Page adoption
 
-After navigation finishes, `NotionWebSession` validates the final web-view URL as a `NotionPageReference`. A callback reports newly resolved page references to the application layer. The callback does not fire for the page that was explicitly activated, avoiding feedback loops.
+`NotionWebSession` observes the web view's URL and also checks it when navigation finishes, then validates resolved URLs as `NotionPageReference` values. Observing the URL is required because Notion's `/new` route can replace browser history from client-side code instead of issuing an HTTP redirect. A callback reports newly resolved page references to the application layer. The callback does not fire for the page that was explicitly activated, avoiding feedback loops.
 
 `AppRuntime` receives the resolved page and activates it through the existing pinning path. This keeps `PinCoordinator`, the panel coordinator, native preview loading, and durable pinned-page persistence consistent. Re-activating the page in the web session is harmless because `NotionWebSession.activate` already deduplicates the same page ID.
 

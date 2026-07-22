@@ -29,7 +29,7 @@
 - Consumes: Existing `NotionPageReference.init(validating:)` canonical URL validation.
 - Produces: `NotionWebSession.createNewPage()`, `NotionWebSession.isCreatingNewPage: Bool`, and mutable `NotionWebSession.onPageResolved: (@MainActor (NotionPageReference) -> Void)?`.
 
-- [ ] **Step 1: Write failing creation-navigation tests**
+- [x] **Step 1: Write failing creation-navigation tests**
 
 Add tests that inject a request loader, invoke creation twice, and verify exactly one request to the fixed route:
 
@@ -64,7 +64,7 @@ func testFailedCreationAllowsAnotherAttempt() throws {
 }
 ```
 
-- [ ] **Step 2: Run the focused tests and verify failure**
+- [x] **Step 2: Run the focused tests and verify failure**
 
 Run:
 
@@ -74,7 +74,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter Not
 
 Expected: compilation fails because `loadRequest`, `createNewPage`, and `isCreatingNewPage` do not exist.
 
-- [ ] **Step 3: Implement guarded new-page navigation**
+- [x] **Step 3: Implement guarded new-page navigation**
 
 Add the request loader and state to `NotionWebSession`, preserving existing defaults:
 
@@ -121,7 +121,7 @@ isCreatingNewPage = false
 state = .failed(error.localizedDescription)
 ```
 
-- [ ] **Step 4: Add failing resolved-page adoption tests**
+- [x] **Step 4: Add failing resolved-page adoption tests**
 
 Add coverage for a canonical final URL and an invalid intermediate URL:
 
@@ -160,7 +160,7 @@ func testFinishedIntermediateNavigationDoesNotReplaceActivePage() throws {
 }
 ```
 
-- [ ] **Step 5: Implement final URL recognition**
+- [x] **Step 5: Implement final URL recognition**
 
 At the end of `webView(_:didFinish:)`, clear the creation guard and adopt only a different valid page:
 
@@ -176,7 +176,9 @@ onPageResolved?(resolvedPage)
 
 This also keeps ordinary full-page Notion navigations coherent without firing a callback for the explicit activation load.
 
-- [ ] **Step 6: Run focused tests**
+Because a direct request confirms that `https://www.notion.so/new` returns client-rendered HTML rather than an HTTP redirect, also retain an `NSKeyValueObservation` for `WKWebView.url` and call the same adoption helper from that observer. This covers Notion history changes that do not produce another navigation completion callback.
+
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -186,7 +188,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter Not
 
 Expected: all `NotionWebSessionTests` pass.
 
-- [ ] **Step 7: Commit the web-session slice**
+- [x] **Step 7: Commit the web-session slice**
 
 ```bash
 git add Sources/NotionPiP/Platform/NotionWebSession.swift Tests/NotionPiPTests/NotionWebSessionTests.swift
@@ -207,7 +209,7 @@ git commit -m "feat: create Notion pages in embedded session"
 - Consumes: `NotionWebSession.createNewPage()` and `NotionWebSession.isCreatingNewPage` from Task 1.
 - Produces: `AppCommandID.newNotionPage` and an icon-only toolbar control that performs it.
 
-- [ ] **Step 1: Write failing command tests**
+- [x] **Step 1: Write failing command tests**
 
 Update the test model helper with a `newNotionPage` action and change expected groups and labels:
 
@@ -233,7 +235,7 @@ Construct the model with:
 newNotionPage: { events(.newNotionPage) },
 ```
 
-- [ ] **Step 2: Run command tests and verify failure**
+- [x] **Step 2: Run command tests and verify failure**
 
 Run:
 
@@ -243,7 +245,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter App
 
 Expected: compilation fails because `AppCommandID.newNotionPage` and the initializer argument do not exist.
 
-- [ ] **Step 3: Add the command definition**
+- [x] **Step 3: Add the command definition**
 
 Add `.newNotionPage` before `.quickCapture`. Expand the no-op factory and initializer with these exact parameters:
 
@@ -321,7 +323,7 @@ AppCommand(
 
 Do not assign a shortcut because Command-N already belongs to Quick Capture in the current app.
 
-- [ ] **Step 4: Write the failing toolbar accessibility test**
+- [x] **Step 4: Write the failing toolbar accessibility test**
 
 Extend the existing PiP chrome accessibility test:
 
@@ -330,7 +332,7 @@ XCTAssertEqual(PiPChromeView.newPageAccessibilityLabel, "Create New Notion Page"
 XCTAssertEqual(PiPChromeView.newPageHelp, "Create a new page in Notion")
 ```
 
-- [ ] **Step 5: Add the toolbar button**
+- [x] **Step 5: Add the toolbar button**
 
 In `PiPChromeView`, add stable copy constants and render the button immediately before Reload:
 
@@ -351,7 +353,7 @@ Button {
 
 Keep the existing loading indicator, Reload, browser, surface, menu, stash, and hide controls unchanged.
 
-- [ ] **Step 6: Run focused command and chrome tests**
+- [x] **Step 6: Run focused command and chrome tests**
 
 Run:
 
@@ -361,7 +363,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter 'Ap
 
 Expected: both suites pass.
 
-- [ ] **Step 7: Commit the UI slice**
+- [x] **Step 7: Commit the UI slice**
 
 ```bash
 git add Sources/NotionPiP/App/AppCommandModel.swift Sources/NotionPiP/Views/PiPChromeView.swift Tests/NotionPiPTests/AppCommandTests.swift Tests/NotionPiPTests/NotionWebSessionTests.swift
@@ -382,7 +384,7 @@ git commit -m "feat: add new Notion page toolbar action"
 - Consumes: `NotionWebSession.onPageResolved`, `NotionWebSession.createNewPage()`, `AppCommandModel(newNotionPage:...)`.
 - Produces: `PageActivationSource.notionWebSession`, runtime adoption through `AppRuntime.activate(page:source:)`, and a panel initializer that accepts the composed web session.
 
-- [ ] **Step 1: Write the failing runtime source test**
+- [x] **Step 1: Write the failing runtime source test**
 
 Add this activation-path test:
 
@@ -402,7 +404,7 @@ func testEmbeddedWebSessionPageUsesUnifiedRuntimePath() throws {
 }
 ```
 
-- [ ] **Step 2: Run the runtime test and verify failure**
+- [x] **Step 2: Run the runtime test and verify failure**
 
 Run:
 
@@ -412,7 +414,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter Run
 
 Expected: compilation fails because `PageActivationSource.notionWebSession` does not exist.
 
-- [ ] **Step 3: Add the activation source and injectable session**
+- [x] **Step 3: Add the activation source and injectable session**
 
 Add `case notionWebSession` to `PageActivationSource`.
 
@@ -466,7 +468,7 @@ convenience init(
 
 Remove the initializer's old local `let webSession = NotionWebSession()` so both the command and panel use the same session instance.
 
-- [ ] **Step 4: Wire the shared instance in `AppComposition`**
+- [x] **Step 4: Wire the shared instance in `AppComposition`**
 
 Create the web session before the command model, point the command at it, inject it into the panel, and bind page resolution after creating the runtime:
 
@@ -495,11 +497,11 @@ webSession.onPageResolved = { [weak runtime] page in
 }
 ```
 
-- [ ] **Step 5: Update remaining initializer call sites**
+- [x] **Step 5: Update remaining initializer call sites**
 
 Add `newNotionPage: {}` to explicit `AppCommandModel` construction in tests and helpers. The `.noOp` model must already supply this argument internally, so views using `.noOp` require no changes.
 
-- [ ] **Step 6: Run focused integration tests**
+- [x] **Step 6: Run focused integration tests**
 
 Run:
 
@@ -509,7 +511,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter 'Ru
 
 Expected: all four suites pass, including existing edge-stash tests.
 
-- [ ] **Step 7: Commit the composition slice**
+- [x] **Step 7: Commit the composition slice**
 
 ```bash
 git add Sources/NotionPiP/App/NotionPiPApp.swift Sources/NotionPiP/App/AppRuntime.swift Sources/NotionPiP/App/AppCommandModel.swift Sources/NotionPiP/Platform/PiPPanelCoordinator.swift Tests/NotionPiPTests/AppCommandTests.swift Tests/NotionPiPTests/RuntimeActivationTests.swift
@@ -528,7 +530,7 @@ git commit -m "feat: adopt created Notion page as active pin"
 - Consumes: Completed one-click creation flow.
 - Produces: User-facing feature documentation and final verification evidence.
 
-- [ ] **Step 1: Document the toolbar action**
+- [x] **Step 1: Document the toolbar action**
 
 Add this section before `## Stash the PiP`:
 
@@ -538,7 +540,7 @@ Add this section before `## Stash the PiP`:
 Click the `+` button in the PiP toolbar to open a fresh page in the embedded Notion session. The new page becomes the pinned PiP page automatically; no Notion integration token is required.
 ```
 
-- [ ] **Step 2: Run formatting and diff checks**
+- [x] **Step 2: Run formatting and diff checks**
 
 Run:
 
@@ -549,7 +551,7 @@ git diff --stat origin/master...
 
 Expected: no whitespace errors; the stat contains only the design, plan, feature, test, README, and pre-existing edge-stash changes.
 
-- [ ] **Step 3: Run the full Swift test suite**
+- [x] **Step 3: Run the full Swift test suite**
 
 Run:
 
@@ -559,7 +561,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 
 Expected: all tests pass with zero failures.
 
-- [ ] **Step 4: Build the executable**
+- [x] **Step 4: Build the executable**
 
 Run:
 
@@ -569,14 +571,14 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
 
 Expected: `Build complete!` with exit status 0.
 
-- [ ] **Step 5: Commit documentation**
+- [x] **Step 5: Commit documentation**
 
 ```bash
 git add README.md docs/superpowers/plans/2026-07-21-one-click-new-notion-page.md
 git commit -m "docs: explain one-click Notion page creation"
 ```
 
-- [ ] **Step 6: Review final feature diff**
+- [x] **Step 6: Review final feature diff**
 
 Run:
 

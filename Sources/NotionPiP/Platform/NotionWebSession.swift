@@ -28,6 +28,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject {
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
     private let openURL: @MainActor (URL) -> Void
     private let loadRequest: NotionWebRequestLoader
+    private var urlObservation: NSKeyValueObservation?
 
     init(
         webView: WKWebView? = nil,
@@ -41,6 +42,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject {
         self.loadRequest = loadRequest
         super.init()
         self.webView.navigationDelegate = self
+        urlObservation = self.webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
+            MainActor.assumeIsolated {
+                self?.adoptResolvedPage(at: webView.url)
+            }
+        }
     }
 
     func activate(page: NotionPageReference) {
@@ -95,7 +101,11 @@ extension NotionWebSession: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         state = .ready
         isCreatingNewPage = false
-        guard let url = webView.url,
+        adoptResolvedPage(at: webView.url)
+    }
+
+    private func adoptResolvedPage(at url: URL?) {
+        guard let url,
               let resolvedPage = try? NotionPageReference(validating: url),
               resolvedPage.pageID != activePage?.pageID
         else {

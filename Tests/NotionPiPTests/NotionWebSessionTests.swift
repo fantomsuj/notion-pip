@@ -91,7 +91,7 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertTrue(session.isCreatingNewPage)
     }
 
-    func testFinishedNavigationReportsNewCanonicalPageOnce() throws {
+    func testURLChangeReportsNewCanonicalPageOnceAcrossNavigationCompletion() throws {
         var resolvedPages: [NotionPageReference] = []
         let session = NotionWebSession()
         session.onPageResolved = { resolvedPages.append($0) }
@@ -104,6 +104,9 @@ final class NotionWebSessionTests: XCTestCase {
             )
         )
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+
+        XCTAssertEqual(resolvedPages.map(\.pageID), [secondPageID])
+        XCTAssertEqual(session.activePage?.pageID, secondPageID)
 
         navigationDelegate.webView?(session.webView, didFinish: nil)
         navigationDelegate.webView?(session.webView, didFinish: nil)
