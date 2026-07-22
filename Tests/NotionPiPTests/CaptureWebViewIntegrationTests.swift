@@ -308,6 +308,69 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         XCTAssertEqual(selected?["closed"] as? Bool, true)
     }
 
+    func testSlashMenuKeepsFinalKeyboardOptionVisible() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "slash-scroll-draft" }
+        )
+        session.webView.frame = NSRect(x: 0, y: 0, width: 480, height: 600)
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        _ = try await session.webView.callAsyncJavaScript(
+            """
+            document.querySelector('#editor .tiptap').focus();
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        sendWebText("/", to: session.webView)
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return document.querySelectorAll('#slash-menu [role=option]').length === 10"
+        }
+
+        for commandID in [
+            "heading1", "heading2", "heading3", "bulletList", "orderedList",
+            "taskList", "quote", "codeBlock", "divider",
+        ] {
+            sendWebKey("\u{F701}", keyCode: 125, to: session.webView)
+            try await waitForJavaScriptCondition(in: session.webView) {
+                "return document.querySelector('#slash-menu').getAttribute('aria-activedescendant') === 'slash-option-\(commandID)'"
+            }
+        }
+
+        let visibility = try await session.webView.callAsyncJavaScript(
+            """
+            const menu = document.querySelector('#slash-menu');
+            const active = document.getElementById(menu.getAttribute('aria-activedescendant'));
+            const menuBounds = menu.getBoundingClientRect();
+            const activeBounds = active.getBoundingClientRect();
+            return {
+              activeID: active.id,
+              visible: activeBounds.top >= menuBounds.top && activeBounds.bottom <= menuBounds.bottom,
+              scrollTop: menu.scrollTop,
+              activeTop: activeBounds.top,
+              activeBottom: activeBounds.bottom,
+              menuTop: menuBounds.top,
+              menuBottom: menuBounds.bottom,
+              clientHeight: menu.clientHeight,
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Any]
+
+        XCTAssertEqual(visibility?["activeID"] as? String, "slash-option-divider")
+        XCTAssertEqual(visibility?["visible"] as? Bool, true, "\(String(describing: visibility))")
+        XCTAssertGreaterThan(visibility?["scrollTop"] as? Double ?? 0, 0)
+    }
+
     func testSlashMenuEscapeDismissesWithoutDeletingQueryText() async throws {
         let repository = try CaptureRepository(inMemory: true)
         let session = CaptureEditorSession(

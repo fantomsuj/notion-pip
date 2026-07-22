@@ -788,6 +788,7 @@ function bootstrap(): void {
       slashMenu.setAttribute("aria-activedescendant", activeID);
       activeEditor.view.dom.setAttribute("aria-activedescendant", activeID);
     }
+    options[slashActiveIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
   function installSnapshot(next: EditorSnapshot): boolean {
