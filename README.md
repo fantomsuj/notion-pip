@@ -12,6 +12,10 @@ Click the `+` button in the PiP toolbar to open a fresh page in the embedded Not
 
 Use the compact-arrow button in the PiP toolbar to tuck the panel onto the nearest left or right screen edge. A slim edge tab remains available across Spaces; click it to restore the same live Notion page, including its current WebView session and navigation state. Drag the tab to move it to either side or a different height; it snaps to the nearest horizontal screen edge when released. `Command-Shift-P` stashes a visible PiP and restores it on the next press. The menu-bar icon also restores a stashed panel while retaining its regular show/hide behavior.
 
+## Live-only page display
+
+The PiP displays the live embedded Notion page. It does not generate or show a native cached page preview. Choosing **Disconnect** for a personal Notion token also removes legacy derived preview files from `Application Support/NotionPiP/NativePageCache`; the app never performs that cleanup automatically at launch or during an upgrade.
+
 ## Build and run
 
 Full Xcode 26.2 is required. The project-local script selects it explicitly, builds the SwiftPM executable, stages `dist/NotionPiP.app`, copies SwiftPM resource bundles, ad-hoc signs the app, and launches it through Launch Services:
@@ -30,7 +34,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 
 ## Security boundary
 
-Only HTTPS pages on `notion.so` and `www.notion.so` with a 32-hex-character page ID are accepted. Canonical URLs never retain credentials, query strings, or fragments. The `notion-pip` handoff contract is documented in `docs/HANDOFF_PROTOCOL.md`.
+Only HTTPS pages on `app.notion.com`, `notion.so`, and `www.notion.so` with a 32-hex-character page ID are accepted. `notion.so` inputs canonicalize to `www.notion.so`, while `app.notion.com` inputs retain that host. Canonical URLs never retain credentials, query strings, or fragments. The `notion-pip` handoff contract is documented in `docs/HANDOFF_PROTOCOL.md`.
 
 The development app is sandboxed with outbound network access and user-selected file read/write access for future recovery exports. Ad-hoc signing is for local development only; it is not Developer ID distribution or notarization.
 

@@ -14,7 +14,7 @@ public struct NotionPageReference: Equatable, Hashable, Sendable {
     public let displayTitle: String?
 
     private static let maximumURLLength = 4_096
-    private static let supportedHosts = ["notion.so", "www.notion.so"]
+    private static let supportedHosts = ["app.notion.com", "notion.so", "www.notion.so"]
 
     public init(validating url: URL) throws {
         guard url.absoluteString.utf8.count <= Self.maximumURLLength else {
@@ -35,7 +35,7 @@ public struct NotionPageReference: Equatable, Hashable, Sendable {
 
         var canonicalComponents = URLComponents()
         canonicalComponents.scheme = "https"
-        canonicalComponents.host = "www.notion.so"
+        canonicalComponents.host = host == "app.notion.com" ? host : "www.notion.so"
         canonicalComponents.path = "/\(component)"
 
         guard let canonicalURL = canonicalComponents.url else {

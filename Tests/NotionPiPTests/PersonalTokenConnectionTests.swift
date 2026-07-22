@@ -121,13 +121,78 @@ final class PersonalTokenConnectionTests: XCTestCase {
         XCTAssertFalse(connectionMessage(runtime.connectionState).contains(rawToken))
     }
 
-    private func makeRuntime(vault: PersonalTokenCredentialVault, client: ConnectionTestClient) -> AppRuntime {
+    func testDisconnectRemovesLegacyNativePreviewCacheAtExplicitDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cacheDirectory = root
+            .appendingPathComponent("Application Support/NotionPiP/NativePageCache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        try Data("legacy preview".utf8).write(to: cacheDirectory.appendingPathComponent("preview.html"))
+        defer { try? FileManager.default.removeItem(at: root) }
+        let vault = PersonalTokenCredentialVault(store: ConnectionTestSecretStore())
+        try vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
+        let runtime = makeRuntime(
+            vault: vault,
+            client: ConnectionTestClient(connection: NotionConnectionSnapshot(workspaceName: "Personal Workspace")),
+            legacyCacheCleaner: FileSystemLegacyNativePageCacheCleaner(),
+            legacyCacheDirectory: cacheDirectory
+        )
+
+        runtime.disconnectPersonalToken()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheDirectory.path))
+        XCTAssertNil(try vault.load())
+        XCTAssertEqual(runtime.connectionState, .disconnected)
+    }
+
+    func testCleanupFailureStillLeavesTokenDisconnected() throws {
+        let cacheDirectory = URL(fileURLWithPath: "/explicit/legacy/NativePageCache", isDirectory: true)
+        let cleaner = FailingLegacyNativePageCacheCleaner()
+        let vault = PersonalTokenCredentialVault(store: ConnectionTestSecretStore())
+        try vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
+        let runtime = makeRuntime(
+            vault: vault,
+            client: ConnectionTestClient(connection: NotionConnectionSnapshot(workspaceName: "Personal Workspace")),
+            legacyCacheCleaner: cleaner,
+            legacyCacheDirectory: cacheDirectory
+        )
+
+        runtime.disconnectPersonalToken()
+
+        XCTAssertEqual(cleaner.requestedDirectories, [cacheDirectory])
+        XCTAssertNil(try vault.load())
+        XCTAssertEqual(runtime.connectionState, .disconnected)
+    }
+
+    func testStartDoesNotAutomaticallyCleanLegacyNativePreviewCache() {
+        let cleaner = RecordingLegacyNativePageCacheCleaner()
+        let vault = PersonalTokenCredentialVault(store: ConnectionTestSecretStore())
+        let runtime = makeRuntime(
+            vault: vault,
+            client: ConnectionTestClient(connection: NotionConnectionSnapshot(workspaceName: "Personal Workspace")),
+            legacyCacheCleaner: cleaner,
+            legacyCacheDirectory: URL(fileURLWithPath: "/explicit/legacy/NativePageCache", isDirectory: true)
+        )
+
+        runtime.start()
+
+        XCTAssertTrue(cleaner.requestedDirectories.isEmpty)
+    }
+
+    private func makeRuntime(
+        vault: PersonalTokenCredentialVault,
+        client: ConnectionTestClient,
+        legacyCacheCleaner: any LegacyNativePageCacheCleaning = FileSystemLegacyNativePageCacheCleaner(),
+        legacyCacheDirectory: URL = FileSystemLegacyNativePageCacheCleaner.defaultDirectoryURL
+    ) -> AppRuntime {
         AppRuntime(
             panelCoordinator: FakePanelCoordinator(),
             pasteboard: ConnectionTestPasteboard(),
             shortcutRegistrar: ConnectionTestShortcutRegistrar(),
             pageURLInputPresenter: FakePageURLInputPresenter(),
             credentialVault: vault,
+            legacyCacheCleaner: legacyCacheCleaner,
+            legacyCacheDirectory: legacyCacheDirectory,
             notionClientFactory: { _ in client }
         )
     }
@@ -175,6 +240,23 @@ private final class ConnectionTestClient: NotionWorkspaceClient {
     func fetchPagePreview(page: NotionPageReference) async throws -> NativePageSnapshot {
         previewCount += 1
         return NativePageSnapshot(pageID: page.pageID, title: "Unused", blocks: [], remoteFingerprint: "", fetchedAt: Date())
+    }
+}
+
+private final class RecordingLegacyNativePageCacheCleaner: LegacyNativePageCacheCleaning {
+    private(set) var requestedDirectories: [URL] = []
+
+    func removeLegacyCache(at directory: URL) throws {
+        requestedDirectories.append(directory)
+    }
+}
+
+private final class FailingLegacyNativePageCacheCleaner: LegacyNativePageCacheCleaning {
+    private(set) var requestedDirectories: [URL] = []
+
+    func removeLegacyCache(at directory: URL) throws {
+        requestedDirectories.append(directory)
+        throw CocoaError(.fileWriteUnknown)
     }
 }
 

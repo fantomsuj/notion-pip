@@ -44,6 +44,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     private let pageURLInputPresenter: any PageURLInputPresenting
     private let pageRepository: (any PinnedPagePersisting)?
     private let credentialVault: PersonalTokenCredentialVault
+    private let legacyCacheCleaner: any LegacyNativePageCacheCleaning
+    private let legacyCacheDirectory: URL
     private let notionClientFactory: (PersonalIntegrationToken) -> any NotionWorkspaceClient
     private weak var setupOptionsPresenter: (any SetupOptionsPresenting)?
     private var previewTask: Task<Void, Never>?
@@ -65,6 +67,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         nativePageDocument: NativePageDocument? = nil,
         pageRepository: (any PinnedPagePersisting)? = nil,
         credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
+        legacyCacheCleaner: any LegacyNativePageCacheCleaning = FileSystemLegacyNativePageCacheCleaner(),
+        legacyCacheDirectory: URL = FileSystemLegacyNativePageCacheCleaner.defaultDirectoryURL,
         notionClientFactory: @escaping (PersonalIntegrationToken) -> any NotionWorkspaceClient = { token in
             NotionAPIClient(token: token)
         }
@@ -88,6 +92,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.shortcutRegistrar = shortcutRegistrar
         self.pageRepository = pageRepository
         self.credentialVault = credentialVault
+        self.legacyCacheCleaner = legacyCacheCleaner
+        self.legacyCacheDirectory = legacyCacheDirectory
         self.notionClientFactory = notionClientFactory
         submissionRelay.handler = { [weak self] in
             self?.validatePageURL()
@@ -162,7 +168,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             pageURLInputState.showPinned(page: page)
             pageURLInputPresenter.hide()
         case .failure:
-            showValidationFailure("Use an HTTPS notion.so page URL with a page ID.")
+            showValidationFailure("Use an HTTPS Notion page URL with a page ID.")
         }
     }
 
@@ -273,6 +279,13 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             nativePageDocument.clearLocalPages()
         } catch {
             connectionState = .failed("Could not remove the saved token.")
+            return
+        }
+
+        do {
+            try legacyCacheCleaner.removeLegacyCache(at: legacyCacheDirectory)
+        } catch {
+            logger.error("Legacy native preview cache cleanup failed; personal token was removed category=legacy-preview-cache-cleanup")
         }
     }
 

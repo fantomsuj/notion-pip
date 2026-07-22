@@ -727,6 +727,46 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertFalse(session.isCreatingNewPage)
     }
 
+    func testAppHostSPAURLChangeAdoptsCanonicalPage() throws {
+        var resolvedPages: [NotionPageReference] = []
+        let session = NotionWebSession()
+        session.onPageResolved = { resolvedPages.append($0) }
+        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let webView = try XCTUnwrap(session.webView)
+        let resolvedURL = try XCTUnwrap(
+            URL(string: "https://app.notion.com/New-Page-\(secondPageID)?pvs=4#focus")
+        )
+
+        webView.load(URLRequest(url: resolvedURL))
+
+        XCTAssertEqual(resolvedPages.map(\.canonicalURL.absoluteString), [
+            "https://app.notion.com/New-Page-\(secondPageID)",
+        ])
+        XCTAssertEqual(session.activePage?.pageID, secondPageID)
+    }
+
+    func testFinishedAppHostNewPageNavigationResolvesBeforeClearingCreationState() throws {
+        var resolvedPages: [NotionPageReference] = []
+        let resolvedURL = try XCTUnwrap(
+            URL(string: "https://app.notion.com/Created-\(firstPageID)?pvs=4")
+        )
+        let webView = WKWebView()
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { webView, request in webView.load(request) }
+        )
+        session.onPageResolved = { resolvedPages.append($0) }
+        session.createNewPage()
+        webView.load(URLRequest(url: resolvedURL))
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+
+        navigationDelegate.webView?(webView, didFinish: nil)
+
+        XCTAssertEqual(session.activePage?.canonicalURL.absoluteString, "https://app.notion.com/Created-\(firstPageID)")
+        XCTAssertEqual(resolvedPages.map(\.pageID), [firstPageID])
+        XCTAssertFalse(session.isCreatingNewPage)
+    }
+
     func testFinishedIntermediateNavigationDoesNotReplaceActivePage() throws {
         var resolvedPages: [NotionPageReference] = []
         let session = NotionWebSession()

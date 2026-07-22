@@ -57,6 +57,20 @@ final class NotionPageReferenceTests: XCTestCase {
         XCTAssertNil(page.canonicalURL.fragment)
     }
 
+    func testAppHostRemainsAppHostWhileCanonicalURLStripsQueryAndFragment() throws {
+        let input = try XCTUnwrap(
+            URL(string: "https://app.notion.com/Roadmap-\(pageID)?view=table#updates")
+        )
+
+        let page = try NotionPageReference(validating: input)
+
+        XCTAssertEqual(page.pageID, pageID)
+        XCTAssertEqual(page.displayTitle, "Roadmap")
+        XCTAssertEqual(page.canonicalURL.absoluteString, "https://app.notion.com/Roadmap-\(pageID)")
+        XCTAssertNil(page.canonicalURL.query)
+        XCTAssertNil(page.canonicalURL.fragment)
+    }
+
     func testCredentialsAreRejected() throws {
         try assertRejected(
             "https://user:password@www.notion.so/\(pageID)",

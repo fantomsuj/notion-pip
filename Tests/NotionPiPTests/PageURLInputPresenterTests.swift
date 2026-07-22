@@ -103,7 +103,7 @@ final class PageURLInputPresenterTests: XCTestCase {
         XCTAssertTrue(runtime.validationFailed)
         XCTAssertEqual(
             runtime.validationMessage,
-            "Use an HTTPS notion.so page URL with a page ID."
+            "Use an HTTPS Notion page URL with a page ID."
         )
     }
 
