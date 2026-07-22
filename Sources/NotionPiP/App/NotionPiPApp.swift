@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 @main
@@ -32,6 +33,20 @@ private final class AppComposition {
     init() {
         let actionRelay = AppCommandActionRelay()
         let webSession = NotionWebSession()
+        let pageRepository: PageRepository?
+        let captureRepository: CaptureRepository?
+
+        do {
+            let container = try NotionPiPPersistence.makeContainer()
+            pageRepository = PageRepository(container: container)
+            captureRepository = CaptureRepository(container: container)
+        } catch {
+            Logger(subsystem: "com.fantomsuj.NotionPiP", category: "persistence")
+                .error("Persistent store unavailable")
+            pageRepository = nil
+            captureRepository = nil
+        }
+
         let commandModel = AppCommandModel(
             newNotionPage: { webSession.createNewPage() },
             isNewNotionPageEnabled: { !webSession.isCreatingNewPage },
@@ -48,12 +63,15 @@ private final class AppComposition {
         )
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
-            nativePageDocument: nativePageDocument
+            nativePageDocument: nativePageDocument,
+            pageRepository: pageRepository
         )
         webSession.onPageResolved = { [weak runtime] page in
             runtime?.activate(page: page, source: .notionWebSession)
         }
-        let quickCapturePresenter = AppWindowFactory.makeQuickCapture { [weak runtime] in
+        let quickCapturePresenter = AppWindowFactory.makeQuickCapture(
+            repository: captureRepository
+        ) { [weak runtime] in
             guard let page = runtime?.activePage else { return }
             NSWorkspace.shared.open(page.canonicalURL)
         }

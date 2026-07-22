@@ -3,11 +3,14 @@ import SwiftUI
 
 @MainActor
 enum AppWindowFactory {
-    static func makeQuickCapture(openInNotion: @escaping () -> Void) -> AppWindowPresenter {
+    static func makeQuickCapture(
+        repository: CaptureRepository?,
+        openInNotion: @escaping () -> Void
+    ) -> AppWindowPresenter {
         let content: AnyView
-        do {
+        if let repository {
             let session = CaptureEditorSession(
-                repository: try CaptureRepository(),
+                repository: repository,
                 openInNotion: openInNotion
             )
             content = AnyView(
@@ -15,7 +18,7 @@ enum AppWindowFactory {
                     .padding(DesignTokens.Spacing.container)
                     .frame(minWidth: 440, minHeight: 400)
             )
-        } catch {
+        } else {
             content = AnyView(
                 VStack(spacing: DesignTokens.Spacing.control) {
                     Image(systemName: "exclamationmark.triangle")
