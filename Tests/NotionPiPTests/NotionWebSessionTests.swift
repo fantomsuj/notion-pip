@@ -110,6 +110,60 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .loading)
     }
 
+    func testHiddenCreateNewPageWaitsForShowAndReusesWarmWebViewOnce() throws {
+        var requests: [URLRequest] = []
+        var creationCount = 0
+        var eviction: (@MainActor () -> Void)?
+        var evictionCancellationCount = 0
+        let session = NotionWebSession(
+            loadRequest: { _, request in requests.append(request) },
+            webViewFactory: {
+                creationCount += 1
+                return WKWebView()
+            },
+            scheduleEviction: { _, action in
+                eviction = action
+                return AnyCancellable { evictionCancellationCount += 1 }
+            }
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        session.activate(page: page)
+        let warmWebView = try XCTUnwrap(session.webView)
+        XCTAssertEqual(requests.map(\.url), [page.canonicalURL])
+        XCTAssertEqual(creationCount, 1)
+
+        session.panelDidHide()
+
+        XCTAssertEqual(session.state, .suspended)
+        XCTAssertFalse(session.shouldHostWebView)
+
+        session.createNewPage()
+        session.createNewPage()
+
+        XCTAssertEqual(requests.map(\.url), [page.canonicalURL])
+        XCTAssertEqual(creationCount, 1)
+        XCTAssertTrue(session.webView === warmWebView)
+        XCTAssertEqual(session.state, .suspended)
+        XCTAssertFalse(session.shouldHostWebView)
+        XCTAssertTrue(session.isCreatingNewPage)
+
+        session.panelDidShow()
+
+        XCTAssertEqual(requests.map(\.url), [page.canonicalURL, NotionWebSession.newPageURL])
+        XCTAssertEqual(creationCount, 1)
+        XCTAssertTrue(session.webView === warmWebView)
+        XCTAssertEqual(session.state, .loading)
+        XCTAssertTrue(session.shouldHostWebView)
+        XCTAssertEqual(evictionCancellationCount, 1)
+
+        eviction?()
+
+        XCTAssertEqual(requests.map(\.url), [page.canonicalURL, NotionWebSession.newPageURL])
+        XCTAssertTrue(session.webView === warmWebView)
+        XCTAssertEqual(session.state, .loading)
+        XCTAssertTrue(session.shouldHostWebView)
+    }
+
     func testLiveOnlyCreationUsesPersistentStoreAndSuspendsInactiveScheduling() throws {
         let session = NotionWebSession(loadRequest: { _, _ in })
 
@@ -455,6 +509,22 @@ final class NotionWebSessionTests: XCTestCase {
 
         eviction?()
         XCTAssertEqual(session.state, .unloaded)
+    }
+
+    func testPanelVisibilityChangesPublishWhileSessionRemainsUnloaded() {
+        let session = NotionWebSession()
+        var publicationCount = 0
+        let observation = session.objectWillChange.sink {
+            publicationCount += 1
+        }
+
+        session.panelDidHide()
+        session.panelDidShow()
+
+        XCTAssertEqual(session.state, .unloaded)
+        XCTAssertNil(session.webView)
+        XCTAssertEqual(publicationCount, 2)
+        withExtendedLifetime(observation) {}
     }
 
     func testShowingPanelResumesWarmLiveWebViewWithoutReloading() throws {

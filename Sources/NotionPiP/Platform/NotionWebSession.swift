@@ -117,7 +117,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var urlObservation: NSKeyValueObservation?
     private var evictionCancellable: AnyCancellable?
     private var memoryPressureSource: DispatchSourceMemoryPressure?
-    private var panelIsVisible = true
+    @Published private var panelIsVisible = true
+    private var hasPendingNewPageNavigation = false
     private var stateBeforeSuspension: NotionWebSessionState = .unloaded
     private var loadedPageID: String?
     private var savedURL: URL?
@@ -210,6 +211,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
         let selectedPageChanged = activePage != nil
         isCreatingNewPage = false
+        hasPendingNewPageNavigation = false
         activePage = page
         revealTopControls()
         savedURL = page.canonicalURL
@@ -228,6 +230,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
 
         isCreatingNewPage = false
+        hasPendingNewPageNavigation = false
         revealTopControls()
         savedURL = page.canonicalURL
         savedURLPageID = page.pageID
@@ -260,6 +263,13 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     func panelDidShow() {
         panelIsVisible = true
         guard surface == .live else { return }
+        if hasPendingNewPageNavigation {
+            hasPendingNewPageNavigation = false
+            evictionCancellable?.cancel()
+            evictionCancellable = nil
+            load(Self.newPageURL)
+            return
+        }
         if state == .suspended {
             resumeSuspendedWebView()
         } else if webView == nil, let activePage {
@@ -288,6 +298,10 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         isCreatingNewPage = true
         surface = .live
         revealTopControls()
+        guard panelIsVisible else {
+            hasPendingNewPageNavigation = true
+            return
+        }
         load(Self.newPageURL)
     }
 
