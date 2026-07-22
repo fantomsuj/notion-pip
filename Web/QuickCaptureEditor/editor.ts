@@ -778,8 +778,7 @@ function bootstrap(): void {
         const text = event.clipboardData?.getData("text/plain") ?? "";
         const selectedText = view.state.doc.textBetween(selection.from, selection.to);
         if (selectedText.length === 0 || !isLinkPaste(selection, text)) return false;
-        editor.chain().focus().setLink({ href: text.trim() }).run();
-        return true;
+        return editor.chain().focus().setLink({ href: text.trim() }).run();
       },
     },
     autofocus: false,

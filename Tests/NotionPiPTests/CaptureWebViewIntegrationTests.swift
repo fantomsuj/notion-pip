@@ -591,6 +591,59 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         XCTAssertEqual(result?["linkedText"], "Selected")
     }
 
+    func testPastingURLOverLinkIneligibleSelectionFallsBackToNormalPaste() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "format-link-fallback-draft",
+                title: "Formatting",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"code"}],"text":"Selected text"}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        let session = CaptureEditorSession(repository: repository)
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        let result = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            const text = editor.querySelector('code').firstChild;
+            editor.focus();
+            const range = document.createRange();
+            range.setStart(text, 0);
+            range.setEnd(text, 8);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            const clipboard = new DataTransfer();
+            clipboard.setData('text/plain', 'https://example.com/fallback');
+            editor.dispatchEvent(new ClipboardEvent('paste', {
+              bubbles: true,
+              cancelable: true,
+              clipboardData: clipboard,
+            }));
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            return {
+              body: editor.innerText,
+              hasLink: Boolean(editor.querySelector('a')),
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Any]
+
+        XCTAssertEqual(normalizedDOMText(result?["body"] as? String), "https://example.com/fallback text")
+        XCTAssertEqual(result?["hasLink"] as? Bool, false)
+    }
+
     func testMarkdownMarkersCreateHeadingQuoteAndListNodes() async throws {
         let repository = try CaptureRepository(inMemory: true)
         let session = CaptureEditorSession(
