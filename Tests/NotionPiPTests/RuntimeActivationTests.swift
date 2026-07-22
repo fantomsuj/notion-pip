@@ -305,6 +305,33 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(panel.currentPage?.pageID, firstPageID)
     }
 
+    func testShortcutTogglesRestoredPageWithoutReloadingIt() async throws {
+        let panel = RuntimePanelCoordinator()
+        let shortcut = RuntimeShortcutRegistrar()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(
+            panel: panel,
+            shortcutRegistrar: shortcut,
+            pageRepository: repository
+        )
+        let storedPage = try makeStoredPage(id: firstPageID, title: "Restored")
+
+        runtime.start()
+        try await repository.waitUntilRestoreRequested()
+        await repository.finishRestore(with: storedPage)
+        await waitUntil { runtime.activePage?.pageID == self.firstPageID }
+
+        XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
+        shortcut.handler?()
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(panel.isStashed)
+        shortcut.handler?()
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertFalse(panel.isStashed)
+        XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
+        XCTAssertTrue(panel.replacedPages.isEmpty)
+    }
+
     func testStartWithNoSavedPageLeavesPanelHidden() async throws {
         let panel = RuntimePanelCoordinator()
         let repository = RuntimePinnedPageRepository()
@@ -339,6 +366,108 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(runtime.activePage, typedPage)
         XCTAssertEqual(runtime.lastActivationSource, .typedURL)
         XCTAssertEqual(panel.currentPage, typedPage)
+    }
+
+    func testBufferedOpenURLWinsOverDelayedRestoreDuringStartup() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let appDelegate = AppDelegate()
+        let storedPage = try makeStoredPage(id: firstPageID, title: "Stored")
+        let directPage = try NotionPageReference(
+            validating: XCTUnwrap(URL(string: "https://www.notion.so/\(secondPageID)"))
+        )
+        let route = try XCTUnwrap(
+            URL(
+                string: "notion-pip://pin?url=https%3A%2F%2Fwww.notion.so%2F\(secondPageID)&source=chrome-extension"
+            )
+        )
+
+        appDelegate.application(NSApplication.shared, open: [route])
+        AppStartup.start(runtime: runtime, appDelegate: appDelegate)
+
+        try await repository.waitUntilSaveCount(1)
+        for _ in 0 ..< 10 {
+            await Task.yield()
+        }
+        let restoreRequestCount = await repository.restoreRequestCount()
+        await repository.finishRestore(with: storedPage)
+        if restoreRequestCount > 0 {
+            try await repository.waitUntilRestoreReturned()
+        }
+        for _ in 0 ..< 3 {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(runtime.activePage, directPage)
+        XCTAssertEqual(runtime.lastActivationSource, .externalRoute(.chromeExtension))
+        XCTAssertEqual(panel.currentPage, directPage)
+        XCTAssertEqual(panel.shownPages, [directPage])
+    }
+
+    func testTerminationWaitsForPendingAndNewerPageSavesBeforeReplying() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository(delaySaves: true)
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        var terminationReplies: [Bool] = []
+        let appDelegate = AppDelegate { _, shouldTerminate in
+            terminationReplies.append(shouldTerminate)
+        }
+        let first = try makePage(id: firstPageID, title: "First")
+        let second = try makePage(id: secondPageID, title: "Second")
+
+        AppStartup.start(runtime: runtime, appDelegate: appDelegate)
+        runtime.activate(page: first, source: .typedURL)
+        try await repository.waitUntilSaveCount(1)
+
+        XCTAssertEqual(appDelegate.applicationShouldTerminate(NSApplication.shared), .terminateLater)
+        XCTAssertEqual(appDelegate.applicationShouldTerminate(NSApplication.shared), .terminateLater)
+        for _ in 0 ..< 3 {
+            await Task.yield()
+        }
+        XCTAssertTrue(terminationReplies.isEmpty)
+
+        runtime.activate(page: second, source: .notionSearch)
+        await repository.finishSave(pageID: firstPageID)
+        try await repository.waitUntilSaveCount(2)
+        for _ in 0 ..< 3 {
+            await Task.yield()
+        }
+        XCTAssertTrue(terminationReplies.isEmpty)
+
+        await repository.finishSave(pageID: secondPageID)
+        await waitUntil { terminationReplies == [true] }
+        let savedPageIDs = await repository.savedPageIDs()
+        XCTAssertEqual(savedPageIDs, [firstPageID, secondPageID])
+    }
+
+    func testTerminationRepliesAfterPendingPageSaveFails() async throws {
+        let repository = RuntimePinnedPageRepository(
+            delaySaves: true,
+            failingPageIDs: [firstPageID]
+        )
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            pageRepository: repository
+        )
+        var terminationReplies: [Bool] = []
+        let appDelegate = AppDelegate { _, shouldTerminate in
+            terminationReplies.append(shouldTerminate)
+        }
+        let page = try makePage(id: firstPageID, title: "Failure")
+
+        AppStartup.start(runtime: runtime, appDelegate: appDelegate)
+        runtime.activate(page: page, source: .typedURL)
+        try await repository.waitUntilSaveCount(1)
+
+        XCTAssertEqual(appDelegate.applicationShouldTerminate(NSApplication.shared), .terminateLater)
+        for _ in 0 ..< 3 {
+            await Task.yield()
+        }
+        XCTAssertTrue(terminationReplies.isEmpty)
+
+        await repository.finishSave(pageID: firstPageID)
+        await waitUntil { terminationReplies == [true] }
     }
 
     func testActivationImmediatelyAfterStartWinsBeforeRestoreRequestBegins() async throws {
