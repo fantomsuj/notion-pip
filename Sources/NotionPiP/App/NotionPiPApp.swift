@@ -31,7 +31,10 @@ private final class AppComposition {
 
     init() {
         let actionRelay = AppCommandActionRelay()
+        let webSession = NotionWebSession()
         let commandModel = AppCommandModel(
+            newNotionPage: { webSession.createNewPage() },
+            isNewNotionPageEnabled: { !webSession.isCreatingNewPage },
             quickCapture: { actionRelay.showQuickCapture() },
             changePinnedPage: { actionRelay.showSetupOptions() },
             settings: { actionRelay.showSettings() },
@@ -39,6 +42,7 @@ private final class AppComposition {
         )
         let nativePageDocument = NativePageDocument()
         let panelCoordinator = PiPPanelCoordinator(
+            webSession: webSession,
             nativePageDocument: nativePageDocument,
             commandModel: commandModel
         )
@@ -46,6 +50,9 @@ private final class AppComposition {
             panelCoordinator: panelCoordinator,
             nativePageDocument: nativePageDocument
         )
+        webSession.onPageResolved = { [weak runtime] page in
+            runtime?.activate(page: page, source: .notionWebSession)
+        }
         let quickCapturePresenter = AppWindowFactory.makeQuickCapture { [weak runtime] in
             guard let page = runtime?.activePage else { return }
             NSWorkspace.shared.open(page.canonicalURL)

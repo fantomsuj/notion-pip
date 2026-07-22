@@ -58,6 +58,78 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(openedURLs, [page.canonicalURL])
     }
 
+    func testCreateNewPageLoadsFixedRouteOnceUntilNavigationCompletes() {
+        var requests: [URLRequest] = []
+        let session = NotionWebSession(loadRequest: { _, request in
+            requests.append(request)
+        })
+
+        session.createNewPage()
+        session.createNewPage()
+
+        XCTAssertEqual(requests.map(\.url?.absoluteString), ["https://www.notion.so/new"])
+        XCTAssertTrue(session.isCreatingNewPage)
+        XCTAssertEqual(session.state, .loading)
+    }
+
+    func testFailedCreationAllowsAnotherAttempt() throws {
+        var requests: [URLRequest] = []
+        let session = NotionWebSession(loadRequest: { _, request in
+            requests.append(request)
+        })
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+        session.createNewPage()
+
+        navigationDelegate.webView?(
+            session.webView,
+            didFailProvisionalNavigation: nil,
+            withError: NSError(domain: "Test", code: 1)
+        )
+        session.createNewPage()
+
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertTrue(session.isCreatingNewPage)
+    }
+
+    func testFinishedNavigationReportsNewCanonicalPageOnce() throws {
+        var resolvedPages: [NotionPageReference] = []
+        let session = NotionWebSession()
+        session.onPageResolved = { resolvedPages.append($0) }
+        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        session.webView.load(
+            URLRequest(
+                url: try XCTUnwrap(
+                    URL(string: "https://www.notion.so/New-Page-\(secondPageID)?pvs=4")
+                )
+            )
+        )
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+
+        navigationDelegate.webView?(session.webView, didFinish: nil)
+        navigationDelegate.webView?(session.webView, didFinish: nil)
+
+        XCTAssertEqual(resolvedPages.map(\.pageID), [secondPageID])
+        XCTAssertEqual(session.activePage?.pageID, secondPageID)
+        XCTAssertFalse(session.isCreatingNewPage)
+    }
+
+    func testFinishedIntermediateNavigationDoesNotReplaceActivePage() throws {
+        var resolvedPages: [NotionPageReference] = []
+        let session = NotionWebSession()
+        let original = try makePage(id: firstPageID, title: "Roadmap")
+        session.onPageResolved = { resolvedPages.append($0) }
+        session.activate(page: original)
+        session.webView.load(
+            URLRequest(url: try XCTUnwrap(URL(string: "https://www.notion.so/new")))
+        )
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+
+        navigationDelegate.webView?(session.webView, didFinish: nil)
+
+        XCTAssertTrue(resolvedPages.isEmpty)
+        XCTAssertEqual(session.activePage, original)
+    }
+
     func testFailureStateShowsGenericMessageAndRetryWithoutExposingWebKitErrorText() throws {
         let session = NotionWebSession()
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
@@ -82,7 +154,7 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertFalse(presentation.contains("secret"))
     }
 
-    func testPiPChromeExposesAccessibleStashAction() {
+    func testPiPChromeExposesAccessibleToolbarActions() {
         let chrome = PiPChromeView(
             webSession: NotionWebSession(),
             nativePageDocument: NativePageDocument(),
@@ -92,6 +164,8 @@ final class NotionWebSessionTests: XCTestCase {
 
         _ = chrome.body
 
+        XCTAssertEqual(PiPChromeView.newPageAccessibilityLabel, "Create New Notion Page")
+        XCTAssertEqual(PiPChromeView.newPageHelp, "Create a new page in Notion")
         XCTAssertEqual(PiPChromeView.stashAccessibilityLabel, "Stash Notion PiP to Side")
         XCTAssertEqual(
             PiPChromeView.stashHelp,

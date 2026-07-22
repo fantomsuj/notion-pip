@@ -51,10 +51,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     }
 
     convenience init(
+        webSession: NotionWebSession = NotionWebSession(),
         nativePageDocument: NativePageDocument = NativePageDocument(),
         commandModel: AppCommandModel = .noOp
     ) {
-        let webSession = NotionWebSession()
         let stashHandle = PiPStashHandleController()
         let visibleFrames = NSScreen.screens.map(\.visibleFrame)
         let defaultFrame = Self.defaultFrame(visibleFrames: visibleFrames)

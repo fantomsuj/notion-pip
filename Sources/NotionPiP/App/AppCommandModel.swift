@@ -1,6 +1,7 @@
 import AppKit
 
 enum AppCommandID: Int, CaseIterable, Sendable {
+    case newNotionPage
     case quickCapture
     case changePinnedPage
     case settings
@@ -56,6 +57,7 @@ final class AppCommandModel {
 
     static var noOp: AppCommandModel {
         AppCommandModel(
+            newNotionPage: {},
             quickCapture: {},
             changePinnedPage: {},
             settings: {},
@@ -64,6 +66,8 @@ final class AppCommandModel {
     }
 
     init(
+        newNotionPage: @escaping @MainActor () -> Void = {},
+        isNewNotionPageEnabled: @escaping @MainActor () -> Bool = { true },
         quickCapture: @escaping @MainActor () -> Void,
         changePinnedPage: @escaping @MainActor () -> Void,
         settings: @escaping @MainActor () -> Void,
@@ -71,6 +75,12 @@ final class AppCommandModel {
     ) {
         groups = [
             AppCommandGroup(commands: [
+                AppCommand(
+                    id: .newNotionPage,
+                    title: "New Notion Page",
+                    isEnabled: isNewNotionPageEnabled,
+                    action: newNotionPage
+                ),
                 AppCommand(
                     id: .quickCapture,
                     title: "Quick Capture",

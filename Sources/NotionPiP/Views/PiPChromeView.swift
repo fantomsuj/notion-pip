@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct PiPChromeView: View {
+    static let newPageAccessibilityLabel = "Create New Notion Page"
+    static let newPageHelp = "Create a new page in Notion"
     static let stashAccessibilityLabel = "Stash Notion PiP to Side"
     static let stashHelp = "Move the Notion PiP to the nearest screen edge"
 
@@ -46,6 +48,16 @@ struct PiPChromeView: View {
                         .controlSize(.small)
                         .accessibilityLabel("Loading Notion page")
                 }
+
+                Button {
+                    commandModel.perform(.newNotionPage)
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.plain)
+                .disabled(!(commandModel.command(for: .newNotionPage)?.isEnabled ?? false))
+                .accessibilityLabel(Self.newPageAccessibilityLabel)
+                .help(Self.newPageHelp)
 
                 Button(action: webSession.reload) {
                     Image(systemName: "arrow.clockwise")

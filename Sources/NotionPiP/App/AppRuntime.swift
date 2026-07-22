@@ -316,6 +316,7 @@ enum PageActivationSource: Equatable, Sendable {
     case clipboard
     case externalRoute(ExternalURLSource)
     case notionSearch
+    case notionWebSession
     case pagePicker
 }
 

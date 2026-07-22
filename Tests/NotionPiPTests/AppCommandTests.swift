@@ -8,12 +8,13 @@ final class AppCommandTests: XCTestCase {
         let model = makeModel(events: { _ in })
 
         XCTAssertEqual(model.groups.map { $0.commands.map(\.id) }, [
-            [.quickCapture],
+            [.newNotionPage, .quickCapture],
             [.changePinnedPage],
             [.settings],
             [.quit],
         ])
         XCTAssertEqual(model.commands.map(\.title), [
+            "New Notion Page",
             "Quick Capture",
             "Change Pinned Page…",
             "Settings…",
@@ -73,6 +74,7 @@ final class AppCommandTests: XCTestCase {
 
     private func makeModel(events: @escaping (AppCommandID) -> Void) -> AppCommandModel {
         AppCommandModel(
+            newNotionPage: { events(.newNotionPage) },
             quickCapture: { events(.quickCapture) },
             changePinnedPage: { events(.changePinnedPage) },
             settings: { events(.settings) },
