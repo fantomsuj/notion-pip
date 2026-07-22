@@ -4,6 +4,10 @@ protocol LegacyNativePageCacheCleaning {
     func removeLegacyCache(at directory: URL) throws
 }
 
+struct NoOpLegacyNativePageCacheCleaner: LegacyNativePageCacheCleaning {
+    func removeLegacyCache(at directory: URL) throws {}
+}
+
 struct FileSystemLegacyNativePageCacheCleaner: LegacyNativePageCacheCleaning {
     static var defaultDirectoryURL: URL {
         let applicationSupport = FileManager.default.urls(

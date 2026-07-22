@@ -88,7 +88,8 @@ private final class AppComposition {
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
             nativePageDocument: nativePageDocument,
-            pageRepository: pageRepository
+            pageRepository: pageRepository,
+            legacyCacheCleaner: FileSystemLegacyNativePageCacheCleaner()
         )
         webSession.onPageResolved = { [weak runtime] page in
             runtime?.activate(page: page, source: .notionWebSession)

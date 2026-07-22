@@ -67,7 +67,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         nativePageDocument: NativePageDocument? = nil,
         pageRepository: (any PinnedPagePersisting)? = nil,
         credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
-        legacyCacheCleaner: any LegacyNativePageCacheCleaning = FileSystemLegacyNativePageCacheCleaner(),
+        legacyCacheCleaner: any LegacyNativePageCacheCleaning = NoOpLegacyNativePageCacheCleaner(),
         legacyCacheDirectory: URL = FileSystemLegacyNativePageCacheCleaner.defaultDirectoryURL,
         notionClientFactory: @escaping (PersonalIntegrationToken) -> any NotionWorkspaceClient = { token in
             NotionAPIClient(token: token)
