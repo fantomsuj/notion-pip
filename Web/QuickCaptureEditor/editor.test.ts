@@ -122,6 +122,7 @@ test("display titles fall back without changing non-empty title text", () => {
 test("title keys route focus into the body at the intended boundaries", () => {
   assert.equal(routeTitleKey({ key: "Enter", atBoundary: false }), "focusBody");
   assert.equal(routeTitleKey({ key: "Tab", atBoundary: false }), "focusBody");
+  assert.equal(routeTitleKey({ key: "Tab", atBoundary: false, shiftKey: true }), "none");
   assert.equal(routeTitleKey({ key: "ArrowDown", atBoundary: true }), "focusBody");
   assert.equal(routeTitleKey({ key: "ArrowDown", atBoundary: false }), "none");
   assert.equal(routeTitleKey({ key: "ArrowUp", atBoundary: true }), "none");

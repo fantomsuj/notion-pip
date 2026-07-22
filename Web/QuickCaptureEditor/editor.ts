@@ -97,10 +97,13 @@ export type TitleRoute = "focusBody" | "none";
 export interface TitleKeyInput {
   readonly key: string;
   readonly atBoundary: boolean;
+  readonly shiftKey?: boolean;
 }
 
 export function routeTitleKey(input: TitleKeyInput): TitleRoute {
-  if (input.key === "Enter" || input.key === "Tab") return "focusBody";
+  if (input.key === "Enter" || (input.key === "Tab" && input.shiftKey !== true)) {
+    return "focusBody";
+  }
   if (input.key === "ArrowDown" && input.atBoundary) return "focusBody";
   return "none";
 }
@@ -544,11 +547,24 @@ function bootstrap(): void {
         "aria-multiline": "true",
       },
       handleKeyDown: (view, event) => {
-        const { $from, empty } = view.state.selection;
-        const isAtStartOfFirstBlock = empty
-          && $from.depth === 1
-          && $from.index(0) === 0
-          && $from.parentOffset === 0;
+        const { empty, from } = view.state.selection;
+        let caretPosition = empty ? from : undefined;
+        const domSelection = view.dom.ownerDocument.getSelection();
+        if (domSelection?.anchorNode !== null
+            && domSelection?.anchorNode !== undefined
+            && view.dom.contains(domSelection.anchorNode)) {
+          caretPosition = domSelection.isCollapsed
+            ? view.posAtDOM(domSelection.anchorNode, domSelection.anchorOffset)
+            : undefined;
+        }
+        let firstTextBlockStart: number | undefined;
+        view.state.doc.descendants((node, position) => {
+          if (firstTextBlockStart !== undefined) return false;
+          if (!node.isTextblock) return true;
+          firstTextBlockStart = position + 1;
+          return false;
+        });
+        const isAtStartOfFirstBlock = caretPosition === firstTextBlockStart;
         if (event.key !== "ArrowUp" || !isAtStartOfFirstBlock) return false;
         event.preventDefault();
         titleInput.focus();
@@ -663,7 +679,9 @@ function bootstrap(): void {
   titleInput.addEventListener("keydown", (event) => {
     const atBoundary = titleInput.selectionStart === titleInput.value.length
       && titleInput.selectionEnd === titleInput.value.length;
-    if (routeTitleKey({ key: event.key, atBoundary }) !== "focusBody") return;
+    if (routeTitleKey({ key: event.key, atBoundary, shiftKey: event.shiftKey }) !== "focusBody") {
+      return;
+    }
     event.preventDefault();
     focusBody("start");
   });
