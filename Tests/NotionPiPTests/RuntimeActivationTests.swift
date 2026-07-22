@@ -215,44 +215,6 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(setup.hideCount, 1)
     }
 
-    func testNewestActivationPreventsLatePreviewFromReplacingIt() async throws {
-        let panel = RuntimePanelCoordinator()
-        let client = DelayedPreviewClient()
-        let runtime = makeRuntime(panel: panel, client: client)
-        let firstPage = try makePage(id: firstPageID, title: "First")
-        let secondPage = try makePage(id: secondPageID, title: "Second")
-
-        await runtime.bootstrapPersonalTokenConnection()
-        runtime.activate(page: firstPage, source: .typedURL)
-        await client.waitUntilFirstPreviewStarts()
-        runtime.activate(page: secondPage, source: .notionSearch)
-        await client.waitUntilSecondPreviewStarts()
-        await client.finishFirstPreview()
-        await client.waitUntilSecondPreviewPublishes()
-
-        XCTAssertEqual(runtime.activePage, secondPage)
-        XCTAssertEqual(runtime.nativePageDocument.snapshot?.pageID, secondPageID)
-        XCTAssertEqual(runtime.nativePageDocument.snapshot?.title, "Second")
-        XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
-        XCTAssertEqual(panel.replacedPages.map(\.pageID), [secondPageID])
-    }
-
-    func testDisconnectPreventsLatePreviewFromRepopulatingClearedCache() async throws {
-        let client = DelayedPreviewClient()
-        let runtime = makeRuntime(panel: RuntimePanelCoordinator(), client: client)
-        let page = try makePage(id: firstPageID, title: "First")
-
-        await runtime.bootstrapPersonalTokenConnection()
-        runtime.activate(page: page, source: .typedURL)
-        await client.waitUntilFirstPreviewStarts()
-        runtime.disconnectPersonalToken()
-        await client.finishFirstPreview()
-        for _ in 0 ..< 3 { await Task.yield() }
-
-        XCTAssertNil(runtime.nativePageDocument.snapshot)
-        XCTAssertEqual(runtime.nativePageDocument.previewState, .idle)
-    }
-
     func testDisconnectAndReconnectPreventsLateSearchFromReplacingClearedResults() async throws {
         let client = DelayedSearchClient()
         let runtime = makeRuntime(panel: RuntimePanelCoordinator(), client: client)
@@ -609,7 +571,7 @@ final class RuntimeActivationTests: XCTestCase {
         shortcutRegistrar: any GlobalShortcutRegistering = RuntimeShortcutRegistrar(),
         pageURLInputPresenter: RuntimePageURLInputPresenter = RuntimePageURLInputPresenter(),
         pageRepository: (any PinnedPagePersisting)? = nil,
-        client: any NotionWorkspaceClient = ImmediatePreviewClient()
+        client: any NotionWorkspaceClient = RuntimeNotionClient()
     ) -> AppRuntime {
         let store = RuntimeSecretStore()
         let vault = PersonalTokenCredentialVault(store: store)
@@ -879,42 +841,9 @@ private actor RuntimePinnedPageRepository: PinnedPagePersisting {
     }
 }
 
-private actor ImmediatePreviewClient: NotionWorkspaceClient {
+private actor RuntimeNotionClient: NotionWorkspaceClient {
     func validateConnection() async throws -> NotionConnectionSnapshot { NotionConnectionSnapshot(workspaceName: "Workspace") }
     func searchPages(query: String) async throws -> [NotionPageSearchResult] { [] }
-    func fetchPagePreview(page: NotionPageReference) async throws -> NativePageSnapshot {
-        NativePageSnapshot(pageID: page.pageID, title: page.displayTitle ?? "Preview", blocks: [], remoteFingerprint: "", fetchedAt: Date())
-    }
-}
-
-private actor DelayedPreviewClient: NotionWorkspaceClient {
-    private var firstContinuation: CheckedContinuation<Void, Never>?
-    private var firstStarted = false
-    private var secondStarted = false
-    private var secondPublished = false
-
-    func validateConnection() async throws -> NotionConnectionSnapshot {
-        NotionConnectionSnapshot(workspaceName: "Workspace")
-    }
-
-    func searchPages(query: String) async throws -> [NotionPageSearchResult] { [] }
-
-    func fetchPagePreview(page: NotionPageReference) async throws -> NativePageSnapshot {
-        if !firstStarted {
-            firstStarted = true
-            await withCheckedContinuation { firstContinuation = $0 }
-            return NativePageSnapshot(pageID: page.pageID, title: "First", blocks: [], remoteFingerprint: "", fetchedAt: Date())
-        }
-        secondStarted = true
-        secondPublished = true
-        return NativePageSnapshot(pageID: page.pageID, title: "Second", blocks: [], remoteFingerprint: "", fetchedAt: Date())
-    }
-
-    func finishFirstPreview() { firstContinuation?.resume() }
-
-    func waitUntilFirstPreviewStarts() async { while !firstStarted { await Task.yield() } }
-    func waitUntilSecondPreviewStarts() async { while !secondStarted { await Task.yield() } }
-    func waitUntilSecondPreviewPublishes() async { while !secondPublished { await Task.yield() } }
 }
 
 private actor DelayedSearchClient: NotionWorkspaceClient {
@@ -938,10 +867,6 @@ private actor DelayedSearchClient: NotionWorkspaceClient {
         }
         let page = try! NotionPageReference(validating: URL(string: "https://www.notion.so/Roadmap-0123456789abcdef0123456789abcdef")!)
         return [NotionPageSearchResult(page: page, title: "Roadmap", lastEditedTime: "")]
-    }
-
-    func fetchPagePreview(page: NotionPageReference) async throws -> NativePageSnapshot {
-        NativePageSnapshot(pageID: page.pageID, title: "Unused", blocks: [], remoteFingerprint: "", fetchedAt: Date())
     }
 
     func waitUntilSearchStarts() async {

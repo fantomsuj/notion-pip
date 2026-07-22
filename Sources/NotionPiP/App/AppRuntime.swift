@@ -12,7 +12,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var searchError: String?
 
     let pageURLInputState: PageURLInputState
-    let nativePageDocument: NativePageDocument
 
     var pageURLText: String {
         get { pageURLInputState.text }
@@ -48,13 +47,11 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     private let legacyCacheDirectory: URL
     private let notionClientFactory: (PersonalIntegrationToken) -> any NotionWorkspaceClient
     private weak var setupOptionsPresenter: (any SetupOptionsPresenting)?
-    private var previewTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var bootstrapTask: Task<Void, Never>?
     private var restorePinnedPageTask: Task<Void, Never>?
     private var persistPinnedPageTask: Task<Void, Never>?
     private var persistenceGeneration = 0
-    private var activationGeneration = 0
     private var pageSelectionGeneration = 0
     private var connectionGeneration = 0
     private var started = false
@@ -64,7 +61,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         pasteboard: any PasteboardReading = SystemPasteboardReader(),
         shortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar(),
         pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
-        nativePageDocument: NativePageDocument? = nil,
         pageRepository: (any PinnedPagePersisting)? = nil,
         credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
         legacyCacheCleaner: any LegacyNativePageCacheCleaning = NoOpLegacyNativePageCacheCleaner(),
@@ -75,17 +71,15 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     ) {
         let inputState = PageURLInputState()
         let submissionRelay = PageURLInputSubmissionRelay()
-        let nativePageDocument = nativePageDocument ?? NativePageDocument()
         let inputPresenter = pageURLInputPresenter ?? PageURLInputPresenter(
             state: inputState,
             onSubmit: submissionRelay.submit
         )
 
         pageURLInputState = inputState
-        self.nativePageDocument = nativePageDocument
         self.pageURLInputPresenter = inputPresenter
         pinCoordinator = PinCoordinator(
-            panelCoordinator: panelCoordinator ?? PiPPanelCoordinator(nativePageDocument: nativePageDocument),
+            panelCoordinator: panelCoordinator ?? PiPPanelCoordinator(),
             pasteboard: pasteboard,
             requestPageURLFocus: inputPresenter.presentAndFocus
         )
@@ -196,13 +190,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         pendingPage = page
         lastActivationSource = source
 
-        activationGeneration &+= 1
-        let generation = activationGeneration
-        previewTask?.cancel()
-        nativePageDocument.restoreCachedPage(pageID: page.pageID)
-        previewTask = Task { [weak self] in
-            await self?.loadNativePagePreview(page, generation: generation)
-        }
         if persist {
             enqueuePersistence(of: page)
         }
@@ -268,15 +255,11 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             connectionGeneration &+= 1
             bootstrapTask?.cancel()
             bootstrapTask = nil
-            previewTask?.cancel()
-            previewTask = nil
             searchTask?.cancel()
             searchTask = nil
-            activationGeneration &+= 1
             connectionState = .disconnected
             searchResults = []
             searchError = nil
-            nativePageDocument.clearLocalPages()
         } catch {
             connectionState = .failed("Could not remove the saved token.")
             return
@@ -359,19 +342,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             } catch {
                 logger.error("Pinned page save failed page_id=\(page.pageID, privacy: .public) category=repository-write")
             }
-        }
-    }
-
-    private func loadNativePagePreview(_ page: NotionPageReference, generation: Int) async {
-        do {
-            guard isNotionConnected else { return }
-            guard let token = try credentialVault.load() else { return }
-            let snapshot = try await notionClientFactory(token).fetchPagePreview(page: page)
-            guard generation == activationGeneration, !Task.isCancelled else { return }
-            nativePageDocument.load(snapshot)
-        } catch {
-            guard generation == activationGeneration, !Task.isCancelled else { return }
-            nativePageDocument.markUnavailable()
         }
     }
 

@@ -132,6 +132,27 @@ final class CaptureExportTests: XCTestCase {
         XCTAssertTrue(markdown.contains(#""secretary":"keep-name""#))
     }
 
+    func testMarkdownRendersUnderlineDeterministicallyWithBold() throws {
+        let document: [String: Any] = [
+            "type": "doc",
+            "content": [[
+                "type": "paragraph",
+                "content": [[
+                    "type": "text",
+                    "text": "Important",
+                    "marks": [["type": "bold"], ["type": "underline"]],
+                ]],
+            ]],
+        ]
+        let record = record(id: "underlined", editor: document)
+
+        let first = try CaptureExport.markdown(records: [record], drafts: [])
+        let second = try CaptureExport.markdown(records: [record], drafts: [])
+
+        XCTAssertEqual(first, second)
+        XCTAssertTrue(first.contains("**<u>Important</u>**"), first)
+    }
+
     func testMarkdownExportIsDeterministicAndIncludesUnresolvedStateAndSourceRecovery() throws {
         let uncertain = record(
             id: "a-uncertain",

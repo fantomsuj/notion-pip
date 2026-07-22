@@ -18,8 +18,6 @@ import {
   type JSONValue,
 } from "./protocol.ts";
 
-export type ToolbarCommand = "bold" | "italic" | "heading" | "bulletList" | "orderedList";
-
 export type FormattingCommand = "bold" | "italic" | "underline" | "strike" | "code" | "link";
 
 export interface FormattingStateEditor {
@@ -250,13 +248,23 @@ export function displayTitle(title: string): string {
 
 export type TitleRoute = "focusBody" | "none";
 
-export interface TitleKeyInput {
+interface CompositionKeyInput {
+  readonly isComposing?: boolean;
+  readonly keyCode?: number;
+}
+
+function isCompositionKey(input: CompositionKeyInput): boolean {
+  return input.isComposing === true || input.keyCode === 229;
+}
+
+export interface TitleKeyInput extends CompositionKeyInput {
   readonly key: string;
   readonly atBoundary: boolean;
   readonly shiftKey?: boolean;
 }
 
 export function routeTitleKey(input: TitleKeyInput): TitleRoute {
+  if (isCompositionKey(input)) return "none";
   if (input.key === "Enter" || (input.key === "Tab" && input.shiftKey !== true)) {
     return "focusBody";
   }
@@ -266,12 +274,13 @@ export function routeTitleKey(input: TitleKeyInput): TitleRoute {
 
 export type OverlayRoute = "previous" | "next" | "select" | "dismiss" | "none";
 
-export interface OverlayKeyInput {
+export interface OverlayKeyInput extends CompositionKeyInput {
   readonly key: string;
   readonly isOpen: boolean;
 }
 
 export function routeOverlayKey(input: OverlayKeyInput): OverlayRoute {
+  if (isCompositionKey(input)) return "none";
   if (!input.isOpen) return "none";
   switch (input.key) {
     case "ArrowUp": return "previous";
@@ -282,37 +291,11 @@ export function routeOverlayKey(input: OverlayKeyInput): OverlayRoute {
   }
 }
 
-export interface EditorCommandTarget {
-  focus(): EditorCommandTarget;
-  toggleBold(): EditorCommandTarget;
-  toggleItalic(): EditorCommandTarget;
-  toggleHeading(options: { level: 2 }): EditorCommandTarget;
-  toggleBulletList(): EditorCommandTarget;
-  toggleOrderedList(): EditorCommandTarget;
-  run(): boolean;
-}
-
-export interface ChainableEditor {
-  chain(): EditorCommandTarget;
-}
-
 export function normalizeDocument(value: unknown): JSONValue {
   if (!isRecord(value) || value.type !== "doc" || !Array.isArray(value.content) || value.content.length === 0) {
     return { type: "doc", content: [{ type: "paragraph" }] };
   }
   return canonicalize(value) as JSONValue;
-}
-
-export function executeToolbarCommand(editor: ChainableEditor, command: string): boolean {
-  const chain = editor.chain().focus();
-  switch (command) {
-    case "bold": return chain.toggleBold().run();
-    case "italic": return chain.toggleItalic().run();
-    case "heading": return chain.toggleHeading({ level: 2 }).run();
-    case "bulletList": return chain.toggleBulletList().run();
-    case "orderedList": return chain.toggleOrderedList().run();
-    default: return false;
-  }
 }
 
 export class DebouncedChangePublisher {
@@ -328,17 +311,24 @@ export class DebouncedChangePublisher {
   private readonly send: (request: BridgeRequest) => void | Promise<void>;
   private readonly nextID: () => string;
   private readonly onDeliveryError: (error: Error) => void;
+  private readonly onRetryAvailabilityChanged: (available: boolean) => void;
 
   constructor(
     delayMilliseconds: number,
     send: (request: BridgeRequest) => void | Promise<void>,
     nextID: () => string = () => crypto.randomUUID(),
     onDeliveryError: (error: Error) => void = () => {},
+    onRetryAvailabilityChanged: (available: boolean) => void = () => {},
   ) {
     this.delayMilliseconds = delayMilliseconds;
     this.send = send;
     this.nextID = nextID;
     this.onDeliveryError = onDeliveryError;
+    this.onRetryAvailabilityChanged = onRetryAvailabilityChanged;
+  }
+
+  get hasFailedRequest(): boolean {
+    return this.failedRequest !== undefined;
   }
 
   changed(
@@ -390,27 +380,44 @@ export class DebouncedChangePublisher {
     return operation;
   }
 
+  async retryFailed(): Promise<void> {
+    const request = this.failedRequest;
+    if (request === undefined) throw new Error("There is no failed autosave to retry");
+    const delivery = this.deliveryTail.then(async () => {
+      if (this.failedRequest === request) await this.deliver(request);
+    });
+    this.deliveryTail = delivery.catch(() => {});
+    await delivery;
+  }
+
   discardPending(): void {
     if (this.timer !== undefined) clearTimeout(this.timer);
     this.timer = undefined;
     this.pending = undefined;
-    this.failedRequest = undefined;
+    this.setFailedRequest(undefined);
   }
 
   private async deliver(request: BridgeRequest): Promise<void> {
     try {
       await this.send(request);
-      if (this.failedRequest === request) this.failedRequest = undefined;
+      if (this.failedRequest === request) this.setFailedRequest(undefined);
     } catch (value) {
       const error = value instanceof Error ? value : new Error("Bridge delivery failed");
       if (error instanceof AutosaveAcknowledgementError && error.abortsPendingTransition) {
-        if (this.failedRequest === request) this.failedRequest = undefined;
+        if (this.failedRequest === request) this.setFailedRequest(undefined);
       } else {
-        this.failedRequest = request;
+        this.setFailedRequest(request);
       }
       this.onDeliveryError(error);
       throw error;
     }
+  }
+
+  private setFailedRequest(request: BridgeRequest | undefined): void {
+    const wasAvailable = this.failedRequest !== undefined;
+    this.failedRequest = request;
+    const isAvailable = request !== undefined;
+    if (wasAvailable !== isAvailable) this.onRetryAvailabilityChanged(isAvailable);
   }
 }
 
@@ -728,12 +735,18 @@ function bootstrap(): void {
         "aria-haspopup": "listbox",
       },
       handleKeyDown: (view, event) => {
+        if (isCompositionKey(event)) return false;
         if (event.key === "Escape" && !formatToolbar.hidden) {
           event.preventDefault();
           closeFormattingToolbar();
           return true;
         }
-        const overlayRoute = routeOverlayKey({ key: event.key, isOpen: !slashMenu.hidden });
+        const overlayRoute = routeOverlayKey({
+          key: event.key,
+          isOpen: !slashMenu.hidden,
+          isComposing: event.isComposing,
+          keyCode: event.keyCode,
+        });
         if (overlayRoute !== "none") {
           event.preventDefault();
           if (overlayRoute === "dismiss") {
@@ -747,6 +760,14 @@ function bootstrap(): void {
             slashActiveIndex = (slashActiveIndex + change + slashItems.length) % slashItems.length;
             renderSlashMenu(editor);
           }
+          return true;
+        }
+        if (event.key === "Tab"
+            && event.shiftKey !== true
+            && !formatToolbar.hidden
+            && !view.state.selection.empty) {
+          event.preventDefault();
+          formattingButtons[0]?.focus();
           return true;
         }
         const { empty, from } = view.state.selection;
@@ -792,22 +813,16 @@ function bootstrap(): void {
     },
     onBlur: ({ editor: blurredEditor }) => {
       closeSlashMenu(blurredEditor);
-      closeFormattingToolbar();
+      setTimeout(() => {
+        if (!hasFormattingRegionFocus()) closeFormattingToolbar();
+      }, 0);
     },
-    onUpdate: ({ editor: updatedEditor }) => {
-      if (applyingNativeSnapshot || transitionLocked || snapshot.draftID.length === 0) return;
-      status.dataset.state = "saving";
-      status.textContent = "Saving…";
-      changes.changed(
-        {
-          draftID: snapshot.draftID,
-          title: titleInput.value,
-          document: normalizeDocument(updatedEditor.getJSON()),
-        },
-        () => snapshot.revision ?? 0,
-      );
+    onUpdate: () => {
+      scheduleChange();
     },
   });
+  let autosaveRetryAvailable = false;
+  let transitionRetryAvailable = false;
   const changes = new DebouncedChangePublisher(
     300,
     async (request) => {
@@ -817,10 +832,42 @@ function bootstrap(): void {
     },
     () => crypto.randomUUID(),
     (error) => reportFailure(error),
+    (available) => {
+      autosaveRetryAvailable = available;
+      refreshRetryAvailability();
+    },
   );
+
+  function scheduleChange(): void {
+    if (applyingNativeSnapshot || transitionLocked || snapshot.draftID.length === 0) return;
+    status.dataset.state = "saving";
+    status.textContent = "Saving…";
+    changes.changed(
+      {
+        draftID: snapshot.draftID,
+        title: titleInput.value,
+        document: normalizeDocument(editor.getJSON()),
+      },
+      () => snapshot.revision ?? 0,
+    );
+  }
+
+  function refreshRetryAvailability(): void {
+    if (retryButton !== null) {
+      retryButton.hidden = !autosaveRetryAvailable && !transitionRetryAvailable;
+    }
+  }
+
   function focusBody(position: "start" | "end"): void {
     editor.commands.focus(position, { scrollIntoView: false });
     editor.view.focus();
+  }
+
+  function restoreEditorSelectionFocus(): void {
+    editor.commands.focus(null, { scrollIntoView: false });
+    editor.view.dom.focus({ preventScroll: true });
+    editor.view.focus();
+    refreshFormattingToolbar(editor);
   }
 
   function closeSlashMenu(activeEditor: Editor): void {
@@ -837,12 +884,18 @@ function bootstrap(): void {
     formatToolbar.hidden = true;
   }
 
+  function hasFormattingRegionFocus(): boolean {
+    const focused = document.activeElement;
+    return focused !== null
+      && (editor.view.dom.contains(focused) || formatToolbar.contains(focused));
+  }
+
   function refreshFormattingToolbar(activeEditor: Editor): void {
     const { selection } = activeEditor.state;
     const selectedText = activeEditor.state.doc.textBetween(selection.from, selection.to);
     if (!activeEditor.isEditable
         || transitionLocked
-        || !activeEditor.isFocused
+        || (!activeEditor.isFocused && !formatToolbar.contains(document.activeElement))
         || selection.empty
         || selectedText.length === 0) {
       closeFormattingToolbar();
@@ -1000,21 +1053,24 @@ function bootstrap(): void {
       applyPendingLaunchFocus();
     },
     (available) => {
-      if (retryButton !== null) retryButton.hidden = !available;
+      transitionRetryAvailable = available;
+      refreshRetryAvailability();
     },
   );
 
   titleInput.addEventListener("input", () => {
-    if (transitionLocked || snapshot.draftID.length === 0) return;
-    changes.changed(
-      { draftID: snapshot.draftID, title: titleInput.value, document: normalizeDocument(editor.getJSON()) },
-      () => snapshot.revision ?? 0,
-    );
+    scheduleChange();
   });
   titleInput.addEventListener("keydown", (event) => {
     const atBoundary = titleInput.selectionStart === titleInput.value.length
       && titleInput.selectionEnd === titleInput.value.length;
-    if (routeTitleKey({ key: event.key, atBoundary, shiftKey: event.shiftKey }) !== "focusBody") {
+    if (routeTitleKey({
+      key: event.key,
+      atBoundary,
+      shiftKey: event.shiftKey,
+      isComposing: event.isComposing,
+      keyCode: event.keyCode,
+    }) !== "focusBody") {
       return;
     }
     event.preventDefault();
@@ -1024,23 +1080,57 @@ function bootstrap(): void {
     const retainEditorFocus = (event: Event): void => { event.preventDefault(); };
     button.addEventListener("pointerdown", retainEditorFocus);
     button.addEventListener("mousedown", retainEditorFocus);
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeFormattingToolbar();
+        editor.view.focus();
+      } else if (event.key === " "
+          || event.key === "Spacebar"
+          || event.key === "Enter"
+          || event.code === "Space"
+          || event.code === "Enter"
+          || event.keyCode === 32
+          || event.keyCode === 13) {
+        event.preventDefault();
+        button.click();
+      } else if (event.key === "Tab") {
+        const index = formattingButtons.indexOf(button);
+        const target = formattingButtons[index + (event.shiftKey ? -1 : 1)];
+        if (target !== undefined) {
+          event.preventDefault();
+          target.focus();
+        } else if (event.shiftKey && index === 0) {
+          event.preventDefault();
+          setTimeout(restoreEditorSelectionFocus, 0);
+        }
+      }
+    });
     button.addEventListener("click", () => {
       const command = button.dataset.format as FormattingCommand | undefined;
       if (command === undefined) return;
+      const activatedFromKeyboard = document.activeElement === button;
       let href: string | undefined;
       if (command === "link" && !editor.isActive("link")) {
         const candidate = window.prompt("Paste a link");
         if (candidate === null || !isLinkPaste(editor.state.selection, candidate)) {
-          editor.view.focus();
+          if (activatedFromKeyboard) button.focus();
+          else editor.view.focus();
           refreshFormattingToolbar(editor);
           return;
         }
         href = candidate.trim();
       }
       executeFormattingCommand(editor, command, href);
-      editor.view.focus();
+      if (activatedFromKeyboard) button.focus();
+      else editor.view.focus();
       refreshFormattingToolbar(editor);
     });
+  });
+  formatToolbar.addEventListener("focusout", () => {
+    setTimeout(() => {
+      if (!hasFormattingRegionFocus()) closeFormattingToolbar();
+    }, 0);
   });
   newNoteButton?.addEventListener("click", async () => {
     void transitions.perform({
@@ -1057,7 +1147,10 @@ function bootstrap(): void {
     }).catch(reportFailure);
   });
   retryButton?.addEventListener("click", () => {
-    void transitions.retryPending().catch(reportFailure);
+    const retry = transitions.hasPendingTransition
+      ? transitions.retryPending()
+      : changes.retryFailed();
+    void retry.catch(reportFailure);
   });
 
   window.NotionPiPBridge = {
