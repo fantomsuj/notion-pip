@@ -4,7 +4,99 @@ import XCTest
 @testable import NotionPiP
 
 final class PageRepositoryTests: XCTestCase {
-    func testFailedPinMutationIsRolledBackBeforeLaterRecentSave() async throws {
+    func testCaptureRepositoryAcceptsSharedContainer() throws {
+        let repository = CaptureRepository(container: try makeContainer())
+
+        XCTAssertNotNil(repository)
+    }
+
+    func testReplacingCurrentPageKeepsOnlyLatestSelection() async throws {
+        let repository = try PageRepository(container: makeContainer())
+        let first = try page(slug: "First", id: firstPageID)
+        let second = try page(slug: "Second", id: secondPageID)
+
+        _ = try await repository.replaceCurrent(with: first)
+        _ = try await repository.replaceCurrent(with: second)
+
+        let current = try await repository.currentPinnedPage()
+        let pinnedPageIDs = try await repository.pinnedPages().map(\.pageID)
+        XCTAssertEqual(current?.pageID, secondPageID)
+        XCTAssertEqual(pinnedPageIDs, [secondPageID])
+    }
+
+    func testCurrentPageSurvivesReopeningOnDiskStore() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let storeURL = temporaryDirectory.appendingPathComponent("NotionPiP.store")
+        let page = try page(slug: "Reopen", id: firstPageID)
+
+        do {
+            let container = try NotionPiPPersistence.makeContainer(storeURL: storeURL)
+            let repository = PageRepository(container: container)
+            _ = try await repository.replaceCurrent(with: page)
+        }
+
+        let reopenedContainer = try NotionPiPPersistence.makeContainer(storeURL: storeURL)
+        let reopenedRepository = PageRepository(container: reopenedContainer)
+        let current = try await reopenedRepository.currentPinnedPage()
+        XCTAssertEqual(current?.pageID, page.pageID)
+        XCTAssertEqual(current?.canonicalURL, page.canonicalURL)
+    }
+
+    func testCorruptStoredCurrentPageThrowsInvalidStoredValue() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(
+            PinnedPageModel(
+                stableID: firstPageID,
+                canonicalURL: "not a Notion URL",
+                displayTitle: "Corrupt",
+                pinnedAt: Date(timeIntervalSince1970: 4_000)
+            )
+        )
+        try context.save()
+        let repository = PageRepository(container: container)
+
+        do {
+            _ = try await repository.currentPinnedPage()
+            XCTFail("Expected corrupt stored page to throw")
+        } catch {
+            XCTAssertEqual(
+                error as? CaptureRepositoryError,
+                .invalidStoredValue("not a Notion URL")
+            )
+        }
+    }
+
+    func testStoredPageIDMismatchThrowsInvalidStoredValue() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let mismatchedPage = try page(slug: "Mismatch", id: secondPageID)
+        context.insert(
+            PinnedPageModel(
+                stableID: firstPageID,
+                canonicalURL: mismatchedPage.canonicalURL.absoluteString,
+                displayTitle: mismatchedPage.displayTitle,
+                pinnedAt: Date(timeIntervalSince1970: 4_000)
+            )
+        )
+        try context.save()
+        let repository = PageRepository(container: container)
+
+        do {
+            _ = try await repository.currentPinnedPage()
+            XCTFail("Expected mismatched stored page ID to throw")
+        } catch {
+            XCTAssertEqual(
+                error as? CaptureRepositoryError,
+                .invalidStoredValue(mismatchedPage.canonicalURL.absoluteString)
+            )
+        }
+    }
+
+    func testFailedReplacementRollsBackToPreviousCurrentPage() async throws {
         let failure = FailNextPageSave()
         let repository = try PageRepository(
             container: makeContainer(),
@@ -12,19 +104,20 @@ final class PageRepositoryTests: XCTestCase {
             beforeSave: failure.check
         )
         let original = try page(slug: "Original", id: firstPageID)
-        let failedChange = try page(slug: "Failed-Change", id: firstPageID)
-        _ = try await repository.pin(original)
+        let failedReplacement = try page(slug: "Failed-Replacement", id: secondPageID)
+        _ = try await repository.replaceCurrent(with: original)
 
         failure.failNext()
         do {
-            _ = try await repository.pin(failedChange)
-            XCTFail("Expected injected pin save failure")
+            _ = try await repository.replaceCurrent(with: failedReplacement)
+            XCTFail("Expected injected replacement save failure")
         } catch is FailNextPageSave.ExpectedFailure {}
 
-        _ = try await repository.recordRecent(try page(slug: "Recent", id: secondPageID))
-        let pinned = try await repository.pinnedPages()
-        XCTAssertEqual(pinned.count, 1)
-        XCTAssertEqual(pinned.first?.displayTitle, "Original")
+        let current = try await repository.currentPinnedPage()
+        let pinnedPageIDs = try await repository.pinnedPages().map(\.pageID)
+        XCTAssertEqual(current?.pageID, original.pageID)
+        XCTAssertEqual(current?.canonicalURL, original.canonicalURL)
+        XCTAssertEqual(pinnedPageIDs, [original.pageID])
     }
 
     func testFailedRecentInsertIsRolledBackBeforeLaterPinSave() async throws {
@@ -47,17 +140,7 @@ final class PageRepositoryTests: XCTestCase {
     }
 
     private func makeContainer() throws -> ModelContainer {
-        let schema = Schema(versionedSchema: NotionPiPSchemaV1.self)
-        let configuration = ModelConfiguration(
-            schema: schema,
-            isStoredInMemoryOnly: true,
-            cloudKitDatabase: .none
-        )
-        return try ModelContainer(
-            for: schema,
-            migrationPlan: NotionPiPMigrationPlan.self,
-            configurations: configuration
-        )
+        try NotionPiPPersistence.makeContainer(inMemory: true)
     }
 
     private func page(slug: String, id: String) throws -> NotionPageReference {
