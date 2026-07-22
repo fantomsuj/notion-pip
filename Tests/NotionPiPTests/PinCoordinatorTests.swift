@@ -77,6 +77,184 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertFalse(panel.isVisible)
     }
 
+    func testPanelCoordinatorStashesWithoutReloadingOrChangingPanelFrame() throws {
+        let originalFrame = CGRect(x: 620, y: 100, width: 300, height: 400)
+        let panel = FakePanelWindow(frame: originalFrame)
+        let handle = FakeStashHandle()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: handle
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        coordinator.show(page: page)
+
+        let stashed = coordinator.stash(
+            visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+        )
+
+        XCTAssertTrue(stashed)
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(handle.isVisible)
+        XCTAssertEqual(
+            handle.placements,
+            [PanelStashPlacement(side: .right, frame: CGRect(x: 964, y: 252, width: 36, height: 96))]
+        )
+        XCTAssertEqual(panel.frame, originalFrame)
+        XCTAssertEqual(loader.activatedPages, [page])
+        XCTAssertEqual(coordinator.currentPage, page)
+    }
+
+    func testStashHandleRestoresSamePanelWithoutReloading() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 80, y: 220, width: 400, height: 360))
+        let handle = FakeStashHandle()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: handle
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        coordinator.show(page: page)
+        XCTAssertTrue(
+            coordinator.stash(
+                visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            )
+        )
+
+        handle.restore()
+
+        XCTAssertFalse(handle.isVisible)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.presentCount, 2)
+        XCTAssertEqual(loader.activatedPages, [page])
+        XCTAssertEqual(coordinator.currentPage, page)
+    }
+
+    func testShowingCurrentPageDismissesStashHandle() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 80, y: 220, width: 400, height: 360))
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(
+            coordinator.stash(
+                visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            )
+        )
+
+        XCTAssertTrue(coordinator.showCurrentPage())
+
+        XCTAssertFalse(handle.isVisible)
+        XCTAssertTrue(panel.isVisible)
+    }
+
+    func testHidingStashedPanelDismissesHandle() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 80, y: 220, width: 400, height: 360))
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(
+            coordinator.stash(
+                visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            )
+        )
+
+        coordinator.hide()
+
+        XCTAssertFalse(handle.isVisible)
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    func testScreenChangeRepositionsVisibleStashHandle() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 1_600, y: 800, width: 400, height: 360))
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(
+            coordinator.stash(
+                visibleFrames: [CGRect(x: 1_440, y: 0, width: 1_920, height: 1_080)]
+            )
+        )
+
+        coordinator.reclampPanelFrame(
+            visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 700)]
+        )
+
+        XCTAssertEqual(panel.frame, CGRect(x: 600, y: 340, width: 400, height: 360))
+        XCTAssertEqual(handle.placements.last?.side, .right)
+        XCTAssertEqual(handle.placements.last?.frame, CGRect(x: 964, y: 472, width: 36, height: 96))
+        XCTAssertTrue(handle.isVisible)
+    }
+
+    func testStashWithoutVisibleScreenLeavesPanelVisible() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 80, y: 220, width: 400, height: 360))
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        XCTAssertFalse(coordinator.stash(visibleFrames: []))
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertFalse(handle.isVisible)
+    }
+
+    func testShortcutStyleActionStashesVisiblePanelAndRestoresIt() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 620, y: 100, width: 300, height: 400))
+        let handle = FakeStashHandle()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: handle,
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        coordinator.show(page: page)
+
+        XCTAssertTrue(coordinator.stashOrRestoreCurrentPage())
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(handle.isVisible)
+
+        XCTAssertTrue(coordinator.stashOrRestoreCurrentPage())
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertFalse(handle.isVisible)
+        XCTAssertEqual(loader.activatedPages, [page])
+    }
+
+    func testShortcutStyleActionFallsBackToHideWhenStashPlacementIsUnavailable() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 620, y: 100, width: 300, height: 400))
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: FakeStashHandle(),
+            visibleFramesProvider: { [] }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        XCTAssertTrue(coordinator.stashOrRestoreCurrentPage())
+
+        XCTAssertFalse(panel.isVisible)
+    }
+
     func testPinCoordinatorExposesNarrowCurrentPageToggle() throws {
         let panel = FakePanelCoordinator()
         let coordinator = PinCoordinator(
@@ -225,6 +403,33 @@ private final class FakePageLoader: NotionPageLoading {
 }
 
 @MainActor
+private final class FakeStashHandle: PiPStashHandle {
+    private(set) var isVisible = false
+    private(set) var placements: [PanelStashPlacement] = []
+    private(set) var orderOutCount = 0
+    private var onRestore: (@MainActor () -> Void)?
+
+    func present(
+        placement: PanelStashPlacement,
+        onRestore: @escaping @MainActor () -> Void
+    ) {
+        placements.append(placement)
+        self.onRestore = onRestore
+        isVisible = true
+    }
+
+    func orderOut() {
+        orderOutCount += 1
+        isVisible = false
+        onRestore = nil
+    }
+
+    func restore() {
+        onRestore?()
+    }
+}
+
+@MainActor
 final class FakePanelCoordinator: PiPPanelCoordinating {
     private(set) var currentPage: NotionPageReference?
     private(set) var shownPages: [NotionPageReference] = []
@@ -262,6 +467,10 @@ final class FakePanelCoordinator: PiPPanelCoordinating {
             _ = showCurrentPage()
         }
         return true
+    }
+
+    func stashOrRestoreCurrentPage() -> Bool {
+        toggleCurrentPage()
     }
 }
 

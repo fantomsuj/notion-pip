@@ -1,9 +1,13 @@
 import SwiftUI
 
 struct PiPChromeView: View {
+    static let stashAccessibilityLabel = "Stash Notion PiP to Side"
+    static let stashHelp = "Move the Notion PiP to the nearest screen edge"
+
     @ObservedObject var webSession: NotionWebSession
     @ObservedObject var nativePageDocument: NativePageDocument
     let commandModel: AppCommandModel
+    let onStash: () -> Void
     let onHide: () -> Void
     @State private var surface: Surface = .notion
 
@@ -18,11 +22,13 @@ struct PiPChromeView: View {
         webSession: NotionWebSession,
         nativePageDocument: NativePageDocument,
         commandModel: AppCommandModel = .noOp,
+        onStash: @escaping () -> Void = {},
         onHide: @escaping () -> Void
     ) {
         self.webSession = webSession
         self.nativePageDocument = nativePageDocument
         self.commandModel = commandModel
+        self.onStash = onStash
         self.onHide = onHide
     }
 
@@ -63,6 +69,13 @@ struct PiPChromeView: View {
                 .accessibilityLabel("Page surface")
 
                 PiPAppCommandMenu(commandModel: commandModel)
+
+                Button(action: onStash) {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Self.stashAccessibilityLabel)
+                .help(Self.stashHelp)
 
                 Button(action: onHide) {
                     Image(systemName: "xmark")

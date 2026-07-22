@@ -82,6 +82,23 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertFalse(presentation.contains("secret"))
     }
 
+    func testPiPChromeExposesAccessibleStashAction() {
+        let chrome = PiPChromeView(
+            webSession: NotionWebSession(),
+            nativePageDocument: NativePageDocument(),
+            onStash: {},
+            onHide: {}
+        )
+
+        _ = chrome.body
+
+        XCTAssertEqual(PiPChromeView.stashAccessibilityLabel, "Stash Notion PiP to Side")
+        XCTAssertEqual(
+            PiPChromeView.stashHelp,
+            "Move the Notion PiP to the nearest screen edge"
+        )
+    }
+
     private func makePage(id: String, title: String) throws -> NotionPageReference {
         try NotionPageReference(
             validating: XCTUnwrap(URL(string: "https://www.notion.so/\(title)-\(id)"))

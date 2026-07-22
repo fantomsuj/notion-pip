@@ -261,7 +261,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     }
 
     private func handleGlobalShortcut() {
-        guard pinCoordinator.toggleCurrentPage() else {
+        guard pinCoordinator.stashOrRestoreCurrentPage() else {
             pageURLInputPresenter.presentAndFocus()
             return
         }

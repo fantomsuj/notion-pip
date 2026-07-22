@@ -44,7 +44,7 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(presenter.presentAndFocusCount, 0)
     }
 
-    func testShortcutHidesVisiblePinnedPanel() throws {
+    func testShortcutStashesVisiblePinnedPanel() throws {
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
         let pasteboard = RuntimePasteboard(value: nil)
@@ -62,10 +62,28 @@ final class RuntimeActivationTests: XCTestCase {
         shortcut.handler?()
 
         XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(panel.isStashed)
         XCTAssertEqual(panel.currentPage, page)
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
         XCTAssertEqual(pasteboard.readCount, 0)
         XCTAssertEqual(presenter.presentAndFocusCount, 0)
+    }
+
+    func testShortcutRestoresStashedPinnedPanelWithoutRepinning() throws {
+        let panel = RuntimePanelCoordinator()
+        let shortcut = RuntimeShortcutRegistrar()
+        let runtime = makeRuntime(panel: panel, shortcutRegistrar: shortcut)
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        runtime.activate(page: page, source: .typedURL)
+        runtime.start()
+        shortcut.handler?()
+
+        shortcut.handler?()
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertFalse(panel.isStashed)
+        XCTAssertEqual(panel.currentPage, page)
+        XCTAssertEqual(panel.shownPages, [page])
     }
 
     func testShortcutPresentsAndFocusesURLInputWhenNoPageIsPinned() {
@@ -288,27 +306,32 @@ private final class RuntimePanelCoordinator: PiPPanelCoordinating {
     private(set) var shownPages: [NotionPageReference] = []
     private(set) var replacedPages: [NotionPageReference] = []
     private(set) var isVisible = false
+    private(set) var isStashed = false
 
     func show(page: NotionPageReference) {
         currentPage = page
         shownPages.append(page)
         isVisible = true
+        isStashed = false
     }
 
     func replace(page: NotionPageReference) {
         currentPage = page
         replacedPages.append(page)
         isVisible = true
+        isStashed = false
     }
 
     func showCurrentPage() -> Bool {
         guard currentPage != nil else { return false }
         isVisible = true
+        isStashed = false
         return true
     }
 
     func hide() {
         isVisible = false
+        isStashed = false
     }
 
     func toggleCurrentPage() -> Bool {
@@ -321,9 +344,21 @@ private final class RuntimePanelCoordinator: PiPPanelCoordinating {
         return true
     }
 
+    func stashOrRestoreCurrentPage() -> Bool {
+        guard currentPage != nil else { return false }
+        if isVisible {
+            isVisible = false
+            isStashed = true
+        } else {
+            _ = showCurrentPage()
+        }
+        return true
+    }
+
     func loseCurrentPage() {
         currentPage = nil
         isVisible = false
+        isStashed = false
     }
 }
 
