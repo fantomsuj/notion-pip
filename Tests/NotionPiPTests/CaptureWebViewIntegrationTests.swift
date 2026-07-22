@@ -672,7 +672,12 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         sendWebKey("\r", keyCode: 36, to: session.webView)
         sendWebText("- Listed", to: session.webView)
         try await waitForJavaScriptCondition(in: session.webView) {
-            "return Boolean(document.querySelector('#editor .tiptap h1') && document.querySelector('#editor .tiptap blockquote') && document.querySelector('#editor .tiptap ul:not([data-type=taskList])')) && document.querySelector('#editor .tiptap ul:not([data-type=taskList])').textContent === 'Listed'"
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            return editor.querySelector('h1')?.textContent === 'Heading'
+              && editor.querySelector('blockquote')?.textContent === 'Quoted'
+              && editor.querySelector('ul:not([data-type="taskList"])')?.textContent === 'Listed';
+            """
         }
         let result = try await session.webView.callAsyncJavaScript(
             """
