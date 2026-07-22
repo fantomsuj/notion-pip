@@ -88,7 +88,7 @@ enum CaptureExport {
         var renderer = MarkdownDocumentRenderer()
         let body = renderer.render(document)
         var parts = [
-            "### \(record.title)",
+            "### \(displayTitle(record.title))",
             "- Capture ID: \(record.id)\n- State: \(record.state.rawValue)\n- Destination: \(record.destination.rawKind) `\(record.destination.identifier)`",
         ]
         if !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -112,7 +112,7 @@ enum CaptureExport {
         var renderer = MarkdownDocumentRenderer()
         let body = renderer.render(document)
         var parts = [
-            "### \(draft.title)",
+            "### \(displayTitle(draft.title))",
             "- Draft ID: \(draft.id)\n- Disposition: \(draft.disposition.rawValue)\n- Revision: \(draft.revision)",
         ]
         if !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -130,6 +130,10 @@ enum CaptureExport {
 
     private static func recoverySection(title: String, object: Any) throws -> String {
         "#### \(title)\n\n```json\n\(try canonicalJSONString(object))\n```"
+    }
+
+    private static func displayTitle(_ title: String) -> String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled" : title
     }
 
     private static func sanitizedDocument(_ data: Data) throws -> Any {
@@ -266,6 +270,10 @@ private struct MarkdownDocumentRenderer {
         case "listItem":
             return children(of: node).map { render($0) }.joined()
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+        case "taskList":
+            return children(of: node).map { render($0) }.joined(separator: "\n") + "\n\n"
+        case "taskItem":
+            return renderTaskItem(node)
         case "codeBlock":
             return "```\n\(renderInlineChildren(of: node))\n```\n\n"
         case "hardBreak":
@@ -289,6 +297,19 @@ private struct MarkdownDocumentRenderer {
             return "\(marker) \(content)"
         }
         return rows.joined(separator: "\n") + "\n\n"
+    }
+
+    private mutating func renderTaskItem(_ node: [String: Any]) -> String {
+        let attributes = node["attrs"] as? [String: Any]
+        let marker = attributes?["checked"] as? Bool == true ? "- [x]" : "- [ ]"
+        let rendered = children(of: node)
+            .map { render($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        let lines = rendered.split(separator: "\n", omittingEmptySubsequences: false)
+        guard let first = lines.first else { return marker }
+        let nested = lines.dropFirst().map { "  \($0)" }.joined(separator: "\n")
+        return nested.isEmpty ? "\(marker) \(first)" : "\(marker) \(first)\n\(nested)"
     }
 
     private func renderText(_ node: [String: Any]) -> String {

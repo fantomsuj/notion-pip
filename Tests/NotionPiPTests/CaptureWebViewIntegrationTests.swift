@@ -19,10 +19,33 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         }
         let state = try await focusState(in: session.webView)
 
+        let lifecycle = try await session.webView.callAsyncJavaScript(
+            """
+            const title = document.querySelector('#title');
+            return {
+              hasSave: Boolean(document.querySelector('#save')),
+              newNoteDisabled: document.querySelector('#new-note').disabled,
+              statusRegionCount: document.querySelectorAll('[role=status]').length,
+              status: document.querySelector('#status').textContent,
+              titleValue: title.value,
+              titlePlaceholder: title.placeholder,
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Any]
+
         XCTAssertEqual(state["activeID"], "title")
         XCTAssertEqual(state["role"], "textbox")
         XCTAssertEqual(state["ariaLabel"], "Note content")
         XCTAssertEqual(state["ariaMultiline"], "true")
+        XCTAssertEqual(lifecycle?["hasSave"] as? Bool, false)
+        XCTAssertEqual(lifecycle?["newNoteDisabled"] as? Bool, false)
+        XCTAssertEqual(lifecycle?["statusRegionCount"] as? Int, 1)
+        XCTAssertEqual(lifecycle?["status"] as? String, "Saved")
+        XCTAssertEqual(lifecycle?["titleValue"] as? String, "")
+        XCTAssertEqual(lifecycle?["titlePlaceholder"] as? String, "Untitled")
     }
 
     func testPopulatedAuthoritativeDraftFocusesBodyAtItsEnd() async throws {
@@ -782,7 +805,7 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         XCTAssertEqual(unlocked["editorEditable"] as? String, "true")
     }
 
-    func testStashLocksEveryMutationControlUntilNewDraftSnapshotIsApplied() async throws {
+    func testNewNoteFlushesEditsLocksMutationAndFocusesEmptySuccessor() async throws {
         let gate = BlockingBridgeRequestGate { request in
             if case .stash = request { return true }
             return false
@@ -800,17 +823,26 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
             body: "captured stash body",
             in: session.webView
         )
-        _ = try await waitForDraft(repository, id: "stash-locked-draft") {
-            $0.title == "Captured before stash"
-        }
-
         _ = try await session.webView.callAsyncJavaScript(
-            "document.querySelector('#new-note').click(); return true",
+            """
+            document.querySelector('#slash-menu').hidden = false;
+            document.querySelector('#format-toolbar').hidden = false;
+            document.querySelector('#new-note').click();
+            return true;
+            """,
             arguments: [:],
             in: nil,
             contentWorld: .page
         )
         try await waitUntil { gate.entered }
+        let flushedBeforeStashValue = try await repository.draft(id: "stash-locked-draft")
+        let flushedBeforeStash = try XCTUnwrap(flushedBeforeStashValue)
+        XCTAssertEqual(flushedBeforeStash.title, "Captured before stash")
+        XCTAssertTrue(
+            String(decoding: flushedBeforeStash.editorDocument, as: UTF8.self)
+                .contains("captured stash body")
+        )
+        XCTAssertEqual(flushedBeforeStash.disposition, .active)
         let attempted = try await attemptUserEditorInput(
             title: "Must not replace stashed capture",
             body: "must not replace stash body",
@@ -827,12 +859,35 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
             $0.disposition == .stashed
         }
         try await waitForJavaScriptCondition(in: session.webView) {
-            "return document.querySelector('#title').value === '' && !document.querySelector('#title').disabled"
+            "return document.querySelector('#title').value === '' && !document.querySelector('#title').disabled && document.activeElement.id === 'title'"
         }
+        let successorState = try await session.webView.callAsyncJavaScript(
+            """
+            return {
+              activeID: document.activeElement.id,
+              slashHidden: document.querySelector('#slash-menu').hidden,
+              formatHidden: document.querySelector('#format-toolbar').hidden,
+              newNoteDisabled: document.querySelector('#new-note').disabled,
+              titleValue: document.querySelector('#title').value,
+              titlePlaceholder: document.querySelector('#title').placeholder,
+              status: document.querySelector('#status').textContent,
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Any]
         let stashedValue = try await repository.draft(id: "stash-locked-draft")
         let stashed = try XCTUnwrap(stashedValue)
         XCTAssertEqual(stashed.title, "Captured before stash")
         XCTAssertTrue(String(decoding: stashed.editorDocument, as: UTF8.self).contains("captured stash body"))
+        XCTAssertEqual(successorState?["activeID"] as? String, "title")
+        XCTAssertEqual(successorState?["slashHidden"] as? Bool, true)
+        XCTAssertEqual(successorState?["formatHidden"] as? Bool, true)
+        XCTAssertEqual(successorState?["newNoteDisabled"] as? Bool, false)
+        XCTAssertEqual(successorState?["titleValue"] as? String, "")
+        XCTAssertEqual(successorState?["titlePlaceholder"] as? String, "Untitled")
+        XCTAssertEqual(successorState?["status"] as? String, "Saved")
     }
 
     func testRestoreDrainsQueuedOldDraftEditBeforeSwitchingSnapshots() async throws {
