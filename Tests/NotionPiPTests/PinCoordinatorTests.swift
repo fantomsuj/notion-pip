@@ -195,8 +195,72 @@ final class PinCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(panel.frame, CGRect(x: 600, y: 340, width: 400, height: 360))
         XCTAssertEqual(handle.placements.last?.side, .right)
-        XCTAssertEqual(handle.placements.last?.frame, CGRect(x: 964, y: 472, width: 36, height: 96))
+        XCTAssertEqual(handle.placements.last?.frame, CGRect(x: 964, y: 604, width: 36, height: 96))
         XCTAssertTrue(handle.isVisible)
+    }
+
+    func testScreenChangePreservesMovedStashHandlePlacement() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 620, y: 100, width: 300, height: 400))
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(
+            coordinator.stash(
+                visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            )
+        )
+        handle.move(
+            to: PanelStashPlacement(
+                side: .left,
+                frame: CGRect(x: 0, y: 100, width: 36, height: 96)
+            )
+        )
+
+        coordinator.reclampPanelFrame(
+            visibleFrames: [CGRect(x: 0, y: 0, width: 1_200, height: 900)]
+        )
+
+        XCTAssertEqual(
+            handle.placements.last,
+            PanelStashPlacement(
+                side: .left,
+                frame: CGRect(x: 0, y: 100, width: 36, height: 96)
+            )
+        )
+    }
+
+    func testNewStashAfterRestoreUsesMainPanelPlacementInsteadOfPreviousMove() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 620, y: 100, width: 300, height: 400))
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let visibleFrames = [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+        XCTAssertTrue(coordinator.stash(visibleFrames: visibleFrames))
+        handle.move(
+            to: PanelStashPlacement(
+                side: .left,
+                frame: CGRect(x: 0, y: 100, width: 36, height: 96)
+            )
+        )
+        handle.restore()
+
+        XCTAssertTrue(coordinator.stash(visibleFrames: visibleFrames))
+
+        XCTAssertEqual(
+            handle.placements.last,
+            PanelStashPlacement(
+                side: .right,
+                frame: CGRect(x: 964, y: 252, width: 36, height: 96)
+            )
+        )
     }
 
     func testStashWithoutVisibleScreenLeavesPanelVisible() throws {
@@ -408,13 +472,16 @@ private final class FakeStashHandle: PiPStashHandle {
     private(set) var placements: [PanelStashPlacement] = []
     private(set) var orderOutCount = 0
     private var onRestore: (@MainActor () -> Void)?
+    private var onPlacementChange: (@MainActor (PanelStashPlacement) -> Void)?
 
     func present(
         placement: PanelStashPlacement,
-        onRestore: @escaping @MainActor () -> Void
+        onRestore: @escaping @MainActor () -> Void,
+        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void
     ) {
         placements.append(placement)
         self.onRestore = onRestore
+        self.onPlacementChange = onPlacementChange
         isVisible = true
     }
 
@@ -422,10 +489,15 @@ private final class FakeStashHandle: PiPStashHandle {
         orderOutCount += 1
         isVisible = false
         onRestore = nil
+        onPlacementChange = nil
     }
 
     func restore() {
         onRestore?()
+    }
+
+    func move(to placement: PanelStashPlacement) {
+        onPlacementChange?(placement)
     }
 }
 

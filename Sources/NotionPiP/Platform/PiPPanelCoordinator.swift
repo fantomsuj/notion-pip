@@ -16,7 +16,8 @@ protocol PiPStashHandle: AnyObject {
     var isVisible: Bool { get }
     func present(
         placement: PanelStashPlacement,
-        onRestore: @escaping @MainActor () -> Void
+        onRestore: @escaping @MainActor () -> Void,
+        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void
     )
     func orderOut()
 }
@@ -45,6 +46,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     private let visibleFramesProvider: @MainActor () -> [CGRect]
     private(set) var currentPage: NotionPageReference?
     private var screenConfigurationObserver: NSObjectProtocol?
+    private var activeStashPlacement: PanelStashPlacement?
 
     var isVisible: Bool {
         panel.isVisible
@@ -182,9 +184,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         }
 
         panel.orderOut()
-        stashHandle.present(placement: placement) { [weak self] in
-            self?.restoreFromStash()
-        }
+        presentStashHandle(stashHandle, placement: placement)
         logger.notice("Panel stashed to screen edge")
         return true
     }
@@ -206,21 +206,39 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         )
 
         guard stashHandle?.isVisible == true else { return }
-        guard let placement = PanelStashPolicy.placement(
-            for: panel.frame,
+        guard let activeStashPlacement,
+              let placement = PanelStashPolicy.snappedPlacement(
+            for: activeStashPlacement.frame,
             visibleFrames: visibleFrames
         ) else {
             dismissStashHandle()
             return
         }
-        stashHandle?.present(placement: placement) { [weak self] in
-            self?.restoreFromStash()
+        if let stashHandle {
+            presentStashHandle(stashHandle, placement: placement)
         }
     }
 
     private func dismissStashHandle() {
+        activeStashPlacement = nil
         guard stashHandle?.isVisible == true else { return }
         stashHandle?.orderOut()
+    }
+
+    private func presentStashHandle(
+        _ stashHandle: any PiPStashHandle,
+        placement: PanelStashPlacement
+    ) {
+        activeStashPlacement = placement
+        stashHandle.present(
+            placement: placement,
+            onRestore: { [weak self] in
+                self?.restoreFromStash()
+            },
+            onPlacementChange: { [weak self] placement in
+                self?.activeStashPlacement = placement
+            }
+        )
     }
 
     private static func defaultFrame(visibleFrames: [CGRect]) -> CGRect {

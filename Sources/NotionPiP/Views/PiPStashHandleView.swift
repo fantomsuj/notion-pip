@@ -34,6 +34,7 @@ struct PiPStashHandleView: View {
                 onActivate: onRestore,
                 onDragEnded: onDragEnded
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .contentShape(EdgeStashTabShape(side: side))
     }
