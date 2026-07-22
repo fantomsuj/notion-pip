@@ -51,6 +51,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     private var bootstrapTask: Task<Void, Never>?
     private var restorePinnedPageTask: Task<Void, Never>?
     private var persistPinnedPageTask: Task<Void, Never>?
+    private var persistenceGeneration = 0
     private var activationGeneration = 0
     private var pageSelectionGeneration = 0
     private var connectionGeneration = 0
@@ -136,6 +137,14 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
     func bind(setupOptionsPresenter: any SetupOptionsPresenting) {
         self.setupOptionsPresenter = setupOptionsPresenter
+    }
+
+    func prepareForTermination() async {
+        while let persistenceTask = persistPinnedPageTask {
+            let expectedGeneration = persistenceGeneration
+            await persistenceTask.value
+            guard expectedGeneration != persistenceGeneration else { return }
+        }
     }
 
     func handleMenuBarActivation() {
@@ -329,6 +338,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         guard let pageRepository else { return }
         let previousTask = persistPinnedPageTask
         let logger = logger
+        persistenceGeneration &+= 1
         persistPinnedPageTask = Task {
             await previousTask?.value
             do {

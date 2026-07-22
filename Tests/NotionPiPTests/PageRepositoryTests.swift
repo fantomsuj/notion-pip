@@ -10,6 +10,57 @@ final class PageRepositoryTests: XCTestCase {
         XCTAssertNotNil(repository)
     }
 
+    func testSharedContainerPreservesInterleavedCaptureAndPageWritesAfterReopen() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let storeURL = temporaryDirectory.appendingPathComponent("NotionPiP.store")
+        let firstPage = try page(slug: "First", id: firstPageID)
+        let secondPage = try page(slug: "Second", id: secondPageID)
+        let document = Data(#"{"type":"doc","content":[{"type":"paragraph"}]}"#.utf8)
+
+        do {
+            let container = try NotionPiPPersistence.makeContainer(storeURL: storeURL)
+            let pageRepository = PageRepository(container: container)
+            let captureRepository = CaptureRepository(container: container)
+
+            _ = try await pageRepository.replaceCurrent(with: firstPage)
+            let draft = try await captureRepository.saveDraft(
+                DraftMutation(
+                    id: "shared-draft",
+                    title: "First draft",
+                    editorDocument: document,
+                    sourceDocument: nil,
+                    disposition: .active
+                ),
+                expectedRevision: 0
+            )
+            _ = try await pageRepository.replaceCurrent(with: secondPage)
+            _ = try await captureRepository.saveDraft(
+                DraftMutation(
+                    id: draft.id,
+                    title: "Updated draft",
+                    editorDocument: document,
+                    sourceDocument: nil,
+                    disposition: .active
+                ),
+                expectedRevision: draft.revision
+            )
+        }
+
+        let reopenedContainer = try NotionPiPPersistence.makeContainer(storeURL: storeURL)
+        let reopenedPageRepository = PageRepository(container: reopenedContainer)
+        let reopenedCaptureRepository = CaptureRepository(container: reopenedContainer)
+        let currentPage = try await reopenedPageRepository.currentPinnedPage()
+        let draft = try await reopenedCaptureRepository.draft(id: "shared-draft")
+
+        XCTAssertEqual(currentPage?.pageID, secondPageID)
+        XCTAssertEqual(draft?.title, "Updated draft")
+        XCTAssertEqual(draft?.revision, 2)
+    }
+
     func testReplacingCurrentPageKeepsOnlyLatestSelection() async throws {
         let repository = try PageRepository(container: makeContainer())
         let first = try page(slug: "First", id: firstPageID)

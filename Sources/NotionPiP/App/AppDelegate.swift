@@ -9,8 +9,25 @@ protocol ApplicationURLHandling: AnyObject {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "lifecycle")
+    private let replyToApplicationShouldTerminate: @MainActor (NSApplication, Bool) -> Void
     private var urlHandler: (any ApplicationURLHandling)?
     private var bufferedOpenURLs: [URL] = []
+    private var terminationHandler: (@MainActor () async -> Void)?
+    private var terminationTask: Task<Void, Never>?
+
+    override init() {
+        replyToApplicationShouldTerminate = { application, shouldTerminate in
+            application.reply(toApplicationShouldTerminate: shouldTerminate)
+        }
+        super.init()
+    }
+
+    init(
+        replyToApplicationShouldTerminate: @escaping @MainActor (NSApplication, Bool) -> Void
+    ) {
+        self.replyToApplicationShouldTerminate = replyToApplicationShouldTerminate
+        super.init()
+    }
 
     func bind(urlHandler: any ApplicationURLHandling) {
         guard self.urlHandler == nil else {
@@ -23,6 +40,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !bufferedOpenURLs.isEmpty {
             urlHandler.handleOpenURLs(bufferedOpenURLs)
         }
+    }
+
+    func bind(terminationHandler: @escaping @MainActor () async -> Void) {
+        guard self.terminationHandler == nil else { return }
+        self.terminationHandler = terminationHandler
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
@@ -40,5 +62,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         urlHandler.handleOpenURLs(urls)
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard terminationTask == nil else { return .terminateLater }
+        let terminationHandler = terminationHandler
+        let replyToApplicationShouldTerminate = replyToApplicationShouldTerminate
+        terminationTask = Task { @MainActor in
+            if let terminationHandler {
+                await terminationHandler()
+            }
+            replyToApplicationShouldTerminate(sender, true)
+        }
+        return .terminateLater
     }
 }

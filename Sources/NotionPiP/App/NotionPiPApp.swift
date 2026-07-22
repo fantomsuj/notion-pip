@@ -25,6 +25,9 @@ struct NotionPiPApp: App {
 enum AppStartup {
     static func start(runtime: AppRuntime, appDelegate: AppDelegate) {
         runtime.start()
+        appDelegate.bind {
+            await runtime.prepareForTermination()
+        }
         appDelegate.bind(urlHandler: runtime)
     }
 }
