@@ -11,14 +11,21 @@ struct NotionPiPApp: App {
         let composition = AppComposition()
         self.composition = composition
         _runtime = StateObject(wrappedValue: composition.runtime)
-        appDelegate.bind(urlHandler: composition.runtime)
-        composition.runtime.start()
+        AppStartup.start(runtime: composition.runtime, appDelegate: appDelegate)
     }
 
     var body: some Scene {
         Settings {
             SettingsView(runtime: runtime)
         }
+    }
+}
+
+@MainActor
+enum AppStartup {
+    static func start(runtime: AppRuntime, appDelegate: AppDelegate) {
+        runtime.start()
+        appDelegate.bind(urlHandler: runtime)
     }
 }
 

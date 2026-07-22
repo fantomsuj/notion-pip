@@ -341,6 +341,43 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(panel.currentPage, typedPage)
     }
 
+    func testBufferedOpenURLWinsOverDelayedRestoreDuringStartup() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let appDelegate = AppDelegate()
+        let storedPage = try makeStoredPage(id: firstPageID, title: "Stored")
+        let directPage = try NotionPageReference(
+            validating: XCTUnwrap(URL(string: "https://www.notion.so/\(secondPageID)"))
+        )
+        let route = try XCTUnwrap(
+            URL(
+                string: "notion-pip://pin?url=https%3A%2F%2Fwww.notion.so%2F\(secondPageID)&source=chrome-extension"
+            )
+        )
+
+        appDelegate.application(NSApplication.shared, open: [route])
+        AppStartup.start(runtime: runtime, appDelegate: appDelegate)
+
+        try await repository.waitUntilSaveCount(1)
+        for _ in 0 ..< 10 {
+            await Task.yield()
+        }
+        let restoreRequestCount = await repository.restoreRequestCount()
+        await repository.finishRestore(with: storedPage)
+        if restoreRequestCount > 0 {
+            try await repository.waitUntilRestoreReturned()
+        }
+        for _ in 0 ..< 3 {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(runtime.activePage, directPage)
+        XCTAssertEqual(runtime.lastActivationSource, .externalRoute(.chromeExtension))
+        XCTAssertEqual(panel.currentPage, directPage)
+        XCTAssertEqual(panel.shownPages, [directPage])
+    }
+
     func testActivationImmediatelyAfterStartWinsBeforeRestoreRequestBegins() async throws {
         let panel = RuntimePanelCoordinator()
         let storedPage = try makeStoredPage(id: firstPageID, title: "Stored")
