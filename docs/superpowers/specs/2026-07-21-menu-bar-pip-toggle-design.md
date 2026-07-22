@@ -65,7 +65,7 @@ Extend `PiPPanelWindow` and `PiPPanelCoordinating` with explicit visibility and 
 The API needs to support:
 
 - reading whether the panel is visible;
-- showing the already-loaded current page without activating it again;
+- showing the already-loaded current page without invoking the page loader again;
 - hiding the panel;
 - toggling visibility when a current page exists.
 
@@ -73,7 +73,7 @@ The API needs to support:
 
 ### Setup/options presenter
 
-The current setup/options surface exists only as the content of `MenuBarExtra`; it does not yet have an independent presenter. Add a small presenter backed by a transient AppKit popover or panel that hosts `MenuBarRootView` and anchors it to the status item. It provides explicit show, hide, and toggle operations.
+The current setup/options surface exists only as the content of `MenuBarExtra`; it does not yet have an independent presenter. Add a small presenter backed by a transient `NSPopover` that hosts `MenuBarRootView` and anchors it to the status item. It provides explicit show, hide, and toggle operations.
 
 Refactor `MenuBarRootView` so Quick Capture and Settings are injected actions instead of relying on scene-only environment actions. This keeps the existing surface and feature logic reusable when hosted by the new presenter.
 
@@ -85,7 +85,7 @@ The command model coordinates presentation but does not duplicate feature logic:
 
 - Quick Capture uses a dedicated presenter for the existing Quick Capture view and session. This replaces the `openWindow` dependency that is only available inside the current SwiftUI scene.
 - Change Pinned Page uses the setup/options presenter.
-- Settings opens the existing Settings scene through the platform Settings action or an equivalent dedicated presenter.
+- Settings uses a dedicated presenter for the existing `SettingsView`, matching the explicit presentation boundary used for Quick Capture and setup/options.
 - Quit uses `NSApp.terminate(nil)`.
 
 ## State and Data Flow
@@ -96,7 +96,7 @@ Regular status-icon click
           v
 AppRuntime.handleMenuBarActivation()
           |
-     active page?
+ panel current page?
        /     \
      no       yes
      |         |
