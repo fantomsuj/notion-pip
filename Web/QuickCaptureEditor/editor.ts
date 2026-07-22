@@ -1,5 +1,8 @@
 import { Editor } from "@tiptap/core";
 import type { JSONContent } from "@tiptap/core";
+import Placeholder from "@tiptap/extension-placeholder";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
 import StarterKit from "@tiptap/starter-kit";
 
 import {
@@ -16,6 +19,268 @@ import {
 } from "./protocol.ts";
 
 export type ToolbarCommand = "bold" | "italic" | "heading" | "bulletList" | "orderedList";
+
+export type FormattingCommand = "bold" | "italic" | "underline" | "strike" | "code" | "link";
+
+export interface FormattingStateEditor {
+  isActive(mark: string): boolean;
+}
+
+export interface FormattingState {
+  readonly bold: boolean;
+  readonly italic: boolean;
+  readonly underline: boolean;
+  readonly strike: boolean;
+  readonly code: boolean;
+  readonly link: boolean;
+}
+
+export function formattingState(editor: FormattingStateEditor): FormattingState {
+  return {
+    bold: editor.isActive("bold"),
+    italic: editor.isActive("italic"),
+    underline: editor.isActive("underline"),
+    strike: editor.isActive("strike"),
+    code: editor.isActive("code"),
+    link: editor.isActive("link"),
+  };
+}
+
+export interface FormattingCommandTarget {
+  focus(): FormattingCommandTarget;
+  toggleBold(): FormattingCommandTarget;
+  toggleItalic(): FormattingCommandTarget;
+  toggleUnderline(): FormattingCommandTarget;
+  toggleStrike(): FormattingCommandTarget;
+  toggleCode(): FormattingCommandTarget;
+  toggleLink(attributes?: { href: string }): FormattingCommandTarget;
+  run(): boolean;
+}
+
+export interface FormattingEditor {
+  chain(): FormattingCommandTarget;
+}
+
+export function executeFormattingCommand(
+  editor: FormattingEditor,
+  command: string,
+  href?: string,
+): boolean {
+  if (!["bold", "italic", "underline", "strike", "code", "link"].includes(command)) {
+    return false;
+  }
+  const chain = editor.chain().focus();
+  switch (command) {
+    case "bold": return chain.toggleBold().run();
+    case "italic": return chain.toggleItalic().run();
+    case "underline": return chain.toggleUnderline().run();
+    case "strike": return chain.toggleStrike().run();
+    case "code": return chain.toggleCode().run();
+    case "link": return href === undefined
+      ? chain.toggleLink().run()
+      : chain.toggleLink({ href }).run();
+    default: return false;
+  }
+}
+
+export interface LinkPasteSelection {
+  readonly empty: boolean;
+}
+
+export function isLinkPaste(selection: LinkPasteSelection, text: string): boolean {
+  if (selection.empty) return false;
+  const candidate = text.trim();
+  if (candidate.length === 0 || /\s/.test(candidate)) return false;
+  try {
+    const url = new URL(candidate);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export type BlockCommandID =
+  | "text"
+  | "heading1"
+  | "heading2"
+  | "heading3"
+  | "bulletList"
+  | "orderedList"
+  | "taskList"
+  | "quote"
+  | "codeBlock"
+  | "divider";
+
+export type TiptapBlockCommand =
+  | "setParagraph"
+  | "toggleHeading"
+  | "toggleBulletList"
+  | "toggleOrderedList"
+  | "toggleTaskList"
+  | "toggleBlockquote"
+  | "toggleCodeBlock"
+  | "setHorizontalRule";
+
+export interface BlockCommand {
+  readonly id: BlockCommandID;
+  readonly label: string;
+  readonly aliases: readonly string[];
+  readonly command: TiptapBlockCommand;
+}
+
+export const BLOCK_COMMANDS: readonly BlockCommand[] = [
+  { id: "text", label: "Text", aliases: ["paragraph", "plain text"], command: "setParagraph" },
+  { id: "heading1", label: "Heading 1", aliases: ["h1", "title"], command: "toggleHeading" },
+  { id: "heading2", label: "Heading 2", aliases: ["h2", "subtitle"], command: "toggleHeading" },
+  { id: "heading3", label: "Heading 3", aliases: ["h3", "subheading"], command: "toggleHeading" },
+  {
+    id: "bulletList",
+    label: "Bulleted list",
+    aliases: ["bullet", "unordered", "ul"],
+    command: "toggleBulletList",
+  },
+  {
+    id: "orderedList",
+    label: "Numbered list",
+    aliases: ["numbered", "ordered", "ol"],
+    command: "toggleOrderedList",
+  },
+  {
+    id: "taskList",
+    label: "To-do list",
+    aliases: ["todo", "task", "checklist"],
+    command: "toggleTaskList",
+  },
+  { id: "quote", label: "Quote", aliases: ["blockquote", "citation"], command: "toggleBlockquote" },
+  { id: "codeBlock", label: "Code block", aliases: ["code", "preformatted"], command: "toggleCodeBlock" },
+  {
+    id: "divider",
+    label: "Divider",
+    aliases: ["horizontal rule", "separator", "hr"],
+    command: "setHorizontalRule",
+  },
+];
+
+export function filterBlockCommands(query: string): readonly BlockCommand[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (normalizedQuery.length === 0) return BLOCK_COMMANDS;
+  return BLOCK_COMMANDS.filter((item) =>
+    [item.label, ...item.aliases]
+      .some((term) => term.toLocaleLowerCase().includes(normalizedQuery)),
+  );
+}
+
+export interface SlashEditorState {
+  readonly selection: {
+    readonly empty: boolean;
+    readonly from: number;
+    readonly $from: {
+      readonly parentOffset: number;
+      readonly parent: {
+        readonly isTextblock: boolean;
+        textBetween(from: number, to: number): string;
+      };
+    };
+  };
+}
+
+export interface SlashQuery {
+  readonly from: number;
+  readonly to: number;
+  readonly query: string;
+}
+
+export function slashQueryAtSelection(state: SlashEditorState): SlashQuery | undefined {
+  const { selection } = state;
+  if (!selection.empty || !selection.$from.parent.isTextblock) return undefined;
+  const text = selection.$from.parent.textBetween(0, selection.$from.parentOffset);
+  const match = /^\/(.*)$/.exec(text);
+  if (match === null) return undefined;
+  return {
+    from: selection.from - selection.$from.parentOffset,
+    to: selection.from,
+    query: match[1] ?? "",
+  };
+}
+
+export interface BlockCommandTarget {
+  focus(): BlockCommandTarget;
+  deleteRange(range: { from: number; to: number }): BlockCommandTarget;
+  setParagraph(): BlockCommandTarget;
+  toggleHeading(options: { level: 1 | 2 | 3 }): BlockCommandTarget;
+  toggleBulletList(): BlockCommandTarget;
+  toggleOrderedList(): BlockCommandTarget;
+  toggleTaskList(): BlockCommandTarget;
+  toggleBlockquote(): BlockCommandTarget;
+  toggleCodeBlock(): BlockCommandTarget;
+  setHorizontalRule(): BlockCommandTarget;
+  run(): boolean;
+}
+
+export interface BlockCommandEditor {
+  readonly state: SlashEditorState;
+  chain(): BlockCommandTarget;
+}
+
+export function executeBlockCommand(editor: BlockCommandEditor, id: string): boolean {
+  if (!BLOCK_COMMANDS.some((item) => item.id === id)) return false;
+  const slashQuery = slashQueryAtSelection(editor.state);
+  if (slashQuery === undefined) return false;
+  const chain = editor.chain()
+    .focus()
+    .deleteRange({ from: slashQuery.from, to: slashQuery.to });
+  switch (id) {
+    case "text": return chain.setParagraph().run();
+    case "heading1": return chain.toggleHeading({ level: 1 }).run();
+    case "heading2": return chain.toggleHeading({ level: 2 }).run();
+    case "heading3": return chain.toggleHeading({ level: 3 }).run();
+    case "bulletList": return chain.toggleBulletList().run();
+    case "orderedList": return chain.toggleOrderedList().run();
+    case "taskList": return chain.toggleTaskList().run();
+    case "quote": return chain.toggleBlockquote().run();
+    case "codeBlock": return chain.toggleCodeBlock().run();
+    case "divider": return chain.setHorizontalRule().run();
+    default: return false;
+  }
+}
+
+export function displayTitle(title: string): string {
+  return title.trim().length === 0 ? "Untitled" : title;
+}
+
+export type TitleRoute = "focusBody" | "none";
+
+export interface TitleKeyInput {
+  readonly key: string;
+  readonly atBoundary: boolean;
+  readonly shiftKey?: boolean;
+}
+
+export function routeTitleKey(input: TitleKeyInput): TitleRoute {
+  if (input.key === "Enter" || (input.key === "Tab" && input.shiftKey !== true)) {
+    return "focusBody";
+  }
+  if (input.key === "ArrowDown" && input.atBoundary) return "focusBody";
+  return "none";
+}
+
+export type OverlayRoute = "previous" | "next" | "select" | "dismiss" | "none";
+
+export interface OverlayKeyInput {
+  readonly key: string;
+  readonly isOpen: boolean;
+}
+
+export function routeOverlayKey(input: OverlayKeyInput): OverlayRoute {
+  if (!input.isOpen) return "none";
+  switch (input.key) {
+    case "ArrowUp": return "previous";
+    case "ArrowDown": return "next";
+    case "Enter": return "select";
+    case "Escape": return "dismiss";
+    default: return "none";
+  }
+}
 
 export interface EditorCommandTarget {
   focus(): EditorCommandTarget;
@@ -408,14 +673,23 @@ function bootstrap(): void {
   const editorElement = document.querySelector<HTMLElement>("#editor");
   const titleElement = document.querySelector<HTMLInputElement>("#title");
   const statusElement = document.querySelector<HTMLElement>("#status");
-  if (bridge === undefined || editorElement === null || titleElement === null || statusElement === null) return;
+  const slashMenuElement = document.querySelector<HTMLElement>("#slash-menu");
+  const formatToolbarElement = document.querySelector<HTMLElement>("#format-toolbar");
+  if (bridge === undefined
+      || editorElement === null
+      || titleElement === null
+      || statusElement === null
+      || slashMenuElement === null
+      || formatToolbarElement === null) return;
   const titleInput = titleElement;
   const status = statusElement;
-  const saveButton = document.querySelector<HTMLButtonElement>("#save");
-  const stashButton = document.querySelector<HTMLButtonElement>("#stash");
+  const slashMenu = slashMenuElement;
+  const formatToolbar = formatToolbarElement;
+  const pageElement = document.querySelector<HTMLElement>("#page");
+  const newNoteButton = document.querySelector<HTMLButtonElement>("#new-note");
   const retryButton = document.querySelector<HTMLButtonElement>("#retry");
   const formattingButtons = Array.from(
-    document.querySelectorAll<HTMLButtonElement>("[data-command]"),
+    formatToolbar.querySelectorAll<HTMLButtonElement>("[data-format]"),
   );
 
   let snapshot: EditorSnapshot = {
@@ -426,14 +700,100 @@ function bootstrap(): void {
   };
   let applyingNativeSnapshot = false;
   let transitionLocked = true;
-  let userActionPending = false;
+  let pendingLaunchFocus: "title" | "body" | undefined;
+  let slashItems: readonly BlockCommand[] = [];
+  let slashActiveIndex = 0;
   const client = new BridgeClient((request) => bridge.postMessage(request));
   const editor = new Editor({
     element: editorElement,
-    extensions: [StarterKit],
+    extensions: [
+      StarterKit.configure({
+        link: {
+          openOnClick: false,
+          linkOnPaste: false,
+        },
+      }),
+      Placeholder.configure({ placeholder: "Type '/' for commands" }),
+      TaskList,
+      TaskItem.configure({ nested: true }),
+    ],
     content: snapshot.document as JSONContent,
+    editorProps: {
+      attributes: {
+        role: "textbox",
+        "aria-label": "Note content",
+        "aria-multiline": "true",
+        "aria-controls": "slash-menu",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
+      },
+      handleKeyDown: (view, event) => {
+        if (event.key === "Escape" && !formatToolbar.hidden) {
+          event.preventDefault();
+          closeFormattingToolbar();
+          return true;
+        }
+        const overlayRoute = routeOverlayKey({ key: event.key, isOpen: !slashMenu.hidden });
+        if (overlayRoute !== "none") {
+          event.preventDefault();
+          if (overlayRoute === "dismiss") {
+            closeSlashMenu(editor);
+          } else if (overlayRoute === "select") {
+            const selected = slashItems[slashActiveIndex];
+            if (selected !== undefined) executeBlockCommand(editor, selected.id);
+            closeSlashMenu(editor);
+          } else if (slashItems.length > 0) {
+            const change = overlayRoute === "previous" ? -1 : 1;
+            slashActiveIndex = (slashActiveIndex + change + slashItems.length) % slashItems.length;
+            renderSlashMenu(editor);
+          }
+          return true;
+        }
+        const { empty, from } = view.state.selection;
+        let caretPosition = empty ? from : undefined;
+        const domSelection = view.dom.ownerDocument.getSelection();
+        if (domSelection?.anchorNode !== null
+            && domSelection?.anchorNode !== undefined
+            && view.dom.contains(domSelection.anchorNode)) {
+          caretPosition = domSelection.isCollapsed
+            ? view.posAtDOM(domSelection.anchorNode, domSelection.anchorOffset)
+            : undefined;
+        }
+        let firstTextBlockStart: number | undefined;
+        view.state.doc.descendants((node, position) => {
+          if (firstTextBlockStart !== undefined) return false;
+          if (!node.isTextblock) return true;
+          firstTextBlockStart = position + 1;
+          return false;
+        });
+        const isAtStartOfFirstBlock = caretPosition === firstTextBlockStart;
+        if (event.key !== "ArrowUp" || !isAtStartOfFirstBlock) return false;
+        event.preventDefault();
+        titleInput.focus();
+        titleInput.setSelectionRange(titleInput.value.length, titleInput.value.length);
+        return true;
+      },
+      handlePaste: (view, event) => {
+        const { selection } = view.state;
+        const text = event.clipboardData?.getData("text/plain") ?? "";
+        const selectedText = view.state.doc.textBetween(selection.from, selection.to);
+        if (selectedText.length === 0 || !isLinkPaste(selection, text)) return false;
+        return editor.chain().focus().setLink({ href: text.trim() }).run();
+      },
+    },
     autofocus: false,
     editable: false,
+    onTransaction: ({ editor: updatedEditor }) => {
+      refreshSlashMenu(updatedEditor);
+      refreshFormattingToolbar(updatedEditor);
+    },
+    onFocus: ({ editor: focusedEditor }) => {
+      refreshFormattingToolbar(focusedEditor);
+    },
+    onBlur: ({ editor: blurredEditor }) => {
+      closeSlashMenu(blurredEditor);
+      closeFormattingToolbar();
+    },
     onUpdate: ({ editor: updatedEditor }) => {
       if (applyingNativeSnapshot || transitionLocked || snapshot.draftID.length === 0) return;
       status.dataset.state = "saving";
@@ -458,6 +818,117 @@ function bootstrap(): void {
     () => crypto.randomUUID(),
     (error) => reportFailure(error),
   );
+  function focusBody(position: "start" | "end"): void {
+    editor.commands.focus(position, { scrollIntoView: false });
+    editor.view.focus();
+  }
+
+  function closeSlashMenu(activeEditor: Editor): void {
+    slashMenu.hidden = true;
+    slashMenu.replaceChildren();
+    slashItems = [];
+    slashActiveIndex = 0;
+    slashMenu.removeAttribute("aria-activedescendant");
+    activeEditor.view.dom.setAttribute("aria-expanded", "false");
+    activeEditor.view.dom.removeAttribute("aria-activedescendant");
+  }
+
+  function closeFormattingToolbar(): void {
+    formatToolbar.hidden = true;
+  }
+
+  function refreshFormattingToolbar(activeEditor: Editor): void {
+    const { selection } = activeEditor.state;
+    const selectedText = activeEditor.state.doc.textBetween(selection.from, selection.to);
+    if (!activeEditor.isEditable
+        || transitionLocked
+        || !activeEditor.isFocused
+        || selection.empty
+        || selectedText.length === 0) {
+      closeFormattingToolbar();
+      return;
+    }
+
+    const active = formattingState(activeEditor);
+    formattingButtons.forEach((button) => {
+      const command = button.dataset.format as FormattingCommand | undefined;
+      button.setAttribute("aria-pressed", String(command !== undefined && active[command]));
+    });
+    formatToolbar.hidden = false;
+
+    const parentRect = pageElement?.getBoundingClientRect()
+      ?? formatToolbar.offsetParent?.getBoundingClientRect();
+    if (parentRect === undefined) return;
+    const start = activeEditor.view.coordsAtPos(selection.from);
+    const end = activeEditor.view.coordsAtPos(selection.to);
+    const selectionCenter = (Math.min(start.left, end.left) + Math.max(start.right, end.right)) / 2;
+    const left = selectionCenter - parentRect.left - formatToolbar.offsetWidth / 2;
+    formatToolbar.style.left = `${Math.max(0, Math.min(left, parentRect.width - formatToolbar.offsetWidth))}px`;
+    formatToolbar.style.top = `${Math.max(0, Math.min(start.top, end.top) - parentRect.top - formatToolbar.offsetHeight - 8)}px`;
+  }
+
+  function refreshSlashMenu(activeEditor: Editor): void {
+    if (!activeEditor.isEditable || transitionLocked) {
+      closeSlashMenu(activeEditor);
+      return;
+    }
+    const slashQuery = slashQueryAtSelection(activeEditor.state);
+    if (slashQuery === undefined) {
+      closeSlashMenu(activeEditor);
+      return;
+    }
+    const items = filterBlockCommands(slashQuery.query);
+    if (items.length === 0) {
+      closeSlashMenu(activeEditor);
+      return;
+    }
+    const wasOpen = !slashMenu.hidden;
+    slashItems = items;
+    slashActiveIndex = wasOpen
+      ? Math.min(slashActiveIndex, slashItems.length - 1)
+      : 0;
+    renderSlashMenu(activeEditor);
+
+    const parentRect = pageElement?.getBoundingClientRect()
+      ?? slashMenu.offsetParent?.getBoundingClientRect();
+    if (parentRect !== undefined) {
+      const caret = activeEditor.view.coordsAtPos(slashQuery.to);
+      slashMenu.style.left = `${Math.max(0, caret.left - parentRect.left)}px`;
+      slashMenu.style.top = `${Math.max(0, caret.bottom - parentRect.top + 6)}px`;
+    }
+  }
+
+  function renderSlashMenu(activeEditor: Editor): void {
+    const options = slashItems.map((item, index) => {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.id = `slash-option-${item.id}`;
+      option.className = "slash-option";
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", String(index === slashActiveIndex));
+      option.tabIndex = -1;
+      option.textContent = item.label;
+      option.addEventListener("mousedown", (event) => { event.preventDefault(); });
+      option.addEventListener("click", () => {
+        executeBlockCommand(activeEditor, item.id);
+        closeSlashMenu(activeEditor);
+      });
+      return option;
+    });
+    slashMenu.replaceChildren(...options);
+    slashMenu.hidden = false;
+    const activeID = options[slashActiveIndex]?.id;
+    activeEditor.view.dom.setAttribute("aria-expanded", "true");
+    if (activeID === undefined) {
+      slashMenu.removeAttribute("aria-activedescendant");
+      activeEditor.view.dom.removeAttribute("aria-activedescendant");
+    } else {
+      slashMenu.setAttribute("aria-activedescendant", activeID);
+      activeEditor.view.dom.setAttribute("aria-activedescendant", activeID);
+    }
+    options[slashActiveIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
   function installSnapshot(next: EditorSnapshot): boolean {
     if (!canInstallSnapshot(snapshot, next)) return true;
     applyingNativeSnapshot = true;
@@ -470,7 +941,14 @@ function bootstrap(): void {
 
   function applyReply(reply: BridgeReply): boolean {
     if (reply.ok) {
-      if (reply.result.snapshot !== undefined) installSnapshot(reply.result.snapshot);
+      if (reply.result.snapshot !== undefined) {
+        installSnapshot(reply.result.snapshot);
+        if (reply.result.kind === "ready") {
+          pendingLaunchFocus = titleInput.value.trim().length === 0 && editor.isEmpty
+            ? "title"
+            : "body";
+        }
+      }
       else if (reply.result.revision !== undefined) {
         snapshot.revision = Math.max(snapshot.revision ?? 0, reply.result.revision);
       }
@@ -489,12 +967,22 @@ function bootstrap(): void {
   }
 
   function refreshMutationControls(): void {
-    const disabled = transitionLocked || userActionPending;
     titleInput.disabled = transitionLocked;
     editor.setEditable(!transitionLocked);
-    if (saveButton !== null) saveButton.disabled = disabled;
-    if (stashButton !== null) stashButton.disabled = disabled;
+    if (newNoteButton !== null) newNoteButton.disabled = transitionLocked;
     formattingButtons.forEach((button) => { button.disabled = transitionLocked; });
+    if (transitionLocked) {
+      closeSlashMenu(editor);
+      closeFormattingToolbar();
+    }
+  }
+
+  function applyPendingLaunchFocus(): void {
+    const target = pendingLaunchFocus;
+    if (target === undefined || transitionLocked) return;
+    pendingLaunchFocus = undefined;
+    if (target === "title") titleInput.focus();
+    else focusBody("end");
   }
 
   const transitions = new EditorTransitionGate(
@@ -504,22 +992,12 @@ function bootstrap(): void {
     (locked) => {
       transitionLocked = locked;
       refreshMutationControls();
+      applyPendingLaunchFocus();
     },
     (available) => {
       if (retryButton !== null) retryButton.hidden = !available;
     },
   );
-
-  async function performUserAction<T>(action: () => Promise<T>): Promise<T> {
-    userActionPending = true;
-    refreshMutationControls();
-    try {
-      return await runAfterPendingChange(changes, action);
-    } finally {
-      userActionPending = false;
-      refreshMutationControls();
-    }
-  }
 
   titleInput.addEventListener("input", () => {
     if (transitionLocked || snapshot.draftID.length === 0) return;
@@ -528,20 +1006,38 @@ function bootstrap(): void {
       () => snapshot.revision ?? 0,
     );
   });
+  titleInput.addEventListener("keydown", (event) => {
+    const atBoundary = titleInput.selectionStart === titleInput.value.length
+      && titleInput.selectionEnd === titleInput.value.length;
+    if (routeTitleKey({ key: event.key, atBoundary, shiftKey: event.shiftKey }) !== "focusBody") {
+      return;
+    }
+    event.preventDefault();
+    focusBody("start");
+  });
   formattingButtons.forEach((button) => {
-    button.addEventListener("click", () => executeToolbarCommand(editor, button.dataset.command ?? ""));
+    const retainEditorFocus = (event: Event): void => { event.preventDefault(); };
+    button.addEventListener("pointerdown", retainEditorFocus);
+    button.addEventListener("mousedown", retainEditorFocus);
+    button.addEventListener("click", () => {
+      const command = button.dataset.format as FormattingCommand | undefined;
+      if (command === undefined) return;
+      let href: string | undefined;
+      if (command === "link" && !editor.isActive("link")) {
+        const candidate = window.prompt("Paste a link");
+        if (candidate === null || !isLinkPaste(editor.state.selection, candidate)) {
+          editor.view.focus();
+          refreshFormattingToolbar(editor);
+          return;
+        }
+        href = candidate.trim();
+      }
+      executeFormattingCommand(editor, command, href);
+      editor.view.focus();
+      refreshFormattingToolbar(editor);
+    });
   });
-  saveButton?.addEventListener("click", async () => {
-    void performUserAction(() => client.request("save", {
-      snapshot: {
-        draftID: snapshot.draftID,
-        title: titleInput.value,
-        document: normalizeDocument(editor.getJSON()),
-      },
-      expectedRevision: snapshot.revision ?? 0,
-    })).then(applyReply).catch(reportFailure);
-  });
-  stashButton?.addEventListener("click", async () => {
+  newNoteButton?.addEventListener("click", async () => {
     void transitions.perform({
       key: "stash",
       expectedKind: "stashed",

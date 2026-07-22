@@ -10,7 +10,7 @@ Click the `+` button in the PiP toolbar to open a fresh page in the embedded Not
 
 ## Stash the PiP
 
-Use the compact-arrow button in the PiP toolbar to tuck the panel onto the nearest left or right screen edge. A slim edge tab remains available across Spaces; click it to restore the same live Notion page, including its current WebView session and navigation state. `Command-Shift-P` stashes a visible PiP and restores it on the next press. The menu-bar icon also restores a stashed panel while retaining its regular show/hide behavior.
+Use the compact-arrow button in the PiP toolbar to tuck the panel onto the nearest left or right screen edge. A slim edge tab remains available across Spaces; click it to restore the same live Notion page, including its current WebView session and navigation state. Drag the tab to move it to either side or a different height; it snaps to the nearest horizontal screen edge when released. `Command-Shift-P` stashes a visible PiP and restores it on the next press. The menu-bar icon also restores a stashed panel while retaining its regular show/hide behavior.
 
 ## Build and run
 

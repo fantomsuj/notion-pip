@@ -8,10 +8,15 @@ struct NotionPiPApp: App {
     private let composition: AppComposition
 
     init() {
+        let coldLaunchToken = AppPerformanceSignposter.shared.begin(.coldLaunchToStatusItem)
         let composition = AppComposition()
         self.composition = composition
         _runtime = StateObject(wrappedValue: composition.runtime)
-        AppStartup.start(runtime: composition.runtime, appDelegate: appDelegate)
+        AppStartup.start(
+            runtime: composition.runtime,
+            appDelegate: appDelegate,
+            coldLaunchToken: coldLaunchToken
+        )
     }
 
     var body: some Scene {
@@ -23,8 +28,17 @@ struct NotionPiPApp: App {
 
 @MainActor
 enum AppStartup {
-    static func start(runtime: AppRuntime, appDelegate: AppDelegate) {
+    static func start(
+        runtime: AppRuntime,
+        appDelegate: AppDelegate,
+        coldLaunchToken: PerformanceIntervalToken? = nil,
+        performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared
+    ) {
         runtime.start()
+        appDelegate.bind(
+            coldLaunchToken: coldLaunchToken,
+            performanceSignposter: performanceSignposter
+        )
         appDelegate.bind {
             await runtime.prepareForTermination()
         }
@@ -35,7 +49,7 @@ enum AppStartup {
 @MainActor
 private final class AppComposition {
     let runtime: AppRuntime
-    private let quickCapturePresenter: AppWindowPresenter
+    private let quickCapturePresenter: any AppWindowPresenting
     private let settingsPresenter: AppWindowPresenter
     private let setupOptionsPresenter: SetupOptionsPopoverPresenter
     private let statusItemController: StatusItemController
@@ -79,12 +93,18 @@ private final class AppComposition {
         webSession.onPageResolved = { [weak runtime] page in
             runtime?.activate(page: page, source: .notionWebSession)
         }
-        let quickCapturePresenter = AppWindowFactory.makeQuickCapture(
-            repository: captureRepository
-        ) { [weak runtime] in
-            guard let page = runtime?.activePage else { return }
-            NSWorkspace.shared.open(page.canonicalURL)
-        }
+        let quickCapturePresenter: any AppWindowPresenting = LazyAppWindowPresenter(
+            makePresenter: {
+                AppWindowFactory.makeQuickCapture(
+                    repository: captureRepository
+                ) { [weak runtime] in
+                    guard let page = runtime?.activePage else { return }
+                    NSWorkspace.shared.open(page.canonicalURL)
+                }
+            },
+            performanceSignposter: AppPerformanceSignposter.shared,
+            firstPresentationOperation: .firstQuickCapturePresentation
+        )
         let settingsPresenter = AppWindowFactory.makeSettings(runtime: runtime)
         let setupOptionsPresenter = SetupOptionsPopoverPresenter(
             runtime: runtime,

@@ -61,4 +61,67 @@ final class PanelStashPolicyTests: XCTestCase {
             )
         )
     }
+
+    func testDraggedPlacementSnapsToNearestEdgeAndPreservesVerticalOrigin() throws {
+        let placement = try XCTUnwrap(
+            PanelStashPolicy.snappedPlacement(
+                for: CGRect(x: 120, y: 210, width: 36, height: 96),
+                visibleFrames: [CGRect(x: 0, y: 20, width: 1_000, height: 780)]
+            )
+        )
+
+        XCTAssertEqual(
+            placement,
+            PanelStashPlacement(
+                side: .left,
+                frame: CGRect(x: 0, y: 210, width: 36, height: 96)
+            )
+        )
+    }
+
+    func testDraggedPlacementSnapsToRightAndClampsAboveVisibleFrame() throws {
+        let placement = try XCTUnwrap(
+            PanelStashPolicy.snappedPlacement(
+                for: CGRect(x: 900, y: 780, width: 36, height: 96),
+                visibleFrames: [CGRect(x: 0, y: 20, width: 1_000, height: 780)]
+            )
+        )
+
+        XCTAssertEqual(
+            placement,
+            PanelStashPlacement(
+                side: .right,
+                frame: CGRect(x: 964, y: 704, width: 36, height: 96)
+            )
+        )
+    }
+
+    func testDraggedPlacementUsesDisplayContainingMostOfHandle() throws {
+        let placement = try XCTUnwrap(
+            PanelStashPolicy.snappedPlacement(
+                for: CGRect(x: 1_430, y: 310, width: 36, height: 96),
+                visibleFrames: [
+                    CGRect(x: 0, y: 0, width: 1_440, height: 900),
+                    CGRect(x: 1_440, y: 100, width: 1_920, height: 1_080),
+                ]
+            )
+        )
+
+        XCTAssertEqual(
+            placement,
+            PanelStashPlacement(
+                side: .left,
+                frame: CGRect(x: 1_440, y: 310, width: 36, height: 96)
+            )
+        )
+    }
+
+    func testDraggedPlacementWithoutVisibleScreensReturnsNil() {
+        XCTAssertNil(
+            PanelStashPolicy.snappedPlacement(
+                for: CGRect(x: 120, y: 210, width: 36, height: 96),
+                visibleFrames: []
+            )
+        )
+    }
 }

@@ -42,4 +42,33 @@ enum PanelStashPolicy {
             frame: CGRect(origin: CGPoint(x: x, y: y), size: handleSize)
         )
     }
+
+    static func snappedPlacement(
+        for handleFrame: CGRect,
+        visibleFrames: [CGRect]
+    ) -> PanelStashPlacement? {
+        guard let visibleFrame = PanelFramePolicy.targetVisibleFrame(
+            for: handleFrame,
+            from: visibleFrames
+        ) else {
+            return nil
+        }
+
+        let side: PanelStashSide = handleFrame.midX <= visibleFrame.midX ? .left : .right
+        let x = switch side {
+        case .left:
+            visibleFrame.minX
+        case .right:
+            visibleFrame.maxX - handleSize.width
+        }
+        let y = min(
+            max(handleFrame.minY, visibleFrame.minY),
+            visibleFrame.maxY - handleSize.height
+        )
+
+        return PanelStashPlacement(
+            side: side,
+            frame: CGRect(origin: CGPoint(x: x, y: y), size: handleSize)
+        )
+    }
 }

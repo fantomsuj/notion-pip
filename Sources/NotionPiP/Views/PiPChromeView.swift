@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct PiPChromeView: View {
@@ -8,15 +9,34 @@ struct PiPChromeView: View {
 
     @ObservedObject var webSession: NotionWebSession
     @ObservedObject var nativePageDocument: NativePageDocument
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     let commandModel: AppCommandModel
     let onStash: () -> Void
-    @State private var surface: Surface = .notion
+    var showsTopControls: Bool {
+        Self.shouldShowTopControls(
+            isTypingInPage: webSession.isTypingInPage,
+            isVoiceOverEnabled: voiceOverEnabled,
+            isSwitchControlEnabled: switchControlEnabled,
+            isFullKeyboardAccessEnabled: NSApplication.shared.isFullKeyboardAccessEnabled
+        )
+    }
 
-    private enum Surface: String, CaseIterable, Identifiable {
-        case preview = "Preview"
-        case notion = "Notion"
+    static func shouldShowTopControls(
+        isTypingInPage: Bool,
+        isVoiceOverEnabled: Bool,
+        isSwitchControlEnabled: Bool,
+        isFullKeyboardAccessEnabled: Bool
+    ) -> Bool {
+        !isTypingInPage
+            || isVoiceOverEnabled
+            || isSwitchControlEnabled
+            || isFullKeyboardAccessEnabled
+    }
 
-        var id: String { rawValue }
+    static func shouldHostNotionWebView(for session: NotionWebSession) -> Bool {
+        session.shouldHostWebView
     }
 
     init(
@@ -40,52 +60,80 @@ struct PiPChromeView: View {
 
                 Spacer()
 
-                if webSession.state == .loading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel("Loading Notion page")
-                }
-
-                Button {
-                    commandModel.perform(.newNotionPage)
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.plain)
-                .disabled(!(commandModel.command(for: .newNotionPage)?.isEnabled ?? false))
-                .accessibilityLabel(Self.newPageAccessibilityLabel)
-                .help(Self.newPageHelp)
-
-                Button(action: webSession.reload) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Reload Notion page")
-
-                Button(action: webSession.openInBrowser) {
-                    Image(systemName: "safari")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Open Notion page in browser")
-
-                Picker("Page surface", selection: $surface) {
-                    ForEach(Surface.allCases) { surface in
-                        Text(surface.rawValue).tag(surface)
+                Group {
+                    if webSession.state == .loading {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Loading Notion page")
                     }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 138)
-                .accessibilityLabel("Page surface")
 
-                PiPAppCommandMenu(commandModel: commandModel)
+                    Button {
+                        commandModel.perform(.newNotionPage)
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!(commandModel.command(for: .newNotionPage)?.isEnabled ?? false))
+                    .accessibilityLabel(Self.newPageAccessibilityLabel)
+                    .help(Self.newPageHelp)
 
-                Button(action: onStash) {
-                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    Button(action: webSession.reload) {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Reload Notion page")
+
+                    Button(action: webSession.openInBrowser) {
+                        Image(systemName: "safari")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open Notion page in browser")
+
+                    Picker(
+                        "Page surface",
+                        selection: Binding(
+                            get: { webSession.surface },
+                            set: { surface in
+                                switch surface {
+                                case .preview:
+                                    webSession.showPreviewSurface()
+                                case .live:
+                                    webSession.showLiveSurface()
+                                }
+                            }
+                        )
+                    ) {
+                        ForEach(NotionPageSurface.allCases) { surface in
+                            Text(surface.rawValue).tag(surface)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 138)
+                    .accessibilityLabel("Page surface")
+
+                    PiPAppCommandMenu(commandModel: commandModel)
+
+                    Button(action: onStash) {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Self.stashAccessibilityLabel)
+                    .help(Self.stashHelp)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Self.stashAccessibilityLabel)
-                .help(Self.stashHelp)
+                .opacity(showsTopControls ? 1 : 0)
+                .allowsHitTesting(showsTopControls)
+                .accessibilityHidden(!showsTopControls)
             }
+            .contentShape(Rectangle())
+            .onHover { isHovering in
+                if isHovering {
+                    webSession.revealTopControls()
+                }
+            }
+            .animation(
+                reduceMotion ? nil : .easeOut(duration: 0.16),
+                value: showsTopControls
+            )
             .padding(.horizontal, DesignTokens.Spacing.control)
             .frame(height: 32)
 
@@ -108,12 +156,19 @@ struct PiPChromeView: View {
                 Divider()
             }
 
-            if surface == .preview, nativePageDocument.snapshot != nil {
+            if webSession.surface == .preview {
                 NativePagePreviewView(document: nativePageDocument) {
-                    surface = .notion
+                    webSession.showLiveSurface()
                 }
+            } else if Self.shouldHostNotionWebView(for: webSession),
+                      let webView = webSession.webView
+            {
+                NotionWebView(webView: webView)
             } else {
-                NotionWebView(webView: webSession.webView)
+                ContentUnavailableView(
+                    "No Notion page selected",
+                    systemImage: "doc.text.magnifyingglass"
+                )
             }
         }
         .background(DesignTokens.Colors.background)

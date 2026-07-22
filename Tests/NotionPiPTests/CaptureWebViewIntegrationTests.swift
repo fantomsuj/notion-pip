@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import WebKit
 import XCTest
@@ -5,6 +6,744 @@ import XCTest
 
 @MainActor
 final class CaptureWebViewIntegrationTests: XCTestCase {
+    func testEmptyAuthoritativeDraftFocusesTitleAndExposesAccessibleBody() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "empty-focus-draft" }
+        )
+
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+        let state = try await focusState(in: session.webView)
+
+        XCTAssertEqual(state["activeID"], "title")
+        XCTAssertEqual(state["role"], "textbox")
+        XCTAssertEqual(state["ariaLabel"], "Note content")
+        XCTAssertEqual(state["ariaMultiline"], "true")
+    }
+
+    func testPopulatedAuthoritativeDraftFocusesBodyAtItsEnd() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "populated-focus-draft",
+                title: "Existing note",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Continue here"}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        let session = CaptureEditorSession(repository: repository)
+
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+        let state = try await focusState(in: session.webView)
+
+        XCTAssertEqual(state["activeIsEditor"], "true")
+        XCTAssertEqual(state["body"], "Continue here")
+        XCTAssertEqual(state["textBeforeCaret"], "Continue here")
+    }
+
+    func testNewerSnapshotForSameDraftPreservesCurrentFocus() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "same-draft-focus",
+                title: "Existing note",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Existing body"}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        let session = CaptureEditorSession(repository: repository)
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        let result = try await session.webView.callAsyncJavaScript(
+            """
+            const title = document.querySelector('#title');
+            title.focus();
+            window.NotionPiPBridge.applyNativeReply({
+              version: 1,
+              id: 'same-draft-refresh',
+              ok: true,
+              result: {
+                kind: 'restored',
+                revision: 2,
+                snapshot: {
+                  draftID: 'same-draft-focus',
+                  title: 'Refreshed note',
+                  document: {
+                    type: 'doc',
+                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Refreshed body' }] }],
+                  },
+                  revision: 2,
+                },
+              },
+            });
+            return { activeID: document.activeElement.id, title: title.value };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: String]
+
+        XCTAssertEqual(result?["activeID"], "title")
+        XCTAssertEqual(result?["title"], "Refreshed note")
+    }
+
+    func testTitleNavigationKeysMoveFocusIntoBody() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "title-key-draft" }
+        )
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        for key in ["Enter", "Tab", "ArrowDown"] {
+            let activeIsEditor = try await session.webView.callAsyncJavaScript(
+                """
+                const title = document.querySelector('#title');
+                title.focus();
+                title.setSelectionRange(title.value.length, title.value.length);
+                title.dispatchEvent(new KeyboardEvent('keydown', { key: pressedKey, bubbles: true }));
+                return document.activeElement.matches('#editor .tiptap');
+                """,
+                arguments: ["pressedKey": key],
+                in: nil,
+                contentWorld: .page
+            ) as? Bool
+            XCTAssertEqual(activeIsEditor, true, "Expected \(key) to focus the body")
+        }
+    }
+
+    func testShiftTabInTitlePreservesReverseFocusTraversal() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "reverse-title-key-draft" }
+        )
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        let result = try await session.webView.callAsyncJavaScript(
+            """
+            const title = document.querySelector('#title');
+            title.focus();
+            const allowed = title.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'Tab',
+              shiftKey: true,
+              bubbles: true,
+              cancelable: true,
+            }));
+            return {
+              activeIsTitle: document.activeElement === title,
+              defaultPrevented: !allowed,
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Bool]
+
+        XCTAssertEqual(result?["activeIsTitle"], true)
+        XCTAssertEqual(result?["defaultPrevented"], false)
+    }
+
+    func testArrowUpAtStartOfBodyReturnsFocusToTitle() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "body-key-draft" }
+        )
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        let activeID = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            editor.focus();
+            const selection = window.getSelection();
+            const range = document.createRange();
+            range.setStart(editor.firstChild, 0);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+            return document.activeElement.id;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+
+        XCTAssertEqual(activeID, "title")
+    }
+
+    func testArrowUpAtStartOfNestedFirstBlockReturnsFocusToTitle() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "nested-body-key-draft",
+                title: "Nested first block",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"Nested body"}]}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        let session = CaptureEditorSession(repository: repository)
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        let activeID = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            const text = editor.querySelector('blockquote p').firstChild;
+            editor.focus();
+            const selection = window.getSelection();
+            const range = document.createRange();
+            range.setStart(text, 0);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+            return document.activeElement.id;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+
+        XCTAssertEqual(activeID, "title")
+    }
+
+    func testSlashMenuFiltersHeadingsAndKeyboardSelectionProducesHeadingTwo() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "slash-heading-draft" }
+        )
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        _ = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            editor.focus();
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        sendWebText("/hea", to: session.webView)
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#slash-menu').hidden && document.querySelectorAll('#slash-menu [role=option]').length === 3"
+        }
+        let opened = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            const menu = document.querySelector('#slash-menu');
+            const options = Array.from(menu.querySelectorAll('[role="option"]'));
+            return {
+              labels: options.map((option) => option.textContent.trim()).join('|'),
+              active: editor.getAttribute('aria-activedescendant') || '',
+              menuActive: menu.getAttribute('aria-activedescendant') || '',
+              role: menu.getAttribute('role') || '',
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Any]
+        sendWebKey("\u{F701}", keyCode: 125, to: session.webView)
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return document.querySelector('#editor .tiptap').getAttribute('aria-activedescendant') === 'slash-option-heading2'"
+        }
+        sendWebKey("\r", keyCode: 36, to: session.webView)
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return Boolean(document.querySelector('#editor .tiptap h2')) && document.querySelector('#slash-menu').hidden"
+        }
+        let selected = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            return {
+              headingTwo: Boolean(editor.querySelector('h2')),
+              body: editor.innerText,
+              closed: document.querySelector('#slash-menu').hidden,
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Any]
+
+        XCTAssertEqual(opened?["labels"] as? String, "Heading 1|Heading 2|Heading 3")
+        XCTAssertEqual(opened?["active"] as? String, "slash-option-heading1")
+        XCTAssertEqual(opened?["menuActive"] as? String, "slash-option-heading1")
+        XCTAssertEqual(opened?["role"] as? String, "listbox")
+        XCTAssertEqual(selected?["headingTwo"] as? Bool, true)
+        XCTAssertEqual(normalizedDOMText(selected?["body"] as? String), "")
+        XCTAssertEqual(selected?["closed"] as? Bool, true)
+    }
+
+    func testSlashMenuKeepsFinalKeyboardOptionVisible() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "slash-scroll-draft" }
+        )
+        session.webView.frame = NSRect(x: 0, y: 0, width: 480, height: 600)
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        _ = try await session.webView.callAsyncJavaScript(
+            """
+            document.querySelector('#editor .tiptap').focus();
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        sendWebText("/", to: session.webView)
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return document.querySelectorAll('#slash-menu [role=option]').length === 10"
+        }
+
+        for commandID in [
+            "heading1", "heading2", "heading3", "bulletList", "orderedList",
+            "taskList", "quote", "codeBlock", "divider",
+        ] {
+            sendWebKey("\u{F701}", keyCode: 125, to: session.webView)
+            try await waitForJavaScriptCondition(in: session.webView) {
+                "return document.querySelector('#slash-menu').getAttribute('aria-activedescendant') === 'slash-option-\(commandID)'"
+            }
+        }
+
+        let visibility = try await session.webView.callAsyncJavaScript(
+            """
+            const menu = document.querySelector('#slash-menu');
+            const active = document.getElementById(menu.getAttribute('aria-activedescendant'));
+            const menuBounds = menu.getBoundingClientRect();
+            const activeBounds = active.getBoundingClientRect();
+            return {
+              activeID: active.id,
+              visible: activeBounds.top >= menuBounds.top && activeBounds.bottom <= menuBounds.bottom,
+              scrollTop: menu.scrollTop,
+              activeTop: activeBounds.top,
+              activeBottom: activeBounds.bottom,
+              menuTop: menuBounds.top,
+              menuBottom: menuBounds.bottom,
+              clientHeight: menu.clientHeight,
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Any]
+
+        XCTAssertEqual(visibility?["activeID"] as? String, "slash-option-divider")
+        XCTAssertEqual(visibility?["visible"] as? Bool, true, "\(String(describing: visibility))")
+        XCTAssertGreaterThan(visibility?["scrollTop"] as? Double ?? 0, 0)
+    }
+
+    func testSlashMenuEscapeDismissesWithoutDeletingQueryText() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "slash-escape-draft" }
+        )
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        _ = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            editor.focus();
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        sendWebText("/hea", to: session.webView)
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#slash-menu').hidden && document.querySelector('#editor .tiptap').innerText.trim() === '/hea'"
+        }
+        sendWebKey("\u{1b}", keyCode: 53, to: session.webView)
+        let result = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            const menu = document.querySelector('#slash-menu');
+            return {
+              closed: menu.hidden,
+              body: editor.innerText,
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Any]
+
+        XCTAssertEqual(result?["closed"] as? Bool, true)
+        XCTAssertEqual(normalizedDOMText(result?["body"] as? String), "/hea")
+    }
+
+    func testContextualFormattingToolbarShowsActiveStateAboveSelectionAndKeepsEditorFocus() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "format-toolbar-draft",
+                title: "Formatting",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"bold"}],"text":"Selected text"}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        let session = CaptureEditorSession(repository: repository)
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        _ = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            const text = editor.querySelector('strong').firstChild;
+            editor.focus();
+            const range = document.createRange();
+            range.setStart(text, 0);
+            range.setEnd(text, 8);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#format-toolbar').hidden && document.querySelector('[data-format=bold]').getAttribute('aria-pressed') === 'true'"
+        }
+        let result = try await session.webView.callAsyncJavaScript(
+            """
+            const toolbar = document.querySelector('#format-toolbar');
+            const italic = toolbar.querySelector('[data-format=italic]');
+            const selectedBounds = window.getSelection().getRangeAt(0).getBoundingClientRect();
+            const toolbarBounds = toolbar.getBoundingClientRect();
+            italic.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+            italic.click();
+            return {
+              boldPressed: toolbar.querySelector('[data-format=bold]').getAttribute('aria-pressed'),
+              italicPressed: italic.getAttribute('aria-pressed'),
+              aboveSelection: toolbarBounds.bottom <= selectedBounds.top,
+              activeIsEditor: document.activeElement.matches('#editor .tiptap'),
+              italicApplied: Boolean(document.querySelector('#editor .tiptap em')),
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Any]
+
+        XCTAssertEqual(result?["boldPressed"] as? String, "true")
+        XCTAssertEqual(result?["italicPressed"] as? String, "true")
+        XCTAssertEqual(result?["aboveSelection"] as? Bool, true)
+        XCTAssertEqual(result?["activeIsEditor"] as? Bool, true)
+        XCTAssertEqual(result?["italicApplied"] as? Bool, true)
+    }
+
+    func testContextualFormattingToolbarDismissesOnEscape() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "format-escape-draft",
+                title: "Formatting",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Selected text"}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        let session = CaptureEditorSession(repository: repository)
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        _ = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            const text = editor.querySelector('p').firstChild;
+            editor.focus();
+            const range = document.createRange();
+            range.setStart(text, 0);
+            range.setEnd(text, 8);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#format-toolbar').hidden"
+        }
+        sendWebKey("\u{1b}", keyCode: 53, to: session.webView)
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return document.querySelector('#format-toolbar').hidden"
+        }
+        let selectedText = try await session.webView.callAsyncJavaScript(
+            "return window.getSelection().toString()",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+
+        XCTAssertEqual(selectedText, "Selected")
+    }
+
+    func testPastingHTTPSURLOverSelectionLinksWithoutReplacingText() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "format-link-paste-draft",
+                title: "Formatting",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Selected text"}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        let session = CaptureEditorSession(repository: repository)
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        let result = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            const text = editor.querySelector('p').firstChild;
+            editor.focus();
+            const range = document.createRange();
+            range.setStart(text, 0);
+            range.setEnd(text, 8);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            const clipboard = new DataTransfer();
+            clipboard.setData('text/plain', 'https://example.com/reference');
+            editor.dispatchEvent(new ClipboardEvent('paste', {
+              bubbles: true,
+              cancelable: true,
+              clipboardData: clipboard,
+            }));
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            const link = editor.querySelector('a');
+            return {
+              body: editor.innerText,
+              href: link?.getAttribute('href') || '',
+              linkedText: link?.textContent || '',
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: String]
+
+        XCTAssertEqual(normalizedDOMText(result?["body"]), "Selected text")
+        XCTAssertEqual(result?["href"], "https://example.com/reference")
+        XCTAssertEqual(result?["linkedText"], "Selected")
+    }
+
+    func testPastingURLOverLinkIneligibleSelectionFallsBackToNormalPaste() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "format-link-fallback-draft",
+                title: "Formatting",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"code"}],"text":"Selected text"}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        let session = CaptureEditorSession(repository: repository)
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        let result = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            const text = editor.querySelector('code').firstChild;
+            editor.focus();
+            const range = document.createRange();
+            range.setStart(text, 0);
+            range.setEnd(text, 8);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            const clipboard = new DataTransfer();
+            clipboard.setData('text/plain', 'https://example.com/fallback');
+            editor.dispatchEvent(new ClipboardEvent('paste', {
+              bubbles: true,
+              cancelable: true,
+              clipboardData: clipboard,
+            }));
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            return {
+              body: editor.innerText,
+              hasLink: Boolean(editor.querySelector('a')),
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Any]
+
+        XCTAssertEqual(normalizedDOMText(result?["body"] as? String), "https://example.com/fallback text")
+        XCTAssertEqual(result?["hasLink"] as? Bool, false)
+    }
+
+    func testMarkdownMarkersCreateHeadingQuoteAndListNodes() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "markdown-markers-draft" }
+        )
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        _ = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            editor.focus();
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        sendWebText("# Heading", to: session.webView)
+        sendWebKey("\r", keyCode: 36, to: session.webView)
+        sendWebText("> Quoted", to: session.webView)
+        sendWebKey("\r", keyCode: 36, to: session.webView)
+        sendWebKey("\r", keyCode: 36, to: session.webView)
+        sendWebText("- Listed", to: session.webView)
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return Boolean(document.querySelector('#editor .tiptap h1') && document.querySelector('#editor .tiptap blockquote') && document.querySelector('#editor .tiptap ul:not([data-type=taskList])')) && document.querySelector('#editor .tiptap ul:not([data-type=taskList])').textContent === 'Listed'"
+        }
+        let result = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            return {
+              heading: editor.querySelector('h1')?.textContent || '',
+              quote: editor.querySelector('blockquote')?.textContent || '',
+              list: editor.querySelector('ul:not([data-type="taskList"])')?.textContent || '',
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: String]
+
+        XCTAssertEqual(result?["heading"], "Heading")
+        XCTAssertEqual(result?["quote"], "Quoted")
+        XCTAssertEqual(result?["list"], "Listed")
+    }
+
+    func testTaskItemCreatedFromMarkerAutosavesThroughBridge() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "task-item-draft" }
+        )
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        _ = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            editor.focus();
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        sendWebText("[ ] Ship capture", to: session.webView)
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return Boolean(document.querySelector('#editor .tiptap ul[data-type=taskList] li[data-checked]')) && document.querySelector('#editor .tiptap').innerText.includes('Ship capture')"
+        }
+        let taskDOM = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            return {
+              taskList: Boolean(editor.querySelector('ul[data-type="taskList"]')),
+              taskItem: Boolean(editor.querySelector('ul[data-type="taskList"] li[data-checked]')),
+              checked: editor.querySelector('input[type="checkbox"]')?.checked ?? true,
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Any]
+
+        XCTAssertEqual(taskDOM?["taskList"] as? Bool, true)
+        XCTAssertEqual(taskDOM?["taskItem"] as? Bool, true)
+        XCTAssertEqual(taskDOM?["checked"] as? Bool, false)
+        let saved = try await waitForDraft(repository, id: "task-item-draft") {
+            let document = String(decoding: $0.editorDocument, as: UTF8.self)
+            return document.contains("taskList")
+                && document.contains("taskItem")
+                && document.contains("Ship capture")
+        }
+        XCTAssertGreaterThan(saved.revision, 1)
+    }
+
     func testEditorRemainsLockedUntilDelayedReadyInstallsAuthoritativeDraft() async throws {
         let gate = BlockingBridgeRequestGate { request in
             if case .ready = request { return true }
@@ -29,8 +768,7 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         XCTAssertEqual(attempted["title"] as? String, "")
         XCTAssertEqual(normalizedDOMText(attempted["body"] as? String), "")
         let controls = try await editorLockState(in: session.webView)
-        XCTAssertEqual(controls["saveDisabled"] as? Bool, true)
-        XCTAssertEqual(controls["stashDisabled"] as? Bool, true)
+        XCTAssertEqual(controls["newNoteDisabled"] as? Bool, true)
         XCTAssertEqual(controls["toolbarDisabled"] as? Bool, true)
         gate.resume()
         try await waitUntil { session.status == .ready }
@@ -62,7 +800,7 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         }
 
         _ = try await session.webView.callAsyncJavaScript(
-            "document.querySelector('#stash').click(); return true",
+            "document.querySelector('#new-note').click(); return true",
             arguments: [:],
             in: nil,
             contentWorld: .page
@@ -77,8 +815,7 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         XCTAssertEqual(attempted["titleDisabled"] as? Bool, true)
         XCTAssertEqual(attempted["editorEditable"] as? String, "false")
         let controls = try await editorLockState(in: session.webView)
-        XCTAssertEqual(controls["saveDisabled"] as? Bool, true)
-        XCTAssertEqual(controls["stashDisabled"] as? Bool, true)
+        XCTAssertEqual(controls["newNoteDisabled"] as? Bool, true)
         XCTAssertEqual(controls["toolbarDisabled"] as? Bool, true)
         gate.resume()
         _ = try await waitForDraft(repository, id: "stash-locked-draft") {
@@ -241,16 +978,7 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
             XCTAssertTrue(String(decoding: saved.editorDocument, as: UTF8.self).contains("real webkit body"))
 
             _ = try await liveSession.webView.callAsyncJavaScript(
-                "document.querySelector('#save').click(); return true",
-                arguments: [:],
-                in: nil,
-                contentWorld: .page
-            )
-            try await waitForJavaScriptCondition(in: liveSession.webView) {
-                "return !document.querySelector('#save').disabled && !document.querySelector('#stash').disabled"
-            }
-            _ = try await liveSession.webView.callAsyncJavaScript(
-                "document.querySelector('#stash').click(); return true",
+                "document.querySelector('#new-note').click(); return true",
                 arguments: [:],
                 in: nil,
                 contentWorld: .page
@@ -420,6 +1148,36 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
 }
 
 @MainActor
+private func focusState(in webView: WKWebView) async throws -> [String: String] {
+    let value = try await webView.callAsyncJavaScript(
+        """
+        const editor = document.querySelector('#editor .tiptap');
+        const selection = window.getSelection();
+        let textBeforeCaret = '';
+        if (selection.rangeCount > 0 && editor.contains(selection.focusNode)) {
+          const before = document.createRange();
+          before.selectNodeContents(editor);
+          before.setEnd(selection.focusNode, selection.focusOffset);
+          textBeforeCaret = before.toString();
+        }
+        return {
+          activeID: document.activeElement.id,
+          activeIsEditor: String(document.activeElement.matches('#editor .tiptap')),
+          body: editor.innerText.trim(),
+          textBeforeCaret,
+          role: editor.getAttribute('role') || '',
+          ariaLabel: editor.getAttribute('aria-label') || '',
+          ariaMultiline: editor.getAttribute('aria-multiline') || '',
+        };
+        """,
+        arguments: [:],
+        in: nil,
+        contentWorld: .page
+    )
+    return try XCTUnwrap(value as? [String: String])
+}
+
+@MainActor
 private func editEditor(title: String, body: String, in webView: WKWebView) async throws -> [String: String] {
     let value = try await webView.callAsyncJavaScript(
         """
@@ -497,8 +1255,7 @@ private func editorLockState(in webView: WKWebView) async throws -> [String: Any
         return {
           titleDisabled: title.disabled,
           editorEditable: editor.getAttribute('contenteditable'),
-          saveDisabled: document.querySelector('#save').disabled,
-          stashDisabled: document.querySelector('#stash').disabled,
+          newNoteDisabled: document.querySelector('#new-note').disabled,
           toolbarDisabled: Array.from(document.querySelectorAll('[data-command]')).every((button) => button.disabled),
         };
         """,
@@ -507,6 +1264,78 @@ private func editorLockState(in webView: WKWebView) async throws -> [String: Any
         contentWorld: .page
     )
     return try XCTUnwrap(value as? [String: Any])
+}
+
+@MainActor
+private func sendWebText(_ text: String, to webView: WKWebView) {
+    let letterKeyCodes: [Character: UInt16] = [
+        "a": 0, "b": 11, "c": 8, "d": 2, "e": 14, "f": 3, "g": 5,
+        "h": 4, "i": 34, "j": 38, "k": 40, "l": 37, "m": 46, "n": 45,
+        "o": 31, "p": 35, "q": 12, "r": 15, "s": 1, "t": 17, "u": 32,
+        "v": 9, "w": 13, "x": 7, "y": 16, "z": 6,
+    ]
+    for character in text {
+        let lowercased = Character(String(character).lowercased())
+        if let keyCode = letterKeyCodes[lowercased] {
+            sendWebKey(
+                String(character),
+                charactersIgnoringModifiers: String(lowercased),
+                modifiers: character.isUppercase ? .shift : [],
+                keyCode: keyCode,
+                to: webView
+            )
+            continue
+        }
+        switch character {
+        case " ": sendWebKey(" ", keyCode: 49, to: webView)
+        case "/": sendWebKey("/", keyCode: 44, to: webView)
+        case "#": sendWebKey("#", charactersIgnoringModifiers: "3", modifiers: .shift, keyCode: 20, to: webView)
+        case ">": sendWebKey(">", charactersIgnoringModifiers: ".", modifiers: .shift, keyCode: 47, to: webView)
+        case "-": sendWebKey("-", keyCode: 27, to: webView)
+        case "[": sendWebKey("[", keyCode: 33, to: webView)
+        case "]": sendWebKey("]", keyCode: 30, to: webView)
+        default: XCTFail("Unsupported WebKit test character: \(character)")
+        }
+    }
+}
+
+@MainActor
+private func sendWebKey(
+    _ characters: String,
+    charactersIgnoringModifiers: String? = nil,
+    modifiers: NSEvent.ModifierFlags = [],
+    keyCode: UInt16,
+    to webView: WKWebView
+) {
+    let windowNumber = webView.window?.windowNumber ?? 0
+    guard let keyDown = NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: modifiers,
+        timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: windowNumber,
+        context: nil,
+        characters: characters,
+        charactersIgnoringModifiers: charactersIgnoringModifiers ?? characters,
+        isARepeat: false,
+        keyCode: keyCode
+    ), let keyUp = NSEvent.keyEvent(
+        with: .keyUp,
+        location: .zero,
+        modifierFlags: modifiers,
+        timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: windowNumber,
+        context: nil,
+        characters: characters,
+        charactersIgnoringModifiers: charactersIgnoringModifiers ?? characters,
+        isARepeat: false,
+        keyCode: keyCode
+    ) else {
+        XCTFail("Could not create WebKit key event for \(characters)")
+        return
+    }
+    webView.keyDown(with: keyDown)
+    webView.keyUp(with: keyUp)
 }
 
 @MainActor

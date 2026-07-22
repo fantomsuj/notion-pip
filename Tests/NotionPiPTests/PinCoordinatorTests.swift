@@ -22,6 +22,20 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.currentPage?.pageID, firstPageID)
     }
 
+    func testPanelCoordinatorNotifiesSamePageReselectionWithoutReactivating() throws {
+        let panel = FakePanelWindow()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(panel: panel, pageLoader: loader)
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+
+        coordinator.show(page: page)
+        coordinator.show(page: page)
+
+        XCTAssertEqual(loader.activatedPages, [page])
+        XCTAssertEqual(loader.reselectedPages, [page])
+        XCTAssertEqual(panel.presentCount, 2)
+    }
+
     func testPanelCoordinatorReplacesPageInExistingPanel() throws {
         let panel = FakePanelWindow()
         let loader = FakePageLoader()
@@ -40,7 +54,12 @@ final class PinCoordinatorTests: XCTestCase {
     func testPanelCoordinatorHidesWithoutReleasingItsSessionOrCurrentPage() throws {
         let panel = FakePanelWindow()
         let loader = FakePageLoader()
-        let coordinator = PiPPanelCoordinator(panel: panel, pageLoader: loader)
+        let signposter = PerformanceSignposterSpy()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            performanceSignposter: signposter
+        )
         let page = try makePage(id: firstPageID, title: "Roadmap")
 
         coordinator.show(page: page)
@@ -51,6 +70,33 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.presentCount, 2)
         XCTAssertEqual(loader.activatedPages.map(\.pageID), [firstPageID])
         XCTAssertEqual(coordinator.currentPage?.pageID, firstPageID)
+        XCTAssertEqual(signposter.beginCalls, [.firstPiPPresentation])
+        XCTAssertEqual(signposter.endCalls.count, 1)
+        XCTAssertNotNil(signposter.endCalls.first?.token)
+        XCTAssertEqual(signposter.endCalls.first?.outcome, .success)
+    }
+
+    func testPanelShowHideStashAndRestoreNotifyWebLifecycle() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 620, y: 100, width: 300, height: 400))
+        let handle = FakeStashHandle()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: handle
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        coordinator.hide()
+        XCTAssertTrue(coordinator.showCurrentPage())
+        XCTAssertTrue(
+            coordinator.stash(
+                visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            )
+        )
+        handle.restore()
+
+        XCTAssertEqual(loader.panelShowCount, 3)
+        XCTAssertEqual(loader.panelHideCount, 2)
     }
 
     func testPanelCoordinatorTogglesLoadedPageVisibilityWithoutReloading() throws {
@@ -195,8 +241,72 @@ final class PinCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(panel.frame, CGRect(x: 600, y: 340, width: 400, height: 360))
         XCTAssertEqual(handle.placements.last?.side, .right)
-        XCTAssertEqual(handle.placements.last?.frame, CGRect(x: 964, y: 472, width: 36, height: 96))
+        XCTAssertEqual(handle.placements.last?.frame, CGRect(x: 964, y: 604, width: 36, height: 96))
         XCTAssertTrue(handle.isVisible)
+    }
+
+    func testScreenChangePreservesMovedStashHandlePlacement() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 620, y: 100, width: 300, height: 400))
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(
+            coordinator.stash(
+                visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            )
+        )
+        handle.move(
+            to: PanelStashPlacement(
+                side: .left,
+                frame: CGRect(x: 0, y: 100, width: 36, height: 96)
+            )
+        )
+
+        coordinator.reclampPanelFrame(
+            visibleFrames: [CGRect(x: 0, y: 0, width: 1_200, height: 900)]
+        )
+
+        XCTAssertEqual(
+            handle.placements.last,
+            PanelStashPlacement(
+                side: .left,
+                frame: CGRect(x: 0, y: 100, width: 36, height: 96)
+            )
+        )
+    }
+
+    func testNewStashAfterRestoreUsesMainPanelPlacementInsteadOfPreviousMove() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 620, y: 100, width: 300, height: 400))
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let visibleFrames = [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+        XCTAssertTrue(coordinator.stash(visibleFrames: visibleFrames))
+        handle.move(
+            to: PanelStashPlacement(
+                side: .left,
+                frame: CGRect(x: 0, y: 100, width: 36, height: 96)
+            )
+        )
+        handle.restore()
+
+        XCTAssertTrue(coordinator.stash(visibleFrames: visibleFrames))
+
+        XCTAssertEqual(
+            handle.placements.last,
+            PanelStashPlacement(
+                side: .right,
+                frame: CGRect(x: 964, y: 252, width: 36, height: 96)
+            )
+        )
     }
 
     func testStashWithoutVisibleScreenLeavesPanelVisible() throws {
@@ -396,9 +506,24 @@ private final class FakePanelWindow: PiPPanelWindow {
 @MainActor
 private final class FakePageLoader: NotionPageLoading {
     private(set) var activatedPages: [NotionPageReference] = []
+    private(set) var reselectedPages: [NotionPageReference] = []
+    private(set) var panelShowCount = 0
+    private(set) var panelHideCount = 0
 
     func activate(page: NotionPageReference) {
         activatedPages.append(page)
+    }
+
+    func reselect(page: NotionPageReference) {
+        reselectedPages.append(page)
+    }
+
+    func panelDidShow() {
+        panelShowCount += 1
+    }
+
+    func panelDidHide() {
+        panelHideCount += 1
     }
 }
 
@@ -408,13 +533,16 @@ private final class FakeStashHandle: PiPStashHandle {
     private(set) var placements: [PanelStashPlacement] = []
     private(set) var orderOutCount = 0
     private var onRestore: (@MainActor () -> Void)?
+    private var onPlacementChange: (@MainActor (PanelStashPlacement) -> Void)?
 
     func present(
         placement: PanelStashPlacement,
-        onRestore: @escaping @MainActor () -> Void
+        onRestore: @escaping @MainActor () -> Void,
+        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void
     ) {
         placements.append(placement)
         self.onRestore = onRestore
+        self.onPlacementChange = onPlacementChange
         isVisible = true
     }
 
@@ -422,10 +550,15 @@ private final class FakeStashHandle: PiPStashHandle {
         orderOutCount += 1
         isVisible = false
         onRestore = nil
+        onPlacementChange = nil
     }
 
     func restore() {
         onRestore?()
+    }
+
+    func move(to placement: PanelStashPlacement) {
+        onPlacementChange?(placement)
     }
 }
 

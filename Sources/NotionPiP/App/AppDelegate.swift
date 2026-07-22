@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var bufferedOpenURLs: [URL] = []
     private var terminationHandler: (@MainActor () async -> Void)?
     private var terminationTask: Task<Void, Never>?
+    private var performanceSignposter: (any PerformanceSignposting)?
+    private var coldLaunchToken: PerformanceIntervalToken?
 
     override init() {
         replyToApplicationShouldTerminate = { application, shouldTerminate in
@@ -47,12 +49,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.terminationHandler = terminationHandler
     }
 
+    func bind(
+        coldLaunchToken: PerformanceIntervalToken?,
+        performanceSignposter: any PerformanceSignposting
+    ) {
+        guard let coldLaunchToken, self.coldLaunchToken == nil else { return }
+        self.coldLaunchToken = coldLaunchToken
+        self.performanceSignposter = performanceSignposter
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.notice("Application launched in accessory mode")
+        performanceSignposter?.end(coldLaunchToken, outcome: .success)
+        coldLaunchToken = nil
+        performanceSignposter = nil
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

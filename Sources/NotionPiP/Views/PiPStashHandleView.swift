@@ -3,9 +3,20 @@ import SwiftUI
 struct PiPStashHandleView: View {
     let side: PanelStashSide
     let onRestore: @MainActor () -> Void
+    let onDragEnded: @MainActor (CGRect) -> Void
+
+    init(
+        side: PanelStashSide,
+        onRestore: @escaping @MainActor () -> Void,
+        onDragEnded: @escaping @MainActor (CGRect) -> Void = { _ in }
+    ) {
+        self.side = side
+        self.onRestore = onRestore
+        self.onDragEnded = onDragEnded
+    }
 
     var body: some View {
-        Button(action: onRestore) {
+        ZStack {
             VStack(spacing: 8) {
                 Image(systemName: "rectangle.on.rectangle")
                     .font(.system(size: 13, weight: .medium))
@@ -17,11 +28,133 @@ struct PiPStashHandleView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.regularMaterial, in: EdgeStashTabShape(side: side))
             .contentShape(EdgeStashTabShape(side: side))
+            .accessibilityHidden(true)
+
+            PiPStashHandleInteractionSurface(
+                onActivate: onRestore,
+                onDragEnded: onDragEnded
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Restore Notion PiP")
-        .accessibilityHint("Bring the stashed Notion PiP back from the side.")
-        .help("Restore Notion PiP")
+        .contentShape(EdgeStashTabShape(side: side))
+    }
+}
+
+private struct PiPStashHandleInteractionSurface: NSViewRepresentable {
+    let onActivate: @MainActor () -> Void
+    let onDragEnded: @MainActor (CGRect) -> Void
+
+    func makeNSView(context: Context) -> PiPStashHandleInteractionView {
+        PiPStashHandleInteractionView(
+            onActivate: onActivate,
+            onDragEnded: onDragEnded
+        )
+    }
+
+    func updateNSView(_ nsView: PiPStashHandleInteractionView, context: Context) {
+        nsView.configure(
+            onActivate: onActivate,
+            onDragEnded: onDragEnded
+        )
+    }
+}
+
+@MainActor
+final class PiPStashHandleInteractionView: NSView {
+    private static let dragThreshold: CGFloat = 3
+
+    private let pointerLocation: @MainActor () -> CGPoint
+    private var onActivate: @MainActor () -> Void
+    private var onDragEnded: @MainActor (CGRect) -> Void
+    private var initialPointerLocation: CGPoint?
+    private var initialWindowOrigin: CGPoint?
+    private var isDragging = false
+
+    init(
+        pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
+        onActivate: @escaping @MainActor () -> Void,
+        onDragEnded: @escaping @MainActor (CGRect) -> Void
+    ) {
+        self.pointerLocation = pointerLocation
+        self.onActivate = onActivate
+        self.onDragEnded = onDragEnded
+        super.init(frame: .zero)
+
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("Restore Notion PiP")
+        setAccessibilityHelp("Bring the stashed Notion PiP back from the side.")
+        toolTip = "Drag to move; click to restore Notion PiP"
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(
+        onActivate: @escaping @MainActor () -> Void,
+        onDragEnded: @escaping @MainActor (CGRect) -> Void
+    ) {
+        self.onActivate = onActivate
+        self.onDragEnded = onDragEnded
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        initialPointerLocation = pointerLocation()
+        initialWindowOrigin = window?.frame.origin
+        isDragging = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let initialPointerLocation,
+              let initialWindowOrigin,
+              let window
+        else {
+            return
+        }
+
+        let currentPointerLocation = pointerLocation()
+        let delta = CGPoint(
+            x: currentPointerLocation.x - initialPointerLocation.x,
+            y: currentPointerLocation.y - initialPointerLocation.y
+        )
+        if !isDragging {
+            guard hypot(delta.x, delta.y) >= Self.dragThreshold else { return }
+            isDragging = true
+        }
+
+        window.setFrameOrigin(
+            CGPoint(
+                x: initialWindowOrigin.x + delta.x,
+                y: initialWindowOrigin.y + delta.y
+            )
+        )
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { resetInteraction() }
+
+        if isDragging, let window {
+            onDragEnded(window.frame)
+        } else {
+            onActivate()
+        }
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        onActivate()
+        return true
+    }
+
+    private func resetInteraction() {
+        initialPointerLocation = nil
+        initialWindowOrigin = nil
+        isDragging = false
     }
 }
 
