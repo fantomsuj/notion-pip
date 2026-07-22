@@ -753,13 +753,15 @@ final class CaptureEditorFlowTests: XCTestCase {
         let repository = try CaptureRepository(inMemory: true)
         let capture = CaptureEditorSession(repository: repository)
         let notion = NotionWebSession()
+        notion.createNewPage()
+        let notionWebView = try XCTUnwrap(notion.webView)
 
         XCTAssertFalse(capture.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
-        XCTAssertTrue(notion.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
+        XCTAssertTrue(notionWebView.configuration.websiteDataStore === WKWebsiteDataStore.default())
         XCTAssertEqual(capture.installedHandlerNames, [CaptureBridgeProtocol.handlerName])
         XCTAssertFalse(
             capture.webView.configuration.userContentController
-                === notion.webView.configuration.userContentController
+                === notionWebView.configuration.userContentController
         )
     }
 

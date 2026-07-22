@@ -22,6 +22,20 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.currentPage?.pageID, firstPageID)
     }
 
+    func testPanelCoordinatorNotifiesSamePageReselectionWithoutReactivating() throws {
+        let panel = FakePanelWindow()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(panel: panel, pageLoader: loader)
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+
+        coordinator.show(page: page)
+        coordinator.show(page: page)
+
+        XCTAssertEqual(loader.activatedPages, [page])
+        XCTAssertEqual(loader.reselectedPages, [page])
+        XCTAssertEqual(panel.presentCount, 2)
+    }
+
     func testPanelCoordinatorReplacesPageInExistingPanel() throws {
         let panel = FakePanelWindow()
         let loader = FakePageLoader()
@@ -51,6 +65,29 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.presentCount, 2)
         XCTAssertEqual(loader.activatedPages.map(\.pageID), [firstPageID])
         XCTAssertEqual(coordinator.currentPage?.pageID, firstPageID)
+    }
+
+    func testPanelShowHideStashAndRestoreNotifyWebLifecycle() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 620, y: 100, width: 300, height: 400))
+        let handle = FakeStashHandle()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: handle
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        coordinator.hide()
+        XCTAssertTrue(coordinator.showCurrentPage())
+        XCTAssertTrue(
+            coordinator.stash(
+                visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            )
+        )
+        handle.restore()
+
+        XCTAssertEqual(loader.panelShowCount, 3)
+        XCTAssertEqual(loader.panelHideCount, 2)
     }
 
     func testPanelCoordinatorTogglesLoadedPageVisibilityWithoutReloading() throws {
@@ -460,9 +497,24 @@ private final class FakePanelWindow: PiPPanelWindow {
 @MainActor
 private final class FakePageLoader: NotionPageLoading {
     private(set) var activatedPages: [NotionPageReference] = []
+    private(set) var reselectedPages: [NotionPageReference] = []
+    private(set) var panelShowCount = 0
+    private(set) var panelHideCount = 0
 
     func activate(page: NotionPageReference) {
         activatedPages.append(page)
+    }
+
+    func reselect(page: NotionPageReference) {
+        reselectedPages.append(page)
+    }
+
+    func panelDidShow() {
+        panelShowCount += 1
+    }
+
+    func panelDidHide() {
+        panelHideCount += 1
     }
 }
 

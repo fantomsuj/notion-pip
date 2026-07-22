@@ -14,15 +14,6 @@ struct PiPChromeView: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     let commandModel: AppCommandModel
     let onStash: () -> Void
-    @State private var surface: Surface = .notion
-
-    private enum Surface: String, CaseIterable, Identifiable {
-        case preview = "Preview"
-        case notion = "Notion"
-
-        var id: String { rawValue }
-    }
-
     var showsTopControls: Bool {
         Self.shouldShowTopControls(
             isTypingInPage: webSession.isTypingInPage,
@@ -42,6 +33,10 @@ struct PiPChromeView: View {
             || isVoiceOverEnabled
             || isSwitchControlEnabled
             || isFullKeyboardAccessEnabled
+    }
+
+    static func shouldHostNotionWebView(for session: NotionWebSession) -> Bool {
+        session.shouldHostWebView
     }
 
     init(
@@ -94,8 +89,21 @@ struct PiPChromeView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Open Notion page in browser")
 
-                    Picker("Page surface", selection: $surface) {
-                        ForEach(Surface.allCases) { surface in
+                    Picker(
+                        "Page surface",
+                        selection: Binding(
+                            get: { webSession.surface },
+                            set: { surface in
+                                switch surface {
+                                case .preview:
+                                    webSession.showPreviewSurface()
+                                case .live:
+                                    webSession.showLiveSurface()
+                                }
+                            }
+                        )
+                    ) {
+                        ForEach(NotionPageSurface.allCases) { surface in
                             Text(surface.rawValue).tag(surface)
                         }
                     }
@@ -148,12 +156,19 @@ struct PiPChromeView: View {
                 Divider()
             }
 
-            if surface == .preview, nativePageDocument.snapshot != nil {
+            if webSession.surface == .preview {
                 NativePagePreviewView(document: nativePageDocument) {
-                    surface = .notion
+                    webSession.showLiveSurface()
                 }
+            } else if Self.shouldHostNotionWebView(for: webSession),
+                      let webView = webSession.webView
+            {
+                NotionWebView(webView: webView)
             } else {
-                NotionWebView(webView: webSession.webView)
+                ContentUnavailableView(
+                    "No Notion page selected",
+                    systemImage: "doc.text.magnifyingglass"
+                )
             }
         }
         .background(DesignTokens.Colors.background)

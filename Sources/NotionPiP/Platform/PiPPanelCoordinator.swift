@@ -80,6 +80,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             display: false
         )
         self.init(panel: panel, pageLoader: webSession, stashHandle: stashHandle)
+        panel.onClose = { [weak self] in
+            self?.pageLoader.panelDidHide()
+        }
 
         panel.contentView = NSHostingView(
             rootView: PiPChromeView(
@@ -126,13 +129,17 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         if currentPage?.pageID != page.pageID {
             pageLoader.activate(page: page)
             currentPage = page
+        } else {
+            pageLoader.reselect(page: page)
         }
         dismissStashHandle()
         panel.present()
+        pageLoader.panelDidShow()
         logger.notice("Panel show requested")
     }
 
     func hide() {
+        pageLoader.panelDidHide()
         panel.orderOut()
         dismissStashHandle()
     }
@@ -141,6 +148,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         guard currentPage != nil else { return false }
         dismissStashHandle()
         panel.present()
+        pageLoader.panelDidShow()
         logger.notice("Existing panel show requested")
         return true
     }
@@ -183,6 +191,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             return false
         }
 
+        pageLoader.panelDidHide()
         panel.orderOut()
         presentStashHandle(stashHandle, placement: placement)
         logger.notice("Panel stashed to screen edge")
@@ -196,6 +205,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         }
         dismissStashHandle()
         panel.present()
+        pageLoader.panelDidShow()
         logger.notice("Panel restored from screen edge")
     }
 
@@ -256,11 +266,14 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
 }
 
 private final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
+    var onClose: (@MainActor () -> Void)?
+
     override var canBecomeKey: Bool {
         true
     }
 
     override func close() {
+        onClose?()
         orderOut(nil)
     }
 
