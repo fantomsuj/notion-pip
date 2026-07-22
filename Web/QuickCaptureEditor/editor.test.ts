@@ -9,6 +9,7 @@ import {
   canInstallSnapshot,
   conflictTransitionOperation,
   displayTitle,
+  executeBlockCommand,
   executeToolbarCommand,
   filterBlockCommands,
   normalizeDocument,
@@ -16,6 +17,8 @@ import {
   routeOverlayKey,
   routeTitleKey,
   runAfterPendingChange,
+  slashQueryAtSelection,
+  type BlockCommandTarget,
   type EditorCommandTarget,
 } from "./editor.ts";
 import {
@@ -24,6 +27,23 @@ import {
   makeRequest,
   type BridgeRequest,
 } from "./protocol.ts";
+
+function slashState(text: string, empty = true) {
+  const blockStart = 7;
+  return {
+    selection: {
+      empty,
+      from: blockStart + text.length,
+      $from: {
+        parentOffset: text.length,
+        parent: {
+          isTextblock: true,
+          textBetween: (from: number, to: number) => text.slice(from, to),
+        },
+      },
+    },
+  };
+}
 
 test("editor normalization returns a canonical empty ProseMirror document", () => {
   assert.deepEqual(normalizeDocument(null), {
@@ -111,6 +131,83 @@ test("block command filtering matches aliases", () => {
   assert.deepEqual(filterBlockCommands("todo").map((item) => item.id), ["taskList"]);
   assert.deepEqual(filterBlockCommands("numbered").map((item) => item.id), ["orderedList"]);
   assert.deepEqual(filterBlockCommands("hr").map((item) => item.id), ["divider"]);
+});
+
+test("slash query detection recognizes an empty slash at the start of a text block", () => {
+  assert.deepEqual(slashQueryAtSelection(slashState("/")), {
+    from: 7,
+    to: 8,
+    query: "",
+  });
+});
+
+test("slash query detection returns text used to filter the block catalog", () => {
+  const match = slashQueryAtSelection(slashState("/hea"));
+
+  assert.deepEqual(match, { from: 7, to: 11, query: "hea" });
+  assert.deepEqual(
+    filterBlockCommands(match?.query ?? "").map((item) => item.id),
+    ["heading1", "heading2", "heading3"],
+  );
+});
+
+test("slash query detection rejects non-leading slashes and expanded selections", () => {
+  assert.equal(slashQueryAtSelection(slashState("notes /hea")), undefined);
+  assert.equal(slashQueryAtSelection(slashState("/hea", false)), undefined);
+});
+
+test("block command dispatch deletes the slash query then runs the exact Tiptap command", () => {
+  const cases = [
+    ["text", "setParagraph", undefined],
+    ["heading1", "toggleHeading", { level: 1 }],
+    ["heading2", "toggleHeading", { level: 2 }],
+    ["heading3", "toggleHeading", { level: 3 }],
+    ["bulletList", "toggleBulletList", undefined],
+    ["orderedList", "toggleOrderedList", undefined],
+    ["taskList", "toggleTaskList", undefined],
+    ["quote", "toggleBlockquote", undefined],
+    ["codeBlock", "toggleCodeBlock", undefined],
+    ["divider", "setHorizontalRule", undefined],
+  ] as const;
+
+  for (const [id, command, options] of cases) {
+    const calls: Array<{ name: string; arguments: unknown[] }> = [];
+    const chain = new Proxy(
+      {},
+      {
+        get: (_target, property) => (...args: unknown[]) => {
+          calls.push({ name: String(property), arguments: args });
+          return property === "run" ? true : chain;
+        },
+      },
+    ) as BlockCommandTarget;
+    const editor = {
+      state: slashState("/hea"),
+      chain: () => chain,
+    };
+
+    assert.equal(executeBlockCommand(editor, id), true, id);
+    assert.deepEqual(calls, [
+      { name: "focus", arguments: [] },
+      { name: "deleteRange", arguments: [{ from: 7, to: 11 }] },
+      { name: command, arguments: options === undefined ? [] : [options] },
+      { name: "run", arguments: [] },
+    ], id);
+  }
+});
+
+test("block command dispatch rejects unknown IDs without creating a command chain", () => {
+  let chainCount = 0;
+  const editor = {
+    state: slashState("/unknown"),
+    chain: () => {
+      chainCount += 1;
+      return {} as BlockCommandTarget;
+    },
+  };
+
+  assert.equal(executeBlockCommand(editor, "database"), false);
+  assert.equal(chainCount, 0);
 });
 
 test("display titles fall back without changing non-empty title text", () => {

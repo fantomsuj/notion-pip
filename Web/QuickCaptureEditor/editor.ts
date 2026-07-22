@@ -1,5 +1,8 @@
 import { Editor } from "@tiptap/core";
 import type { JSONContent } from "@tiptap/core";
+import Placeholder from "@tiptap/extension-placeholder";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
 import StarterKit from "@tiptap/starter-kit";
 
 import {
@@ -86,6 +89,80 @@ export function filterBlockCommands(query: string): readonly BlockCommand[] {
     [item.label, ...item.aliases]
       .some((term) => term.toLocaleLowerCase().includes(normalizedQuery)),
   );
+}
+
+export interface SlashEditorState {
+  readonly selection: {
+    readonly empty: boolean;
+    readonly from: number;
+    readonly $from: {
+      readonly parentOffset: number;
+      readonly parent: {
+        readonly isTextblock: boolean;
+        textBetween(from: number, to: number): string;
+      };
+    };
+  };
+}
+
+export interface SlashQuery {
+  readonly from: number;
+  readonly to: number;
+  readonly query: string;
+}
+
+export function slashQueryAtSelection(state: SlashEditorState): SlashQuery | undefined {
+  const { selection } = state;
+  if (!selection.empty || !selection.$from.parent.isTextblock) return undefined;
+  const text = selection.$from.parent.textBetween(0, selection.$from.parentOffset);
+  const match = /^\/(.*)$/.exec(text);
+  if (match === null) return undefined;
+  return {
+    from: selection.from - selection.$from.parentOffset,
+    to: selection.from,
+    query: match[1] ?? "",
+  };
+}
+
+export interface BlockCommandTarget {
+  focus(): BlockCommandTarget;
+  deleteRange(range: { from: number; to: number }): BlockCommandTarget;
+  setParagraph(): BlockCommandTarget;
+  toggleHeading(options: { level: 1 | 2 | 3 }): BlockCommandTarget;
+  toggleBulletList(): BlockCommandTarget;
+  toggleOrderedList(): BlockCommandTarget;
+  toggleTaskList(): BlockCommandTarget;
+  toggleBlockquote(): BlockCommandTarget;
+  toggleCodeBlock(): BlockCommandTarget;
+  setHorizontalRule(): BlockCommandTarget;
+  run(): boolean;
+}
+
+export interface BlockCommandEditor {
+  readonly state: SlashEditorState;
+  chain(): BlockCommandTarget;
+}
+
+export function executeBlockCommand(editor: BlockCommandEditor, id: string): boolean {
+  if (!BLOCK_COMMANDS.some((item) => item.id === id)) return false;
+  const slashQuery = slashQueryAtSelection(editor.state);
+  if (slashQuery === undefined) return false;
+  const chain = editor.chain()
+    .focus()
+    .deleteRange({ from: slashQuery.from, to: slashQuery.to });
+  switch (id) {
+    case "text": return chain.setParagraph().run();
+    case "heading1": return chain.toggleHeading({ level: 1 }).run();
+    case "heading2": return chain.toggleHeading({ level: 2 }).run();
+    case "heading3": return chain.toggleHeading({ level: 3 }).run();
+    case "bulletList": return chain.toggleBulletList().run();
+    case "orderedList": return chain.toggleOrderedList().run();
+    case "taskList": return chain.toggleTaskList().run();
+    case "quote": return chain.toggleBlockquote().run();
+    case "codeBlock": return chain.toggleCodeBlock().run();
+    case "divider": return chain.setHorizontalRule().run();
+    default: return false;
+  }
 }
 
 export function displayTitle(title: string): string {
@@ -517,9 +594,16 @@ function bootstrap(): void {
   const editorElement = document.querySelector<HTMLElement>("#editor");
   const titleElement = document.querySelector<HTMLInputElement>("#title");
   const statusElement = document.querySelector<HTMLElement>("#status");
-  if (bridge === undefined || editorElement === null || titleElement === null || statusElement === null) return;
+  const slashMenuElement = document.querySelector<HTMLElement>("#slash-menu");
+  if (bridge === undefined
+      || editorElement === null
+      || titleElement === null
+      || statusElement === null
+      || slashMenuElement === null) return;
   const titleInput = titleElement;
   const status = statusElement;
+  const slashMenu = slashMenuElement;
+  const pageElement = document.querySelector<HTMLElement>("#page");
   const newNoteButton = document.querySelector<HTMLButtonElement>("#new-note");
   const retryButton = document.querySelector<HTMLButtonElement>("#retry");
   const formattingButtons = Array.from(
@@ -535,18 +619,44 @@ function bootstrap(): void {
   let applyingNativeSnapshot = false;
   let transitionLocked = true;
   let pendingLaunchFocus: "title" | "body" | undefined;
+  let slashItems: readonly BlockCommand[] = [];
+  let slashActiveIndex = 0;
   const client = new BridgeClient((request) => bridge.postMessage(request));
   const editor = new Editor({
     element: editorElement,
-    extensions: [StarterKit],
+    extensions: [
+      StarterKit,
+      Placeholder.configure({ placeholder: "Type '/' for commands" }),
+      TaskList,
+      TaskItem.configure({ nested: true }),
+    ],
     content: snapshot.document as JSONContent,
     editorProps: {
       attributes: {
         role: "textbox",
         "aria-label": "Note content",
         "aria-multiline": "true",
+        "aria-controls": "slash-menu",
+        "aria-expanded": "false",
+        "aria-haspopup": "listbox",
       },
       handleKeyDown: (view, event) => {
+        const overlayRoute = routeOverlayKey({ key: event.key, isOpen: !slashMenu.hidden });
+        if (overlayRoute !== "none") {
+          event.preventDefault();
+          if (overlayRoute === "dismiss") {
+            closeSlashMenu(editor);
+          } else if (overlayRoute === "select") {
+            const selected = slashItems[slashActiveIndex];
+            if (selected !== undefined) executeBlockCommand(editor, selected.id);
+            closeSlashMenu(editor);
+          } else if (slashItems.length > 0) {
+            const change = overlayRoute === "previous" ? -1 : 1;
+            slashActiveIndex = (slashActiveIndex + change + slashItems.length) % slashItems.length;
+            renderSlashMenu(editor);
+          }
+          return true;
+        }
         const { empty, from } = view.state.selection;
         let caretPosition = empty ? from : undefined;
         const domSelection = view.dom.ownerDocument.getSelection();
@@ -574,6 +684,12 @@ function bootstrap(): void {
     },
     autofocus: false,
     editable: false,
+    onTransaction: ({ editor: updatedEditor }) => {
+      refreshSlashMenu(updatedEditor);
+    },
+    onBlur: ({ editor: blurredEditor }) => {
+      closeSlashMenu(blurredEditor);
+    },
     onUpdate: ({ editor: updatedEditor }) => {
       if (applyingNativeSnapshot || transitionLocked || snapshot.draftID.length === 0) return;
       status.dataset.state = "saving";
@@ -601,6 +717,77 @@ function bootstrap(): void {
   function focusBody(position: "start" | "end"): void {
     editor.commands.focus(position, { scrollIntoView: false });
     editor.view.focus();
+  }
+
+  function closeSlashMenu(activeEditor: Editor): void {
+    slashMenu.hidden = true;
+    slashMenu.replaceChildren();
+    slashItems = [];
+    slashActiveIndex = 0;
+    slashMenu.removeAttribute("aria-activedescendant");
+    activeEditor.view.dom.setAttribute("aria-expanded", "false");
+    activeEditor.view.dom.removeAttribute("aria-activedescendant");
+  }
+
+  function refreshSlashMenu(activeEditor: Editor): void {
+    if (!activeEditor.isEditable || transitionLocked) {
+      closeSlashMenu(activeEditor);
+      return;
+    }
+    const slashQuery = slashQueryAtSelection(activeEditor.state);
+    if (slashQuery === undefined) {
+      closeSlashMenu(activeEditor);
+      return;
+    }
+    const items = filterBlockCommands(slashQuery.query);
+    if (items.length === 0) {
+      closeSlashMenu(activeEditor);
+      return;
+    }
+    const wasOpen = !slashMenu.hidden;
+    slashItems = items;
+    slashActiveIndex = wasOpen
+      ? Math.min(slashActiveIndex, slashItems.length - 1)
+      : 0;
+    renderSlashMenu(activeEditor);
+
+    const parentRect = pageElement?.getBoundingClientRect()
+      ?? slashMenu.offsetParent?.getBoundingClientRect();
+    if (parentRect !== undefined) {
+      const caret = activeEditor.view.coordsAtPos(slashQuery.to);
+      slashMenu.style.left = `${Math.max(0, caret.left - parentRect.left)}px`;
+      slashMenu.style.top = `${Math.max(0, caret.bottom - parentRect.top + 6)}px`;
+    }
+  }
+
+  function renderSlashMenu(activeEditor: Editor): void {
+    const options = slashItems.map((item, index) => {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.id = `slash-option-${item.id}`;
+      option.className = "slash-option";
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", String(index === slashActiveIndex));
+      option.tabIndex = -1;
+      option.textContent = item.label;
+      option.addEventListener("mousedown", (event) => { event.preventDefault(); });
+      option.addEventListener("click", () => {
+        executeBlockCommand(activeEditor, item.id);
+        closeSlashMenu(activeEditor);
+      });
+      return option;
+    });
+    slashMenu.replaceChildren(...options);
+    slashMenu.hidden = false;
+    const activeID = options[slashActiveIndex]?.id;
+    activeEditor.view.dom.setAttribute("aria-expanded", "true");
+    if (activeID === undefined) {
+      slashMenu.removeAttribute("aria-activedescendant");
+      activeEditor.view.dom.removeAttribute("aria-activedescendant");
+    } else {
+      slashMenu.setAttribute("aria-activedescendant", activeID);
+      activeEditor.view.dom.setAttribute("aria-activedescendant", activeID);
+    }
   }
 
   function installSnapshot(next: EditorSnapshot): boolean {
@@ -645,6 +832,7 @@ function bootstrap(): void {
     editor.setEditable(!transitionLocked);
     if (newNoteButton !== null) newNoteButton.disabled = transitionLocked;
     formattingButtons.forEach((button) => { button.disabled = transitionLocked; });
+    if (transitionLocked) closeSlashMenu(editor);
   }
 
   function applyPendingLaunchFocus(): void {
