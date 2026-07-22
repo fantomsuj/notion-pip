@@ -10,7 +10,12 @@ struct StoredPageSnapshot: Equatable, Sendable {
     let timestamp: Date
 }
 
-actor PageRepository {
+protocol PinnedPagePersisting: Sendable {
+    func currentPinnedPage() async throws -> StoredPageSnapshot?
+    func replaceCurrent(with page: NotionPageReference) async throws -> StoredPageSnapshot
+}
+
+actor PageRepository: PinnedPagePersisting {
     private let context: ModelContext
     private let clock: any CaptureClock
     private let beforeSave: PageRepositorySaveCheck
@@ -24,6 +29,41 @@ actor PageRepository {
         context.autosaveEnabled = false
         self.clock = clock
         self.beforeSave = beforeSave
+    }
+
+    func replaceCurrent(with page: NotionPageReference) throws -> StoredPageSnapshot {
+        let models = try context.fetch(FetchDescriptor<PinnedPageModel>())
+        let now = clock.now()
+        let model = models.first { $0.stableID == page.pageID }
+            ?? PinnedPageModel(
+                stableID: page.pageID,
+                canonicalURL: page.canonicalURL.absoluteString,
+                displayTitle: page.displayTitle,
+                pinnedAt: now
+            )
+        if model.modelContext == nil { context.insert(model) }
+        model.canonicalURL = page.canonicalURL.absoluteString
+        model.displayTitle = page.displayTitle
+        model.pinnedAt = now
+        for otherModel in models where otherModel !== model {
+            context.delete(otherModel)
+        }
+        do {
+            try beforeSave()
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
+        return try snapshot(model)
+    }
+
+    func currentPinnedPage() throws -> StoredPageSnapshot? {
+        var descriptor = FetchDescriptor<PinnedPageModel>(
+            sortBy: [SortDescriptor(\PinnedPageModel.pinnedAt, order: .reverse)]
+        )
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first.map(snapshot)
     }
 
     func pin(_ page: NotionPageReference) throws -> StoredPageSnapshot {
@@ -87,12 +127,15 @@ actor PageRepository {
     }
 
     private func snapshot(_ model: PinnedPageModel) throws -> StoredPageSnapshot {
-        guard let url = URL(string: model.canonicalURL) else {
+        guard let url = URL(string: model.canonicalURL),
+              let page = try? NotionPageReference(validating: url),
+              page.pageID == model.stableID
+        else {
             throw CaptureRepositoryError.invalidStoredValue(model.canonicalURL)
         }
         return StoredPageSnapshot(
             pageID: model.stableID,
-            canonicalURL: url,
+            canonicalURL: page.canonicalURL,
             displayTitle: model.displayTitle,
             timestamp: model.pinnedAt
         )

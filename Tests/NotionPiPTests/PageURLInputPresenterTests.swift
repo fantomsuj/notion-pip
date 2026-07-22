@@ -18,7 +18,7 @@ final class PageURLInputPresenterTests: XCTestCase {
         XCTAssertFalse(window is NSPanel)
     }
 
-    func testInvalidShortcutPresentsKeysAndFocusesEntryWithoutChangingActivePage() throws {
+    func testShortcutWithoutCurrentPagePresentsKeysAndFocusesEntryWithoutValidation() {
         let panel = FakePanelCoordinator()
         let inputPresenter = FakePageURLInputPresenter()
         let shortcut = PresenterTestShortcutRegistrar()
@@ -28,8 +28,6 @@ final class PageURLInputPresenterTests: XCTestCase {
             shortcutRegistrar: shortcut,
             pageURLInputPresenter: inputPresenter
         )
-        let activePage = try makePage(id: firstPageID, title: "Current")
-        runtime.pin(page: activePage)
         runtime.start()
 
         shortcut.handler?()
@@ -37,8 +35,12 @@ final class PageURLInputPresenterTests: XCTestCase {
         XCTAssertTrue(inputPresenter.isVisible)
         XCTAssertTrue(inputPresenter.isKey)
         XCTAssertEqual(inputPresenter.focusRequestCount, 1)
-        XCTAssertEqual(runtime.activePage, activePage)
-        XCTAssertEqual(panel.currentPage, activePage)
+        XCTAssertNil(runtime.activePage)
+        XCTAssertNil(runtime.pendingPage)
+        XCTAssertNil(runtime.lastActivationSource)
+        XCTAssertNil(panel.currentPage)
+        XCTAssertFalse(runtime.validationFailed)
+        XCTAssertNil(runtime.validationMessage)
         XCTAssertTrue(panel.replacedPages.isEmpty)
     }
 

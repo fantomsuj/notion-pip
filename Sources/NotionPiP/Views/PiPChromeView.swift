@@ -1,9 +1,15 @@
 import SwiftUI
 
 struct PiPChromeView: View {
+    static let newPageAccessibilityLabel = "Create New Notion Page"
+    static let newPageHelp = "Create a new page in Notion"
+    static let stashAccessibilityLabel = "Stash Notion PiP to Side"
+    static let stashHelp = "Move the Notion PiP to the nearest screen edge"
+
     @ObservedObject var webSession: NotionWebSession
     @ObservedObject var nativePageDocument: NativePageDocument
-    let onHide: () -> Void
+    let commandModel: AppCommandModel
+    let onStash: () -> Void
     @State private var surface: Surface = .notion
 
     private enum Surface: String, CaseIterable, Identifiable {
@@ -11,6 +17,18 @@ struct PiPChromeView: View {
         case notion = "Notion"
 
         var id: String { rawValue }
+    }
+
+    init(
+        webSession: NotionWebSession,
+        nativePageDocument: NativePageDocument,
+        commandModel: AppCommandModel = .noOp,
+        onStash: @escaping () -> Void = {}
+    ) {
+        self.webSession = webSession
+        self.nativePageDocument = nativePageDocument
+        self.commandModel = commandModel
+        self.onStash = onStash
     }
 
     var body: some View {
@@ -27,6 +45,16 @@ struct PiPChromeView: View {
                         .controlSize(.small)
                         .accessibilityLabel("Loading Notion page")
                 }
+
+                Button {
+                    commandModel.perform(.newNotionPage)
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.plain)
+                .disabled(!(commandModel.command(for: .newNotionPage)?.isEnabled ?? false))
+                .accessibilityLabel(Self.newPageAccessibilityLabel)
+                .help(Self.newPageHelp)
 
                 Button(action: webSession.reload) {
                     Image(systemName: "arrow.clockwise")
@@ -49,11 +77,14 @@ struct PiPChromeView: View {
                 .frame(width: 138)
                 .accessibilityLabel("Page surface")
 
-                Button(action: onHide) {
-                    Image(systemName: "xmark")
+                PiPAppCommandMenu(commandModel: commandModel)
+
+                Button(action: onStash) {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Hide Notion PiP")
+                .accessibilityLabel(Self.stashAccessibilityLabel)
+                .help(Self.stashHelp)
             }
             .padding(.horizontal, DesignTokens.Spacing.control)
             .frame(height: 32)

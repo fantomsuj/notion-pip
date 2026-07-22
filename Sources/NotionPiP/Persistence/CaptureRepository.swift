@@ -34,20 +34,19 @@ actor CaptureRepository {
         clock: any CaptureClock = SystemCaptureClock(),
         beforeHelperFetch: @escaping CaptureRepositoryHelperFetchCheck = { _ in }
     ) throws {
-        let schema = Schema(versionedSchema: NotionPiPSchemaV1.self)
-        let configuration: ModelConfiguration
-        if inMemory {
-            configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
-        } else if let storeURL {
-            configuration = ModelConfiguration(schema: schema, url: storeURL, cloudKitDatabase: .none)
-        } else {
-            configuration = ModelConfiguration(schema: schema, cloudKitDatabase: .none)
-        }
-        container = try ModelContainer(
-            for: schema,
-            migrationPlan: NotionPiPMigrationPlan.self,
-            configurations: configuration
+        self.init(
+            container: try NotionPiPPersistence.makeContainer(storeURL: storeURL, inMemory: inMemory),
+            clock: clock,
+            beforeHelperFetch: beforeHelperFetch
         )
+    }
+
+    init(
+        container: ModelContainer,
+        clock: any CaptureClock = SystemCaptureClock(),
+        beforeHelperFetch: @escaping CaptureRepositoryHelperFetchCheck = { _ in }
+    ) {
+        self.container = container
         context = ModelContext(container)
         context.autosaveEnabled = false
         self.clock = clock

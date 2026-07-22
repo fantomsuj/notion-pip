@@ -2,6 +2,8 @@ import Combine
 import AppKit
 import WebKit
 
+typealias NotionWebRequestLoader = @MainActor (WKWebView, URLRequest) -> Void
+
 @MainActor
 protocol NotionPageLoading: AnyObject {
     func activate(page: NotionPageReference)
@@ -17,19 +19,34 @@ enum NotionWebSessionState: Equatable {
 
 @MainActor
 final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject {
+    static let newPageURL = URL(string: "https://www.notion.so/new")!
+
     let webView: WKWebView
     @Published private(set) var state: NotionWebSessionState = .idle
+    @Published private(set) var isCreatingNewPage = false
     private(set) var activePage: NotionPageReference?
+    var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
     private let openURL: @MainActor (URL) -> Void
+    private let loadRequest: NotionWebRequestLoader
+    private var urlObservation: NSKeyValueObservation?
 
     init(
         webView: WKWebView? = nil,
-        openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) }
+        openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
+        loadRequest: @escaping NotionWebRequestLoader = { webView, request in
+            webView.load(request)
+        }
     ) {
         self.webView = webView ?? Self.makeWebView()
         self.openURL = openURL
+        self.loadRequest = loadRequest
         super.init()
         self.webView.navigationDelegate = self
+        urlObservation = self.webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
+            MainActor.assumeIsolated {
+                self?.adoptResolvedPage(at: webView.url)
+            }
+        }
     }
 
     func activate(page: NotionPageReference) {
@@ -39,7 +56,17 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject {
 
         activePage = page
         state = .loading
-        webView.load(URLRequest(url: page.canonicalURL))
+        loadRequest(webView, URLRequest(url: page.canonicalURL))
+    }
+
+    func createNewPage() {
+        guard !isCreatingNewPage else {
+            return
+        }
+
+        isCreatingNewPage = true
+        state = .loading
+        loadRequest(webView, URLRequest(url: Self.newPageURL))
     }
 
     func reload() {
@@ -73,6 +100,20 @@ extension NotionWebSession: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         state = .ready
+        isCreatingNewPage = false
+        adoptResolvedPage(at: webView.url)
+    }
+
+    private func adoptResolvedPage(at url: URL?) {
+        guard let url,
+              let resolvedPage = try? NotionPageReference(validating: url),
+              resolvedPage.pageID != activePage?.pageID
+        else {
+            return
+        }
+
+        activePage = resolvedPage
+        onPageResolved?(resolvedPage)
     }
 
     func webView(
@@ -80,10 +121,12 @@ extension NotionWebSession: WKNavigationDelegate {
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: Error
     ) {
+        isCreatingNewPage = false
         state = .failed(error.localizedDescription)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        isCreatingNewPage = false
         state = .failed(error.localizedDescription)
     }
 }

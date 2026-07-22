@@ -2,8 +2,10 @@ import AppKit
 import SwiftUI
 
 struct MenuBarRootView: View {
-    @Environment(\.openWindow) private var openWindow
     @ObservedObject var runtime: AppRuntime
+    let onQuickCapture: () -> Void
+    let onSettings: () -> Void
+    let onQuit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.section) {
@@ -19,12 +21,7 @@ struct MenuBarRootView: View {
                 onSubmit: runtime.validatePageURL
             )
 
-            Button {
-                QuickCaptureLaunchAction.perform(
-                    activate: { NSApp.activate(ignoringOtherApps: true) },
-                    openWindow: { openWindow(id: "quick-capture") }
-                )
-            } label: {
+            Button(action: onQuickCapture) {
                 Label("Quick Capture", systemImage: "square.and.pencil")
             }
             .keyboardShortcut("n")
@@ -40,15 +37,14 @@ struct MenuBarRootView: View {
             Divider()
 
             HStack {
-                SettingsLink {
+                Button(action: onSettings) {
                     Label("Settings", systemImage: "gearshape")
                 }
+                .keyboardShortcut(",")
 
                 Spacer()
 
-                Button("Quit") {
-                    NSApp.terminate(nil)
-                }
+                Button("Quit", action: onQuit)
                 .keyboardShortcut("q")
             }
             .controlSize(.small)

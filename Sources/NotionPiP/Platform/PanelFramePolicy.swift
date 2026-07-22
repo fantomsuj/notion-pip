@@ -19,7 +19,7 @@ enum PanelFramePolicy {
         )
     }
 
-    private static func targetVisibleFrame(for frame: CGRect, from visibleFrames: [CGRect]) -> CGRect? {
+    static func targetVisibleFrame(for frame: CGRect, from visibleFrames: [CGRect]) -> CGRect? {
         visibleFrames.max { first, second in
             let firstIntersection = intersectionArea(of: frame, and: first)
             let secondIntersection = intersectionArea(of: frame, and: second)

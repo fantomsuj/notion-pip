@@ -5,16 +5,31 @@ import SwiftUI
 @MainActor
 protocol PiPPanelWindow: AnyObject {
     var frame: CGRect { get }
+    var isVisible: Bool { get }
     func present()
     func orderOut()
     func setFrame(_ frame: CGRect, display: Bool)
 }
 
 @MainActor
+protocol PiPStashHandle: AnyObject {
+    var isVisible: Bool { get }
+    func present(
+        placement: PanelStashPlacement,
+        onRestore: @escaping @MainActor () -> Void
+    )
+    func orderOut()
+}
+
+@MainActor
 protocol PiPPanelCoordinating: AnyObject {
     var currentPage: NotionPageReference? { get }
+    var isVisible: Bool { get }
     func show(page: NotionPageReference)
+    func showCurrentPage() -> Bool
     func hide()
+    func toggleCurrentPage() -> Bool
+    func stashOrRestoreCurrentPage() -> Bool
     func replace(page: NotionPageReference)
 }
 
@@ -26,11 +41,21 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "panel")
     private let panel: any PiPPanelWindow
     private let pageLoader: any NotionPageLoading
+    private let stashHandle: (any PiPStashHandle)?
+    private let visibleFramesProvider: @MainActor () -> [CGRect]
     private(set) var currentPage: NotionPageReference?
     private var screenConfigurationObserver: NSObjectProtocol?
 
-    convenience init(nativePageDocument: NativePageDocument = NativePageDocument()) {
-        let webSession = NotionWebSession()
+    var isVisible: Bool {
+        panel.isVisible
+    }
+
+    convenience init(
+        webSession: NotionWebSession = NotionWebSession(),
+        nativePageDocument: NativePageDocument = NativePageDocument(),
+        commandModel: AppCommandModel = .noOp
+    ) {
+        let stashHandle = PiPStashHandleController()
         let visibleFrames = NSScreen.screens.map(\.visibleFrame)
         let defaultFrame = Self.defaultFrame(visibleFrames: visibleFrames)
         let panel = KeyCapablePiPPanel(
@@ -52,21 +77,32 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             PanelFramePolicy.clamped(panel.frame, visibleFrames: visibleFrames),
             display: false
         )
+        self.init(panel: panel, pageLoader: webSession, stashHandle: stashHandle)
+
         panel.contentView = NSHostingView(
             rootView: PiPChromeView(
                 webSession: webSession,
-                nativePageDocument: nativePageDocument
-            ) { [weak panel] in
-                panel?.orderOut(nil)
-            }
+                nativePageDocument: nativePageDocument,
+                commandModel: commandModel,
+                onStash: { [weak self] in
+                    self?.stash(visibleFrames: NSScreen.screens.map(\.visibleFrame))
+                }
+            )
         )
-
-        self.init(panel: panel, pageLoader: webSession)
     }
 
-    init(panel: any PiPPanelWindow, pageLoader: any NotionPageLoading) {
+    init(
+        panel: any PiPPanelWindow,
+        pageLoader: any NotionPageLoading,
+        stashHandle: (any PiPStashHandle)? = nil,
+        visibleFramesProvider: @escaping @MainActor () -> [CGRect] = {
+            NSScreen.screens.map(\.visibleFrame)
+        }
+    ) {
         self.panel = panel
         self.pageLoader = pageLoader
+        self.stashHandle = stashHandle
+        self.visibleFramesProvider = visibleFramesProvider
         screenConfigurationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -89,16 +125,78 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             pageLoader.activate(page: page)
             currentPage = page
         }
+        dismissStashHandle()
         panel.present()
         logger.notice("Panel show requested")
     }
 
     func hide() {
         panel.orderOut()
+        dismissStashHandle()
+    }
+
+    func showCurrentPage() -> Bool {
+        guard currentPage != nil else { return false }
+        dismissStashHandle()
+        panel.present()
+        logger.notice("Existing panel show requested")
+        return true
+    }
+
+    func toggleCurrentPage() -> Bool {
+        guard currentPage != nil else { return false }
+        if isVisible {
+            hide()
+        } else {
+            _ = showCurrentPage()
+        }
+        return true
+    }
+
+    func stashOrRestoreCurrentPage() -> Bool {
+        guard currentPage != nil else { return false }
+        if panel.isVisible {
+            if !stash(visibleFrames: visibleFramesProvider()) {
+                hide()
+            }
+        } else {
+            _ = showCurrentPage()
+        }
+        return true
     }
 
     func replace(page: NotionPageReference) {
         show(page: page)
+    }
+
+    @discardableResult
+    func stash(visibleFrames: [CGRect]) -> Bool {
+        guard currentPage != nil,
+              let stashHandle,
+              let placement = PanelStashPolicy.placement(
+                  for: panel.frame,
+                  visibleFrames: visibleFrames
+              )
+        else {
+            return false
+        }
+
+        panel.orderOut()
+        stashHandle.present(placement: placement) { [weak self] in
+            self?.restoreFromStash()
+        }
+        logger.notice("Panel stashed to screen edge")
+        return true
+    }
+
+    func restoreFromStash() {
+        guard currentPage != nil else {
+            dismissStashHandle()
+            return
+        }
+        dismissStashHandle()
+        panel.present()
+        logger.notice("Panel restored from screen edge")
     }
 
     func reclampPanelFrame(visibleFrames: [CGRect]) {
@@ -106,6 +204,23 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             PanelFramePolicy.clamped(panel.frame, visibleFrames: visibleFrames),
             display: true
         )
+
+        guard stashHandle?.isVisible == true else { return }
+        guard let placement = PanelStashPolicy.placement(
+            for: panel.frame,
+            visibleFrames: visibleFrames
+        ) else {
+            dismissStashHandle()
+            return
+        }
+        stashHandle?.present(placement: placement) { [weak self] in
+            self?.restoreFromStash()
+        }
+    }
+
+    private func dismissStashHandle() {
+        guard stashHandle?.isVisible == true else { return }
+        stashHandle?.orderOut()
     }
 
     private static func defaultFrame(visibleFrames: [CGRect]) -> CGRect {

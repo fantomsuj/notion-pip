@@ -141,6 +141,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     private let openInNotion: () -> Void
     private let beforeBridgeRequest: (CaptureBridgeRequest) async -> Void
     private let beforeConflictResolution: (CaptureEditorSnapshot) async -> Void
+    private let beforeCreatingActiveDraft: () async -> Void
     private let afterStashTransitionStep: (CaptureStashTransitionStep) async throws -> Void
     private let afterStateTransitionCommit: (
         CaptureBridgeRequest,
@@ -159,6 +160,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     ] = [:]
     private var committedStateTransitionOrder: [String] = []
     private var ambiguousStateTransitions: [String: CaptureStateTransitionOperation] = [:]
+    private var activeDraftCreationTask: Task<CaptureEditorSnapshot, Error>?
 
     init(
         repository: CaptureRepository,
@@ -166,6 +168,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         openInNotion: @escaping () -> Void = {},
         beforeBridgeRequest: @escaping (CaptureBridgeRequest) async -> Void = { _ in },
         beforeConflictResolution: @escaping (CaptureEditorSnapshot) async -> Void = { _ in },
+        beforeCreatingActiveDraft: @escaping () async -> Void = {},
         afterStashTransitionStep: @escaping (
             CaptureStashTransitionStep
         ) async throws -> Void = { _ in },
@@ -181,6 +184,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         self.openInNotion = openInNotion
         self.beforeBridgeRequest = beforeBridgeRequest
         self.beforeConflictResolution = beforeConflictResolution
+        self.beforeCreatingActiveDraft = beforeCreatingActiveDraft
         self.afterStashTransitionStep = afterStashTransitionStep
         self.afterStateTransitionCommit = afterStateTransitionCommit
         self.conflictResolver = conflictResolver
@@ -354,15 +358,6 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
             guard ambiguous == operation else {
                 return invalidStateTransitionReplay(id: id)
             }
-            if let reconciled = await reconcileStateTransition(operation, id: id) {
-                if reconciled.result != nil {
-                    ambiguousStateTransitions[id] = nil
-                    rememberStateTransition(id: id, operation: operation, reply: reconciled)
-                } else if reconciled.error?.code != .persistenceFailure {
-                    ambiguousStateTransitions[id] = nil
-                }
-                return reconciled
-            }
         }
         if let committed = committedStateTransitions[id] {
             guard committed.operation == operation else {
@@ -385,6 +380,11 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
                     message: "Conflict recovery is no longer available.",
                     recoverable: true
                 )
+            }
+            if self.ambiguousStateTransitions[id] != nil,
+               let reconciled = await self.reconcileStateTransition(operation, id: id)
+            {
+                return reconciled
             }
             let reply = await self.perform(request)
             guard reply.result != nil else { return reply }
@@ -582,18 +582,28 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         if let active = try await repository.drafts().first(where: { $0.disposition == .active }) {
             return try bridgeSnapshot(active)
         }
-        let id = draftID()
-        let created = try await repository.saveDraft(
-            DraftMutation(
-                id: id,
-                title: "",
-                editorDocument: Self.emptyDocument,
-                sourceDocument: nil,
-                disposition: .active
-            ),
-            expectedRevision: 0
-        )
-        return try bridgeSnapshot(created)
+        if let activeDraftCreationTask {
+            return try await activeDraftCreationTask.value
+        }
+        let task = Task { @MainActor [weak self] () throws -> CaptureEditorSnapshot in
+            guard let self else { throw CancellationError() }
+            await self.beforeCreatingActiveDraft()
+            let id = self.draftID()
+            let created = try await self.repository.saveDraft(
+                DraftMutation(
+                    id: id,
+                    title: "",
+                    editorDocument: Self.emptyDocument,
+                    sourceDocument: nil,
+                    disposition: .active
+                ),
+                expectedRevision: 0
+            )
+            return try self.bridgeSnapshot(created)
+        }
+        activeDraftCreationTask = task
+        defer { activeDraftCreationTask = nil }
+        return try await task.value
     }
 
     private func persistSuppliedSnapshot(

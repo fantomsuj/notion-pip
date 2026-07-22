@@ -4,6 +4,14 @@ Notion PiP is a native macOS 14+ menu-bar app for keeping one Notion page in a d
 
 The app is intentionally an `LSUIElement` accessory. It appears in the menu bar rather than the Dock.
 
+## Create a page from the PiP
+
+Click the `+` button in the PiP toolbar to open a fresh page in the embedded Notion session. The new page becomes the pinned PiP page automatically; no Notion integration token is required.
+
+## Stash the PiP
+
+Use the compact-arrow button in the PiP toolbar to tuck the panel onto the nearest left or right screen edge. A slim edge tab remains available across Spaces; click it to restore the same live Notion page, including its current WebView session and navigation state. `Command-Shift-P` stashes a visible PiP and restores it on the next press. The menu-bar icon also restores a stashed panel while retaining its regular show/hide behavior.
+
 ## Build and run
 
 Full Xcode 26.2 is required. The project-local script selects it explicitly, builds the SwiftPM executable, stages `dist/NotionPiP.app`, copies SwiftPM resource bundles, ad-hoc signs the app, and launches it through Launch Services:
