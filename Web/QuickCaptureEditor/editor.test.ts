@@ -583,6 +583,59 @@ test("missing old draft keeps the transition locked with the exact autosave retr
   assert.equal(gate.hasPendingTransition, true);
 });
 
+test("conflict capture discards the superseded queued autosave", async () => {
+  const changedRequests: BridgeRequest[] = [];
+  const transitionRequests: BridgeRequest[] = [];
+  const publisher = new DebouncedChangePublisher(
+    5,
+    async (request) => { changedRequests.push(request); },
+    () => "superseded-change",
+  );
+  publisher.changed({ draftID: "draft-1", title: "Discard me", document: null }, 1);
+  const gate = new EditorTransitionGate(
+    publisher,
+    async (request) => {
+      transitionRequests.push(request);
+      return {
+        version: 1,
+        id: request.id,
+        ok: true,
+        result: {
+          kind: "conflictResolved",
+          revision: 2,
+          snapshot: {
+            draftID: "draft-1",
+            title: "Native latest",
+            document: normalizeDocument(null),
+            revision: 2,
+          },
+        },
+      };
+    },
+    () => true,
+    () => {},
+  );
+
+  await gate.perform({
+    key: "conflict:reload-latest:reloadLatest",
+    expectedKind: "conflictResolved",
+    drainPendingChanges: false,
+    discardPendingChanges: true,
+    makeRequest: () => makeRequest("resolveConflict", "reload-latest", {
+      action: "reloadLatest",
+      snapshot: {
+        draftID: "draft-1",
+        title: "Discard me",
+        document: normalizeDocument(null),
+      },
+    }),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(transitionRequests.length, 1);
+  assert.equal(changedRequests.length, 0);
+});
+
 test("ambiguous conflict acknowledgement stays locked and retries the exact captured request", async () => {
   const requests: BridgeRequest[] = [];
   let locked = false;

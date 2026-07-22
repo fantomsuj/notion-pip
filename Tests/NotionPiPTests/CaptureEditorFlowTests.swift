@@ -298,6 +298,51 @@ final class CaptureEditorFlowTests: XCTestCase {
         XCTAssertEqual(draftsAfterSuccess.first(where: { $0.id == "draft-2" })?.disposition, .active)
     }
 
+    func testConcurrentExactRetriesSharePartialStashReconciliation() async throws {
+        var identifiers = ["draft-1", "draft-2", "draft-3"].makeIterator()
+        let failure = StashTransitionFailureOnce(step: .stashed)
+        let creationGate = BlockingActiveDraftCreationGate()
+        let repository = try CaptureRepository(
+            inMemory: true,
+            clock: TestCaptureClock(captureFlowReferenceDate)
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { identifiers.next()! },
+            beforeCreatingActiveDraft: { await creationGate.suspendIfArmed() },
+            afterStashTransitionStep: { try failure.throwOnce(at: $0) }
+        )
+        _ = await session.handle(.ready(id: "ready"))
+        let request = CaptureBridgeRequest.stash(
+            id: "concurrent-stash-reconciliation",
+            snapshot: bridgeSnapshot(
+                id: "draft-1",
+                title: "One successor only",
+                text: "durable work"
+            ),
+            expectedRevision: 1
+        )
+        let ambiguous = await session.handle(request)
+        XCTAssertEqual(ambiguous.error?.code, .persistenceFailure)
+        creationGate.arm()
+
+        let firstRetry = Task { await session.handle(request) }
+        try await waitForStashCreationGate(creationGate)
+        let secondRetry = Task { await session.handle(request) }
+        try await Task.sleep(for: .milliseconds(60))
+        let entriesWhileBlocked = creationGate.entryCount
+        creationGate.resumeAll()
+        let firstReply = await firstRetry.value
+        let secondReply = await secondRetry.value
+
+        XCTAssertEqual(entriesWhileBlocked, 1)
+        XCTAssertEqual(firstReply, secondReply)
+        XCTAssertEqual(firstReply.result?.snapshot?.draftID, "draft-2")
+        let drafts = try await repository.drafts()
+        XCTAssertEqual(drafts.count, 2)
+        XCTAssertEqual(drafts.filter { $0.disposition == .active }.map(\.id), ["draft-2"])
+    }
+
     func testLostRestoreAcknowledgementReplaysExactReceiptWithoutSwitchingBack() async throws {
         var identifiers = ["draft-1", "draft-2"].makeIterator()
         let repository = try CaptureRepository(
@@ -860,5 +905,45 @@ private final class StashTransitionFailureOnce {
         guard steps.first == currentStep else { return }
         steps.removeFirst()
         throw PostCommitTransitionTestError.lostAcknowledgement
+    }
+}
+
+@MainActor
+private final class BlockingActiveDraftCreationGate {
+    private(set) var entryCount = 0
+    private var isArmed = false
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+
+    func arm() {
+        isArmed = true
+    }
+
+    func suspendIfArmed() async {
+        guard isArmed else { return }
+        entryCount += 1
+        await withCheckedContinuation { continuations.append($0) }
+    }
+
+    func resumeAll() {
+        isArmed = false
+        let pending = continuations
+        continuations.removeAll()
+        pending.forEach { $0.resume() }
+    }
+}
+
+@MainActor
+private func waitForStashCreationGate(
+    _ gate: BlockingActiveDraftCreationGate,
+    timeout: Duration = .seconds(2)
+) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while gate.entryCount == 0 {
+        guard clock.now < deadline else {
+            XCTFail("Timed out waiting for active-draft creation gate")
+            return
+        }
+        try await Task.sleep(for: .milliseconds(10))
     }
 }

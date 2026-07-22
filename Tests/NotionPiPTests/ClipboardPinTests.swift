@@ -6,7 +6,7 @@ import XCTest
 final class ClipboardPinTests: XCTestCase {
     private let firstPageID = "0123456789abcdef0123456789abcdef"
 
-    func testValidClipboardIsReadOnceAndRoutedToPanel() {
+    func testValidClipboardIsReadOnceAndReturnsAPageForRuntimeActivation() {
         let panel = FakePanelCoordinator()
         let pasteboard = CountingPasteboard(
             value: "https://www.notion.so/Project-\(firstPageID)"
@@ -18,10 +18,11 @@ final class ClipboardPinTests: XCTestCase {
             requestPageURLFocus: { focusRequests += 1 }
         )
 
-        coordinator.pinFromClipboard()
+        let page = coordinator.pageFromClipboard()
 
         XCTAssertEqual(pasteboard.readCount, 1)
-        XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
+        XCTAssertEqual(page?.pageID, firstPageID)
+        XCTAssertTrue(panel.shownPages.isEmpty)
         XCTAssertEqual(focusRequests, 0)
     }
 
@@ -39,9 +40,10 @@ final class ClipboardPinTests: XCTestCase {
             requestPageURLFocus: { focusRequests += 1 }
         )
 
-        coordinator.pinFromClipboard()
+        let page = coordinator.pageFromClipboard()
 
         XCTAssertEqual(pasteboard.readCount, 1)
+        XCTAssertNil(page)
         XCTAssertEqual(panel.currentPage, currentPage)
         XCTAssertEqual(panel.shownPages.count, 1)
         XCTAssertTrue(panel.replacedPages.isEmpty)

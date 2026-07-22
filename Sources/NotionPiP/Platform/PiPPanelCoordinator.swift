@@ -4,8 +4,10 @@ import SwiftUI
 
 @MainActor
 protocol PiPPanelWindow: AnyObject {
+    var frame: CGRect { get }
     func present()
     func orderOut()
+    func setFrame(_ frame: CGRect, display: Bool)
 }
 
 @MainActor
@@ -25,8 +27,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     private let panel: any PiPPanelWindow
     private let pageLoader: any NotionPageLoading
     private(set) var currentPage: NotionPageReference?
+    private var screenConfigurationObserver: NSObjectProtocol?
 
-    convenience init() {
+    convenience init(nativePageDocument: NativePageDocument = NativePageDocument()) {
         let webSession = NotionWebSession()
         let visibleFrames = NSScreen.screens.map(\.visibleFrame)
         let defaultFrame = Self.defaultFrame(visibleFrames: visibleFrames)
@@ -50,7 +53,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             display: false
         )
         panel.contentView = NSHostingView(
-            rootView: PiPChromeView(webSession: webSession) { [weak panel] in
+            rootView: PiPChromeView(
+                webSession: webSession,
+                nativePageDocument: nativePageDocument
+            ) { [weak panel] in
                 panel?.orderOut(nil)
             }
         )
@@ -61,11 +67,26 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     init(panel: any PiPPanelWindow, pageLoader: any NotionPageLoading) {
         self.panel = panel
         self.pageLoader = pageLoader
+        screenConfigurationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reclampPanelFrame(visibleFrames: NSScreen.screens.map(\.visibleFrame))
+            }
+        }
+    }
+
+    isolated deinit {
+        if let screenConfigurationObserver {
+            NotificationCenter.default.removeObserver(screenConfigurationObserver)
+        }
     }
 
     func show(page: NotionPageReference) {
         if currentPage?.pageID != page.pageID {
-            pageLoader.load(page: page)
+            pageLoader.activate(page: page)
             currentPage = page
         }
         panel.present()
@@ -78,6 +99,13 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
 
     func replace(page: NotionPageReference) {
         show(page: page)
+    }
+
+    func reclampPanelFrame(visibleFrames: [CGRect]) {
+        panel.setFrame(
+            PanelFramePolicy.clamped(panel.frame, visibleFrames: visibleFrames),
+            display: true
+        )
     }
 
     private static func defaultFrame(visibleFrames: [CGRect]) -> CGRect {

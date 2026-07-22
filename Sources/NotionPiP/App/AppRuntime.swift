@@ -6,8 +6,13 @@ import OSLog
 final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var pendingPage: NotionPageReference?
     @Published private(set) var activePage: NotionPageReference?
+    @Published private(set) var lastActivationSource: PageActivationSource?
+    @Published private(set) var connectionState: PersonalTokenConnectionState = .disconnected
+    @Published private(set) var searchResults: [NotionPageSearchResult] = []
+    @Published private(set) var searchError: String?
 
     let pageURLInputState: PageURLInputState
+    let nativePageDocument: NativePageDocument
 
     var pageURLText: String {
         get { pageURLInputState.text }
@@ -26,33 +31,55 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         pageURLInputState.focusRequest
     }
 
+    var isNotionConnected: Bool {
+        if case .connected = connectionState {
+            return true
+        }
+        return false
+    }
+
     private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "shortcut")
     private let pinCoordinator: PinCoordinator
     private let shortcutRegistrar: any GlobalShortcutRegistering
     private let pageURLInputPresenter: any PageURLInputPresenting
+    private let credentialVault: PersonalTokenCredentialVault
+    private let notionClientFactory: (PersonalIntegrationToken) -> any NotionWorkspaceClient
+    private var previewTask: Task<Void, Never>?
+    private var searchTask: Task<Void, Never>?
+    private var bootstrapTask: Task<Void, Never>?
+    private var activationGeneration = 0
+    private var connectionGeneration = 0
     private var started = false
 
     init(
-        panelCoordinator: any PiPPanelCoordinating = PiPPanelCoordinator(),
+        panelCoordinator: (any PiPPanelCoordinating)? = nil,
         pasteboard: any PasteboardReading = SystemPasteboardReader(),
         shortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar(),
-        pageURLInputPresenter: (any PageURLInputPresenting)? = nil
+        pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
+        credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
+        notionClientFactory: @escaping (PersonalIntegrationToken) -> any NotionWorkspaceClient = { token in
+            NotionAPIClient(token: token)
+        }
     ) {
         let inputState = PageURLInputState()
         let submissionRelay = PageURLInputSubmissionRelay()
+        let nativePageDocument = NativePageDocument()
         let inputPresenter = pageURLInputPresenter ?? PageURLInputPresenter(
             state: inputState,
             onSubmit: submissionRelay.submit
         )
 
         pageURLInputState = inputState
+        self.nativePageDocument = nativePageDocument
         self.pageURLInputPresenter = inputPresenter
         pinCoordinator = PinCoordinator(
-            panelCoordinator: panelCoordinator,
+            panelCoordinator: panelCoordinator ?? PiPPanelCoordinator(nativePageDocument: nativePageDocument),
             pasteboard: pasteboard,
             requestPageURLFocus: inputPresenter.presentAndFocus
         )
         self.shortcutRegistrar = shortcutRegistrar
+        self.credentialVault = credentialVault
+        self.notionClientFactory = notionClientFactory
         submissionRelay.handler = { [weak self] in
             self?.validatePageURL()
         }
@@ -61,6 +88,12 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     func start() {
         guard !started else {
             return
+        }
+
+        defer {
+            bootstrapTask = Task { [weak self] in
+                await self?.bootstrapPersonalTokenConnection()
+            }
         }
 
         do {
@@ -74,10 +107,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     }
 
     func validatePageURL() {
-        switch pinCoordinator.pin(urlString: pageURLText) {
+        switch pinCoordinator.page(from: pageURLText) {
         case let .success(page):
-            pendingPage = page
-            activePage = page
+            activate(page: page, source: .typedURL)
             pageURLInputState.showPinned(page: page)
             pageURLInputPresenter.hide()
         case .failure:
@@ -86,26 +118,195 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     }
 
     func pin(page: NotionPageReference) {
+        activate(page: page, source: .pagePicker)
+    }
+
+    func activate(page: NotionPageReference, source: PageActivationSource) {
         pinCoordinator.pin(page: page)
-        activePage = pinCoordinator.currentPage
-        pendingPage = activePage
+        activePage = page
+        pendingPage = page
+        lastActivationSource = source
+
+        activationGeneration &+= 1
+        let generation = activationGeneration
+        previewTask?.cancel()
+        nativePageDocument.restoreCachedPage(pageID: page.pageID)
+        previewTask = Task { [weak self] in
+            await self?.loadNativePagePreview(page, generation: generation)
+        }
     }
 
     func handleOpenURLs(_ urls: [URL]) {
-        pinCoordinator.handleOpenURLs(urls)
-        activePage = pinCoordinator.currentPage
-        pendingPage = activePage
+        for (page, source) in pinCoordinator.externalPages(from: urls) {
+            activate(page: page, source: .externalRoute(source))
+        }
+    }
+
+    func connectPersonalToken(_ rawValue: String) async {
+        bootstrapTask?.cancel()
+        bootstrapTask = nil
+        connectionGeneration &+= 1
+        let generation = connectionGeneration
+
+        do {
+            let token = try PersonalIntegrationToken(validating: rawValue)
+            connectionState = .connecting
+            let connection = try await notionClientFactory(token).validateConnection()
+            guard isCurrentConnectionAttempt(generation) else { return }
+            try credentialVault.save(token)
+            guard isCurrentConnectionAttempt(generation) else { return }
+            connectionState = .connected(workspaceName: connection.workspaceName)
+        } catch let error as PersonalIntegrationTokenError {
+            guard isCurrentConnectionAttempt(generation) else { return }
+            connectionState = .failed(error == .missing ? "Enter your Notion personal access token." : "Use a Notion personal access token that starts with ntn_.")
+        } catch let error as NotionAPIClientError {
+            guard isCurrentConnectionAttempt(generation) else { return }
+            connectionState = .failed(Self.connectionMessage(for: error))
+        } catch {
+            guard isCurrentConnectionAttempt(generation) else { return }
+            connectionState = .failed("Could not connect to Notion. Check your network and try again.")
+        }
+    }
+
+    func bootstrapPersonalTokenConnection() async {
+        let generation = connectionGeneration
+
+        do {
+            guard let token = try credentialVault.load() else {
+                guard isCurrentConnectionAttempt(generation) else { return }
+                connectionState = .disconnected
+                return
+            }
+            connectionState = .connecting
+            let connection = try await notionClientFactory(token).validateConnection()
+            guard isCurrentConnectionAttempt(generation) else { return }
+            connectionState = .connected(workspaceName: connection.workspaceName)
+        } catch let error as NotionAPIClientError {
+            guard isCurrentConnectionAttempt(generation) else { return }
+            connectionState = .failed(Self.reconnectMessage(for: error))
+        } catch {
+            guard isCurrentConnectionAttempt(generation) else { return }
+            connectionState = .failed("Saved Notion access needs to be reconnected.")
+        }
+    }
+
+    func disconnectPersonalToken() {
+        do {
+            try credentialVault.disconnect()
+            connectionGeneration &+= 1
+            bootstrapTask?.cancel()
+            bootstrapTask = nil
+            previewTask?.cancel()
+            previewTask = nil
+            searchTask?.cancel()
+            searchTask = nil
+            activationGeneration &+= 1
+            connectionState = .disconnected
+            searchResults = []
+            searchError = nil
+            nativePageDocument.clearLocalPages()
+        } catch {
+            connectionState = .failed("Could not remove the saved token.")
+        }
+    }
+
+    func searchNotionPages(query: String) async {
+        searchTask?.cancel()
+        let generation = connectionGeneration
+        searchTask = Task { [weak self] in
+            await self?.loadNotionSearchResults(query: query, connectionGeneration: generation)
+        }
+        await searchTask?.value
+    }
+
+    private func loadNotionSearchResults(query: String, connectionGeneration: Int) async {
+        do {
+            guard isCurrentConnectionAttempt(connectionGeneration) else { return }
+            guard isNotionConnected else {
+                searchResults = []
+                searchError = "Reconnect to Notion to search your workspace."
+                return
+            }
+            guard let token = try credentialVault.load() else {
+                guard isCurrentConnectionAttempt(connectionGeneration) else { return }
+                searchResults = []
+                searchError = "Connect a Notion personal access token first."
+                return
+            }
+            guard isCurrentConnectionAttempt(connectionGeneration) else { return }
+            searchError = nil
+            let results = try await notionClientFactory(token).searchPages(query: query)
+            guard isCurrentConnectionAttempt(connectionGeneration) else { return }
+            searchResults = results
+        } catch {
+            guard isCurrentConnectionAttempt(connectionGeneration) else { return }
+            searchResults = []
+            searchError = "Could not search Notion. Check the token, permissions, and network."
+        }
     }
 
     private func pinFromClipboard() {
-        pinCoordinator.pinFromClipboard()
-        activePage = pinCoordinator.currentPage
-        pendingPage = activePage
+        guard let page = pinCoordinator.pageFromClipboard() else { return }
+        activate(page: page, source: .clipboard)
     }
 
     private func showValidationFailure(_ message: String) {
         pageURLInputState.showValidationFailure(message)
     }
+
+    private func isCurrentConnectionAttempt(_ generation: Int) -> Bool {
+        generation == connectionGeneration && !Task.isCancelled
+    }
+
+    private func loadNativePagePreview(_ page: NotionPageReference, generation: Int) async {
+        do {
+            guard isNotionConnected else { return }
+            guard let token = try credentialVault.load() else { return }
+            let snapshot = try await notionClientFactory(token).fetchPagePreview(page: page)
+            guard generation == activationGeneration, !Task.isCancelled else { return }
+            nativePageDocument.load(snapshot)
+        } catch {
+            guard generation == activationGeneration, !Task.isCancelled else { return }
+            nativePageDocument.markUnavailable()
+        }
+    }
+
+    private static func connectionMessage(for error: NotionAPIClientError) -> String {
+        switch error {
+        case .unauthorized:
+            "Notion did not accept this token."
+        case .accessDenied:
+            "This token does not have the Notion API capability."
+        default:
+            "Could not connect to Notion. Check your network and try again."
+        }
+    }
+
+    private static func reconnectMessage(for error: NotionAPIClientError) -> String {
+        switch error {
+        case .unauthorized:
+            "Notion did not accept this token. Reconnect to continue."
+        case .accessDenied:
+            "This token does not have the Notion API capability. Reconnect to continue."
+        default:
+            "Saved Notion access needs to be reconnected."
+        }
+    }
+}
+
+enum PageActivationSource: Equatable, Sendable {
+    case typedURL
+    case clipboard
+    case externalRoute(ExternalURLSource)
+    case notionSearch
+    case pagePicker
+}
+
+enum PersonalTokenConnectionState: Equatable {
+    case disconnected
+    case connecting
+    case connected(workspaceName: String)
+    case failed(String)
 }
 
 @MainActor

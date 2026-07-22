@@ -29,6 +29,10 @@ struct MenuBarRootView: View {
             }
             .keyboardShortcut("n")
 
+            if runtime.isNotionConnected {
+                NotionWorkspaceSearchView(runtime: runtime)
+            }
+
             if let activePage = runtime.activePage {
                 PagePickerView(pages: [activePage], onPin: runtime.pin)
             }

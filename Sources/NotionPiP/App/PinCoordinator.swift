@@ -1,5 +1,4 @@
 import Foundation
-import OSLog
 
 enum PinInputError: Error, Equatable {
     case invalidURL
@@ -8,7 +7,6 @@ enum PinInputError: Error, Equatable {
 
 @MainActor
 final class PinCoordinator {
-    private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "routing")
     private let panelCoordinator: any PiPPanelCoordinating
     private let pasteboard: any PasteboardReading
     private let requestPageURLFocus: () -> Void
@@ -40,17 +38,14 @@ final class PinCoordinator {
         }
     }
 
-    @discardableResult
-    func pin(urlString: String) -> Result<NotionPageReference, PinInputError> {
+    func page(from urlString: String) -> Result<NotionPageReference, PinInputError> {
         let trimmedURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmedURL), !trimmedURL.isEmpty else {
             return .failure(.invalidURL)
         }
 
         do {
-            let page = try NotionPageReference(validating: url)
-            pin(page: page)
-            return .success(page)
+            return .success(try NotionPageReference(validating: url))
         } catch let error as NotionPageReferenceError {
             return .failure(.invalidPage(error))
         } catch {
@@ -58,23 +53,23 @@ final class PinCoordinator {
         }
     }
 
-    func pinFromClipboard() {
+    func pageFromClipboard() -> NotionPageReference? {
         guard let clipboardValue = pasteboard.readString(),
-              case .success = pin(urlString: clipboardValue)
+              case let .success(page) = page(from: clipboardValue)
         else {
             requestPageURLFocus()
-            return
+            return nil
         }
+        return page
     }
 
-    func handleOpenURLs(_ urls: [URL]) {
-        for url in urls {
-            guard case let .success(.pin(page, _)) = ExternalURLRoute.parse(url) else {
-                continue
+    func externalPages(from urls: [URL]) -> [(NotionPageReference, ExternalURLSource)] {
+        urls.compactMap { url in
+            guard case let .success(.pin(page, source)) = ExternalURLRoute.parse(url) else {
+                return nil
             }
-
-            logger.notice("Accepted external pin route")
-            pin(page: page)
+            return (page, source)
         }
     }
+
 }

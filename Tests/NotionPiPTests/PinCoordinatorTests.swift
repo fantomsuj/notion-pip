@@ -17,7 +17,7 @@ final class PinCoordinatorTests: XCTestCase {
         coordinator.show(page: page)
         coordinator.show(page: page)
 
-        XCTAssertEqual(loader.loadedPages.map(\.pageID), [firstPageID])
+        XCTAssertEqual(loader.activatedPages.map(\.pageID), [firstPageID])
         XCTAssertEqual(panel.presentCount, 2)
         XCTAssertEqual(coordinator.currentPage?.pageID, firstPageID)
     }
@@ -32,9 +32,34 @@ final class PinCoordinatorTests: XCTestCase {
         coordinator.show(page: firstPage)
         coordinator.replace(page: secondPage)
 
-        XCTAssertEqual(loader.loadedPages.map(\.pageID), [firstPageID, secondPageID])
+        XCTAssertEqual(loader.activatedPages.map(\.pageID), [firstPageID, secondPageID])
         XCTAssertEqual(panel.presentCount, 2)
         XCTAssertEqual(coordinator.currentPage?.pageID, secondPageID)
+    }
+
+    func testPanelCoordinatorHidesWithoutReleasingItsSessionOrCurrentPage() throws {
+        let panel = FakePanelWindow()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(panel: panel, pageLoader: loader)
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+
+        coordinator.show(page: page)
+        coordinator.hide()
+        coordinator.show(page: page)
+
+        XCTAssertEqual(panel.orderOutCount, 1)
+        XCTAssertEqual(panel.presentCount, 2)
+        XCTAssertEqual(loader.activatedPages.map(\.pageID), [firstPageID])
+        XCTAssertEqual(coordinator.currentPage?.pageID, firstPageID)
+    }
+
+    func testPanelCoordinatorReclampsItsFrameAfterScreenConfigurationChange() {
+        let panel = FakePanelWindow(frame: CGRect(x: 1_500, y: 800, width: 600, height: 700))
+        let coordinator = PiPPanelCoordinator(panel: panel, pageLoader: FakePageLoader())
+
+        coordinator.reclampPanelFrame(visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 700)])
+
+        XCTAssertEqual(panel.frame, CGRect(x: 400, y: 0, width: 600, height: 700))
     }
 
     func testPinCoordinatorUsesReplaceForDifferentActivePage() throws {
@@ -54,7 +79,7 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.replacedPages.map(\.pageID), [secondPageID])
     }
 
-    func testOpenURLsAcceptsCanonicalRoute() throws {
+    func testExternalRouteParsingReturnsCanonicalPageForRuntimeActivation() throws {
         let panel = FakePanelCoordinator()
         let coordinator = PinCoordinator(
             panelCoordinator: panel,
@@ -67,9 +92,10 @@ final class PinCoordinatorTests: XCTestCase {
             )
         )
 
-        coordinator.handleOpenURLs([routeURL])
+        let pages = coordinator.externalPages(from: [routeURL])
 
-        XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
+        XCTAssertEqual(pages.map(\.0.pageID), [firstPageID])
+        XCTAssertTrue(panel.shownPages.isEmpty)
     }
 
     func testAppDelegateBuffersOpenURLsUntilBindingAndDrainsOnlyOnce() throws {
@@ -129,6 +155,11 @@ final class PinCoordinatorTests: XCTestCase {
 private final class FakePanelWindow: PiPPanelWindow {
     private(set) var presentCount = 0
     private(set) var orderOutCount = 0
+    private(set) var frame: CGRect
+
+    init(frame: CGRect = .zero) {
+        self.frame = frame
+    }
 
     func present() {
         presentCount += 1
@@ -137,14 +168,18 @@ private final class FakePanelWindow: PiPPanelWindow {
     func orderOut() {
         orderOutCount += 1
     }
+
+    func setFrame(_ frame: CGRect, display: Bool) {
+        self.frame = frame
+    }
 }
 
 @MainActor
 private final class FakePageLoader: NotionPageLoading {
-    private(set) var loadedPages: [NotionPageReference] = []
+    private(set) var activatedPages: [NotionPageReference] = []
 
-    func load(page: NotionPageReference) {
-        loadedPages.append(page)
+    func activate(page: NotionPageReference) {
+        activatedPages.append(page)
     }
 }
 

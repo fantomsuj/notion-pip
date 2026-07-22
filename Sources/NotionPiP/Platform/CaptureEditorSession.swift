@@ -70,6 +70,44 @@ private struct PendingConflictResolution {
     let originalConflict: CaptureConflict
 }
 
+struct CaptureEditorResourceRoots {
+    let packagedApp: URL?
+    let swiftPMBundle: URL?
+}
+
+enum CaptureEditorResources {
+    static let unavailableEditorURL = URL(
+        fileURLWithPath: "/__missing_NotionPiP_QuickCapture__/index.html"
+    )
+
+    static func editorURL(
+        appResourceRoot: URL?,
+        swiftPMResourceRoot: @autoclosure () -> URL?,
+        fileManager: FileManager = .default
+    ) -> URL {
+        if let appResourceRoot {
+            let packagedEditorURL = appResourceRoot
+                .appendingPathComponent("NotionPiP_NotionPiP.bundle", isDirectory: true)
+                .appendingPathComponent("QuickCapture", isDirectory: true)
+                .appendingPathComponent("index.html", isDirectory: false)
+            if fileManager.fileExists(atPath: packagedEditorURL.path) {
+                return packagedEditorURL
+            }
+        }
+
+        if let swiftPMResourceRoot = swiftPMResourceRoot() {
+            let swiftPMEditorURL = swiftPMResourceRoot
+                .appendingPathComponent("QuickCapture", isDirectory: true)
+                .appendingPathComponent("index.html", isDirectory: false)
+            if fileManager.fileExists(atPath: swiftPMEditorURL.path) {
+                return swiftPMEditorURL
+            }
+        }
+
+        return unavailableEditorURL
+    }
+}
+
 private enum CaptureStateTransitionOperation: Equatable {
     case stash(snapshot: CaptureEditorSnapshot, expectedRevision: Int)
     case restore(draftID: String, expectedRevision: Int)
@@ -135,7 +173,8 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
             CaptureBridgeRequest,
             CaptureBridgeReply
         ) async throws -> Void = { _, _ in },
-        conflictResolver: any CaptureConflictResolving = WebKitCaptureConflictResolver()
+        conflictResolver: any CaptureConflictResolving = WebKitCaptureConflictResolver(),
+        editorResourceRoots: CaptureEditorResourceRoots? = nil
     ) {
         self.repository = repository
         self.draftID = draftID
@@ -146,7 +185,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         self.afterStateTransitionCommit = afterStateTransitionCommit
         self.conflictResolver = conflictResolver
 
-        let documentURL = Self.bundledEditorURL
+        let documentURL = editorResourceRoots.map(Self.editorURL(for:)) ?? Self.bundledEditorURL
         editorDocumentURL = documentURL
         resourceRootURL = documentURL.deletingLastPathComponent()
         let handler = WeakScriptMessageHandler(allowedDocumentURL: documentURL)
@@ -692,11 +731,17 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     )
 
     private static var bundledEditorURL: URL {
-        Bundle.module.url(
-            forResource: "index",
-            withExtension: "html",
-            subdirectory: "QuickCapture"
-        ) ?? URL(fileURLWithPath: "/__missing_NotionPiP_QuickCapture__/index.html")
+        CaptureEditorResources.editorURL(
+            appResourceRoot: Bundle.main.resourceURL,
+            swiftPMResourceRoot: Bundle.module.resourceURL
+        )
+    }
+
+    private static func editorURL(for roots: CaptureEditorResourceRoots) -> URL {
+        CaptureEditorResources.editorURL(
+            appResourceRoot: roots.packagedApp,
+            swiftPMResourceRoot: roots.swiftPMBundle
+        )
     }
 }
 

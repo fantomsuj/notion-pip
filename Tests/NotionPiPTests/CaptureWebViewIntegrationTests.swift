@@ -346,6 +346,12 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         let installed = try await editorDOM(in: session.webView)
         XCTAssertEqual(installed["title"], "Newest unsent JS work")
         XCTAssertEqual(normalizedDOMText(installed["body"]), "newest unsent JS body")
+
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertNil(session.conflict)
+        let draftsAfterDebounce = try await repository.drafts()
+        XCTAssertEqual(draftsAfterDebounce.count, 2)
+        XCTAssertEqual(draftsAfterDebounce.filter { $0.id == "conflict-copy" }.count, 1)
     }
 
     func testConflictRecoveryLocksRealEditorWhileNativeReplyIsInFlight() async throws {

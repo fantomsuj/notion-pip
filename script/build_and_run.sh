@@ -130,7 +130,17 @@ verify_bundle() {
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$INFO_PLIST")" == "$MIN_SYSTEM_VERSION" ]]
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$INFO_PLIST")" == "true" ]]
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$INFO_PLIST")" == "notion-pip" ]]
+    [[ -f "$APP_RESOURCES/NotionPiP_NotionPiP.bundle/QuickCapture/index.html" ]]
     /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
+}
+
+verify_process_stability() {
+    local process_id="$1"
+    /bin/sleep 2
+    if ! /bin/kill -0 "$process_id" >/dev/null 2>&1; then
+        echo "error: $APP_NAME exited during the startup stability interval" >&2
+        return 1
+    fi
 }
 
 case "$MODE" in
@@ -156,6 +166,7 @@ case "$MODE" in
         open_app
         PROCESS_ID="$(wait_for_process)"
         verify_bundle
+        verify_process_stability "$PROCESS_ID"
         echo "Verified $APP_BUNDLE (pid $PROCESS_ID)"
         ;;
 esac
