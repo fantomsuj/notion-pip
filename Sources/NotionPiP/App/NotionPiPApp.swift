@@ -49,7 +49,7 @@ enum AppStartup {
 @MainActor
 private final class AppComposition {
     let runtime: AppRuntime
-    private let quickCapturePresenter: AppWindowPresenter
+    private let quickCapturePresenter: any AppWindowPresenting
     private let settingsPresenter: AppWindowPresenter
     private let setupOptionsPresenter: SetupOptionsPopoverPresenter
     private let statusItemController: StatusItemController
@@ -93,12 +93,18 @@ private final class AppComposition {
         webSession.onPageResolved = { [weak runtime] page in
             runtime?.activate(page: page, source: .notionWebSession)
         }
-        let quickCapturePresenter = AppWindowFactory.makeQuickCapture(
-            repository: captureRepository
-        ) { [weak runtime] in
-            guard let page = runtime?.activePage else { return }
-            NSWorkspace.shared.open(page.canonicalURL)
-        }
+        let quickCapturePresenter: any AppWindowPresenting = LazyAppWindowPresenter(
+            makePresenter: {
+                AppWindowFactory.makeQuickCapture(
+                    repository: captureRepository
+                ) { [weak runtime] in
+                    guard let page = runtime?.activePage else { return }
+                    NSWorkspace.shared.open(page.canonicalURL)
+                }
+            },
+            performanceSignposter: AppPerformanceSignposter.shared,
+            firstPresentationOperation: .firstQuickCapturePresentation
+        )
         let settingsPresenter = AppWindowFactory.makeSettings(runtime: runtime)
         let setupOptionsPresenter = SetupOptionsPopoverPresenter(
             runtime: runtime,

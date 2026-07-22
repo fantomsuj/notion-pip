@@ -39,9 +39,7 @@ enum AppWindowFactory {
                 title: "Quick Capture",
                 size: CGSize(width: 520, height: 520),
                 content: content
-            ),
-            performanceSignposter: AppPerformanceSignposter.shared,
-            firstPresentationOperation: .firstQuickCapturePresentation
+            )
         )
     }
 
