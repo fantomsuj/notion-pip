@@ -1,0 +1,57 @@
+:root {
+  color-scheme: light dark;
+  --background: Canvas;
+  --surface: color-mix(in srgb, CanvasText 5%, Canvas);
+  --text: CanvasText;
+  --secondary: color-mix(in srgb, CanvasText 62%, Canvas);
+  --border: color-mix(in srgb, CanvasText 18%, Canvas);
+  --accent: AccentColor;
+  --danger: #c42b2b;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--background); color: var(--text); }
+main { display: grid; gap: 8px; min-height: 280px; padding: 12px; }
+input, button { font: inherit; color: inherit; }
+#title {
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 7px 4px;
+}
+.toolbar { display: flex; flex-wrap: wrap; gap: 4px; }
+button {
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 4px 8px;
+}
+button.primary { background: var(--accent); color: Canvas; border-color: transparent; }
+button:hover { filter: brightness(1.08); }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+#editor {
+  min-height: 140px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+#editor .tiptap { min-height: 120px; outline: none; }
+#editor .tiptap > :first-child { margin-top: 0; }
+#editor .tiptap > :last-child { margin-bottom: 0; }
+footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+#status { color: var(--secondary); font-size: 12px; margin-right: auto; }
+#status[data-state="error"] { color: var(--danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

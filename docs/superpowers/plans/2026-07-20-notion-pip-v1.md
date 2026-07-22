@@ -1,0 +1,362 @@
+# Notion Picture-in-Picture v1 Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build a macOS 14+ menu-bar app that pins one real Notion page in a durable floating panel, provides loss-resistant native Quick Capture, and surfaces pinned, drafted, captured, and Notion-search history.
+
+**Architecture:** A SwiftPM-first native executable keeps the local development loop reproducible while producing a real `.app` bundle through `script/build_and_run.sh`. SwiftUI owns menu-bar, picker, capture, and settings presentation; narrow AppKit adapters own the single `NSPanel`, persistent Notion `WKWebView`, application URL events, global Carbon hotkey, save panels, and authentication presentation. SwiftData is isolated behind repositories that expose immutable value snapshots, and a dedicated Cloudflare Worker holds OAuth secrets/refresh credentials while capture content travels directly from the app to Notion.
+
+**Tech Stack:** Swift 6.2, SwiftUI, AppKit, WebKit, SwiftData, AuthenticationServices, Security, Carbon, Swift Testing/XCTest, TypeScript 7, Tiptap 3.28, esbuild, Cloudflare Workers/Durable Objects, Node test runner, Playwright.
+
+## Global Constraints
+
+- Deployment target is macOS 14.0; do not use macOS 15+ window APIs without guarded fallbacks.
+- Build with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` because system `xcode-select` still points at Command Line Tools.
+- The current private repository `fantomsuj/notion-pip` and target `origin/master` are the execution destination; do not rename the Conductor branch or remote.
+- Behavioral upstream is `fantomsuj/notion-quick-note` commit `72cd9d194bb4478adbf072188e6388bd9a8f8ab6`, MIT licensed, and is not a runtime dependency.
+- Use system fonts or appropriately licensed Inter only. Do not copy NotionInter files, Notion editor assets, remote fonts, decorative glass, or gradients.
+- Use semantic adaptive colors, accessible blue actions, a 4-point spacing grid, 6/8/10-point radii, shallow border-first elevation, visible focus, keyboard access, reduced-motion behavior, and 12–15-point control/metadata type.
+- The app supports one personal Notion workspace, one active PiP page, one active draft, and any number of stashed drafts.
+- Tokens and private signing material live only in Keychain/Worker storage. They must never enter SwiftData, `UserDefaults`, URLs, logs, WebView messages, export files, or the Notion WebView.
+- The OAuth Worker is credential-only. Page search, capture bodies, provisioning, and delivery travel app-to-Notion directly.
+- Preserve queued, in-flight, retrying, blocked-conflict, and uncertain work. Retain ordinary delivered history and abandoned drafts for 30 days.
+- `notion-pip://pin?url=<canonical-url>&source=<source>` is the only cross-app page handoff. Its `source` is untrusted UX metadata.
+- One Conductor run is allowed at a time because the bundle identifier and local store are shared.
+- Production behavior is test-first: every new domain/service behavior gets a failing test, an observed expected failure, minimal implementation, and a passing rerun before refactoring.
+
+---
+
+## File and Module Map
+
+```text
+Package.swift
+Sources/NotionPiP/
+  App/                         # @main app, AppDelegate, dependency bootstrap
+  Domain/                      # Sendable values, canonicalizers, reducers, policies
+  Persistence/                 # SwiftData schema, migration plan, repositories
+  Services/                    # OAuth, Keychain, Notion HTTP, queue orchestration
+  Platform/                    # NSPanel, WebKit, Carbon, pasteboard, save panels
+  Views/                       # Menu bar, picker, capture, settings, panel chrome
+  Resources/QuickCapture/      # locally bundled HTML/CSS/generated editor JS
+Tests/NotionPiPTests/          # domain, persistence, services, platform contract tests
+Web/QuickCaptureEditor/        # Tiptap source, build entrypoint, browser tests
+Worker/                        # typed Cloudflare OAuth broker and tests
+ChromeExtension/              # isolated notion.so PiP handoff and fixtures
+script/build_and_run.sh        # kill, build, stage, sign, launch, verify/log modes
+.codex/environments/environment.toml
+.conductor/settings.toml
+docs/UPSTREAM_REUSE.md
+docs/HANDOFF_PROTOCOL.md
+docs/OAUTH_WORKER.md
+docs/MANUAL_TEST_MATRIX.md
+```
+
+Dependency direction is `Domain <- Persistence <- Services <- App`, while platform adapters depend on Domain/Services protocols and the UI depends on snapshots rather than live SwiftData models.
+
+### Task 1: Reproducible native shell and URL/history domain
+
+**Files:**
+- Create: `Package.swift`, `.gitignore`, `README.md`
+- Create: `Sources/NotionPiP/App/NotionPiPApp.swift`, `Sources/NotionPiP/App/AppDelegate.swift`, `Sources/NotionPiP/App/AppRuntime.swift`
+- Create: `Sources/NotionPiP/Domain/NotionPageReference.swift`, `ExternalURLRoute.swift`, `HistoryAssembler.swift`, `DesignTokens.swift`
+- Create: `Sources/NotionPiP/Views/MenuBarRootView.swift`, `SettingsView.swift`, `PageURLField.swift`
+- Create: `Tests/NotionPiPTests/NotionPageReferenceTests.swift`, `ExternalURLRouteTests.swift`, `HistoryAssemblerTests.swift`
+- Create: `script/build_and_run.sh`, `.codex/environments/environment.toml`, `.conductor/settings.toml`, `Support/NotionPiP.entitlements`
+- Create: `docs/UPSTREAM_REUSE.md`, `docs/HANDOFF_PROTOCOL.md`
+
+**Interfaces:**
+- Produces `NotionPageReference.init(validating: URL) throws`, with `pageID: String`, `canonicalURL: URL`, and `displayTitle: String?`.
+- Produces `ExternalURLRoute.parse(_:) -> Result<ExternalURLRoute, ExternalURLRouteError>` where `.pin(page:source:)` is the only public route.
+- Produces `HistoryAssembler.sections(input:query:limit:) -> [HistorySection]` with precedence Pinned, Drafts, Captured, From Notion and page-ID deduplication.
+- Produces a launchable menu-bar shell and the single project-local build entrypoint.
+
+- [ ] **Step 1: Write URL and history tests first**
+
+  Cover slugged and bare 32-hex page IDs, hyphenated UUIDs, query/fragment stripping, `www.notion.so` host normalization, credential rejection, non-HTTPS rejection, wrong hosts, workspace/home/search URLs without a page ID, oversized input, percent-encoded protocol URLs, unknown actions/sources, stable precedence, case-insensitive search, descending timestamps, five-row limiting, and page-ID deduplication.
+
+- [ ] **Step 2: Verify RED**
+
+  Run `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter 'NotionPageReferenceTests|ExternalURLRouteTests|HistoryAssemblerTests'` and confirm compilation fails only because the declared production types do not exist.
+
+- [ ] **Step 3: Implement the minimal pure domain**
+
+  Extract the final 32 hexadecimal characters (hyphens ignored) from the last Notion path component, reject `user`/`password`, normalize to `https://www.notion.so/<original-slug-or-id>` without query/fragment, and dedupe using the lowercase 32-hex ID. Keep history inputs as immutable `Sendable` values with explicit source and timestamp fields.
+
+- [ ] **Step 4: Build the menu-bar shell and project scripts**
+
+  Use an intentional accessory app and `MenuBarExtra(...).menuBarExtraStyle(.window)`, plus `Settings`. The build script must kill `NotionPiP`, run the editor build when dependencies exist, invoke SwiftPM through full Xcode, stage `dist/NotionPiP.app`, write `CFBundleURLTypes` for `notion-pip`, include `LSUIElement`, copy SwiftPM resource bundles, ad-hoc sign with `Support/NotionPiP.entitlements`, launch with `/usr/bin/open -n`, and support `--debug`, `--logs`, `--telemetry`, and `--verify`.
+
+- [ ] **Step 5: Verify GREEN and the bundle contract**
+
+  Run `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`, `./script/build_and_run.sh --verify`, `plutil -p dist/NotionPiP.app/Contents/Info.plist`, and `codesign -dvvv --entitlements :- dist/NotionPiP.app`; confirm zero test failures, a live process, the scheme registration, macOS 14 floor, accessory policy, bundle identifier, sandbox/network/export entitlements, and an ad-hoc development signature.
+
+- [ ] **Step 6: Commit**
+
+  Commit as `feat: scaffold native notion pip shell`.
+
+### Task 2: Single floating PiP panel and desktop handoffs
+
+**Files:**
+- Create: `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift`, `PanelFramePolicy.swift`, `NotionWebSession.swift`, `NotionWebView.swift`, `GlobalShortcutRegistrar.swift`, `PasteboardReading.swift`
+- Create: `Sources/NotionPiP/Views/PiPChromeView.swift`, `PagePickerView.swift`
+- Modify: `Sources/NotionPiP/App/AppDelegate.swift`, `AppRuntime.swift`, `NotionPiPApp.swift`, `MenuBarRootView.swift`
+- Test: `Tests/NotionPiPTests/PanelFramePolicyTests.swift`, `PinCoordinatorTests.swift`, `ClipboardPinTests.swift`
+
+**Interfaces:**
+- Produces `@MainActor PiPPanelCoordinator.show(page:)`, `hide()`, and `replace(page:)` owning exactly one `NSPanel` and one `NotionWebSession`.
+- Produces `PanelFramePolicy.clamped(_:visibleFrames:) -> CGRect` for monitor removal/restoration.
+- Produces `GlobalShortcutRegistering` and a Carbon implementation registering configurable `⌘⇧P` without Accessibility permission.
+- Consumes Task 1 canonical routes; invalid clipboard input focuses `PageURLField` and never clears the active page.
+
+- [ ] **Step 1: Write failing policy/coordinator tests**
+
+  Assert off-screen frame clamping, same-page deduplication, replacement rather than a second panel, valid clipboard routing, invalid clipboard fallback, buffered open-URL delivery before runtime binding, and 30-character menu display truncation.
+
+- [ ] **Step 2: Verify RED**
+
+  Run the focused tests and observe missing policy/coordinator failures.
+
+- [ ] **Step 3: Implement the narrow AppKit boundary**
+
+  Create a titled, closable, resizable key-capable `NSPanel` with `.floating`, `[.canJoinAllSpaces, .fullScreenAuxiliary]`, `hidesOnDeactivate = false`, `isReleasedWhenClosed = false`, autosave name `NotionPiPPanel`, and a clamped default/restored frame. Closing orders out without releasing the WebView. `WKWebsiteDataStore.default()` persists Notion cookies, and no capture bridge or API token is installed in this WebView.
+
+- [ ] **Step 4: Wire URL events, hotkey, pasteboard, and panel actions**
+
+  Route application `open URLs`, menu pin entry, picker rows, and the global shortcut through one `PinCoordinator`. The hotkey reads the pasteboard once; a canonical page replaces the panel and foregrounds it, otherwise the menu/picker URL entry receives focus.
+
+- [ ] **Step 5: Verify app behavior**
+
+  Run focused tests, full Swift tests, and `./script/build_and_run.sh --verify`. Open a sample canonical page through `/usr/bin/open 'notion-pip://pin?...'` and inspect runtime telemetry for one accepted route and one panel show event, without logging the full URL query.
+
+- [ ] **Step 6: Commit**
+
+  Commit as `feat: add floating notion panel and handoffs`.
+
+### Task 3: SwiftData drafts, durable queue, recovery, and export
+
+**Files:**
+- Create: `Sources/NotionPiP/Persistence/NotionPiPSchema.swift`, `CaptureDraftModel.swift`, `CaptureRecordModel.swift`, `PinnedPageModel.swift`, `RecentPageModel.swift`, `CaptureRepository.swift`, `PageRepository.swift`
+- Create: `Sources/NotionPiP/Domain/CaptureSnapshot.swift`, `DeliveryState.swift`, `RetryPolicy.swift`, `CaptureExport.swift`
+- Create: `Sources/NotionPiP/Services/DeliveryEngine.swift`
+- Test: `Tests/NotionPiPTests/SchemaMigrationTests.swift`, `CaptureRepositoryTests.swift`, `DeliveryEngineTests.swift`, `CaptureExportTests.swift`, `RetentionPolicyTests.swift`
+
+**Interfaces:**
+- `CaptureRepository.saveDraft(_:expectedRevision:)` rejects stale revisions and returns the incremented immutable snapshot.
+- `CaptureRepository.enqueue(draftID:expectedRevision:)` atomically creates one idempotent record and retires/stashes the correct draft.
+- `DeliveryEngine.drain()` serializes claims and transitions among `queued`, `inFlight`, `delivered`, `retrying`, `blockedConflict`, and `uncertain`.
+- `CaptureExport.json(records:drafts:)` and `.markdown(...)` include recovery content but recursively remove credential-shaped fields.
+
+- [ ] **Step 1: Write failing repository/state-machine tests**
+
+  Cover schema reopen, one active draft, stashed return, revision conflicts, atomic draft-to-record conversion, repeated-save idempotency, one claimant, 401 reconnect pause, 408/5xx managed verify-before-retry, ambiguous manual append to uncertain, 409 conflict, 429 `Retry-After`, bounded backoff, seven-day attention, interrupted in-flight startup recovery, 30-day ordinary cleanup, unresolved-work preservation, and JSON/Markdown redaction.
+
+- [ ] **Step 2: Verify RED**
+
+  Run each new suite independently and observe expected missing-type/behavior failures.
+
+- [ ] **Step 3: Implement versioned persistence**
+
+  Define V1 `VersionedSchema` and `SchemaMigrationPlan`; use single-field unique stable IDs compatible with macOS 14. Store editor/source documents as canonical JSON `Data`, stable raw enum strings, attempts, next-attempt timestamps, fingerprints, operation journal, remote identity, and safe errors. Keep SwiftData models actor-confined and return `Sendable` snapshots.
+
+- [ ] **Step 4: Implement serialized delivery and recovery policies**
+
+  Persist `inFlight` before network work, reconcile managed creates by Capture ID before retry, never blindly retry ambiguous manual append, journal block replacement before archive, recover every `inFlight` record on launch, and prune only ordinary delivered/abandoned items after 30 days.
+
+- [ ] **Step 5: Implement recovery export and verify GREEN**
+
+  Use deterministic JSON ordering and Markdown conversion for supported Tiptap nodes, include unknown-node JSON in the recovery appendix, strip token/key/secret/authorization fields recursively, then run focused tests and full Swift tests.
+
+- [ ] **Step 6: Commit**
+
+  Commit as `feat: add durable capture persistence and queue`.
+
+### Task 4: Bundled Tiptap Quick Capture and typed bridge
+
+**Files:**
+- Create: `package.json`, `package-lock.json`, `tsconfig.json`
+- Create: `Web/QuickCaptureEditor/editor.ts`, `protocol.ts`, `editor.test.ts`, `build.ts`
+- Create: `Sources/NotionPiP/Resources/QuickCapture/index.html`, `composer.css`
+- Create: `Sources/NotionPiP/Platform/CaptureEditorSession.swift`, `CaptureBridgeProtocol.swift`, `WeakScriptMessageHandler.swift`
+- Create: `Sources/NotionPiP/Views/QuickCaptureView.swift`, `CaptureStatusView.swift`, `ConflictRecoveryView.swift`
+- Modify: `Package.swift`, `script/build_and_run.sh`, `NotionPiPApp.swift`, `MenuBarRootView.swift`
+- Test: `Tests/NotionPiPTests/CaptureBridgeProtocolTests.swift`, `CaptureEditorFlowTests.swift`
+
+**Interfaces:**
+- Versioned bridge messages are only `ready`, `changed(snapshot, expectedRevision)`, `save`, `stash`, `restore`, and `resolveConflict`; every request has an ID and every reply has typed success/error.
+- Native code caps messages at 1 MiB, validates main-frame/local resource origin, rejects unknown fields/types, and never returns credentials or a generic method dispatcher.
+- Tiptap outputs canonical ProseMirror JSON compatible with Task 3 export/conversion.
+
+- [ ] **Step 1: Write failing TypeScript and Swift bridge tests**
+
+  Cover canonical document normalization, toolbar commands, debounced changed messages, correlation IDs, malformed/oversized/unknown messages, stale-revision replies, stash/restore, save acknowledgment loss reconciliation, and bridge isolation from the Notion WebView.
+
+- [ ] **Step 2: Verify RED in both runtimes**
+
+  Run `npm test -- --test-name-pattern='editor|bridge'` and focused Swift tests; observe failures caused by missing editor/bridge implementation.
+
+- [ ] **Step 3: Build the local editor**
+
+  Bundle pinned Tiptap 3.28 dependencies with esbuild into app resources. Use a CSP with no remote fonts/network, system font stack, semantic light/dark CSS variables, visible focus, reduced motion, and the approved compact spacing/radii. Do not copy upstream NotionInter or brand assets.
+
+- [ ] **Step 4: Implement the native bridge and composer flow**
+
+  Keep a separate nonpersistent `WKWebViewConfiguration`, install only the weak typed handler, make native persistence authoritative, autosave acknowledged revisions, preserve current work on stale writes, and expose Reload latest, Save as new, and Open in Notion for conflicts.
+
+- [ ] **Step 5: Verify GREEN and relaunch recovery**
+
+  Run TypeScript tests, Swift tests, build the `.app`, create/edit/stash a draft, terminate the process after an acknowledged change, relaunch, and confirm the same revision/content is restored.
+
+- [ ] **Step 6: Commit**
+
+  Commit as `feat: add durable quick capture editor`.
+
+### Task 5: Keychain, native OAuth, Notion API, provisioning, and history picker
+
+**Files:**
+- Create: `Sources/NotionPiP/Services/CredentialVault.swift`, `KeychainCredentialVault.swift`, `DeviceSigningKey.swift`, `OAuthBrokerClient.swift`, `OAuthSessionCoordinator.swift`, `NotionAPIClient.swift`, `NotionBlockConverter.swift`, `NotionProvisioner.swift`, `NotionDeliveryService.swift`
+- Create: `Sources/NotionPiP/Domain/OAuthContracts.swift`, `NotionBlocks.swift`, `ConnectionSnapshot.swift`
+- Modify: `SettingsView.swift`, `PagePickerView.swift`, `MenuBarRootView.swift`, `AppRuntime.swift`, `DeliveryEngine.swift`
+- Test: `Tests/NotionPiPTests/KeychainCredentialVaultTests.swift`, `OAuthBrokerClientTests.swift`, `OAuthSessionCoordinatorTests.swift`, `NotionBlockConverterTests.swift`, `NotionAPIClientTests.swift`, `NotionProvisionerTests.swift`, `HistoryIntegrationTests.swift`
+
+**Interfaces:**
+- `CredentialVault` stores one access-token/expiry/connection-handle record plus a non-synchronizing device signing-key reference.
+- `OAuthBrokerClient` supports health, native start, one-time claim, refresh, revoke, and retire with no-store typed responses.
+- `NotionAPIClient` supports search, retrieve, create page, append children, update blocks, query Capture ID, and managed database provisioning with injected transport/clock.
+- The picker always renders local Pinned, Drafts, and Captured groups; From Notion is additive, sorted by `last_edited_time`, and failure never erases local rows.
+
+- [ ] **Step 1: Write failing security, codec, and transport tests**
+
+  Use a fake credential vault, URLProtocol transport, fixed clock/nonces, and JSON fixtures. Cover callback state mismatch, handoff replay/expiry, refresh coalescing and account binding, revoke cleanup despite network failure, token redaction, 2,000-character rich text, 100-child batches, unsupported nodes, strict 2xx response validation, 401 refresh once, 429 delay, Capture ID query, provisioning marker recovery, schema repair once, conflict fingerprints, pagination, remote sorting, and offline local-history retention.
+
+- [ ] **Step 2: Verify RED**
+
+  Run each service suite and observe expected missing behavior failures.
+
+- [ ] **Step 3: Implement Keychain and OAuth client**
+
+  Use `kSecClassGenericPassword`, a stable bundle-scoped service, `kSecAttrSynchronizable = false`, and this-device-only accessibility for private device material. `ASWebAuthenticationSession` receives only `notion-pip://oauth/callback?handoff=...&state=...`; claim occurs over HTTPS with signed proof and atomically replaces the Keychain record only when the connection generation still matches.
+
+- [ ] **Step 4: Implement typed Notion delivery/provisioning**
+
+  Use direct `api.notion.com` HTTPS with an explicit Notion API version verified against upstream at implementation time, 15-second deadlines, strict allowlisted decoding, refresh-once, block limits, private Quick Notes database marker/schema/Capture ID metadata, managed verify-before-retry, and update fingerprints/journals.
+
+- [ ] **Step 5: Complete settings and grouped history UI**
+
+  Add connect/reconnect/disconnect health state, destination settings, five immediate recent items, full searchable Pinned/Drafts/Captured/From Notion sections, one-action pin/open, and onboarding copy explaining API sharing versus direct URL access.
+
+- [ ] **Step 6: Verify GREEN**
+
+  Run all focused suites, full Swift tests, and the app build. Inspect unified logs for redaction by grepping test sentinel tokens and require zero matches.
+
+- [ ] **Step 7: Commit**
+
+  Commit as `feat: add notion oauth delivery and history`.
+
+### Task 6: Dedicated Cloudflare native OAuth broker
+
+**Files:**
+- Create: `Worker/package.json`, `Worker/package-lock.json`, `Worker/tsconfig.json`, `Worker/wrangler.toml.example`
+- Create: `Worker/src/contracts.ts`, `crypto.ts`, `oauth-session.ts`, `index.ts`
+- Create: `Worker/tests/oauth-worker.test.ts`, `golden-vectors.test.ts`
+- Create: `docs/OAUTH_WORKER.md`
+
+**Interfaces:**
+- Routes are `GET /health`, `POST /native/start`, `GET /native/callback`, `POST /native/claim`, `POST /native/refresh`, `POST /native/revoke`, and `POST /native/retire`.
+- `/native/start` accepts a P-256 public JWK and protocol version but no caller redirect; the callback is fixed configuration.
+- State is at least 32 random bytes and expires in 10 minutes; the opaque handoff is at least 32 bytes, device-bound, one-time, and expires within 120 seconds.
+- Device proofs use documented canonical strings, timestamp tolerance, nonce replay protection, and P-256/SHA-256 golden vectors shared with Swift.
+
+- [ ] **Step 1: Port and adapt upstream tests before Worker code**
+
+  Begin from upstream OAuth test behavior but replace Chrome extension origin/redirect assertions with exact native route/redirect contracts. Add callback state atomic consume, failed-attempt consume, handoff claim replay/expiry/forgery, AES-GCM at-rest refresh tokens, refresh rotation lease, nonce replay, revoke/retire cleanup, body limits, deadlines, stable error codes, no-store headers, response allowlists, and token/code/secret/handoff log redaction.
+
+- [ ] **Step 2: Verify RED**
+
+  Run `npm --prefix Worker test` and confirm missing-route/module failures.
+
+- [ ] **Step 3: Implement the Worker core**
+
+  Fork the audited Durable Object/encryption/rate-limit patterns from upstream commit `72cd9d1`, keep Worker custody limited to OAuth, hard-code/allowlist the configured HTTPS callback and `notion-pip://oauth/callback`, consume state/handoff before external work or mismatch returns, and never return refresh tokens.
+
+- [ ] **Step 4: Verify GREEN and type safety**
+
+  Run `npm --prefix Worker run typecheck` and `npm --prefix Worker test`; require all replay/expiry/redaction tests to pass without credentials.
+
+- [ ] **Step 5: Commit**
+
+  Commit as `feat: add native oauth broker worker`.
+
+### Task 7: Isolated Chrome notion.so PiP handoff
+
+**Files:**
+- Create: `ChromeExtension/src/notion-pip-button.ts`, `canonical-page.ts`, `install-guidance.ts`
+- Create: `ChromeExtension/tests/notion-pip-button.test.ts`, `ChromeExtension/tests/fixtures/notion-page.html`
+- Create: `ChromeExtension/README.md`, `ChromeExtension/notion-quick-note.patch`
+- Modify: root `package.json`, `package-lock.json`
+
+**Interfaces:**
+- The isolated script runs only on exact configured Notion hosts, derives the top-frame canonical URL from `location`, and invokes only `notion-pip://pin?...&source=chrome-extension` from a direct user gesture.
+- The button has a stable accessible name, survives SPA chrome rerenders without duplication, and shows nonblocking installation guidance when a focus/visibility heuristic does not observe handoff.
+- The patch applies to upstream `72cd9d1` without changing capture/OAuth/delivery logic.
+
+- [ ] **Step 1: Write failing DOM/fixture tests**
+
+  Cover delayed Notion chrome, duplicate prevention, SPA navigation/reinsertion, exact host/page filtering, canonical encoding, accessible focus/keyboard activation, direct-user-gesture launch, reinjection, missing-app guidance, and no mutation on non-Notion pages.
+
+- [ ] **Step 2: Verify RED**
+
+  Run the ChromeExtension tests and observe missing integration failures.
+
+- [ ] **Step 3: Implement the isolated integration and patch**
+
+  Use extension-owned DOM markers and restrained styling, no page-world trust, no `<all_urls>`, no capture module imports, and no page navigation disruption. Generate a reviewable patch against the pinned upstream source and document application/testing commands.
+
+- [ ] **Step 4: Verify GREEN**
+
+  Run Node tests and Playwright fixture tests, apply the patch to a disposable copy of upstream `72cd9d1`, then run upstream `npm run check` and require the existing 196 Node/70 Playwright baseline plus the new PiP cases.
+
+- [ ] **Step 5: Commit**
+
+  Commit as `feat: add chrome notion pip handoff`.
+
+### Task 8: Accessibility, relaunch chaos, signing, and release handoff
+
+**Files:**
+- Create: `Tests/NotionPiPTests/EndToEndRecoveryTests.swift`, `Tests/NotionPiPTests/AccessibilityContractTests.swift`
+- Create: `docs/MANUAL_TEST_MATRIX.md`, `docs/SECURITY.md`, `docs/RELEASE.md`
+- Modify: views/resources/scripts/configuration as findings require
+
+**Interfaces:**
+- `script/check.sh` runs editor, Worker, extension, Swift, bundle, signing, lint, and redaction checks without live credentials.
+- Manual matrix records evidence for WebKit sign-in/edit persistence, panel level/Spaces/fullscreen/multi-display behavior, hotkey/clipboard, custom scheme, reduced motion, light/dark, VoiceOver/keyboard, OAuth staging, conflicts, offline/relaunch, and export.
+
+- [ ] **Step 1: Write failure-injection and accessibility contract tests**
+
+  Terminate/recreate repository/engine at every persisted queue phase, simulate accepted remote response before local commit, stale refresh after reconnect, delayed search after direct pin, WebKit process termination, off-screen saved frames, and export under unresolved states. Assert stable accessibility labels, keyboard paths, focus restoration, truncation, contrast tokens, and reduced-motion flags.
+
+- [ ] **Step 2: Run the full automated gate**
+
+  Run SwiftFormat lint, SwiftLint, full Swift tests, root TypeScript tests, Worker tests/typecheck, extension tests/Playwright, `./script/build_and_run.sh --verify`, `plutil`, `codesign`, and `spctl`; classify failures as compiler, test, runtime, signing, or environment before changing code.
+
+- [ ] **Step 3: Complete the manual matrix where locally possible**
+
+  Verify the panel above Chrome/Slack/VS Code, across Spaces and full-screen auxiliary apps, editor focus, Notion editing persistence, URL replacement, clipboard hotkey, picker grouping/search, draft stash/restore, app relaunch, offline queue recovery, and export. Mark credential/team/notarization checks explicitly pending when secrets or Developer ID identity are absent; do not imply they passed.
+
+- [ ] **Step 4: Inspect signing and entitlements**
+
+  Run `codesign -dvvv --entitlements :- dist/NotionPiP.app`, `plutil -p dist/NotionPiP.app/Contents/Info.plist`, `spctl -a -vv dist/NotionPiP.app`, and `security find-identity -p codesigning -v`. Distinguish ad-hoc local signing from Developer ID/App Store distribution and notarization.
+
+- [ ] **Step 5: Final whole-branch review and verification**
+
+  Review `git diff origin/master...HEAD` against every Global Constraint and task, fix all Critical/Important findings, rerun `script/check.sh`, and record exact passing counts plus any credential-only/manual gaps.
+
+- [ ] **Step 6: Commit**
+
+  Commit as `chore: harden native app release workflow`.
+
+## Self-Review Results
+
+- Spec coverage: all source reuse, native windowing, handoff, drafts/queue/export, Tiptap bridge, OAuth/Keychain, Notion search/provisioning/delivery, Worker security, Chrome integration, tests, Conductor configuration, signing, and manual acceptance requirements map to Tasks 1–8.
+- Placeholder scan: no implementation placeholder is permitted; credential/team-dependent checks are explicitly classified as external verification gates rather than deferred code.
+- Type consistency: canonical page identity originates in Task 1; panel/handoffs consume it in Task 2; persistence snapshots/states originate in Task 3; bridge consumes those snapshots in Task 4; Notion/OAuth services and picker consume the same IDs/states in Task 5; Worker routes match Task 5 client methods; extension emits only Task 1's protocol.
+- Scope decision: the work stays one release plan because each vertical slice produces a runnable/testable app and the Worker/extension have separate task gates. Live OAuth, real Notion content delivery, Developer ID signing, and notarization require external credentials/identity but do not block credential-free implementation.

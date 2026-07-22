@@ -1,0 +1,19 @@
+{
+  "name": "notion-pip",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --disable-warning=ExperimentalWarning --experimental-strip-types --test Web/**/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build:editor": "node --disable-warning=ExperimentalWarning --experimental-strip-types Web/QuickCaptureEditor/build.ts"
+  },
+  "dependencies": {
+    "@tiptap/core": "3.28.0",
+    "@tiptap/starter-kit": "3.28.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "esbuild": "0.28.1",
+    "typescript": "7.0.2"
+  }
+}
