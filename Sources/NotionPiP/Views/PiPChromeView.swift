@@ -10,7 +10,6 @@ struct PiPChromeView: View {
     @ObservedObject var nativePageDocument: NativePageDocument
     let commandModel: AppCommandModel
     let onStash: () -> Void
-    let onHide: () -> Void
     @State private var surface: Surface = .notion
 
     private enum Surface: String, CaseIterable, Identifiable {
@@ -24,14 +23,12 @@ struct PiPChromeView: View {
         webSession: NotionWebSession,
         nativePageDocument: NativePageDocument,
         commandModel: AppCommandModel = .noOp,
-        onStash: @escaping () -> Void = {},
-        onHide: @escaping () -> Void
+        onStash: @escaping () -> Void = {}
     ) {
         self.webSession = webSession
         self.nativePageDocument = nativePageDocument
         self.commandModel = commandModel
         self.onStash = onStash
-        self.onHide = onHide
     }
 
     var body: some View {
@@ -88,12 +85,6 @@ struct PiPChromeView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(Self.stashAccessibilityLabel)
                 .help(Self.stashHelp)
-
-                Button(action: onHide) {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Hide Notion PiP")
             }
             .padding(.horizontal, DesignTokens.Spacing.control)
             .frame(height: 32)

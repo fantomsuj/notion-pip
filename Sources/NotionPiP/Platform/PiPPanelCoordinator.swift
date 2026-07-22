@@ -86,9 +86,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
                 commandModel: commandModel,
                 onStash: { [weak self] in
                     self?.stash(visibleFrames: NSScreen.screens.map(\.visibleFrame))
-                },
-                onHide: { [weak self] in
-                    self?.hide()
                 }
             )
         )

@@ -147,8 +147,7 @@ final class NotionWebSessionTests: XCTestCase {
         )
         let chrome = PiPChromeView(
             webSession: session,
-            nativePageDocument: NativePageDocument(),
-            onHide: {}
+            nativePageDocument: NativePageDocument()
         )
         let presentation = String(reflecting: chrome.body)
 
@@ -157,12 +156,11 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertFalse(presentation.contains("secret"))
     }
 
-    func testPiPChromeExposesAccessibleToolbarActions() {
+    func testPiPChromeExposesAccessibleToolbarActionsWithoutRedundantHideAction() {
         let chrome = PiPChromeView(
             webSession: NotionWebSession(),
             nativePageDocument: NativePageDocument(),
-            onStash: {},
-            onHide: {}
+            onStash: {}
         )
 
         _ = chrome.body
