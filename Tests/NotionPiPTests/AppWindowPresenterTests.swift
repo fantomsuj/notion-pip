@@ -4,9 +4,14 @@ import XCTest
 
 @MainActor
 final class AppWindowPresenterTests: XCTestCase {
-    func testPresenterShowsAndHidesItsOwnedWindow() {
+    func testPresenterMeasuresOnlyFirstPresentationWhileShowingWindowEveryTime() {
         let window = FakeAppWindow()
-        let presenter = AppWindowPresenter(window: window)
+        let signposter = PerformanceSignposterSpy()
+        let presenter = AppWindowPresenter(
+            window: window,
+            performanceSignposter: signposter,
+            firstPresentationOperation: .firstQuickCapturePresentation
+        )
 
         presenter.show()
         XCTAssertTrue(window.isVisible)
@@ -18,6 +23,10 @@ final class AppWindowPresenterTests: XCTestCase {
         presenter.hide()
         XCTAssertFalse(window.isVisible)
         XCTAssertEqual(window.orderOutCount, 1)
+        XCTAssertEqual(signposter.beginCalls, [.firstQuickCapturePresentation])
+        XCTAssertEqual(signposter.endCalls.count, 1)
+        XCTAssertNotNil(signposter.endCalls.first?.token)
+        XCTAssertEqual(signposter.endCalls.first?.outcome, .success)
     }
 }
 

@@ -8,10 +8,15 @@ struct NotionPiPApp: App {
     private let composition: AppComposition
 
     init() {
+        let coldLaunchToken = AppPerformanceSignposter.shared.begin(.coldLaunchToStatusItem)
         let composition = AppComposition()
         self.composition = composition
         _runtime = StateObject(wrappedValue: composition.runtime)
-        AppStartup.start(runtime: composition.runtime, appDelegate: appDelegate)
+        AppStartup.start(
+            runtime: composition.runtime,
+            appDelegate: appDelegate,
+            coldLaunchToken: coldLaunchToken
+        )
     }
 
     var body: some Scene {
@@ -23,8 +28,17 @@ struct NotionPiPApp: App {
 
 @MainActor
 enum AppStartup {
-    static func start(runtime: AppRuntime, appDelegate: AppDelegate) {
+    static func start(
+        runtime: AppRuntime,
+        appDelegate: AppDelegate,
+        coldLaunchToken: PerformanceIntervalToken? = nil,
+        performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared
+    ) {
         runtime.start()
+        appDelegate.bind(
+            coldLaunchToken: coldLaunchToken,
+            performanceSignposter: performanceSignposter
+        )
         appDelegate.bind {
             await runtime.prepareForTermination()
         }

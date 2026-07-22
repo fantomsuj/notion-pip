@@ -43,10 +43,12 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     private let panel: any PiPPanelWindow
     private let pageLoader: any NotionPageLoading
     private let stashHandle: (any PiPStashHandle)?
+    private let performanceSignposter: (any PerformanceSignposting)?
     private let visibleFramesProvider: @MainActor () -> [CGRect]
     private(set) var currentPage: NotionPageReference?
     private var screenConfigurationObserver: NSObjectProtocol?
     private var activeStashPlacement: PanelStashPlacement?
+    private var didAttemptFirstPresentation = false
 
     var isVisible: Bool {
         panel.isVisible
@@ -55,7 +57,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     convenience init(
         webSession: NotionWebSession = NotionWebSession(),
         nativePageDocument: NativePageDocument = NativePageDocument(),
-        commandModel: AppCommandModel = .noOp
+        commandModel: AppCommandModel = .noOp,
+        performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
         let stashHandle = PiPStashHandleController()
         let visibleFrames = NSScreen.screens.map(\.visibleFrame)
@@ -79,7 +82,12 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             PanelFramePolicy.clamped(panel.frame, visibleFrames: visibleFrames),
             display: false
         )
-        self.init(panel: panel, pageLoader: webSession, stashHandle: stashHandle)
+        self.init(
+            panel: panel,
+            pageLoader: webSession,
+            stashHandle: stashHandle,
+            performanceSignposter: performanceSignposter
+        )
         panel.onClose = { [weak self] in
             self?.pageLoader.panelDidHide()
         }
@@ -100,6 +108,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         panel: any PiPPanelWindow,
         pageLoader: any NotionPageLoading,
         stashHandle: (any PiPStashHandle)? = nil,
+        performanceSignposter: (any PerformanceSignposting)? = nil,
         visibleFramesProvider: @escaping @MainActor () -> [CGRect] = {
             NSScreen.screens.map(\.visibleFrame)
         }
@@ -107,6 +116,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         self.panel = panel
         self.pageLoader = pageLoader
         self.stashHandle = stashHandle
+        self.performanceSignposter = performanceSignposter
         self.visibleFramesProvider = visibleFramesProvider
         screenConfigurationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -126,6 +136,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     }
 
     func show(page: NotionPageReference) {
+        let measurement = beginFirstPresentation()
         if currentPage?.pageID != page.pageID {
             pageLoader.activate(page: page)
             currentPage = page
@@ -134,6 +145,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         }
         dismissStashHandle()
         panel.present()
+        endFirstPresentation(measurement)
         pageLoader.panelDidShow()
         logger.notice("Panel show requested")
     }
@@ -146,8 +158,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
 
     func showCurrentPage() -> Bool {
         guard currentPage != nil else { return false }
+        let measurement = beginFirstPresentation()
         dismissStashHandle()
         panel.present()
+        endFirstPresentation(measurement)
         pageLoader.panelDidShow()
         logger.notice("Existing panel show requested")
         return true
@@ -203,8 +217,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             dismissStashHandle()
             return
         }
+        let measurement = beginFirstPresentation()
         dismissStashHandle()
         panel.present()
+        endFirstPresentation(measurement)
         pageLoader.panelDidShow()
         logger.notice("Panel restored from screen edge")
     }
@@ -233,6 +249,28 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         activeStashPlacement = nil
         guard stashHandle?.isVisible == true else { return }
         stashHandle?.orderOut()
+    }
+
+    private func beginFirstPresentation() -> (
+        signposter: any PerformanceSignposting,
+        token: PerformanceIntervalToken?
+    )? {
+        guard !didAttemptFirstPresentation else { return nil }
+        didAttemptFirstPresentation = true
+        guard let performanceSignposter else { return nil }
+        return (
+            performanceSignposter,
+            performanceSignposter.begin(.firstPiPPresentation)
+        )
+    }
+
+    private func endFirstPresentation(
+        _ measurement: (
+            signposter: any PerformanceSignposting,
+            token: PerformanceIntervalToken?
+        )?
+    ) {
+        measurement?.signposter.end(measurement?.token, outcome: .success)
     }
 
     private func presentStashHandle(

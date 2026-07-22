@@ -54,7 +54,12 @@ final class PinCoordinatorTests: XCTestCase {
     func testPanelCoordinatorHidesWithoutReleasingItsSessionOrCurrentPage() throws {
         let panel = FakePanelWindow()
         let loader = FakePageLoader()
-        let coordinator = PiPPanelCoordinator(panel: panel, pageLoader: loader)
+        let signposter = PerformanceSignposterSpy()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            performanceSignposter: signposter
+        )
         let page = try makePage(id: firstPageID, title: "Roadmap")
 
         coordinator.show(page: page)
@@ -65,6 +70,10 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.presentCount, 2)
         XCTAssertEqual(loader.activatedPages.map(\.pageID), [firstPageID])
         XCTAssertEqual(coordinator.currentPage?.pageID, firstPageID)
+        XCTAssertEqual(signposter.beginCalls, [.firstPiPPresentation])
+        XCTAssertEqual(signposter.endCalls.count, 1)
+        XCTAssertNotNil(signposter.endCalls.first?.token)
+        XCTAssertEqual(signposter.endCalls.first?.outcome, .success)
     }
 
     func testPanelShowHideStashAndRestoreNotifyWebLifecycle() throws {
