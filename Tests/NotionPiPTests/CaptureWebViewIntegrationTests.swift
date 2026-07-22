@@ -415,6 +415,182 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         XCTAssertEqual(normalizedDOMText(result?["body"] as? String), "/hea")
     }
 
+    func testContextualFormattingToolbarShowsActiveStateAboveSelectionAndKeepsEditorFocus() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "format-toolbar-draft",
+                title: "Formatting",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","marks":[{"type":"bold"}],"text":"Selected text"}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        let session = CaptureEditorSession(repository: repository)
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        _ = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            const text = editor.querySelector('strong').firstChild;
+            editor.focus();
+            const range = document.createRange();
+            range.setStart(text, 0);
+            range.setEnd(text, 8);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#format-toolbar').hidden && document.querySelector('[data-format=bold]').getAttribute('aria-pressed') === 'true'"
+        }
+        let result = try await session.webView.callAsyncJavaScript(
+            """
+            const toolbar = document.querySelector('#format-toolbar');
+            const italic = toolbar.querySelector('[data-format=italic]');
+            const selectedBounds = window.getSelection().getRangeAt(0).getBoundingClientRect();
+            const toolbarBounds = toolbar.getBoundingClientRect();
+            italic.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+            italic.click();
+            return {
+              boldPressed: toolbar.querySelector('[data-format=bold]').getAttribute('aria-pressed'),
+              italicPressed: italic.getAttribute('aria-pressed'),
+              aboveSelection: toolbarBounds.bottom <= selectedBounds.top,
+              activeIsEditor: document.activeElement.matches('#editor .tiptap'),
+              italicApplied: Boolean(document.querySelector('#editor .tiptap em')),
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: Any]
+
+        XCTAssertEqual(result?["boldPressed"] as? String, "true")
+        XCTAssertEqual(result?["italicPressed"] as? String, "true")
+        XCTAssertEqual(result?["aboveSelection"] as? Bool, true)
+        XCTAssertEqual(result?["activeIsEditor"] as? Bool, true)
+        XCTAssertEqual(result?["italicApplied"] as? Bool, true)
+    }
+
+    func testContextualFormattingToolbarDismissesOnEscape() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "format-escape-draft",
+                title: "Formatting",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Selected text"}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        let session = CaptureEditorSession(repository: repository)
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        _ = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            const text = editor.querySelector('p').firstChild;
+            editor.focus();
+            const range = document.createRange();
+            range.setStart(text, 0);
+            range.setEnd(text, 8);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#format-toolbar').hidden"
+        }
+        sendWebKey("\u{1b}", keyCode: 53, to: session.webView)
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return document.querySelector('#format-toolbar').hidden"
+        }
+        let selectedText = try await session.webView.callAsyncJavaScript(
+            "return window.getSelection().toString()",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+
+        XCTAssertEqual(selectedText, "Selected")
+    }
+
+    func testPastingHTTPSURLOverSelectionLinksWithoutReplacingText() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "format-link-paste-draft",
+                title: "Formatting",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Selected text"}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        let session = CaptureEditorSession(repository: repository)
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+
+        let result = try await session.webView.callAsyncJavaScript(
+            """
+            const editor = document.querySelector('#editor .tiptap');
+            const text = editor.querySelector('p').firstChild;
+            editor.focus();
+            const range = document.createRange();
+            range.setStart(text, 0);
+            range.setEnd(text, 8);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            const clipboard = new DataTransfer();
+            clipboard.setData('text/plain', 'https://example.com/reference');
+            editor.dispatchEvent(new ClipboardEvent('paste', {
+              bubbles: true,
+              cancelable: true,
+              clipboardData: clipboard,
+            }));
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            const link = editor.querySelector('a');
+            return {
+              body: editor.innerText,
+              href: link?.getAttribute('href') || '',
+              linkedText: link?.textContent || '',
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: String]
+
+        XCTAssertEqual(normalizedDOMText(result?["body"]), "Selected text")
+        XCTAssertEqual(result?["href"], "https://example.com/reference")
+        XCTAssertEqual(result?["linkedText"], "Selected")
+    }
+
     func testMarkdownMarkersCreateHeadingQuoteAndListNodes() async throws {
         let repository = try CaptureRepository(inMemory: true)
         let session = CaptureEditorSession(

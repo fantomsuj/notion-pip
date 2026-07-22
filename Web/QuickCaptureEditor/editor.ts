@@ -20,6 +20,85 @@ import {
 
 export type ToolbarCommand = "bold" | "italic" | "heading" | "bulletList" | "orderedList";
 
+export type FormattingCommand = "bold" | "italic" | "underline" | "strike" | "code" | "link";
+
+export interface FormattingStateEditor {
+  isActive(mark: string): boolean;
+}
+
+export interface FormattingState {
+  readonly bold: boolean;
+  readonly italic: boolean;
+  readonly underline: boolean;
+  readonly strike: boolean;
+  readonly code: boolean;
+  readonly link: boolean;
+}
+
+export function formattingState(editor: FormattingStateEditor): FormattingState {
+  return {
+    bold: editor.isActive("bold"),
+    italic: editor.isActive("italic"),
+    underline: editor.isActive("underline"),
+    strike: editor.isActive("strike"),
+    code: editor.isActive("code"),
+    link: editor.isActive("link"),
+  };
+}
+
+export interface FormattingCommandTarget {
+  focus(): FormattingCommandTarget;
+  toggleBold(): FormattingCommandTarget;
+  toggleItalic(): FormattingCommandTarget;
+  toggleUnderline(): FormattingCommandTarget;
+  toggleStrike(): FormattingCommandTarget;
+  toggleCode(): FormattingCommandTarget;
+  toggleLink(attributes?: { href: string }): FormattingCommandTarget;
+  run(): boolean;
+}
+
+export interface FormattingEditor {
+  chain(): FormattingCommandTarget;
+}
+
+export function executeFormattingCommand(
+  editor: FormattingEditor,
+  command: string,
+  href?: string,
+): boolean {
+  if (!["bold", "italic", "underline", "strike", "code", "link"].includes(command)) {
+    return false;
+  }
+  const chain = editor.chain().focus();
+  switch (command) {
+    case "bold": return chain.toggleBold().run();
+    case "italic": return chain.toggleItalic().run();
+    case "underline": return chain.toggleUnderline().run();
+    case "strike": return chain.toggleStrike().run();
+    case "code": return chain.toggleCode().run();
+    case "link": return href === undefined
+      ? chain.toggleLink().run()
+      : chain.toggleLink({ href }).run();
+    default: return false;
+  }
+}
+
+export interface LinkPasteSelection {
+  readonly empty: boolean;
+}
+
+export function isLinkPaste(selection: LinkPasteSelection, text: string): boolean {
+  if (selection.empty) return false;
+  const candidate = text.trim();
+  if (candidate.length === 0 || /\s/.test(candidate)) return false;
+  try {
+    const url = new URL(candidate);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export type BlockCommandID =
   | "text"
   | "heading1"
@@ -595,19 +674,22 @@ function bootstrap(): void {
   const titleElement = document.querySelector<HTMLInputElement>("#title");
   const statusElement = document.querySelector<HTMLElement>("#status");
   const slashMenuElement = document.querySelector<HTMLElement>("#slash-menu");
+  const formatToolbarElement = document.querySelector<HTMLElement>("#format-toolbar");
   if (bridge === undefined
       || editorElement === null
       || titleElement === null
       || statusElement === null
-      || slashMenuElement === null) return;
+      || slashMenuElement === null
+      || formatToolbarElement === null) return;
   const titleInput = titleElement;
   const status = statusElement;
   const slashMenu = slashMenuElement;
+  const formatToolbar = formatToolbarElement;
   const pageElement = document.querySelector<HTMLElement>("#page");
   const newNoteButton = document.querySelector<HTMLButtonElement>("#new-note");
   const retryButton = document.querySelector<HTMLButtonElement>("#retry");
   const formattingButtons = Array.from(
-    document.querySelectorAll<HTMLButtonElement>("[data-command]"),
+    formatToolbar.querySelectorAll<HTMLButtonElement>("[data-format]"),
   );
 
   let snapshot: EditorSnapshot = {
@@ -625,7 +707,12 @@ function bootstrap(): void {
   const editor = new Editor({
     element: editorElement,
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        link: {
+          openOnClick: false,
+          linkOnPaste: false,
+        },
+      }),
       Placeholder.configure({ placeholder: "Type '/' for commands" }),
       TaskList,
       TaskItem.configure({ nested: true }),
@@ -641,6 +728,11 @@ function bootstrap(): void {
         "aria-haspopup": "listbox",
       },
       handleKeyDown: (view, event) => {
+        if (event.key === "Escape" && !formatToolbar.hidden) {
+          event.preventDefault();
+          closeFormattingToolbar();
+          return true;
+        }
         const overlayRoute = routeOverlayKey({ key: event.key, isOpen: !slashMenu.hidden });
         if (overlayRoute !== "none") {
           event.preventDefault();
@@ -681,14 +773,27 @@ function bootstrap(): void {
         titleInput.setSelectionRange(titleInput.value.length, titleInput.value.length);
         return true;
       },
+      handlePaste: (view, event) => {
+        const { selection } = view.state;
+        const text = event.clipboardData?.getData("text/plain") ?? "";
+        const selectedText = view.state.doc.textBetween(selection.from, selection.to);
+        if (selectedText.length === 0 || !isLinkPaste(selection, text)) return false;
+        editor.chain().focus().setLink({ href: text.trim() }).run();
+        return true;
+      },
     },
     autofocus: false,
     editable: false,
     onTransaction: ({ editor: updatedEditor }) => {
       refreshSlashMenu(updatedEditor);
+      refreshFormattingToolbar(updatedEditor);
+    },
+    onFocus: ({ editor: focusedEditor }) => {
+      refreshFormattingToolbar(focusedEditor);
     },
     onBlur: ({ editor: blurredEditor }) => {
       closeSlashMenu(blurredEditor);
+      closeFormattingToolbar();
     },
     onUpdate: ({ editor: updatedEditor }) => {
       if (applyingNativeSnapshot || transitionLocked || snapshot.draftID.length === 0) return;
@@ -727,6 +832,40 @@ function bootstrap(): void {
     slashMenu.removeAttribute("aria-activedescendant");
     activeEditor.view.dom.setAttribute("aria-expanded", "false");
     activeEditor.view.dom.removeAttribute("aria-activedescendant");
+  }
+
+  function closeFormattingToolbar(): void {
+    formatToolbar.hidden = true;
+  }
+
+  function refreshFormattingToolbar(activeEditor: Editor): void {
+    const { selection } = activeEditor.state;
+    const selectedText = activeEditor.state.doc.textBetween(selection.from, selection.to);
+    if (!activeEditor.isEditable
+        || transitionLocked
+        || !activeEditor.isFocused
+        || selection.empty
+        || selectedText.length === 0) {
+      closeFormattingToolbar();
+      return;
+    }
+
+    const active = formattingState(activeEditor);
+    formattingButtons.forEach((button) => {
+      const command = button.dataset.format as FormattingCommand | undefined;
+      button.setAttribute("aria-pressed", String(command !== undefined && active[command]));
+    });
+    formatToolbar.hidden = false;
+
+    const parentRect = pageElement?.getBoundingClientRect()
+      ?? formatToolbar.offsetParent?.getBoundingClientRect();
+    if (parentRect === undefined) return;
+    const start = activeEditor.view.coordsAtPos(selection.from);
+    const end = activeEditor.view.coordsAtPos(selection.to);
+    const selectionCenter = (Math.min(start.left, end.left) + Math.max(start.right, end.right)) / 2;
+    const left = selectionCenter - parentRect.left - formatToolbar.offsetWidth / 2;
+    formatToolbar.style.left = `${Math.max(0, Math.min(left, parentRect.width - formatToolbar.offsetWidth))}px`;
+    formatToolbar.style.top = `${Math.max(0, Math.min(start.top, end.top) - parentRect.top - formatToolbar.offsetHeight - 8)}px`;
   }
 
   function refreshSlashMenu(activeEditor: Editor): void {
@@ -833,7 +972,10 @@ function bootstrap(): void {
     editor.setEditable(!transitionLocked);
     if (newNoteButton !== null) newNoteButton.disabled = transitionLocked;
     formattingButtons.forEach((button) => { button.disabled = transitionLocked; });
-    if (transitionLocked) closeSlashMenu(editor);
+    if (transitionLocked) {
+      closeSlashMenu(editor);
+      closeFormattingToolbar();
+    }
   }
 
   function applyPendingLaunchFocus(): void {
@@ -875,7 +1017,26 @@ function bootstrap(): void {
     focusBody("start");
   });
   formattingButtons.forEach((button) => {
-    button.addEventListener("click", () => executeToolbarCommand(editor, button.dataset.command ?? ""));
+    const retainEditorFocus = (event: Event): void => { event.preventDefault(); };
+    button.addEventListener("pointerdown", retainEditorFocus);
+    button.addEventListener("mousedown", retainEditorFocus);
+    button.addEventListener("click", () => {
+      const command = button.dataset.format as FormattingCommand | undefined;
+      if (command === undefined) return;
+      let href: string | undefined;
+      if (command === "link" && !editor.isActive("link")) {
+        const candidate = window.prompt("Paste a link");
+        if (candidate === null || !isLinkPaste(editor.state.selection, candidate)) {
+          editor.view.focus();
+          refreshFormattingToolbar(editor);
+          return;
+        }
+        href = candidate.trim();
+      }
+      executeFormattingCommand(editor, command, href);
+      editor.view.focus();
+      refreshFormattingToolbar(editor);
+    });
   });
   newNoteButton?.addEventListener("click", async () => {
     void transitions.perform({

@@ -122,7 +122,24 @@ button:disabled { opacity: 0.45; }
   box-shadow: 0 10px 30px color-mix(in srgb, CanvasText 18%, transparent);
   padding: 6px;
 }
-#format-toolbar { width: min(360px, calc(100vw - 32px)); }
+#format-toolbar {
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  align-items: center;
+  gap: 2px;
+  overflow: visible;
+  white-space: nowrap;
+}
+#format-toolbar:not([hidden]) { display: flex; }
+#format-toolbar button {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 4px 6px;
+}
+#format-toolbar button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text);
+}
 .slash-option {
   display: block;
   width: 100%;
@@ -137,8 +154,8 @@ button:disabled { opacity: 0.45; }
 
 @media (max-width: 360px) {
   #page { padding: 14px; }
-  .editor-overlay,
-  #format-toolbar { width: calc(100vw - 28px); }
+  .editor-overlay { width: calc(100vw - 28px); }
+  #format-toolbar { width: max-content; max-width: calc(100vw - 28px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

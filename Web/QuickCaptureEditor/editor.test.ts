@@ -10,8 +10,11 @@ import {
   conflictTransitionOperation,
   displayTitle,
   executeBlockCommand,
+  executeFormattingCommand,
   executeToolbarCommand,
   filterBlockCommands,
+  formattingState,
+  isLinkPaste,
   normalizeDocument,
   requireAutosaveAcknowledgement,
   routeOverlayKey,
@@ -20,6 +23,7 @@ import {
   slashQueryAtSelection,
   type BlockCommandTarget,
   type EditorCommandTarget,
+  type FormattingCommandTarget,
 } from "./editor.ts";
 import {
   BRIDGE_VERSION,
@@ -80,6 +84,62 @@ test("toolbar commands use the focused Tiptap chain and reject unknown commands"
   assert.equal(executeToolbarCommand({ chain: () => chain }, "bold"), true);
   assert.deepEqual(calls, ["focus", "toggleBold", "run"]);
   assert.equal(executeToolbarCommand({ chain: () => chain }, "script"), false);
+});
+
+test("formatting state projects all supported active marks into a plain object", () => {
+  const active = new Set(["bold", "underline", "code", "link"]);
+
+  assert.deepEqual(formattingState({ isActive: (mark) => active.has(mark) }), {
+    bold: true,
+    italic: false,
+    underline: true,
+    strike: false,
+    code: true,
+    link: true,
+  });
+});
+
+test("formatting commands dispatch each supported mark through a focused chain", () => {
+  const cases = [
+    ["bold", "toggleBold"],
+    ["italic", "toggleItalic"],
+    ["underline", "toggleUnderline"],
+    ["strike", "toggleStrike"],
+    ["code", "toggleCode"],
+    ["link", "toggleLink"],
+  ] as const;
+
+  for (const [command, method] of cases) {
+    const calls: Array<{ name: string; arguments: unknown[] }> = [];
+    const chain = new Proxy(
+      {},
+      {
+        get: (_target, property) => (...args: unknown[]) => {
+          calls.push({ name: String(property), arguments: args });
+          return property === "run" ? true : chain;
+        },
+      },
+    ) as FormattingCommandTarget;
+
+    assert.equal(executeFormattingCommand({ chain: () => chain }, command), true, command);
+    assert.deepEqual(calls, [
+      { name: "focus", arguments: [] },
+      { name: method, arguments: [] },
+      { name: "run", arguments: [] },
+    ], command);
+  }
+});
+
+test("link paste accepts only one HTTP or HTTPS URL over a non-empty selection", () => {
+  const selected = { empty: false };
+
+  assert.equal(isLinkPaste(selected, "https://example.com/path?q=1"), true);
+  assert.equal(isLinkPaste(selected, " http://example.com/path "), true);
+  assert.equal(isLinkPaste({ empty: true }, "https://example.com"), false);
+  assert.equal(isLinkPaste(selected, "javascript:alert(1)"), false);
+  assert.equal(isLinkPaste(selected, "data:text/html,unsafe"), false);
+  assert.equal(isLinkPaste(selected, "https://one.example\nhttps://two.example"), false);
+  assert.equal(isLinkPaste(selected, "not a URL"), false);
 });
 
 test("block commands expose the supported blocks in stable menu order", () => {

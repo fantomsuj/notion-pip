@@ -17,7 +17,14 @@
     <input id="title" aria-label="Note title" autocomplete="off" placeholder="Untitled" disabled>
     <div id="editor"></div>
     <div id="slash-menu" class="editor-overlay" role="listbox" aria-label="Block types" hidden></div>
-    <div id="format-toolbar" class="editor-overlay" role="toolbar" aria-label="Formatting" hidden></div>
+    <div id="format-toolbar" class="editor-overlay" role="toolbar" aria-label="Formatting" hidden>
+      <button type="button" data-command="bold" data-format="bold" aria-label="Bold" aria-pressed="false"><strong>B</strong></button>
+      <button type="button" data-command="italic" data-format="italic" aria-label="Italic" aria-pressed="false"><em>I</em></button>
+      <button type="button" data-command="underline" data-format="underline" aria-label="Underline" aria-pressed="false"><u>U</u></button>
+      <button type="button" data-command="strike" data-format="strike" aria-label="Strikethrough" aria-pressed="false"><s>S</s></button>
+      <button type="button" data-command="code" data-format="code" aria-label="Inline code" aria-pressed="false"><code>&lt;/&gt;</code></button>
+      <button type="button" data-command="link" data-format="link" aria-label="Link" aria-pressed="false">Link</button>
+    </div>
   </main>
   <script src="editor.js"></script>
 </body>
