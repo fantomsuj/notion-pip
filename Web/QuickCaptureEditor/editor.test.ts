@@ -356,7 +356,7 @@ test("bridge client requires the reply correlation ID to match", async () => {
   await assert.rejects(mismatched.request("save", savePayload), /correlation/);
 });
 
-test("save and stash wait for the pending changed acknowledgement", async () => {
+test("new note waits for the pending changed acknowledgement before stashing", async () => {
   const order: string[] = [];
   let acknowledgeChange: (() => void) | undefined;
   const publisher = new DebouncedChangePublisher(1_000, async () => {
@@ -366,13 +366,13 @@ test("save and stash wait for the pending changed acknowledgement", async () => 
   }, () => "change-1");
   publisher.changed({ draftID: "draft-1", title: "Note", document: null }, 1);
 
-  const save = runAfterPendingChange(publisher, async () => { order.push("save"); });
+  const newNote = runAfterPendingChange(publisher, async () => { order.push("stash"); });
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(order, ["changed"]);
   acknowledgeChange?.();
-  await save;
+  await newNote;
 
-  assert.deepEqual(order, ["changed", "acknowledged", "save"]);
+  assert.deepEqual(order, ["changed", "acknowledged", "stash"]);
 });
 
 test("overlapping changes serialize and resolve revision after the prior acknowledgement", async () => {

@@ -942,11 +942,16 @@ function bootstrap(): void {
   function applyReply(reply: BridgeReply): boolean {
     if (reply.ok) {
       if (reply.result.snapshot !== undefined) {
+        const installsSnapshot = canInstallSnapshot(snapshot, reply.result.snapshot);
         installSnapshot(reply.result.snapshot);
         if (reply.result.kind === "ready") {
           pendingLaunchFocus = titleInput.value.trim().length === 0 && editor.isEmpty
             ? "title"
             : "body";
+        } else if (reply.result.kind === "stashed" && installsSnapshot) {
+          closeSlashMenu(editor);
+          closeFormattingToolbar();
+          pendingLaunchFocus = "title";
         }
       }
       else if (reply.result.revision !== undefined) {
@@ -968,7 +973,7 @@ function bootstrap(): void {
 
   function refreshMutationControls(): void {
     titleInput.disabled = transitionLocked;
-    editor.setEditable(!transitionLocked);
+    editor.setEditable(!transitionLocked, false);
     if (newNoteButton !== null) newNoteButton.disabled = transitionLocked;
     formattingButtons.forEach((button) => { button.disabled = transitionLocked; });
     if (transitionLocked) {
