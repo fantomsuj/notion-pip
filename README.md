@@ -32,6 +32,16 @@ Run the tests directly with:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 ```
 
+### Set up with Codex
+
+After cloning the repository, open it in Codex and ask:
+
+> Set up and run this app locally. Follow the repository's AGENTS.md instructions.
+
+Codex will check the Mac and Xcode prerequisites, build and verify the app, and
+explain any manual setup that remains. The detailed setup and troubleshooting
+guidance lives in [`AGENTS.md`](AGENTS.md).
+
 ## Security boundary
 
 Only HTTPS pages on `app.notion.com`, `notion.so`, and `www.notion.so` with a 32-hex-character page ID are accepted. `notion.so` inputs canonicalize to `www.notion.so`, while `app.notion.com` inputs retain that host. Canonical URLs never retain credentials, query strings, or fragments. The `notion-pip` handoff contract is documented in `docs/HANDOFF_PROTOCOL.md`.
