@@ -10,6 +10,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var connectionState: PersonalTokenConnectionState = .disconnected
     @Published private(set) var searchResults: [NotionPageSearchResult] = []
     @Published private(set) var searchError: String?
+    @Published private(set) var serviceHealth: ServiceHealthState
 
     let pageURLInputState: PageURLInputState
 
@@ -67,7 +68,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         legacyCacheDirectory: URL = FileSystemLegacyNativePageCacheCleaner.defaultDirectoryURL,
         notionClientFactory: @escaping (PersonalIntegrationToken) -> any NotionWorkspaceClient = { token in
             NotionAPIClient(token: token)
-        }
+        },
+        initialServiceHealth: ServiceHealthState = .healthy
     ) {
         let inputState = PageURLInputState()
         let submissionRelay = PageURLInputSubmissionRelay()
@@ -89,6 +91,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.legacyCacheCleaner = legacyCacheCleaner
         self.legacyCacheDirectory = legacyCacheDirectory
         self.notionClientFactory = notionClientFactory
+        serviceHealth = initialServiceHealth
         submissionRelay.handler = { [weak self] in
             self?.validatePageURL()
         }
@@ -100,43 +103,31 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         }
         started = true
 
-        do {
-            try shortcutRegistrar.register { [weak self] in
-                self?.handleGlobalShortcut()
-            }
-        } catch {
-            logger.error("Global shortcut registration failed")
-        }
+        registerGlobalShortcut()
 
         bootstrapTask = Task { [weak self] in
             await self?.bootstrapPersonalTokenConnection()
         }
-        let expectedGeneration = pageSelectionGeneration
-        let pageRepository = pageRepository
-        let logger = logger
-        restorePinnedPageTask = Task { [weak self] in
-            guard !Task.isCancelled, let pageRepository else { return }
-            do {
-                guard let storedPage = try await pageRepository.currentPinnedPage() else { return }
-                guard !Task.isCancelled else { return }
-                guard let page = try? NotionPageReference(validating: storedPage.canonicalURL),
-                      page.canonicalURL == storedPage.canonicalURL,
-                      page.pageID == storedPage.pageID
-                else {
-                    logger.error("Pinned page restore skipped page_id=\(storedPage.pageID, privacy: .public) category=invalid-stored-value")
-                    return
-                }
-                guard !Task.isCancelled else { return }
-                self?.restorePinnedPage(page, expectedGeneration: expectedGeneration)
-            } catch {
-                guard !Task.isCancelled else { return }
-                logger.error("Pinned page restore failed category=repository-read")
-            }
-        }
+        restorePinnedPageFromRepository()
     }
 
     func bind(setupOptionsPresenter: any SetupOptionsPresenting) {
         self.setupOptionsPresenter = setupOptionsPresenter
+    }
+
+    func retryRecovery(for issue: ServiceHealthIssue) {
+        switch issue {
+        case .globalShortcutUnavailable:
+            registerGlobalShortcut()
+        case .pinnedPagePersistenceUnavailable:
+            if let activePage {
+                enqueuePersistence(of: activePage)
+            } else {
+                restorePinnedPageFromRepository()
+            }
+        case .persistentStoreUnavailable:
+            break
+        }
     }
 
     func prepareForTermination() async {
@@ -314,6 +305,18 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         }
     }
 
+    private func registerGlobalShortcut() {
+        do {
+            try shortcutRegistrar.register { [weak self] in
+                self?.handleGlobalShortcut()
+            }
+            resolveServiceIssue(.globalShortcutUnavailable)
+        } catch {
+            logger.error("Global shortcut registration failed")
+            reportServiceIssue(.globalShortcutUnavailable)
+        }
+    }
+
     private func showValidationFailure(_ message: String) {
         pageURLInputState.showValidationFailure(message)
     }
@@ -330,19 +333,61 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         activate(page: page, source: .restored, persist: false)
     }
 
+    private func restorePinnedPageFromRepository() {
+        let expectedGeneration = pageSelectionGeneration
+        let pageRepository = pageRepository
+        let logger = logger
+        restorePinnedPageTask?.cancel()
+        restorePinnedPageTask = Task { [weak self] in
+            guard !Task.isCancelled, let pageRepository else { return }
+            do {
+                let storedPage = try await pageRepository.currentPinnedPage()
+                guard !Task.isCancelled else { return }
+                self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
+                guard let storedPage else { return }
+                guard let page = try? NotionPageReference(validating: storedPage.canonicalURL),
+                      page.canonicalURL == storedPage.canonicalURL,
+                      page.pageID == storedPage.pageID
+                else {
+                    logger.error("Pinned page restore skipped page_id=\(storedPage.pageID, privacy: .private) category=invalid-stored-value")
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                self?.restorePinnedPage(page, expectedGeneration: expectedGeneration)
+            } catch {
+                guard !Task.isCancelled else { return }
+                logger.error("Pinned page restore failed category=repository-read")
+                self?.reportServiceIssue(.pinnedPagePersistenceUnavailable)
+            }
+        }
+    }
+
     private func enqueuePersistence(of page: NotionPageReference) {
         guard let pageRepository else { return }
         let previousTask = persistPinnedPageTask
         let logger = logger
         persistenceGeneration &+= 1
-        persistPinnedPageTask = Task {
+        persistPinnedPageTask = Task { [weak self] in
             await previousTask?.value
+            guard !Task.isCancelled else { return }
             do {
                 _ = try await pageRepository.replaceCurrent(with: page)
+                guard !Task.isCancelled else { return }
+                self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
             } catch {
-                logger.error("Pinned page save failed page_id=\(page.pageID, privacy: .public) category=repository-write")
+                guard !Task.isCancelled else { return }
+                logger.error("Pinned page save failed page_id=\(page.pageID, privacy: .private) category=repository-write")
+                self?.reportServiceIssue(.pinnedPagePersistenceUnavailable)
             }
         }
+    }
+
+    private func reportServiceIssue(_ issue: ServiceHealthIssue) {
+        serviceHealth.report(issue)
+    }
+
+    private func resolveServiceIssue(_ issue: ServiceHealthIssue) {
+        serviceHealth.resolve(issue)
     }
 
     private static func connectionMessage(for error: NotionAPIClientError) -> String {
@@ -350,6 +395,10 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         case .unauthorized:
             "Notion did not accept this token."
         case .accessDenied:
+            "This token does not have the Notion API capability."
+        case .apiError(let details) where details.statusCode == 401:
+            "Notion did not accept this token."
+        case .apiError(let details) where details.statusCode == 403:
             "This token does not have the Notion API capability."
         default:
             "Could not connect to Notion. Check your network and try again."
@@ -362,9 +411,51 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             "Notion did not accept this token. Reconnect to continue."
         case .accessDenied:
             "This token does not have the Notion API capability. Reconnect to continue."
+        case .apiError(let details) where details.statusCode == 401:
+            "Notion did not accept this token. Reconnect to continue."
+        case .apiError(let details) where details.statusCode == 403:
+            "This token does not have the Notion API capability. Reconnect to continue."
         default:
             "Saved Notion access needs to be reconnected."
         }
+    }
+}
+
+struct ServiceHealthState: Equatable, Sendable {
+    static let healthy = ServiceHealthState()
+
+    private(set) var issues: [ServiceHealthIssue]
+
+    var isHealthy: Bool {
+        issues.isEmpty
+    }
+
+    init(issues: Set<ServiceHealthIssue> = []) {
+        self.issues = issues.sorted()
+    }
+
+    mutating func report(_ issue: ServiceHealthIssue) {
+        guard !issues.contains(issue) else { return }
+        issues.append(issue)
+        issues.sort()
+    }
+
+    mutating func resolve(_ issue: ServiceHealthIssue) {
+        issues.removeAll { $0 == issue }
+    }
+}
+
+enum ServiceHealthIssue: String, Comparable, Identifiable, Sendable {
+    case persistentStoreUnavailable
+    case pinnedPagePersistenceUnavailable
+    case globalShortcutUnavailable
+
+    var id: String {
+        rawValue
+    }
+
+    static func < (lhs: ServiceHealthIssue, rhs: ServiceHealthIssue) -> Bool {
+        lhs.rawValue < rhs.rawValue
     }
 }
 

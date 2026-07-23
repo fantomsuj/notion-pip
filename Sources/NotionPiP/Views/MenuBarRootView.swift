@@ -2,9 +2,9 @@ import AppKit
 import SwiftUI
 
 struct MenuBarRootView: View {
+    @Environment(\.openSettings) private var openSettings
     @ObservedObject var runtime: AppRuntime
     let onQuickCapture: () -> Void
-    let onSettings: () -> Void
     let onQuit: () -> Void
 
     var body: some View {
@@ -34,10 +34,12 @@ struct MenuBarRootView: View {
                 PagePickerView(pages: [activePage], onPin: runtime.pin)
             }
 
+            ServiceHealthView(runtime: runtime)
+
             Divider()
 
             HStack {
-                Button(action: onSettings) {
+                Button(action: openSettings.callAsFunction) {
                     Label("Settings", systemImage: "gearshape")
                 }
                 .keyboardShortcut(",")

@@ -107,6 +107,33 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertFalse(panel.isVisible)
     }
 
+    func testShortcutRegistrationFailurePublishesHealthAndRetryClearsIt() {
+        let shortcut = RuntimeShortcutRegistrar(failuresRemaining: 1)
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            shortcutRegistrar: shortcut
+        )
+
+        runtime.start()
+
+        XCTAssertTrue(runtime.serviceHealth.issues.contains(.globalShortcutUnavailable))
+
+        runtime.retryRecovery(for: .globalShortcutUnavailable)
+
+        XCTAssertFalse(runtime.serviceHealth.issues.contains(.globalShortcutUnavailable))
+        XCTAssertNotNil(shortcut.handler)
+    }
+
+    func testInitialPersistentStoreFailureIsPublished() {
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            initialServiceHealth: ServiceHealthState(issues: [.persistentStoreUnavailable])
+        )
+
+        XCTAssertEqual(runtime.serviceHealth.issues, [.persistentStoreUnavailable])
+        XCTAssertFalse(runtime.serviceHealth.isHealthy)
+    }
+
     func testExternalRouteActivationUsesUnifiedRuntimePath() throws {
         let panel = RuntimePanelCoordinator()
         let runtime = makeRuntime(panel: panel)
@@ -308,6 +335,30 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertNil(runtime.activePage)
         XCTAssertFalse(panel.isVisible)
         XCTAssertNil(panel.currentPage)
+    }
+
+    func testFailedRestorePublishesHealthAndRetryReadsRepositoryAgain() async throws {
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            pageRepository: repository
+        )
+
+        runtime.start()
+        try await repository.waitUntilRestoreRequested()
+        await repository.finishRestore(throwing: RuntimeRepositoryError.restoreFailed)
+        await waitUntil {
+            runtime.serviceHealth.issues.contains(.pinnedPagePersistenceUnavailable)
+        }
+
+        runtime.retryRecovery(for: .pinnedPagePersistenceUnavailable)
+        try await repository.waitUntilRestoreRequested(count: 2)
+        await repository.finishRestore(with: nil)
+        await waitUntil {
+            !runtime.serviceHealth.issues.contains(.pinnedPagePersistenceUnavailable)
+        }
+
+        XCTAssertNil(runtime.activePage)
     }
 
     func testTypedActivationWhileRestoreIsDelayedWins() async throws {
@@ -514,7 +565,9 @@ final class RuntimeActivationTests: XCTestCase {
 
         runtime.activate(page: first, source: .typedURL)
         try await repository.waitUntilFailedSaveCount(1)
-        for _ in 0 ..< 3 { await Task.yield() }
+        await waitUntil {
+            runtime.serviceHealth.issues.contains(.pinnedPagePersistenceUnavailable)
+        }
 
         XCTAssertTrue(panel.isVisible)
         XCTAssertEqual(panel.currentPage, first)
@@ -522,6 +575,9 @@ final class RuntimeActivationTests: XCTestCase {
         runtime.activate(page: second, source: .notionSearch)
         try await repository.waitUntilSaveCount(2)
         let savedPageIDs = await repository.savedPageIDs()
+        await waitUntil {
+            !runtime.serviceHealth.issues.contains(.pinnedPagePersistenceUnavailable)
+        }
 
         XCTAssertTrue(panel.isVisible)
         XCTAssertEqual(panel.currentPage, second)
@@ -571,7 +627,8 @@ final class RuntimeActivationTests: XCTestCase {
         shortcutRegistrar: any GlobalShortcutRegistering = RuntimeShortcutRegistrar(),
         pageURLInputPresenter: RuntimePageURLInputPresenter = RuntimePageURLInputPresenter(),
         pageRepository: (any PinnedPagePersisting)? = nil,
-        client: any NotionWorkspaceClient = RuntimeNotionClient()
+        client: any NotionWorkspaceClient = RuntimeNotionClient(),
+        initialServiceHealth: ServiceHealthState = .healthy
     ) -> AppRuntime {
         let store = RuntimeSecretStore()
         let vault = PersonalTokenCredentialVault(store: store)
@@ -583,7 +640,8 @@ final class RuntimeActivationTests: XCTestCase {
             pageURLInputPresenter: pageURLInputPresenter,
             pageRepository: pageRepository,
             credentialVault: vault,
-            notionClientFactory: { _ in client }
+            notionClientFactory: { _ in client },
+            initialServiceHealth: initialServiceHealth
         )
     }
 
@@ -707,8 +765,25 @@ private final class RuntimePasteboard: PasteboardReading {
 @MainActor
 private final class RuntimeShortcutRegistrar: GlobalShortcutRegistering {
     var handler: (@MainActor () -> Void)?
-    func register(handler: @escaping @MainActor () -> Void) throws { self.handler = handler }
+    private var failuresRemaining: Int
+
+    init(failuresRemaining: Int = 0) {
+        self.failuresRemaining = failuresRemaining
+    }
+
+    func register(handler: @escaping @MainActor () -> Void) throws {
+        if failuresRemaining > 0 {
+            failuresRemaining -= 1
+            throw RuntimeShortcutRegistrationError.failed
+        }
+        self.handler = handler
+    }
+
     func unregister() {}
+}
+
+private enum RuntimeShortcutRegistrationError: Error {
+    case failed
 }
 
 @MainActor
@@ -730,6 +805,7 @@ private final class RuntimeSecretStore: SecretStoring {
 
 private enum RuntimeRepositoryError: Error {
     case saveFailed
+    case restoreFailed
 }
 
 private enum RuntimeTestWaitError: Error {
@@ -789,12 +865,17 @@ private actor RuntimePinnedPageRepository: PinnedPagePersisting {
         )
     }
 
-    func waitUntilRestoreRequested() async throws {
-        try await waitUntil({ restoreRequests > 0 }, operation: "restore request")
+    func waitUntilRestoreRequested(count: Int = 1) async throws {
+        try await waitUntil({ restoreRequests >= count }, operation: "restore request \(count)")
     }
 
     func finishRestore(with page: StoredPageSnapshot?) {
         restoreContinuation?.resume(returning: page)
+        restoreContinuation = nil
+    }
+
+    func finishRestore(throwing error: any Error) {
+        restoreContinuation?.resume(throwing: error)
         restoreContinuation = nil
     }
 

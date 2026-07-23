@@ -27,7 +27,6 @@ final class SetupOptionsPopoverPresenter: SetupOptionsPresenting {
     convenience init(
         runtime: AppRuntime,
         onQuickCapture: @escaping () -> Void,
-        onSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         let popover = NSPopover()
@@ -37,7 +36,6 @@ final class SetupOptionsPopoverPresenter: SetupOptionsPresenting {
             rootView: MenuBarRootView(
                 runtime: runtime,
                 onQuickCapture: onQuickCapture,
-                onSettings: onSettings,
                 onQuit: onQuit
             )
         )
