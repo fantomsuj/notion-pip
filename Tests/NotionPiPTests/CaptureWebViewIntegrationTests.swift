@@ -622,7 +622,12 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
             contentWorld: .page
         ) as? String
         XCTAssertEqual(focusedFormat, "bold")
-        sendWebKey(" ", keyCode: 49, to: session.webView)
+        _ = try await session.webView.callAsyncJavaScript(
+            "document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', keyCode: 32, bubbles: true, cancelable: true })); return true;",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
         try await waitForJavaScriptCondition(in: session.webView) {
             "return document.querySelector('[data-format=bold]').getAttribute('aria-pressed') === 'true'"
         }
@@ -643,7 +648,12 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         }
         XCTAssertEqual(traversal, ["bold", "italic", "underline", "strike", "code", "link"])
 
-        sendWebKey("\r", keyCode: 36, to: session.webView)
+        _ = try await session.webView.callAsyncJavaScript(
+            "document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true })); return true;",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
         try await waitForJavaScriptCondition(in: session.webView) {
             "return document.querySelector('[data-format=link]').getAttribute('aria-pressed') === 'true'"
         }
