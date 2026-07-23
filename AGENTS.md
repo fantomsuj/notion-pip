@@ -15,9 +15,10 @@ user approves the change.
   Line Tools alone are not sufficient.
 - The build produces a native executable for the current Mac, so either Apple
   silicon or Intel is acceptable when building from source.
-- Node.js is not required merely to run the app. The generated Quick Capture
-  editor assets are checked into the repository. Node and `npm ci` are needed
-  only when modifying or validating the TypeScript editor.
+- Node.js is not required for a fresh clone merely to run the app. The generated
+  Quick Capture editor assets are checked into the repository. If
+  `node_modules` already exists, the build script rebuilds those assets and
+  therefore requires Node and npm.
 - No `.env` file, Notion token, signing certificate, or other secret is required
   to build and launch the app.
 
@@ -39,14 +40,17 @@ user approves the change.
    silently install large system software or accept Xcode's license with
    `sudo`. After installation, Xcode may ask the user to accept its license and
    install additional components.
-4. From the repository root, build, stage, ad-hoc sign, launch, and verify the
+4. Check `pgrep -x NotionPiP`. If the app is running, stop and ask the user to
+   finish or save active work and quit it before continuing. The build script
+   terminates running `NotionPiP` processes, which can discard unsaved edits.
+5. From the repository root, build, stage, ad-hoc sign, launch, and verify the
    app:
 
    ```sh
    ./script/build_and_run.sh --verify
    ```
 
-5. Report the result and the staged app location:
+6. Report the result and the staged app location:
    `dist/NotionPiP.app`.
 
 The build script intentionally quits any running process named `NotionPiP`
@@ -76,6 +80,10 @@ prints `Verified .../dist/NotionPiP.app` with a process ID.
   bar; do not treat the missing Dock icon as a crash.
 - If verification fails, rerun the failing command or the build script and
   inspect its actual output before editing code.
+- If the script unexpectedly invokes or fails at npm, an existing
+  `node_modules` directory triggered the optional editor rebuild. Explain that
+  condition before installing Node, replacing dependencies, or moving the
+  directory.
 - For a clean source validation, run:
 
   ```sh
