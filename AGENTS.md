@@ -9,9 +9,10 @@ user approves the change.
 
 ### Requirements
 
-- The app runs only on macOS 14 or newer.
-- Full Xcode is required at `/Applications/Xcode.app`. Command Line Tools alone
-  are not sufficient.
+- The built app targets macOS 14 or newer. Building it from source requires
+  macOS 15.6 or newer because that is the minimum host version for Xcode 26.2.
+- Full Xcode 26.2 is required at `/Applications/Xcode.app`. Command Line Tools
+  alone are not sufficient.
 - The build produces a native executable for the current Mac, so either Apple
   silicon or Intel is acceptable when building from source.
 - Node.js is not required merely to run the app. The generated Quick Capture
