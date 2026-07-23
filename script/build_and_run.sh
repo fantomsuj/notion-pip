@@ -126,12 +126,12 @@ wait_for_process() {
 }
 
 verify_bundle() {
-    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST")" == "$BUNDLE_ID" ]]
-    [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$INFO_PLIST")" == "$MIN_SYSTEM_VERSION" ]]
-    [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$INFO_PLIST")" == "true" ]]
-    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$INFO_PLIST")" == "notion-pip" ]]
-    [[ -f "$APP_RESOURCES/NotionPiP_NotionPiP.bundle/QuickCapture/index.html" ]]
-    /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST")" == "$BUNDLE_ID" ]] || return 1
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$INFO_PLIST")" == "$MIN_SYSTEM_VERSION" ]] || return 1
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$INFO_PLIST")" == "true" ]] || return 1
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$INFO_PLIST")" == "notion-pip" ]] || return 1
+    [[ -f "$APP_RESOURCES/NotionPiP_NotionPiP.bundle/QuickCapture/index.html" ]] || return 1
+    /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE" || return 1
 }
 
 verify_process_stability() {
@@ -140,6 +140,142 @@ verify_process_stability() {
     if ! /bin/kill -0 "$process_id" >/dev/null 2>&1; then
         echo "error: $APP_NAME exited during the startup stability interval" >&2
         return 1
+    fi
+}
+
+VERIFICATION_LOG_FILE=""
+VERIFICATION_LOG_PID=""
+
+stop_verification_log() {
+    local log_pid
+
+    if [[ -n "$VERIFICATION_LOG_PID" ]]; then
+        log_pid="$VERIFICATION_LOG_PID"
+        VERIFICATION_LOG_PID=""
+        if /bin/kill "$log_pid" >/dev/null 2>&1; then
+            wait "$log_pid" 2>/dev/null || true
+            return 0
+        fi
+
+        wait "$log_pid" 2>/dev/null || true
+        echo "error: unified log capture exited before startup verification completed" >&2
+        return 1
+    fi
+}
+
+cleanup_verification_log() {
+    if ! stop_verification_log; then
+        :
+    fi
+    if [[ -n "$VERIFICATION_LOG_FILE" ]]; then
+        /bin/rm -f "$VERIFICATION_LOG_FILE"
+        VERIFICATION_LOG_FILE=""
+    fi
+}
+
+start_verification_log() {
+    local attempt
+
+    VERIFICATION_LOG_FILE="$(/usr/bin/mktemp /tmp/notion-pip-verify.XXXXXX)"
+    /usr/bin/log stream --style compact --predicate "process == \"$APP_NAME\"" \
+        >"$VERIFICATION_LOG_FILE" 2>&1 &
+    VERIFICATION_LOG_PID=$!
+
+    for attempt in {1..50}; do
+        if ! /bin/kill -0 "$VERIFICATION_LOG_PID" >/dev/null 2>&1; then
+            wait "$VERIFICATION_LOG_PID" 2>/dev/null || true
+            VERIFICATION_LOG_PID=""
+            echo "error: failed to start unified log capture" >&2
+            return 1
+        fi
+        if [[ -s "$VERIFICATION_LOG_FILE" ]]; then
+            return 0
+        fi
+        /bin/sleep 0.02
+    done
+
+    echo "error: unified log capture was not ready before launch" >&2
+    return 1
+}
+
+verify_no_concurrency_diagnostics() {
+    local grep_status
+
+    if /usr/bin/grep -F \
+        -e "ModelContext passed across actor boundary" \
+        -e "NSManagedObjectContext concurrency debugging" \
+        "$VERIFICATION_LOG_FILE" >&2; then
+        echo "error: SwiftData concurrency diagnostic detected during startup" >&2
+        return 1
+    else
+        grep_status=$?
+    fi
+
+    if [[ "$grep_status" -ne 1 ]]; then
+        echo "error: could not inspect unified startup logs" >&2
+        return 1
+    fi
+}
+
+run_verification() {
+    local diagnostic_status=0
+    local phase_status
+    local verification_status=0
+
+    PROCESS_ID=""
+
+    if open_app; then
+        :
+    else
+        verification_status=$?
+    fi
+
+    if [[ "$verification_status" -eq 0 ]]; then
+        if PROCESS_ID="$(wait_for_process)"; then
+            :
+        else
+            verification_status=$?
+        fi
+    fi
+
+    if [[ "$verification_status" -eq 0 ]]; then
+        if verify_bundle; then
+            :
+        else
+            verification_status=$?
+        fi
+    fi
+
+    if [[ "$verification_status" -eq 0 ]]; then
+        if verify_process_stability "$PROCESS_ID"; then
+            :
+        else
+            verification_status=$?
+        fi
+    fi
+
+    if stop_verification_log; then
+        :
+    else
+        phase_status=$?
+        if [[ "$verification_status" -eq 0 ]]; then
+            verification_status="$phase_status"
+        fi
+    fi
+
+    if verify_no_concurrency_diagnostics; then
+        :
+    else
+        diagnostic_status=$?
+    fi
+
+    cleanup_verification_log
+
+    if [[ "$verification_status" -ne 0 ]]; then
+        return "$verification_status"
+    fi
+    if [[ "$diagnostic_status" -ne 0 ]]; then
+        return "$diagnostic_status"
     fi
 }
 
@@ -163,10 +299,16 @@ case "$MODE" in
         /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
         ;;
     --verify|verify)
-        open_app
-        PROCESS_ID="$(wait_for_process)"
-        verify_bundle
-        verify_process_stability "$PROCESS_ID"
-        echo "Verified $APP_BUNDLE (pid $PROCESS_ID)"
+        trap cleanup_verification_log EXIT
+        trap 'exit 1' HUP INT TERM
+        start_verification_log
+        if run_verification; then
+            trap - EXIT HUP INT TERM
+            echo "Verified $APP_BUNDLE (pid $PROCESS_ID)"
+        else
+            VERIFICATION_STATUS=$?
+            trap - EXIT HUP INT TERM
+            exit "$VERIFICATION_STATUS"
+        fi
         ;;
 esac

@@ -96,7 +96,7 @@ final class CaptureBridgeProtocolTests: XCTestCase {
         }
     }
 
-    func testNavigationPolicyKeepsEditorLocalAndExternalNotionLinksOutOfWebView() {
+    func testNavigationPolicyKeepsEditorLocalAndAllWebLinksOutOfWebView() {
         let root = URL(fileURLWithPath: "/app/QuickCapture", isDirectory: true)
 
         XCTAssertEqual(
@@ -105,6 +105,13 @@ final class CaptureBridgeProtocolTests: XCTestCase {
                 resourceRoot: root
             ),
             .allow
+        )
+        XCTAssertEqual(
+            CaptureEditorNavigationPolicy.decision(
+                for: URL(fileURLWithPath: "/app/QuickCapture"),
+                resourceRoot: root
+            ),
+            .cancel
         )
         XCTAssertEqual(
             CaptureEditorNavigationPolicy.decision(
@@ -122,7 +129,21 @@ final class CaptureBridgeProtocolTests: XCTestCase {
         )
         XCTAssertEqual(
             CaptureEditorNavigationPolicy.decision(
+                for: URL(string: "https://app.notion.com/example")!,
+                resourceRoot: root
+            ),
+            .openExternal
+        )
+        XCTAssertEqual(
+            CaptureEditorNavigationPolicy.decision(
                 for: URL(string: "https://evil.example/phish")!,
+                resourceRoot: root
+            ),
+            .openExternal
+        )
+        XCTAssertEqual(
+            CaptureEditorNavigationPolicy.decision(
+                for: URL(string: "javascript:alert(1)")!,
                 resourceRoot: root
             ),
             .cancel

@@ -15,24 +15,26 @@ protocol PinnedPagePersisting: Sendable {
     func replaceCurrent(with page: NotionPageReference) async throws -> StoredPageSnapshot
 }
 
+@ModelActor
 actor PageRepository: PinnedPagePersisting {
-    private let context: ModelContext
-    private let clock: any CaptureClock
-    private let beforeSave: PageRepositorySaveCheck
+    private var clock: any CaptureClock = SystemCaptureClock()
+    private var beforeSave: PageRepositorySaveCheck = {}
 
     init(
         container: ModelContainer,
         clock: any CaptureClock = SystemCaptureClock(),
         beforeSave: @escaping PageRepositorySaveCheck = {}
     ) {
-        context = ModelContext(container)
+        let context = ModelContext(container)
         context.autosaveEnabled = false
+        modelExecutor = DefaultSerialModelExecutor(modelContext: context)
+        modelContainer = container
         self.clock = clock
         self.beforeSave = beforeSave
     }
 
     func replaceCurrent(with page: NotionPageReference) throws -> StoredPageSnapshot {
-        let models = try context.fetch(FetchDescriptor<PinnedPageModel>())
+        let models = try modelContext.fetch(FetchDescriptor<PinnedPageModel>())
         let now = clock.now()
         let model = models.first { $0.stableID == page.pageID }
             ?? PinnedPageModel(
@@ -41,18 +43,18 @@ actor PageRepository: PinnedPagePersisting {
                 displayTitle: page.displayTitle,
                 pinnedAt: now
             )
-        if model.modelContext == nil { context.insert(model) }
+        if model.modelContext == nil { modelContext.insert(model) }
         model.canonicalURL = page.canonicalURL.absoluteString
         model.displayTitle = page.displayTitle
         model.pinnedAt = now
         for otherModel in models where otherModel !== model {
-            context.delete(otherModel)
+            modelContext.delete(otherModel)
         }
         do {
             try beforeSave()
-            try context.save()
+            try modelContext.save()
         } catch {
-            context.rollback()
+            modelContext.rollback()
             throw error
         }
         return try snapshot(model)
@@ -63,11 +65,11 @@ actor PageRepository: PinnedPagePersisting {
             sortBy: [SortDescriptor(\PinnedPageModel.pinnedAt, order: .reverse)]
         )
         descriptor.fetchLimit = 1
-        return try context.fetch(descriptor).first.map(snapshot)
+        return try modelContext.fetch(descriptor).first.map(snapshot)
     }
 
     func pin(_ page: NotionPageReference) throws -> StoredPageSnapshot {
-        let models = try context.fetch(FetchDescriptor<PinnedPageModel>())
+        let models = try modelContext.fetch(FetchDescriptor<PinnedPageModel>())
         let now = clock.now()
         let model = models.first { $0.stableID == page.pageID }
             ?? PinnedPageModel(
@@ -76,22 +78,22 @@ actor PageRepository: PinnedPagePersisting {
                 displayTitle: page.displayTitle,
                 pinnedAt: now
             )
-        if model.modelContext == nil { context.insert(model) }
+        if model.modelContext == nil { modelContext.insert(model) }
         model.canonicalURL = page.canonicalURL.absoluteString
         model.displayTitle = page.displayTitle
         model.pinnedAt = now
         do {
             try beforeSave()
-            try context.save()
+            try modelContext.save()
         } catch {
-            context.rollback()
+            modelContext.rollback()
             throw error
         }
         return try snapshot(model)
     }
 
     func recordRecent(_ page: NotionPageReference) throws -> StoredPageSnapshot {
-        let models = try context.fetch(FetchDescriptor<RecentPageModel>())
+        let models = try modelContext.fetch(FetchDescriptor<RecentPageModel>())
         let now = clock.now()
         let model = models.first { $0.stableID == page.pageID }
             ?? RecentPageModel(
@@ -100,28 +102,28 @@ actor PageRepository: PinnedPagePersisting {
                 displayTitle: page.displayTitle,
                 visitedAt: now
             )
-        if model.modelContext == nil { context.insert(model) }
+        if model.modelContext == nil { modelContext.insert(model) }
         model.canonicalURL = page.canonicalURL.absoluteString
         model.displayTitle = page.displayTitle
         model.visitedAt = now
         do {
             try beforeSave()
-            try context.save()
+            try modelContext.save()
         } catch {
-            context.rollback()
+            modelContext.rollback()
             throw error
         }
         return try snapshot(model)
     }
 
     func pinnedPages() throws -> [StoredPageSnapshot] {
-        try context.fetch(FetchDescriptor<PinnedPageModel>())
+        try modelContext.fetch(FetchDescriptor<PinnedPageModel>())
             .map(snapshot)
             .sorted { $0.timestamp > $1.timestamp }
     }
 
     func recentPages() throws -> [StoredPageSnapshot] {
-        try context.fetch(FetchDescriptor<RecentPageModel>())
+        try modelContext.fetch(FetchDescriptor<RecentPageModel>())
             .map(snapshot)
             .sorted { $0.timestamp > $1.timestamp }
     }

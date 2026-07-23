@@ -6,7 +6,7 @@
   --secondary: color-mix(in srgb, CanvasText 58%, Canvas);
   --border: color-mix(in srgb, CanvasText 16%, Canvas);
   --accent: AccentColor;
-  --danger: #c42b2b;
+  --danger: #b42318;
   font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 }
 
@@ -164,5 +164,23 @@ button:disabled { opacity: 0.45; }
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --danger: #ffb4ab;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --danger: #8c0d0d;
+  }
+}
+
+@media (prefers-color-scheme: dark) and (prefers-contrast: more) {
+  :root {
+    --danger: #ffd2cc;
   }
 }
