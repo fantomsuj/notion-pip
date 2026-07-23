@@ -206,7 +206,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
             name: CaptureBridgeProtocol.handlerName
         )
         webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.setValue(false, forKey: "drawsBackground")
+        webView.underPageBackgroundColor = .clear
 
         super.init()
         handler.delegate = self
