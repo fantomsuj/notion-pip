@@ -18,7 +18,7 @@ The PiP displays the live embedded Notion page. It does not generate or show a n
 
 ## Build and run
 
-Full Xcode 26.2 is required. The project-local script selects it explicitly, builds the SwiftPM executable, stages `dist/NotionPiP.app`, copies SwiftPM resource bundles, ad-hoc signs the app, and launches it through Launch Services:
+Full Xcode 26.2 or newer is required. The project-local script selects it explicitly, builds the SwiftPM executable, stages `dist/NotionPiP.app`, copies SwiftPM resource bundles, ad-hoc signs the app, and launches it through Launch Services:
 
 ```sh
 ./script/build_and_run.sh
@@ -31,6 +31,16 @@ Run the tests directly with:
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 ```
+
+### Set up with Codex
+
+After cloning the repository, open it in Codex and ask:
+
+> Set up and run this app locally. Follow the repository's AGENTS.md instructions.
+
+Codex will check the Mac and Xcode prerequisites, build and verify the app, and
+explain any manual setup that remains. The detailed setup and troubleshooting
+guidance lives in [`AGENTS.md`](AGENTS.md).
 
 ## Security boundary
 
