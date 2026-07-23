@@ -53,6 +53,6 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding(DesignTokens.Spacing.container)
-        .frame(width: 440, height: 420)
+        .frame(minWidth: 440, minHeight: 420)
     }
 }
