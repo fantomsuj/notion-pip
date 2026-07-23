@@ -212,7 +212,17 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .unloaded)
         XCTAssertEqual(stoppedWebViews, [webView])
         XCTAssertNil(webView.navigationDelegate)
+        XCTAssertNil(webView.uiDelegate)
         XCTAssertTrue(webView.configuration.userContentController.userScripts.isEmpty)
+    }
+
+    func testConfiguredWebViewUsesSessionForNavigationAndUIRequests() throws {
+        let webView = WKWebView()
+        let session = NotionWebSession(webView: webView)
+
+        XCTAssertTrue(webView.navigationDelegate === session)
+        XCTAssertTrue(webView.uiDelegate === session)
+        XCTAssertNotNil(session as WKUIDelegate)
     }
 
     func testMemoryPressureEvictsOnlyHiddenNonTypingWarmWebView() throws {
