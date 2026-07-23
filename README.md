@@ -18,7 +18,7 @@ The PiP displays the live embedded Notion page. It does not generate or show a n
 
 ## Build and run
 
-Full Xcode 26.2 is required. The project-local script selects it explicitly, builds the SwiftPM executable, stages `dist/NotionPiP.app`, copies SwiftPM resource bundles, ad-hoc signs the app, and launches it through Launch Services:
+Full Xcode 26.2 or newer is required. The project-local script selects it explicitly, builds the SwiftPM executable, stages `dist/NotionPiP.app`, copies SwiftPM resource bundles, ad-hoc signs the app, and launches it through Launch Services:
 
 ```sh
 ./script/build_and_run.sh

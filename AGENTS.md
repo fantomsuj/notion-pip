@@ -11,8 +11,8 @@ user approves the change.
 
 - The built app targets macOS 14 or newer. Building it from source requires
   macOS 15.6 or newer because that is the minimum host version for Xcode 26.2.
-- Full Xcode 26.2 is required at `/Applications/Xcode.app`. Command Line Tools
-  alone are not sufficient.
+- Full Xcode 26.2 or newer is required at `/Applications/Xcode.app`. Command
+  Line Tools alone are not sufficient.
 - The build produces a native executable for the current Mac, so either Apple
   silicon or Intel is acceptable when building from source.
 - Node.js is not required merely to run the app. The generated Quick Capture
@@ -34,8 +34,9 @@ user approves the change.
    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift --version
    ```
 
-3. If full Xcode is missing, stop and tell the user to install and open Xcode.
-   Do not silently install large system software or accept Xcode's license with
+3. If the host is older than macOS 15.6, full Xcode is missing, or the detected
+   Xcode is older than 26.2, stop and explain the unmet requirement. Do not
+   silently install large system software or accept Xcode's license with
    `sudo`. After installation, Xcode may ask the user to accept its license and
    install additional components.
 4. From the repository root, build, stage, ad-hoc sign, launch, and verify the
