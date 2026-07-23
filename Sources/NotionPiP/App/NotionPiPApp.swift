@@ -50,7 +50,6 @@ enum AppStartup {
 private final class AppComposition {
     let runtime: AppRuntime
     private let quickCapturePresenter: any AppWindowPresenting
-    private let settingsPresenter: AppWindowPresenter
     private let setupOptionsPresenter: SetupOptionsPopoverPresenter
     private let statusItemController: StatusItemController
 
@@ -59,16 +58,19 @@ private final class AppComposition {
         let webSession = NotionWebSession()
         let pageRepository: PageRepository?
         let captureRepository: CaptureRepository?
+        let initialServiceHealth: ServiceHealthState
 
         do {
             let container = try NotionPiPPersistence.makeContainer()
             pageRepository = PageRepository(container: container)
             captureRepository = CaptureRepository(container: container)
+            initialServiceHealth = .healthy
         } catch {
             Logger(subsystem: "com.fantomsuj.NotionPiP", category: "persistence")
                 .error("Persistent store unavailable")
             pageRepository = nil
             captureRepository = nil
+            initialServiceHealth = ServiceHealthState(issues: [.persistentStoreUnavailable])
         }
 
         let commandModel = AppCommandModel(
@@ -86,7 +88,8 @@ private final class AppComposition {
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
             pageRepository: pageRepository,
-            legacyCacheCleaner: FileSystemLegacyNativePageCacheCleaner()
+            legacyCacheCleaner: FileSystemLegacyNativePageCacheCleaner(),
+            initialServiceHealth: initialServiceHealth
         )
         webSession.onPageResolved = { [weak runtime] page in
             runtime?.activate(page: page, source: .notionWebSession)
@@ -103,14 +106,10 @@ private final class AppComposition {
             performanceSignposter: AppPerformanceSignposter.shared,
             firstPresentationOperation: .firstQuickCapturePresentation
         )
-        let settingsPresenter = AppWindowFactory.makeSettings(runtime: runtime)
         let setupOptionsPresenter = SetupOptionsPopoverPresenter(
             runtime: runtime,
             onQuickCapture: { [weak quickCapturePresenter] in
                 quickCapturePresenter?.show()
-            },
-            onSettings: { [weak settingsPresenter] in
-                settingsPresenter?.show()
             },
             onQuit: { NSApp.terminate(nil) }
         )
@@ -122,12 +121,10 @@ private final class AppComposition {
 
         actionRelay.quickCapturePresenter = quickCapturePresenter
         actionRelay.setupOptionsPresenter = setupOptionsPresenter
-        actionRelay.settingsPresenter = settingsPresenter
         runtime.bind(setupOptionsPresenter: setupOptionsPresenter)
 
         self.runtime = runtime
         self.quickCapturePresenter = quickCapturePresenter
-        self.settingsPresenter = settingsPresenter
         self.setupOptionsPresenter = setupOptionsPresenter
         self.statusItemController = statusItemController
     }

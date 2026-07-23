@@ -43,16 +43,6 @@ enum AppWindowFactory {
         )
     }
 
-    static func makeSettings(runtime: AppRuntime) -> AppWindowPresenter {
-        AppWindowPresenter(
-            window: makeWindow(
-                title: "Notion PiP Settings",
-                size: CGSize(width: 480, height: 360),
-                content: AnyView(SettingsView(runtime: runtime))
-            )
-        )
-    }
-
     private static func makeWindow(
         title: String,
         size: CGSize,
