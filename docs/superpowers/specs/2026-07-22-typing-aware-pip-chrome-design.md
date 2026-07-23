@@ -25,9 +25,9 @@ Sources:
 ## Behavior
 
 - A `beforeinput` event inside an enabled input, textarea, or editable region enters writing mode.
-- Writing mode fades the top actions to transparent over 160 ms. The 32-point bar, title, and action layout remain mounted.
+- Writing mode fades the top actions to transparent over 160 ms. The 32-point bar and action layout remain mounted; branding stays in the native window title instead of being repeated in the content.
 - Pointer movement, editable focus loss, Tab, Escape, and navigation leave writing mode immediately.
-- The bridge accepts only main-frame HTTPS messages from `notion.so` or `www.notion.so`.
+- The bridge accepts only main-frame HTTPS messages from `app.notion.com`, `notion.so`, or `www.notion.so`.
 - Duplicate state transitions are suppressed in JavaScript and again in native state assignment.
 - Reduced-motion users receive an immediate visibility change.
 - Transparent controls ignore pointer hits but stay represented in the view hierarchy. Tab or Escape reveals them before keyboard navigation can reach the toolbar.

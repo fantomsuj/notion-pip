@@ -7,7 +7,6 @@ protocol NotionRequestTransport: AnyObject {
 protocol NotionWorkspaceClient: AnyObject {
     func validateConnection() async throws -> NotionConnectionSnapshot
     func searchPages(query: String) async throws -> [NotionPageSearchResult]
-    func fetchPagePreview(page: NotionPageReference) async throws -> NativePageSnapshot
 }
 
 final class URLSessionNotionRequestTransport: NotionRequestTransport {
@@ -79,36 +78,6 @@ final class NotionAPIClient: NotionWorkspaceClient {
         return try results.compactMap(pageSearchResult)
     }
 
-    func fetchPagePreview(page: NotionPageReference) async throws -> NativePageSnapshot {
-        let pagePayload = try await request(path: "/v1/pages/\(page.pageID)")
-        var blocks: [NativePageBlock] = []
-        var cursor: String?
-
-        while true {
-            let childrenPayload = try await request(url: childrenURL(pageID: page.pageID, cursor: cursor))
-            guard let results = childrenPayload["results"] as? [[String: Any]] else {
-                throw NotionAPIClientError.malformedResponse
-            }
-            blocks.append(contentsOf: try results.compactMap(notionBlock))
-
-            guard childrenPayload["has_more"] as? Bool == true else {
-                break
-            }
-            guard let nextCursor = childrenPayload["next_cursor"] as? String, !nextCursor.isEmpty else {
-                throw NotionAPIClientError.malformedResponse
-            }
-            cursor = nextCursor
-        }
-
-        return NativePageSnapshot(
-            pageID: page.pageID,
-            title: pageTitle(from: pagePayload) ?? page.displayTitle ?? "Untitled page",
-            blocks: blocks,
-            remoteFingerprint: pagePayload["last_edited_time"] as? String ?? "",
-            fetchedAt: Date()
-        )
-    }
-
     private func request(
         path: String,
         method: String = "GET",
@@ -151,21 +120,6 @@ final class NotionAPIClient: NotionWorkspaceClient {
         return json
     }
 
-    private func childrenURL(pageID: String, cursor: String?) throws -> URL {
-        guard var components = URLComponents(string: "https://api.notion.com/v1/blocks/\(pageID)/children") else {
-            throw NotionAPIClientError.invalidResponse
-        }
-        var queryItems = [URLQueryItem(name: "page_size", value: "100")]
-        if let cursor {
-            queryItems.append(URLQueryItem(name: "start_cursor", value: cursor))
-        }
-        components.queryItems = queryItems
-        guard let url = components.url else {
-            throw NotionAPIClientError.invalidResponse
-        }
-        return url
-    }
-
     private func pageSearchResult(_ value: [String: Any]) throws -> NotionPageSearchResult? {
         guard value["object"] as? String == "page",
               let rawURL = value["url"] as? String,
@@ -199,48 +153,6 @@ final class NotionAPIClient: NotionWorkspaceClient {
             }
         }
         return nil
-    }
-
-    private func notionBlock(_ value: [String: Any]) throws -> NativePageBlock? {
-        guard let id = value["id"] as? String, let type = value["type"] as? String else {
-            return nil
-        }
-        let attributes = value[type] as? [String: Any]
-        let text = richText(from: attributes?["rich_text"])
-        let kind: NotionBlockKind
-        if value["has_children"] as? Bool == true {
-            // Nested content is deliberately not flattened into this read-only preview.
-            kind = .unsupported(type)
-        } else {
-            switch type {
-            case "paragraph": kind = .paragraph
-            case "heading_1": kind = .heading(level: 1)
-            case "heading_2": kind = .heading(level: 2)
-            case "heading_3": kind = .heading(level: 3)
-            case "bulleted_list_item": kind = .bulletedList
-            case "numbered_list_item": kind = .numberedList
-            case "to_do": kind = .toDo
-            case "quote": kind = .quote
-            case "toggle": kind = .toggle
-            case "code": kind = .code
-            case "divider": kind = .divider
-            case "image": kind = .image
-            default: kind = .unsupported(type)
-            }
-        }
-        return NativePageBlock(
-            id: id,
-            kind: kind,
-            text: text,
-            checked: attributes?["checked"] as? Bool ?? false
-        )
-    }
-
-    private func richText(from value: Any?) -> String {
-        guard let items = value as? [[String: Any]] else {
-            return ""
-        }
-        return items.compactMap { $0["plain_text"] as? String }.joined()
     }
 
 }

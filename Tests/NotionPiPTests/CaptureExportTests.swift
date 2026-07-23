@@ -132,6 +132,27 @@ final class CaptureExportTests: XCTestCase {
         XCTAssertTrue(markdown.contains(#""secretary":"keep-name""#))
     }
 
+    func testMarkdownRendersUnderlineDeterministicallyWithBold() throws {
+        let document: [String: Any] = [
+            "type": "doc",
+            "content": [[
+                "type": "paragraph",
+                "content": [[
+                    "type": "text",
+                    "text": "Important",
+                    "marks": [["type": "bold"], ["type": "underline"]],
+                ]],
+            ]],
+        ]
+        let record = record(id: "underlined", editor: document)
+
+        let first = try CaptureExport.markdown(records: [record], drafts: [])
+        let second = try CaptureExport.markdown(records: [record], drafts: [])
+
+        XCTAssertEqual(first, second)
+        XCTAssertTrue(first.contains("**<u>Important</u>**"), first)
+    }
+
     func testMarkdownExportIsDeterministicAndIncludesUnresolvedStateAndSourceRecovery() throws {
         let uncertain = record(
             id: "a-uncertain",
@@ -154,8 +175,64 @@ final class CaptureExportTests: XCTestCase {
         XCTAssertFalse(first.contains("remove-source-secret"))
     }
 
+    func testMarkdownRendersUntitledTaskListsAndIndentsNestedContent() throws {
+        let document: [String: Any] = [
+            "type": "doc",
+            "content": [[
+                "type": "taskList",
+                "content": [
+                    [
+                        "type": "taskItem",
+                        "attrs": ["checked": false],
+                        "content": [
+                            [
+                                "type": "paragraph",
+                                "content": [["type": "text", "text": "Ship lifecycle"]],
+                            ],
+                            [
+                                "type": "taskList",
+                                "content": [[
+                                    "type": "taskItem",
+                                    "attrs": ["checked": true],
+                                    "content": [[
+                                        "type": "paragraph",
+                                        "content": [["type": "text", "text": "Verify nested task"]],
+                                    ]],
+                                ]],
+                            ],
+                            ["type": "futureTaskMetadata", "attrs": ["safe": "recover-me"]],
+                        ],
+                    ],
+                    [
+                        "type": "taskItem",
+                        "attrs": ["checked": true],
+                        "content": [[
+                            "type": "paragraph",
+                            "content": [["type": "text", "text": "Keep protocol stable"]],
+                        ]],
+                    ],
+                ],
+            ]],
+        ]
+        let untitled = record(id: "task-record", title: "", editor: document)
+
+        let markdown = try CaptureExport.markdown(records: [untitled], drafts: [])
+
+        XCTAssertTrue(markdown.contains("### Untitled"), markdown)
+        XCTAssertTrue(
+            markdown.contains(
+                "- [ ] Ship lifecycle\n  - [x] Verify nested task\n- [x] Keep protocol stable"
+            ),
+            markdown
+        )
+        XCTAssertTrue(markdown.contains("Recovery JSON"), markdown)
+        XCTAssertTrue(markdown.contains(#""type":"futureTaskMetadata""#), markdown)
+        XCTAssertTrue(markdown.contains(#""safe":"recover-me""#), markdown)
+    }
+
     private func record(
         id: String,
+        title: String? = nil,
         editor: [String: Any],
         source: [String: Any]? = nil,
         state: DeliveryState = .uncertain
@@ -165,7 +242,7 @@ final class CaptureExportTests: XCTestCase {
             draftID: id,
             enqueuedDraftRevision: 2,
             revision: 3,
-            title: "Record \(id)",
+            title: title ?? "Record \(id)",
             editorDocument: jsonData(editor),
             sourceDocument: source.map(jsonData),
             destination: .managed(databaseID: "database-1"),

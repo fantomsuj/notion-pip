@@ -16,46 +16,36 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .unloaded)
     }
 
-    func testSelectingPinnedPageDoesNotCreateOrLoadWebView() throws {
-        var requests: [URLRequest] = []
-        let session = NotionWebSession(loadRequest: { _, request in requests.append(request) })
-
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-
-        XCTAssertEqual(session.activePage?.pageID, firstPageID)
-        XCTAssertNil(session.webView)
-        XCTAssertTrue(requests.isEmpty)
-        XCTAssertEqual(session.state, .unloaded)
-    }
-
-    func testSelectingLiveSurfaceCreatesAndLoadsSelectedPage() throws {
+    func testSelectingPinnedPageCreatesAndLoadsLiveWebView() throws {
         var requests: [URLRequest] = []
         let session = NotionWebSession(loadRequest: { _, request in requests.append(request) })
         let page = try makePage(id: firstPageID, title: "Roadmap")
+
         session.activate(page: page)
 
-        session.showLiveSurface()
-
-        XCTAssertEqual(session.surface, .live)
+        XCTAssertEqual(session.activePage?.pageID, firstPageID)
         XCTAssertNotNil(session.webView)
         XCTAssertEqual(requests.map(\.url), [page.canonicalURL])
         XCTAssertEqual(session.state, .loading)
     }
 
-    func testActivateDeduplicatesSamePageSelectionWithoutLoading() throws {
-        let session = NotionWebSession()
+    func testActivateDeduplicatesSamePageSelectionWithoutReloading() throws {
+        var requests: [URLRequest] = []
+        let session = NotionWebSession(loadRequest: { _, request in requests.append(request) })
         let page = try makePage(id: firstPageID, title: "Roadmap")
 
         session.activate(page: page)
         session.activate(page: page)
 
         XCTAssertEqual(session.activePage?.pageID, firstPageID)
-        XCTAssertEqual(session.state, .unloaded)
-        XCTAssertNil(session.webView)
+        XCTAssertEqual(requests.map(\.url), [page.canonicalURL])
+        XCTAssertEqual(session.state, .loading)
+        XCTAssertNotNil(session.webView)
     }
 
     func testActivateReplacesTheActivePage() throws {
-        let session = NotionWebSession()
+        var requests: [URLRequest] = []
+        let session = NotionWebSession(loadRequest: { _, request in requests.append(request) })
         let firstPage = try makePage(id: firstPageID, title: "Roadmap")
         let secondPage = try makePage(id: secondPageID, title: "Notes")
 
@@ -63,14 +53,14 @@ final class NotionWebSessionTests: XCTestCase {
         session.activate(page: secondPage)
 
         XCTAssertEqual(session.activePage?.pageID, secondPageID)
-        XCTAssertNil(session.webView)
+        XCTAssertEqual(requests.map(\.url), [firstPage.canonicalURL, secondPage.canonicalURL])
+        XCTAssertNotNil(session.webView)
     }
 
     func testNavigationDelegatePublishesReadyAndFailureStates() throws {
         let session = NotionWebSession()
         let page = try makePage(id: firstPageID, title: "Roadmap")
         session.activate(page: page)
-        session.showLiveSurface()
 
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
         let webView = try XCTUnwrap(session.webView)
@@ -174,7 +164,7 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(configuration.preferences.inactiveSchedulingPolicy, .suspend)
     }
 
-    func testPreviewImmediatelyEndsEditingPausesDetachesAndSchedulesSixtySecondWarmPeriod() throws {
+    func testHidingPanelEndsEditingPausesDetachesAndSchedulesSixtySecondWarmPeriod() throws {
         var scheduledInterval: TimeInterval?
         var pausedWebViews: [WKWebView] = []
         let session = NotionWebSession(
@@ -186,15 +176,13 @@ final class NotionWebSessionTests: XCTestCase {
             pauseMedia: { pausedWebViews.append($0) }
         )
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        session.showLiveSurface()
         let webView = try XCTUnwrap(session.webView)
         let container = NSView()
         container.addSubview(webView)
         session.handleEditorActivity(.typingStarted)
 
-        session.showPreviewSurface()
+        session.panelDidHide()
 
-        XCTAssertEqual(session.surface, .preview)
         XCTAssertEqual(session.state, .suspended)
         XCTAssertFalse(session.isTypingInPage)
         XCTAssertNil(webView.superview)
@@ -215,9 +203,8 @@ final class NotionWebSessionTests: XCTestCase {
             stopLoading: { stoppedWebViews.append($0) }
         )
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        session.showLiveSurface()
         let webView = try XCTUnwrap(session.webView)
-        session.showPreviewSurface()
+        session.panelDidHide()
 
         eviction?()
 
@@ -236,7 +223,6 @@ final class NotionWebSessionTests: XCTestCase {
             stopLoading: { stoppedWebViews.append($0) }
         )
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        session.showLiveSurface()
         let webView = try XCTUnwrap(session.webView)
 
         session.handleMemoryPressure()
@@ -253,7 +239,7 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(stoppedWebViews, [webView])
     }
 
-    func testEvictedLiveSurfaceRecreatesAndRestoresInteractionState() throws {
+    func testShowingPanelAfterEvictionRecreatesAndRestoresInteractionState() throws {
         var eviction: (@MainActor () -> Void)?
         var requests: [URLRequest] = []
         var restoredStates: [String] = []
@@ -277,11 +263,10 @@ final class NotionWebSessionTests: XCTestCase {
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         session.activate(page: page)
-        session.showLiveSurface()
-        session.showPreviewSurface()
+        session.panelDidHide()
         eviction?()
-
-        session.showLiveSurface()
+        session.panelDidShow()
+        session.panelDidShow()
 
         XCTAssertEqual(creationCount, 2)
         XCTAssertEqual(restoredStates, ["saved-interaction"])
@@ -305,12 +290,11 @@ final class NotionWebSessionTests: XCTestCase {
         let firstPage = try makePage(id: firstPageID, title: "Roadmap")
         let secondPage = try makePage(id: secondPageID, title: "Notes")
         session.activate(page: firstPage)
-        session.showLiveSurface()
-        session.showPreviewSurface()
+        session.panelDidHide()
 
         session.activate(page: secondPage)
         eviction?()
-        session.showLiveSurface()
+        session.panelDidShow()
 
         XCTAssertEqual(requests.map(\.url), [firstPage.canonicalURL, secondPage.canonicalURL])
         XCTAssertEqual(restoredStateCount, 0)
@@ -335,12 +319,11 @@ final class NotionWebSessionTests: XCTestCase {
             interactionStateReader: { _ in nil }
         )
         session.activate(page: firstPage)
-        session.showLiveSurface()
-        session.showPreviewSurface()
+        session.panelDidHide()
 
         session.activate(page: secondPage)
         eviction?()
-        session.showLiveSurface()
+        session.panelDidShow()
 
         XCTAssertEqual(requests.map(\.url), [firstPage.canonicalURL, secondPage.canonicalURL])
     }
@@ -355,8 +338,7 @@ final class NotionWebSessionTests: XCTestCase {
         let secondPage = try makePage(id: secondPageID, title: "Notes")
         session.onPageResolved = { resolvedPages.append($0) }
         session.activate(page: firstPage)
-        session.showLiveSurface()
-        session.showPreviewSurface()
+        session.panelDidHide()
         session.activate(page: secondPage)
 
         session.adoptResolvedPage(at: firstPage.canonicalURL)
@@ -377,7 +359,6 @@ final class NotionWebSessionTests: XCTestCase {
         let secondPage = try makePage(id: secondPageID, title: "Notes")
         session.onPageResolved = { resolvedPages.append($0) }
         session.activate(page: firstPage)
-        session.showLiveSurface()
         session.panelDidHide()
         session.activate(page: secondPage)
 
@@ -399,7 +380,7 @@ final class NotionWebSessionTests: XCTestCase {
         let pendingNewPage = try makePage(id: firstPageID, title: "Created")
         session.onPageResolved = { resolvedPages.append($0) }
         session.createNewPage()
-        session.showPreviewSurface()
+        session.panelDidHide()
 
         session.activate(page: selectedPage)
         session.adoptResolvedPage(at: pendingNewPage.canonicalURL)
@@ -424,7 +405,6 @@ final class NotionWebSessionTests: XCTestCase {
         let pendingNewPage = try makePage(id: secondPageID, title: "Created")
         session.onPageResolved = { resolvedPages.append($0) }
         session.activate(page: activePage)
-        session.showLiveSurface()
         session.createNewPage()
 
         session.reselect(page: activePage)
@@ -475,11 +455,9 @@ final class NotionWebSessionTests: XCTestCase {
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         session.activate(page: page)
-        session.showLiveSurface()
-        session.showPreviewSurface()
+        session.panelDidHide()
         eviction?()
-
-        session.showLiveSurface()
+        session.panelDidShow()
 
         XCTAssertEqual(requests.map(\.url), [page.canonicalURL, page.canonicalURL])
     }
@@ -497,7 +475,6 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .unloaded)
 
         session.activate(page: page)
-        session.showLiveSurface()
         XCTAssertEqual(session.state, .loading)
 
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
@@ -535,7 +512,6 @@ final class NotionWebSessionTests: XCTestCase {
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         session.activate(page: page)
-        session.showLiveSurface()
         let webView = try XCTUnwrap(session.webView)
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
         navigationDelegate.webView?(webView, didFinish: nil)
@@ -554,11 +530,7 @@ final class NotionWebSessionTests: XCTestCase {
             scheduleEviction: { _, _ in AnyCancellable {} }
         )
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        session.showLiveSurface()
-        let chrome = PiPChromeView(
-            webSession: session,
-            nativePageDocument: NativePageDocument()
-        )
+        let chrome = PiPChromeView(webSession: session)
         XCTAssertTrue(session.shouldHostWebView)
         XCTAssertTrue(PiPChromeView.shouldHostNotionWebView(for: session))
 
@@ -582,7 +554,6 @@ final class NotionWebSessionTests: XCTestCase {
             }
         )
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        session.showLiveSurface()
         let webView = try XCTUnwrap(session.webView)
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
         session.panelDidHide()
@@ -604,7 +575,6 @@ final class NotionWebSessionTests: XCTestCase {
             }
         )
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        session.showLiveSurface()
         let webView = try XCTUnwrap(session.webView)
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
         session.panelDidHide()
@@ -626,7 +596,6 @@ final class NotionWebSessionTests: XCTestCase {
             }
         )
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        session.showLiveSurface()
         let webView = try XCTUnwrap(session.webView)
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
         session.panelDidHide()
@@ -649,7 +618,6 @@ final class NotionWebSessionTests: XCTestCase {
             scheduleEviction: { _, _ in AnyCancellable {} }
         )
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        session.showLiveSurface()
         let webView = try XCTUnwrap(session.webView)
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
 
@@ -705,7 +673,6 @@ final class NotionWebSessionTests: XCTestCase {
         let session = NotionWebSession()
         session.onPageResolved = { resolvedPages.append($0) }
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        session.showLiveSurface()
         let webView = try XCTUnwrap(session.webView)
         webView.load(
             URLRequest(
@@ -773,7 +740,6 @@ final class NotionWebSessionTests: XCTestCase {
         let original = try makePage(id: firstPageID, title: "Roadmap")
         session.onPageResolved = { resolvedPages.append($0) }
         session.activate(page: original)
-        session.showLiveSurface()
         let webView = try XCTUnwrap(session.webView)
         webView.load(
             URLRequest(url: try XCTUnwrap(URL(string: "https://www.notion.so/new")))
@@ -787,6 +753,15 @@ final class NotionWebSessionTests: XCTestCase {
     }
 
     func testEditorActivityBridgeAcceptsOnlyMainFrameNotionHTTPSMessages() {
+        XCTAssertEqual(
+            NotionEditorActivityBridge.activity(
+                from: "typingStarted",
+                isMainFrame: true,
+                scheme: "https",
+                host: "app.notion.com"
+            ),
+            .typingStarted
+        )
         XCTAssertEqual(
             NotionEditorActivityBridge.activity(
                 from: "typingStarted",
@@ -840,12 +815,21 @@ final class NotionWebSessionTests: XCTestCase {
         )
     }
 
+    func testPiPChromeDoesNotRepeatWindowBrandIconInsideContent() {
+        let chrome = PiPChromeView(webSession: NotionWebSession())
+
+        XCTAssertFalse(String(reflecting: chrome.body).contains("rectangle.on.rectangle"))
+    }
+
+    func testPiPChromeOmitsPageSurfaceControlsFromTopBar() {
+        let chrome = PiPChromeView(webSession: NotionWebSession())
+
+        XCTAssertFalse(String(reflecting: chrome.body).contains("Page surface"))
+    }
+
     func testTypingActivityHidesTopControlsUntilEditingEnds() {
         let session = NotionWebSession()
-        let chrome = PiPChromeView(
-            webSession: session,
-            nativePageDocument: NativePageDocument()
-        )
+        let chrome = PiPChromeView(webSession: session)
 
         XCTAssertFalse(session.isTypingInPage)
         XCTAssertTrue(chrome.showsTopControls)
@@ -933,7 +917,6 @@ final class NotionWebSessionTests: XCTestCase {
     func testAdoptingResolvedSPAPageResetsTypingActivity() throws {
         let session = NotionWebSession()
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        session.showLiveSurface()
         session.handleEditorActivity(.typingStarted)
         let webView = try XCTUnwrap(session.webView)
         webView.load(
@@ -961,10 +944,7 @@ final class NotionWebSessionTests: XCTestCase {
                 userInfo: [NSLocalizedDescriptionKey: "Request to https://www.notion.so/?token=secret failed"]
             )
         )
-        let chrome = PiPChromeView(
-            webSession: session,
-            nativePageDocument: NativePageDocument()
-        )
+        let chrome = PiPChromeView(webSession: session)
         let presentation = String(reflecting: chrome.body)
 
         XCTAssertTrue(presentation.contains("Notion couldn't load this page."))
@@ -975,7 +955,6 @@ final class NotionWebSessionTests: XCTestCase {
     func testPiPChromeExposesAccessibleToolbarActionsWithoutRedundantHideAction() {
         let chrome = PiPChromeView(
             webSession: NotionWebSession(),
-            nativePageDocument: NativePageDocument(),
             onStash: {}
         )
 

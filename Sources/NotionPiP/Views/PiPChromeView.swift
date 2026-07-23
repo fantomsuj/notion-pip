@@ -8,7 +8,6 @@ struct PiPChromeView: View {
     static let stashHelp = "Move the Notion PiP to the nearest screen edge"
 
     @ObservedObject var webSession: NotionWebSession
-    @ObservedObject var nativePageDocument: NativePageDocument
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
@@ -41,12 +40,10 @@ struct PiPChromeView: View {
 
     init(
         webSession: NotionWebSession,
-        nativePageDocument: NativePageDocument,
         commandModel: AppCommandModel = .noOp,
         onStash: @escaping () -> Void = {}
     ) {
         self.webSession = webSession
-        self.nativePageDocument = nativePageDocument
         self.commandModel = commandModel
         self.onStash = onStash
     }
@@ -54,10 +51,6 @@ struct PiPChromeView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Label("Notion PiP", systemImage: "rectangle.on.rectangle")
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Colors.secondaryText)
-
                 Spacer()
 
                 Group {
@@ -88,28 +81,6 @@ struct PiPChromeView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Open Notion page in browser")
-
-                    Picker(
-                        "Page surface",
-                        selection: Binding(
-                            get: { webSession.surface },
-                            set: { surface in
-                                switch surface {
-                                case .preview:
-                                    webSession.showPreviewSurface()
-                                case .live:
-                                    webSession.showLiveSurface()
-                                }
-                            }
-                        )
-                    ) {
-                        ForEach(NotionPageSurface.allCases) { surface in
-                            Text(surface.rawValue).tag(surface)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 138)
-                    .accessibilityLabel("Page surface")
 
                     PiPAppCommandMenu(commandModel: commandModel)
 
@@ -156,12 +127,8 @@ struct PiPChromeView: View {
                 Divider()
             }
 
-            if webSession.surface == .preview {
-                NativePagePreviewView(document: nativePageDocument) {
-                    webSession.showLiveSurface()
-                }
-            } else if Self.shouldHostNotionWebView(for: webSession),
-                      let webView = webSession.webView
+            if Self.shouldHostNotionWebView(for: webSession),
+               let webView = webSession.webView
             {
                 NotionWebView(webView: webView)
             } else {

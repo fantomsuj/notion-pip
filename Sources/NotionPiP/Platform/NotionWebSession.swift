@@ -25,7 +25,7 @@ enum NotionEditorActivityBridge {
     ) -> NotionEditorActivity? {
         guard isMainFrame,
               scheme.lowercased() == "https",
-              ["notion.so", "www.notion.so"].contains(host.lowercased()),
+              ["app.notion.com", "notion.so", "www.notion.so"].contains(host.lowercased()),
               let rawActivity = body as? String
         else {
             return nil
@@ -84,13 +84,6 @@ enum NotionWebSessionState: Equatable {
     case failed(String)
 }
 
-enum NotionPageSurface: String, CaseIterable, Identifiable {
-    case preview = "Preview"
-    case live = "Notion"
-
-    var id: String { rawValue }
-}
-
 @MainActor
 final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     NotionEditorActivityHandling
@@ -100,7 +93,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     @Published private(set) var webView: WKWebView?
     @Published private(set) var state: NotionWebSessionState = .unloaded
-    @Published private(set) var surface: NotionPageSurface = .preview
     @Published private(set) var isCreatingNewPage = false
     @Published private(set) var isTypingInPage = false
     private(set) var activePage: NotionPageReference?
@@ -127,8 +119,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var savedInteractionPageID: String?
 
     var shouldHostWebView: Bool {
-        surface == .live
-            && panelIsVisible
+        panelIsVisible
             && state != .suspended
             && webView != nil
     }
@@ -220,7 +211,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             savedInteractionState = nil
             savedInteractionPageID = nil
         }
-        guard surface == .live, panelIsVisible, state != .suspended else { return }
+        guard panelIsVisible, state != .suspended else { return }
         load(page.canonicalURL, pageID: page.pageID)
     }
 
@@ -236,33 +227,12 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         savedURLPageID = page.pageID
         savedInteractionState = nil
         savedInteractionPageID = nil
-        guard surface == .live, panelIsVisible, state != .suspended else { return }
+        guard panelIsVisible, state != .suspended else { return }
         load(page.canonicalURL, pageID: page.pageID)
-    }
-
-    func showLiveSurface() {
-        surface = .live
-        guard panelIsVisible else { return }
-        if state == .suspended {
-            resumeSuspendedWebView()
-            return
-        }
-        guard let activePage else { return }
-        if webView == nil {
-            restoreOrLoad(page: activePage)
-        } else if loadedPageID != activePage.pageID {
-            load(activePage.canonicalURL, pageID: activePage.pageID)
-        }
-    }
-
-    func showPreviewSurface() {
-        surface = .preview
-        suspendWebViewIfNeeded()
     }
 
     func panelDidShow() {
         panelIsVisible = true
-        guard surface == .live else { return }
         if hasPendingNewPageNavigation {
             hasPendingNewPageNavigation = false
             evictionCancellable?.cancel()
@@ -296,7 +266,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
 
         isCreatingNewPage = true
-        surface = .live
         revealTopControls()
         guard panelIsVisible else {
             hasPendingNewPageNavigation = true
@@ -311,7 +280,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
 
         revealTopControls()
-        guard surface == .live, panelIsVisible else { return }
+        guard panelIsVisible else { return }
         if let webView {
             state = .loading
             webView.reload()
@@ -341,7 +310,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     func handleMemoryPressure() {
         guard state == .suspended,
               !isTypingInPage,
-              !(surface == .live && panelIsVisible)
+              !panelIsVisible
         else {
             return
         }
@@ -351,7 +320,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     func evictWarmWebView() {
         guard state == .suspended,
               !isTypingInPage,
-              !(surface == .live && panelIsVisible),
+              !panelIsVisible,
               let webView
         else {
             return
