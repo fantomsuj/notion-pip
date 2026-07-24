@@ -1,5 +1,10 @@
 # Codex instructions
 
+## Product intent
+
+Notion PiP is an always-on-screen overlay. Its persistent, all-Spaces panel
+behavior is intentional and should not be reported as an `NSPanel` defect.
+
 ## Helping someone run Notion PiP locally
 
 When the user asks to set up or try the app, prioritize getting the existing app
