@@ -59,7 +59,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding(DesignTokens.Spacing.container)
-        .frame(minWidth: 440, idealWidth: 480, minHeight: 420, idealHeight: 480)
+        .frame(minWidth: 440, minHeight: 420)
         .onDisappear {
             personalToken = ""
         }

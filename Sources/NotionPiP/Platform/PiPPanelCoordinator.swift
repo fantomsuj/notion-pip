@@ -37,7 +37,6 @@ protocol PiPPanelCoordinating: AnyObject {
 @MainActor
 final class PiPPanelCoordinator: PiPPanelCoordinating {
     private static let autosaveName = "NotionPiPPanel"
-    private static let defaultSize = CGSize(width: 520, height: 680)
 
     private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "panel")
     private let panel: any PiPPanelWindow
@@ -47,6 +46,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     private let visibleFramesProvider: @MainActor () -> [CGRect]
     private(set) var currentPage: NotionPageReference?
     private var screenConfigurationObserver: NSObjectProtocol?
+    private var initialFrameProvider: (@MainActor () -> CGRect?)?
     private var activeStashPlacement: PanelStashPlacement?
     private var didAttemptFirstPresentation = false
     private var stashedPanelFrame: CGRect?
@@ -62,31 +62,45 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     ) {
         let stashHandle = PiPStashHandleController()
         let visibleFrames = NSScreen.screens.map(\.visibleFrame)
-        let defaultFrame = Self.defaultFrame(visibleFrames: visibleFrames)
-        let panel = KeyCapablePiPPanel(
-            contentRect: defaultFrame,
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
+        let policy = WindowRole.pictureInPicture.policy
+        guard let panel = WindowRole.pictureInPicture.makeWindow() as? KeyCapablePiPPanel else {
+            preconditionFailure("PiP role must create KeyCapablePiPPanel")
+        }
         panel.title = "Notion PiP"
 
-        _ = panel.setFrameUsingName(Self.autosaveName)
+        let didRestoreAutosavedFrame = panel.setFrameUsingName(Self.autosaveName)
         _ = panel.setFrameAutosaveName(Self.autosaveName)
-        panel.setFrame(
-            PanelFramePolicy.clamped(panel.frame, visibleFrames: visibleFrames),
-            display: false
-        )
+        if didRestoreAutosavedFrame {
+            panel.setFrame(
+                PanelFramePolicy.clamped(
+                    panel.frame,
+                    visibleFrames: visibleFrames,
+                    minimumSize: policy.minimumContentSize
+                ),
+                display: false
+            )
+        }
+        let initialFrameProvider: (@MainActor () -> CGRect?)?
+        if didRestoreAutosavedFrame {
+            initialFrameProvider = nil
+        } else {
+            initialFrameProvider = {
+                PanelFramePolicy.initialFrame(
+                    size: policy.initialContentSize,
+                    minimumSize: policy.minimumContentSize,
+                    pointerLocation: NSEvent.mouseLocation,
+                    screens: NSScreen.screens.map {
+                        ScreenGeometry(frame: $0.frame, visibleFrame: $0.visibleFrame)
+                    }
+                )
+            }
+        }
         self.init(
             panel: panel,
             pageLoader: webSession,
             stashHandle: stashHandle,
-            performanceSignposter: performanceSignposter
+            performanceSignposter: performanceSignposter,
+            initialFrameProvider: initialFrameProvider
         )
         panel.onClose = { [weak self] in
             self?.pageLoader.panelDidHide()
@@ -110,13 +124,15 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         performanceSignposter: (any PerformanceSignposting)? = nil,
         visibleFramesProvider: @escaping @MainActor () -> [CGRect] = {
             NSScreen.screens.map(\.visibleFrame)
-        }
+        },
+        initialFrameProvider: (@MainActor () -> CGRect?)? = nil
     ) {
         self.panel = panel
         self.pageLoader = pageLoader
         self.stashHandle = stashHandle
         self.performanceSignposter = performanceSignposter
         self.visibleFramesProvider = visibleFramesProvider
+        self.initialFrameProvider = initialFrameProvider
         screenConfigurationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -136,6 +152,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
 
     func show(page: NotionPageReference) {
         let measurement = beginFirstPresentation()
+        prepareInitialFrameIfNeeded()
         if currentPage?.pageID != page.pageID {
             pageLoader.activate(page: page)
             currentPage = page
@@ -160,6 +177,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     func showCurrentPage() -> Bool {
         guard currentPage != nil else { return false }
         let measurement = beginFirstPresentation()
+        prepareInitialFrameIfNeeded()
         restoreStashedPanelFrame()
         dismissStashHandle()
         panel.present()
@@ -221,6 +239,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             return
         }
         let measurement = beginFirstPresentation()
+        prepareInitialFrameIfNeeded()
         restoreStashedPanelFrame()
         dismissStashHandle()
         panel.present()
@@ -232,7 +251,11 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     func reclampPanelFrame(visibleFrames: [CGRect]) {
         if stashedPanelFrame == nil {
             panel.setFrame(
-                PanelFramePolicy.clamped(panel.frame, visibleFrames: visibleFrames),
+                PanelFramePolicy.clamped(
+                    panel.frame,
+                    visibleFrames: visibleFrames,
+                    minimumSize: WindowRole.pictureInPicture.policy.minimumContentSize
+                ),
                 display: true
             )
         }
@@ -255,6 +278,13 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         activeStashPlacement = nil
         guard stashHandle?.isVisible == true else { return }
         stashHandle?.orderOut()
+    }
+
+    private func prepareInitialFrameIfNeeded() {
+        guard let initialFrameProvider else { return }
+        self.initialFrameProvider = nil
+        guard let frame = initialFrameProvider() else { return }
+        panel.setFrame(frame, display: false)
     }
 
     private func beginFirstPresentation() -> (
@@ -300,28 +330,16 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         panel.setFrame(
             PanelFramePolicy.clamped(
                 stashedPanelFrame,
-                visibleFrames: visibleFramesProvider()
+                visibleFrames: visibleFramesProvider(),
+                minimumSize: WindowRole.pictureInPicture.policy.minimumContentSize
             ),
             display: false
         )
         self.stashedPanelFrame = nil
     }
-
-    private static func defaultFrame(visibleFrames: [CGRect]) -> CGRect {
-        guard let visibleFrame = visibleFrames.first else {
-            return CGRect(origin: .zero, size: defaultSize)
-        }
-
-        return CGRect(
-            x: visibleFrame.maxX - defaultSize.width - 24,
-            y: visibleFrame.maxY - defaultSize.height - 24,
-            width: defaultSize.width,
-            height: defaultSize.height
-        )
-    }
 }
 
-private final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
+final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     var onClose: (@MainActor () -> Void)?
 
     override var canBecomeKey: Bool {

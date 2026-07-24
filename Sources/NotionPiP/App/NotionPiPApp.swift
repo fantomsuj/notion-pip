@@ -50,6 +50,7 @@ enum AppStartup {
 private final class AppComposition {
     let runtime: AppRuntime
     private let quickCapturePresenter: any AppWindowPresenting
+    private let settingsPresenter: AppWindowPresenter
     private let setupOptionsPresenter: SetupOptionsPopoverPresenter
     private let statusItemController: StatusItemController
 
@@ -106,10 +107,14 @@ private final class AppComposition {
             performanceSignposter: AppPerformanceSignposter.shared,
             firstPresentationOperation: .firstQuickCapturePresentation
         )
+        let settingsPresenter = AppWindowFactory.makeSettings(runtime: runtime)
         let setupOptionsPresenter = SetupOptionsPopoverPresenter(
             runtime: runtime,
             onQuickCapture: { [weak quickCapturePresenter] in
                 quickCapturePresenter?.show()
+            },
+            onSettings: { [weak settingsPresenter] in
+                settingsPresenter?.show()
             },
             onQuit: { NSApp.terminate(nil) }
         )
@@ -121,10 +126,12 @@ private final class AppComposition {
 
         actionRelay.quickCapturePresenter = quickCapturePresenter
         actionRelay.setupOptionsPresenter = setupOptionsPresenter
+        actionRelay.settingsPresenter = settingsPresenter
         runtime.bind(setupOptionsPresenter: setupOptionsPresenter)
 
         self.runtime = runtime
         self.quickCapturePresenter = quickCapturePresenter
+        self.settingsPresenter = settingsPresenter
         self.setupOptionsPresenter = setupOptionsPresenter
         self.statusItemController = statusItemController
     }

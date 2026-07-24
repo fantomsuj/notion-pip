@@ -247,7 +247,7 @@ final class PinCoordinatorTests: XCTestCase {
     }
 
     func testRestorePreservesPreStashGeometryAfterTemporarySmallerScreen() throws {
-        let originalFrame = CGRect(x: 620, y: 80, width: 300, height: 680)
+        let originalFrame = CGRect(x: 620, y: 80, width: 360, height: 680)
         let largeScreen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let smallScreen = CGRect(x: 0, y: 0, width: 800, height: 400)
         var currentVisibleFrames = [largeScreen]
@@ -331,7 +331,7 @@ final class PinCoordinatorTests: XCTestCase {
             handle.placements.last,
             PanelStashPlacement(
                 side: .right,
-                frame: CGRect(x: 964, y: 252, width: 36, height: 96)
+                frame: CGRect(x: 964, y: 262, width: 36, height: 96)
             )
         )
     }
@@ -413,6 +413,57 @@ final class PinCoordinatorTests: XCTestCase {
         coordinator.reclampPanelFrame(visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 700)])
 
         XCTAssertEqual(panel.frame, CGRect(x: 400, y: 0, width: 600, height: 700))
+    }
+
+    func testPanelCoordinatorDefersContextualPlacementUntilFirstPresentationAndRunsItOnce() throws {
+        let initialFrame = CGRect(x: 896, y: 171, width: 520, height: 680)
+        let panel = FakePanelWindow(frame: CGRect(origin: .zero, size: initialFrame.size))
+        var placementCount = 0
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            initialFrameProvider: {
+                placementCount += 1
+                return initialFrame
+            }
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+
+        XCTAssertEqual(placementCount, 0)
+        XCTAssertTrue(panel.setFrames.isEmpty)
+
+        coordinator.show(page: page)
+        coordinator.hide()
+        XCTAssertTrue(coordinator.showCurrentPage())
+
+        XCTAssertEqual(placementCount, 1)
+        XCTAssertEqual(panel.setFrames, [initialFrame])
+    }
+
+    func testPanelCoordinatorPreservesAutosavedGeometryWhenContextualPlacementIsDisabled() throws {
+        let autosavedFrame = CGRect(x: 120, y: 80, width: 600, height: 700)
+        let panel = FakePanelWindow(frame: autosavedFrame)
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            initialFrameProvider: nil
+        )
+
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        XCTAssertEqual(panel.frame, autosavedFrame)
+        XCTAssertTrue(panel.setFrames.isEmpty)
+    }
+
+    func testPanelCoordinatorNormalizesMinimumSizeAfterScreenConfigurationChange() {
+        let panel = FakePanelWindow(frame: CGRect(x: 800, y: 380, width: 200, height: 300))
+        let coordinator = PiPPanelCoordinator(panel: panel, pageLoader: FakePageLoader())
+
+        coordinator.reclampPanelFrame(
+            visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+        )
+
+        XCTAssertEqual(panel.frame, CGRect(x: 640, y: 380, width: 360, height: 420))
     }
 
     func testPinCoordinatorUsesReplaceForDifferentActivePage() throws {
@@ -510,6 +561,7 @@ private final class FakePanelWindow: PiPPanelWindow {
     private(set) var orderOutCount = 0
     private(set) var frame: CGRect
     private(set) var isVisible = false
+    private(set) var setFrames: [CGRect] = []
 
     init(frame: CGRect = .zero) {
         self.frame = frame
@@ -527,6 +579,7 @@ private final class FakePanelWindow: PiPPanelWindow {
 
     func setFrame(_ frame: CGRect, display: Bool) {
         self.frame = frame
+        setFrames.append(frame)
     }
 }
 
