@@ -1,5 +1,10 @@
 # Codex instructions
 
+## Product intent
+
+Notion PiP is an always-on-screen overlay. Its persistent, all-Spaces panel
+behavior is intentional and should not be reported as an `NSPanel` defect.
+
 ## Writing Swift code
 
 - Preserve the Swift 6.2, macOS 14, public API, signing, and entitlement
