@@ -59,16 +59,19 @@ private final class AppComposition {
         let webSession = NotionWebSession()
         let pageRepository: PageRepository?
         let captureRepository: CaptureRepository?
+        let initialServiceHealth: ServiceHealthState
 
         do {
             let container = try NotionPiPPersistence.makeContainer()
             pageRepository = PageRepository(container: container)
             captureRepository = CaptureRepository(container: container)
+            initialServiceHealth = .healthy
         } catch {
             Logger(subsystem: "com.fantomsuj.NotionPiP", category: "persistence")
                 .error("Persistent store unavailable")
             pageRepository = nil
             captureRepository = nil
+            initialServiceHealth = ServiceHealthState(issues: [.persistentStoreUnavailable])
         }
 
         let commandModel = AppCommandModel(
@@ -86,7 +89,8 @@ private final class AppComposition {
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
             pageRepository: pageRepository,
-            legacyCacheCleaner: FileSystemLegacyNativePageCacheCleaner()
+            legacyCacheCleaner: FileSystemLegacyNativePageCacheCleaner(),
+            initialServiceHealth: initialServiceHealth
         )
         webSession.onPageResolved = { [weak runtime] page in
             runtime?.activate(page: page, source: .notionWebSession)

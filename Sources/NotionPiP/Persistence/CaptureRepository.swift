@@ -22,11 +22,10 @@ enum CaptureRepositoryHelperFetch: Equatable, Sendable {
 
 typealias CaptureRepositoryHelperFetchCheck = @Sendable (CaptureRepositoryHelperFetch) throws -> Void
 
+@ModelActor
 actor CaptureRepository {
-    private let container: ModelContainer
-    private let context: ModelContext
-    private let clock: any CaptureClock
-    private let beforeHelperFetch: CaptureRepositoryHelperFetchCheck
+    private var clock: any CaptureClock = SystemCaptureClock()
+    private var beforeHelperFetch: CaptureRepositoryHelperFetchCheck = { _ in }
 
     init(
         storeURL: URL? = nil,
@@ -46,9 +45,10 @@ actor CaptureRepository {
         clock: any CaptureClock = SystemCaptureClock(),
         beforeHelperFetch: @escaping CaptureRepositoryHelperFetchCheck = { _ in }
     ) {
-        self.container = container
-        context = ModelContext(container)
+        let context = ModelContext(container)
         context.autosaveEnabled = false
+        modelExecutor = DefaultSerialModelExecutor(modelContext: context)
+        modelContainer = container
         self.clock = clock
         self.beforeHelperFetch = beforeHelperFetch
     }
@@ -133,7 +133,7 @@ actor CaptureRepository {
                 updatedAt: now,
                 returnDraftID: returnDraftID
             )
-            context.insert(model)
+            modelContext.insert(model)
             return try snapshot(model)
         }
     }
@@ -234,7 +234,7 @@ actor CaptureRepository {
             updatedAt: now
         )
         return try commit {
-            context.insert(record)
+            modelContext.insert(record)
             let returnDraftID = draft.returnDraftID
             draft.dispositionRawValue = DraftDisposition.abandoned.rawValue
             draft.captureRecordID = record.stableID
@@ -251,7 +251,7 @@ actor CaptureRepository {
     }
 
     func drafts() throws -> [CaptureDraftSnapshot] {
-        try context.fetch(FetchDescriptor<CaptureDraftModel>())
+        try modelContext.fetch(FetchDescriptor<CaptureDraftModel>())
             .map(snapshot)
             .sorted { $0.id < $1.id }
     }
@@ -261,13 +261,13 @@ actor CaptureRepository {
     }
 
     func records() throws -> [CaptureRecordSnapshot] {
-        try context.fetch(FetchDescriptor<CaptureRecordModel>())
+        try modelContext.fetch(FetchDescriptor<CaptureRecordModel>())
             .map(snapshot)
             .sorted { $0.id < $1.id }
     }
 
     func claimNext(at now: Date, retryPolicy: RetryPolicy) throws -> CaptureRecordSnapshot? {
-        let candidates = try context.fetch(FetchDescriptor<CaptureRecordModel>())
+        let candidates = try modelContext.fetch(FetchDescriptor<CaptureRecordModel>())
             .filter {
                 $0.stateRawValue == DeliveryState.queued.rawValue
                     || $0.stateRawValue == DeliveryState.retrying.rawValue
@@ -315,7 +315,7 @@ actor CaptureRepository {
     }
 
     func recoverInterruptedWork(at now: Date) throws -> Int {
-        let interrupted = try context.fetch(FetchDescriptor<CaptureRecordModel>())
+        let interrupted = try modelContext.fetch(FetchDescriptor<CaptureRecordModel>())
             .filter { $0.stateRawValue == DeliveryState.inFlight.rawValue }
         guard !interrupted.isEmpty else { return 0 }
         return try commit {
@@ -448,14 +448,14 @@ actor CaptureRepository {
 
     func applyRetention(at now: Date, policy: RetentionPolicy) throws -> RetentionResult {
         let cutoff = now.addingTimeInterval(-policy.retentionInterval)
-        let records = try context.fetch(FetchDescriptor<CaptureRecordModel>())
+        let records = try modelContext.fetch(FetchDescriptor<CaptureRecordModel>())
         let deletableRecords = records.filter {
             $0.stateRawValue == DeliveryState.delivered.rawValue
                 && ($0.deliveredAt ?? $0.updatedAt) < cutoff
                 && $0.operationJournal == nil
         }
         let deletableRecordIDs = Set(deletableRecords.map(\.stableID))
-        let drafts = try context.fetch(FetchDescriptor<CaptureDraftModel>())
+        let drafts = try modelContext.fetch(FetchDescriptor<CaptureDraftModel>())
         let deletableDrafts = drafts.filter {
             guard $0.dispositionRawValue == DraftDisposition.abandoned.rawValue,
                   $0.updatedAt < cutoff
@@ -469,23 +469,23 @@ actor CaptureRepository {
         )
         guard !deletableRecords.isEmpty || !deletableDrafts.isEmpty else { return result }
         return try commit {
-            deletableRecords.forEach(context.delete)
-            deletableDrafts.forEach(context.delete)
+            deletableRecords.forEach(modelContext.delete)
+            deletableDrafts.forEach(modelContext.delete)
             return result
         }
     }
 
     private func draftModel(id: String) throws -> CaptureDraftModel? {
-        try context.fetch(FetchDescriptor<CaptureDraftModel>()).first { $0.stableID == id }
+        try modelContext.fetch(FetchDescriptor<CaptureDraftModel>()).first { $0.stableID == id }
     }
 
     private func recordModel(id: String) throws -> CaptureRecordModel? {
-        try context.fetch(FetchDescriptor<CaptureRecordModel>()).first { $0.stableID == id }
+        try modelContext.fetch(FetchDescriptor<CaptureRecordModel>()).first { $0.stableID == id }
     }
 
     private func activeDraft(except id: String) throws -> CaptureDraftModel? {
         try beforeHelperFetch(.activeDraft)
-        return try context.fetch(FetchDescriptor<CaptureDraftModel>())
+        return try modelContext.fetch(FetchDescriptor<CaptureDraftModel>())
             .filter {
                 $0.stableID != id
                     && $0.dispositionRawValue == DraftDisposition.active.rawValue
@@ -536,10 +536,10 @@ actor CaptureRepository {
     private func commit<Result>(_ changes: () throws -> Result) throws -> Result {
         do {
             let result = try changes()
-            try context.save()
+            try modelContext.save()
             return result
         } catch {
-            context.rollback()
+            modelContext.rollback()
             throw error
         }
     }
@@ -560,7 +560,7 @@ actor CaptureRepository {
 
     private func stashOtherActiveDrafts(except id: String, at now: Date) throws {
         try beforeHelperFetch(.otherActiveDrafts)
-        for draft in try context.fetch(FetchDescriptor<CaptureDraftModel>())
+        for draft in try modelContext.fetch(FetchDescriptor<CaptureDraftModel>())
         where draft.stableID != id && draft.dispositionRawValue == DraftDisposition.active.rawValue {
             draft.dispositionRawValue = DraftDisposition.stashed.rawValue
             draft.updatedAt = now

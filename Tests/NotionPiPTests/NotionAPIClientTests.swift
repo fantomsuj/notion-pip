@@ -21,6 +21,7 @@ final class NotionAPIClientTests: XCTestCase {
         XCTAssertEqual(request.url?.path, "/v1/users/me")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Notion-Version"), "2026-03-11")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer ntn_1234567890abcdef")
+        XCTAssertEqual(request.timeoutInterval, 15)
     }
 
     func testSearchReturnsOnlyAccessibleNotionPages() async throws {
@@ -53,6 +54,91 @@ final class NotionAPIClientTests: XCTestCase {
         XCTAssertTrue(String(decoding: body, as: UTF8.self).contains("roadmap"))
     }
 
+    func testRejectsResponseBodyOverConfiguredLimit() async throws {
+        let transport = RecordingNotionTransport(responses: [
+            jsonResponse(#"{"object":"user","padding":"too large"}"#)
+        ])
+        let client = NotionAPIClient(
+            token: try PersonalIntegrationToken(validating: "ntn_1234567890abcdef"),
+            transport: transport,
+            maximumResponseBytes: 16
+        )
+
+        do {
+            _ = try await client.validateConnection()
+            XCTFail("Expected an oversized response to be rejected")
+        } catch {
+            XCTAssertEqual(error as? NotionAPIClientError, .responseTooLarge(maximumBytes: 16))
+        }
+    }
+
+    func testDecodesStructuredNotionAPIError() async throws {
+        let transport = RecordingNotionTransport(responses: [
+            jsonResponse(
+                """
+                {
+                  "object":"error",
+                  "status":429,
+                  "code":"rate_limited",
+                  "message":"Slow down",
+                  "request_id":"request-123"
+                }
+                """,
+                statusCode: 429
+            )
+        ])
+        let client = NotionAPIClient(
+            token: try PersonalIntegrationToken(validating: "ntn_1234567890abcdef"),
+            transport: transport
+        )
+
+        do {
+            _ = try await client.validateConnection()
+            XCTFail("Expected a structured API error")
+        } catch {
+            XCTAssertEqual(
+                error as? NotionAPIClientError,
+                .apiError(
+                    NotionAPIErrorDetails(
+                        statusCode: 429,
+                        code: "rate_limited",
+                        message: "Slow down",
+                        requestID: "request-123"
+                    )
+                )
+            )
+        }
+    }
+
+    func testCancellationPropagatesToTransport() async throws {
+        let transport = SuspendingNotionTransport()
+        let client = NotionAPIClient(
+            token: try PersonalIntegrationToken(validating: "ntn_1234567890abcdef"),
+            transport: transport
+        )
+        let request = Task {
+            try await client.validateConnection()
+        }
+
+        await transport.waitUntilStarted()
+        request.cancel()
+
+        do {
+            _ = try await request.value
+            XCTFail("Expected cancellation")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+    }
+
+    func testDefaultTransportHasFiniteRequestAndResourceDeadlines() {
+        let transport = URLSessionNotionRequestTransport()
+
+        XCTAssertEqual(transport.requestTimeout, 15)
+        XCTAssertEqual(transport.resourceTimeout, 30)
+        XCTAssertEqual(transport.maximumResponseBytes, 1_048_576)
+    }
+
 }
 
 private final class RecordingNotionTransport: NotionRequestTransport {
@@ -66,6 +152,22 @@ private final class RecordingNotionTransport: NotionRequestTransport {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         requests.append(request)
         return responses.removeFirst()
+    }
+}
+
+private actor SuspendingNotionTransport: NotionRequestTransport {
+    private var started = false
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        started = true
+        try await Task.sleep(for: .seconds(60))
+        return jsonResponse("{}")
+    }
+
+    func waitUntilStarted() async {
+        while !started {
+            await Task.yield()
+        }
     }
 }
 

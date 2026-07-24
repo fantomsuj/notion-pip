@@ -34,6 +34,8 @@ struct MenuBarRootView: View {
                 PagePickerView(pages: [activePage], onPin: runtime.pin)
             }
 
+            ServiceHealthView(runtime: runtime)
+
             Divider()
 
             HStack {

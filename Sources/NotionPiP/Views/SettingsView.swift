@@ -6,6 +6,12 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            if !runtime.serviceHealth.isHealthy {
+                Section("Service health") {
+                    ServiceHealthView(runtime: runtime)
+                }
+            }
+
             Section("Page") {
                 PageURLInputView(
                     state: runtime.pageURLInputState,
@@ -54,5 +60,8 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .padding(DesignTokens.Spacing.container)
         .frame(minWidth: 440, minHeight: 420)
+        .onDisappear {
+            personalToken = ""
+        }
     }
 }

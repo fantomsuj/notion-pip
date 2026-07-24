@@ -139,6 +139,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     private let repository: CaptureRepository
     private let draftID: () -> String
     private let openInNotion: () -> Void
+    private let openURL: @MainActor (URL) -> Void
     private let beforeBridgeRequest: (CaptureBridgeRequest) async -> Void
     private let beforeConflictResolution: (CaptureEditorSnapshot) async -> Void
     private let beforeCreatingActiveDraft: () async -> Void
@@ -166,6 +167,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         repository: CaptureRepository,
         draftID: @escaping () -> String = { UUID().uuidString.lowercased() },
         openInNotion: @escaping () -> Void = {},
+        openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
         beforeBridgeRequest: @escaping (CaptureBridgeRequest) async -> Void = { _ in },
         beforeConflictResolution: @escaping (CaptureEditorSnapshot) async -> Void = { _ in },
         beforeCreatingActiveDraft: @escaping () async -> Void = {},
@@ -182,6 +184,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         self.repository = repository
         self.draftID = draftID
         self.openInNotion = openInNotion
+        self.openURL = openURL
         self.beforeBridgeRequest = beforeBridgeRequest
         self.beforeConflictResolution = beforeConflictResolution
         self.beforeCreatingActiveDraft = beforeCreatingActiveDraft
@@ -203,7 +206,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
             name: CaptureBridgeProtocol.handlerName
         )
         webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.setValue(false, forKey: "drawsBackground")
+        webView.underPageBackgroundColor = .clear
 
         super.init()
         handler.delegate = self
@@ -736,6 +739,23 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         webView.navigationDelegate = nil
     }
 
+    func handleNavigation(to url: URL?) -> WKNavigationActionPolicy {
+        switch CaptureEditorNavigationPolicy.decision(
+            for: url,
+            resourceRoot: resourceRootURL
+        ) {
+        case .allow:
+            return .allow
+        case .cancel:
+            return .cancel
+        case .openExternal:
+            if let url {
+                openURL(url)
+            }
+            return .cancel
+        }
+    }
+
     private static let emptyDocument = Data(
         #"{"content":[{"type":"paragraph"}],"type":"doc"}"#.utf8
     )
@@ -770,13 +790,12 @@ enum CaptureEditorNavigationPolicy {
             let rootPrefix = root.hasSuffix("/") ? root : root + "/"
             return candidate.hasPrefix(rootPrefix) ? .allow : .cancel
         }
-        guard url.scheme?.lowercased() == "https",
-              let host = url.host?.lowercased(),
-              host == "notion.so" || host == "www.notion.so"
-        else {
+        switch WebNavigationDestination.classify(url) {
+        case .trustedNotion, .externalWeb:
+            return .openExternal
+        case .unsupported:
             return .cancel
         }
-        return .openExternal
     }
 }
 
@@ -785,19 +804,6 @@ extension CaptureEditorSession: WKNavigationDelegate {
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction
     ) async -> WKNavigationActionPolicy {
-        switch CaptureEditorNavigationPolicy.decision(
-            for: navigationAction.request.url,
-            resourceRoot: resourceRootURL
-        ) {
-        case .allow:
-            return .allow
-        case .cancel:
-            return .cancel
-        case .openExternal:
-            if let url = navigationAction.request.url {
-                NSWorkspace.shared.open(url)
-            }
-            return .cancel
-        }
+        handleNavigation(to: navigationAction.request.url)
     }
 }

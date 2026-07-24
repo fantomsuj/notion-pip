@@ -178,6 +178,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         )
         editorActivityHandler.delegate = self
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         urlObservation = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             MainActor.assumeIsolated {
                 self?.adoptResolvedPage(at: webView.url)
@@ -343,6 +344,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         )
         webView.configuration.userContentController.removeAllUserScripts()
         webView.navigationDelegate = nil
+        webView.uiDelegate = nil
         webView.removeFromSuperview()
         self.webView = nil
         state = .unloaded
@@ -508,6 +510,37 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 }
 
 extension NotionWebSession: WKNavigationDelegate {
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction
+    ) async -> WKNavigationActionPolicy {
+        navigationPolicy(
+            for: navigationAction.request.url,
+            targetFrameIsPresent: navigationAction.targetFrame != nil
+        )
+    }
+
+    func navigationPolicy(
+        for url: URL?,
+        targetFrameIsPresent: Bool
+    ) -> WKNavigationActionPolicy {
+        guard targetFrameIsPresent else {
+            return .allow
+        }
+
+        switch WebNavigationDestination.classify(url) {
+        case .trustedNotion:
+            return .allow
+        case .externalWeb:
+            if let url {
+                openURL(url)
+            }
+            return .cancel
+        case .unsupported:
+            return .cancel
+        }
+    }
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         revealTopControls()
         publishNavigationState(.loading)
@@ -558,5 +591,33 @@ extension NotionWebSession: WKNavigationDelegate {
         isCreatingNewPage = false
         revealTopControls()
         publishNavigationState(.failed(error.localizedDescription))
+    }
+}
+
+extension NotionWebSession: WKUIDelegate {
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        handleNewWindowRequest(navigationAction.request, in: webView)
+    }
+
+    func handleNewWindowRequest(
+        _ request: URLRequest,
+        in webView: WKWebView
+    ) -> WKWebView? {
+        switch WebNavigationDestination.classify(request.url) {
+        case .trustedNotion:
+            loadRequest(webView, request)
+        case .externalWeb:
+            if let url = request.url {
+                openURL(url)
+            }
+        case .unsupported:
+            break
+        }
+        return nil
     }
 }
