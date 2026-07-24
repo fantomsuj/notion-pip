@@ -19,17 +19,10 @@ enum PageURLInputWindowFactory {
         state: PageURLInputState,
         onSubmit: @escaping () -> Void
     ) -> any PageURLInputWindow {
-        let window = KeyCapablePageURLInputWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 440, height: 180),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
+        guard let window = WindowRole.pinPage.makeWindow() as? KeyCapableAppWindow else {
+            preconditionFailure("Pin Page role must create KeyCapableAppWindow")
+        }
         window.title = "Pin Notion Page"
-        window.level = .floating
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        window.hidesOnDeactivate = false
-        window.isReleasedWhenClosed = false
         window.center()
         window.contentView = NSHostingView(
             rootView: PageURLInputWindowContent(state: state, onSubmit: onSubmit)
@@ -65,21 +58,4 @@ final class PageURLInputPresenter: PageURLInputPresenting {
     }
 }
 
-private final class KeyCapablePageURLInputWindow: NSWindow, PageURLInputWindow {
-    override var canBecomeKey: Bool {
-        true
-    }
-
-    override func close() {
-        orderOut(nil)
-    }
-
-    func presentAsKey() {
-        NSApp.activate(ignoringOtherApps: true)
-        makeKeyAndOrderFront(nil)
-    }
-
-    func orderOut() {
-        orderOut(nil)
-    }
-}
+extension KeyCapableAppWindow: PageURLInputWindow {}

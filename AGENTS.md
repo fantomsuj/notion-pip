@@ -1,5 +1,32 @@
 # Codex instructions
 
+## Product intent
+
+Notion PiP is an always-on-screen overlay. Its persistent, all-Spaces panel
+behavior is intentional and should not be reported as an `NSPanel` defect.
+
+## Writing Swift code
+
+- Preserve the Swift 6.2, macOS 14, public API, signing, and entitlement
+  contracts unless the task explicitly changes them.
+- Before editing, inspect relevant call sites and nearby tests. Follow existing
+  patterns, keep the diff focused, and avoid speculative abstractions.
+- Prefer clear APIs at the call site, value semantics where appropriate, and
+  documentation for public declarations. Avoid force unwraps and casts unless
+  the invariant is explicit.
+- Use structured concurrency, actors, `@MainActor`, and `Sendable` types as
+  appropriate. Do not silence concurrency errors with `@unchecked Sendable`,
+  `nonisolated(unsafe)`, or detached tasks without a documented reason.
+- Add regression tests for behavior changes. Keep tests independent because
+  Swift tests may run in parallel.
+- Validate Swift changes with:
+
+  ```sh
+  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+  ```
+
+  Report the command result and anything not verified.
+
 ## Helping someone run Notion PiP locally
 
 When the user asks to set up or try the app, prioritize getting the existing app

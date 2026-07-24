@@ -19,16 +19,10 @@ final class PiPStashHandleController: PiPStashHandle {
         }
     ) {
         self.visibleFramesProvider = visibleFramesProvider
-        panel = NSPanel(
-            contentRect: .zero,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
+        guard let panel = WindowRole.stashHandle.makeWindow() as? NSPanel else {
+            preconditionFailure("Stash Handle role must create NSPanel")
+        }
+        self.panel = panel
         panel.isMovable = false
         panel.isOpaque = false
         panel.backgroundColor = .clear

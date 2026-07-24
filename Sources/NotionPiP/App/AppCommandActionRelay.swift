@@ -4,6 +4,7 @@ import AppKit
 final class AppCommandActionRelay {
     weak var quickCapturePresenter: (any AppWindowPresenting)?
     weak var setupOptionsPresenter: (any SetupOptionsPresenting)?
+    weak var settingsPresenter: (any AppWindowPresenting)?
 
     func showQuickCapture() {
         quickCapturePresenter?.show()
@@ -14,7 +15,7 @@ final class AppCommandActionRelay {
     }
 
     func showSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        settingsPresenter?.show()
     }
 
     func quit() {

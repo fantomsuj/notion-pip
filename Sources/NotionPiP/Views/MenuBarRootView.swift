@@ -2,9 +2,9 @@ import AppKit
 import SwiftUI
 
 struct MenuBarRootView: View {
-    @Environment(\.openSettings) private var openSettings
     @ObservedObject var runtime: AppRuntime
     let onQuickCapture: () -> Void
+    let onSettings: () -> Void
     let onQuit: () -> Void
 
     var body: some View {
@@ -39,7 +39,7 @@ struct MenuBarRootView: View {
             Divider()
 
             HStack {
-                Button(action: openSettings.callAsFunction) {
+                Button(action: onSettings) {
                     Label("Settings", systemImage: "gearshape")
                 }
                 .keyboardShortcut(",")

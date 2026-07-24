@@ -488,6 +488,9 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
             "return !document.querySelector('#slash-menu').hidden && document.querySelector('#editor .tiptap').innerText.trim() === '/hea'"
         }
         sendWebKey("\u{1b}", keyCode: 53, to: session.webView)
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return document.querySelector('#slash-menu').hidden"
+        }
         let result = try await session.webView.callAsyncJavaScript(
             """
             const editor = document.querySelector('#editor .tiptap');

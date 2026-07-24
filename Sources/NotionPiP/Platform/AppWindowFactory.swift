@@ -36,29 +36,32 @@ enum AppWindowFactory {
 
         return AppWindowPresenter(
             window: makeWindow(
+                role: .quickCapture,
                 title: "Quick Capture",
-                size: CGSize(width: 520, height: 520),
                 content: content
             )
         )
     }
 
+    static func makeSettings(runtime: AppRuntime) -> AppWindowPresenter {
+        AppWindowPresenter(
+            window: makeWindow(
+                role: .settings,
+                title: "Notion PiP Settings",
+                content: AnyView(SettingsView(runtime: runtime))
+            )
+        )
+    }
+
     private static func makeWindow(
+        role: WindowRole,
         title: String,
-        size: CGSize,
         content: AnyView
     ) -> any AppWindow {
-        let window = KeyCapableAppWindow(
-            contentRect: CGRect(origin: .zero, size: size),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
+        guard let window = role.makeWindow() as? KeyCapableAppWindow else {
+            preconditionFailure("App window roles must create KeyCapableAppWindow")
+        }
         window.title = title
-        window.level = .floating
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        window.hidesOnDeactivate = false
-        window.isReleasedWhenClosed = false
         window.center()
         window.contentView = NSHostingView(rootView: content)
         return window
