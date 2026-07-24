@@ -345,6 +345,6 @@ private struct ConnectionTestPasteboard: PasteboardReading {
 
 @MainActor
 private final class ConnectionTestShortcutRegistrar: GlobalShortcutRegistering {
-    func register(handler: @escaping @MainActor () -> Void) throws {}
+    func register(shortcut: GlobalShortcut, handler: @escaping @MainActor () -> Void) throws {}
     func unregister() {}
 }

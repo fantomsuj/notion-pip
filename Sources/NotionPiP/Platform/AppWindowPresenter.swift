@@ -99,12 +99,19 @@ final class AppWindowPresenter: AppWindowPresenting {
 }
 
 final class KeyCapableAppWindow: NSWindow, AppWindow {
+    var closeRequestHandler: (@MainActor () -> Void)?
+    var isProcessingCloseRequest = false
+
     override var canBecomeKey: Bool {
         true
     }
 
     override func close() {
-        orderOut(nil)
+        if let closeRequestHandler {
+            closeRequestHandler()
+        } else {
+            orderOut(nil)
+        }
     }
 
     func presentAsKey() {

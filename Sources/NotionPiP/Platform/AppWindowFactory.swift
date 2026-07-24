@@ -5,20 +5,25 @@ import SwiftUI
 enum AppWindowFactory {
     static func makeQuickCapture(
         repository: CaptureRepository?,
+        lifecycle: QuickCaptureLifecycleCoordinator? = nil,
+        onNeedsConfiguration: @escaping @MainActor (String) -> Void = { _ in },
         openInNotion: @escaping () -> Void
     ) -> AppWindowPresenter {
         let content: AnyView
+        let session: CaptureEditorSession?
         if let repository {
-            let session = CaptureEditorSession(
+            let editorSession = CaptureEditorSession(
                 repository: repository,
                 openInNotion: openInNotion
             )
+            session = editorSession
             content = AnyView(
-                QuickCaptureView(session: session)
+                QuickCaptureView(session: editorSession)
                     .padding(DesignTokens.Spacing.container)
                     .frame(minWidth: 440, minHeight: 400)
             )
         } else {
+            session = nil
             content = AnyView(
                 VStack(spacing: DesignTokens.Spacing.control) {
                     Image(systemName: "exclamationmark.triangle")
@@ -34,13 +39,37 @@ enum AppWindowFactory {
             )
         }
 
-        return AppWindowPresenter(
-            window: makeWindow(
-                role: .quickCapture,
-                title: "Quick Capture",
-                content: content
-            )
+        let window = makeWindow(
+            role: .quickCapture,
+            title: "Quick Capture",
+            content: content
         )
+        if let session, let lifecycle {
+            window.closeRequestHandler = { [weak window, weak session] in
+                guard let window, let session, !window.isProcessingCloseRequest else { return }
+                window.isProcessingCloseRequest = true
+                Task { @MainActor in
+                    defer { window.isProcessingCloseRequest = false }
+                    do {
+                        let snapshot = try await session.latestSnapshot()
+                        let outcome = await lifecycle.close(snapshot: snapshot)
+                        switch outcome {
+                        case .discarded, .enqueued:
+                            window.orderOut()
+                        case let .needsConfiguration(message):
+                            session.reportCloseGuidance(message)
+                            window.orderOut()
+                            onNeedsConfiguration(message)
+                        case let .failed(message):
+                            session.reportCloseGuidance(message)
+                        }
+                    } catch {
+                        session.reportCloseGuidance("The latest capture could not be saved.")
+                    }
+                }
+            }
+        }
+        return AppWindowPresenter(window: window)
     }
 
     static func makeSettings(runtime: AppRuntime) -> AppWindowPresenter {
@@ -57,7 +86,7 @@ enum AppWindowFactory {
         role: WindowRole,
         title: String,
         content: AnyView
-    ) -> any AppWindow {
+    ) -> KeyCapableAppWindow {
         guard let window = role.makeWindow() as? KeyCapableAppWindow else {
             preconditionFailure("App window roles must create KeyCapableAppWindow")
         }

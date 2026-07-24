@@ -7,6 +7,7 @@ struct DeliveryReceipt: Equatable, Sendable {
 
 enum DeliveryTransportError: Error, Equatable, Sendable {
     case http(status: Int, retryAfter: TimeInterval?, message: String?)
+    case retryable(message: String?)
     case ambiguous(message: String?)
     case transport(message: String?)
 }
@@ -15,6 +16,24 @@ protocol CaptureDeliveryTransport: Sendable {
     func findManagedCapture(captureID: String, databaseID: String) async throws -> DeliveryReceipt?
     func createManaged(_ record: CaptureRecordSnapshot, databaseID: String) async throws -> DeliveryReceipt
     func appendManual(_ record: CaptureRecordSnapshot, pageID: String) async throws -> DeliveryReceipt
+    func createChildPage(_ record: CaptureRecordSnapshot, parentPageID: String) async throws -> DeliveryReceipt
+    func createDataSourcePage(_ record: CaptureRecordSnapshot, dataSourceID: String) async throws -> DeliveryReceipt
+}
+
+extension CaptureDeliveryTransport {
+    func createChildPage(
+        _ record: CaptureRecordSnapshot,
+        parentPageID: String
+    ) async throws -> DeliveryReceipt {
+        throw DeliveryTransportError.transport(message: "Child-page delivery is unavailable.")
+    }
+
+    func createDataSourcePage(
+        _ record: CaptureRecordSnapshot,
+        dataSourceID: String
+    ) async throws -> DeliveryReceipt {
+        throw DeliveryTransportError.transport(message: "Data-source delivery is unavailable.")
+    }
 }
 
 typealias DeliveryStartupRecovery = @Sendable (Date) async throws -> Int
@@ -99,6 +118,10 @@ actor DeliveryEngine {
             return try await transport.createManaged(record, databaseID: databaseID)
         case let .manual(pageID):
             return try await transport.appendManual(record, pageID: pageID)
+        case let .pageParent(pageID):
+            return try await transport.createChildPage(record, parentPageID: pageID)
+        case let .dataSource(dataSourceID):
+            return try await transport.createDataSourcePage(record, dataSourceID: dataSourceID)
         }
     }
 
@@ -154,6 +177,17 @@ actor DeliveryEngine {
                 return false
             }
             if status == 408 || (500 ... 599).contains(status) {
+                if (500 ... 599).contains(status),
+                   record.destination.isJournaledPageCreation
+                {
+                    return try await scheduleRetry(
+                        record: record,
+                        retryAfter: retryAfter,
+                        code: "serverFailure",
+                        message: "Notion could not accept the delivery yet.",
+                        status: status
+                    )
+                }
                 return try await handleAmbiguous(
                     record: record,
                     status: status,
@@ -171,11 +205,46 @@ actor DeliveryEngine {
                 at: now
             )
             return false
+        case let .retryable(message):
+            return try await scheduleRetry(
+                record: record,
+                retryAfter: nil,
+                code: "transportUnavailable",
+                message: message ?? "Delivery will retry when the network is available.",
+                status: nil
+            )
         case .ambiguous:
             return try await handleAmbiguous(record: record, status: nil, code: "ambiguousTransport")
         case .transport:
             return try await handleAmbiguous(record: record, status: nil, code: "transportFailure")
         }
+    }
+
+    private func scheduleRetry(
+        record: CaptureRecordSnapshot,
+        retryAfter: TimeInterval?,
+        code: String,
+        message: String,
+        status: Int?
+    ) async throws -> Bool {
+        let now = clock.now()
+        let delay = retryPolicy.delay(
+            forAttempt: record.attemptCount,
+            retryAfter: retryAfter
+        )
+        _ = try await repository.markRetrying(
+            recordID: record.id,
+            nextAttemptAt: now.addingTimeInterval(delay),
+            requiresManagedCheck: record.requiresManagedCheck,
+            safeError: safeError(
+                code: code,
+                message: message,
+                status: status,
+                retryAfter: retryAfter
+            ),
+            at: now
+        )
+        return false
     }
 
     private func handleAmbiguous(
@@ -199,11 +268,16 @@ actor DeliveryEngine {
                 at: now
             )
         } else {
+            let isPageCreation = record.destination.isJournaledPageCreation
             _ = try await repository.markUncertain(
                 recordID: record.id,
                 safeError: safeError(
-                    code: "ambiguousManualAppend",
-                    message: "Manual append outcome needs review.",
+                    code: isPageCreation
+                        ? "ambiguousPageCreation"
+                        : "ambiguousManualAppend",
+                    message: isPageCreation
+                        ? "Notion may have created this capture. Open the local copy to recover without creating a duplicate."
+                        : "Manual append outcome needs review.",
                     status: status,
                     retryAfter: nil
                 ),

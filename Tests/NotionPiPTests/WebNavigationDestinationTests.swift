@@ -24,6 +24,15 @@ final class WebNavigationDestinationTests: XCTestCase {
         )
     }
 
+    func testClassifiesExactNotionIdentityHostAsTrusted() throws {
+        XCTAssertEqual(
+            WebNavigationDestination.classify(
+                try XCTUnwrap(URL(string: "https://identity.notion.com/authSync"))
+            ),
+            .trustedNotion
+        )
+    }
+
     func testClassifiesHTTPNotionAndNonNotionWebURLsAsExternal() throws {
         for rawURL in [
             "http://app.notion.com/workspace",

@@ -709,7 +709,7 @@ private final class FakeShortcutRegistrar: GlobalShortcutRegistering {
     private(set) var registerCount = 0
     private(set) var handler: (@MainActor () -> Void)?
 
-    func register(handler: @escaping @MainActor () -> Void) throws {
+    func register(shortcut: GlobalShortcut, handler: @escaping @MainActor () -> Void) throws {
         registerCount += 1
         self.handler = handler
     }

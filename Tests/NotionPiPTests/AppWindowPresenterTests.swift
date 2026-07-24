@@ -4,6 +4,16 @@ import XCTest
 
 @MainActor
 final class AppWindowPresenterTests: XCTestCase {
+    func testSettingsWindowPresenterForwardsEveryRequestToTheRetainedWindowPresenter() {
+        let windowPresenter = FakeAppWindowPresenter()
+        let presenter = SettingsWindowPresenter(windowPresenter: windowPresenter)
+
+        presenter.show()
+        presenter.show()
+
+        XCTAssertEqual(windowPresenter.showCount, 2)
+        XCTAssertEqual(windowPresenter.hideCount, 0)
+    }
     func testLazyPresenterDefersConstructionUntilFirstShowAndReusesPresenter() {
         let window = FakeAppWindow()
         var factoryCount = 0
@@ -97,6 +107,15 @@ final class AppWindowPresenterTests: XCTestCase {
         XCTAssertNotNil(signposter.endCalls.first?.token)
         XCTAssertEqual(signposter.endCalls.first?.outcome, .success)
     }
+}
+
+@MainActor
+private final class FakeAppWindowPresenter: AppWindowPresenting {
+    private(set) var showCount = 0
+    private(set) var hideCount = 0
+
+    func show() { showCount += 1 }
+    func hide() { hideCount += 1 }
 }
 
 @MainActor

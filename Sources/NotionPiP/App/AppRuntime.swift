@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import OSLog
@@ -10,7 +11,14 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var connectionState: PersonalTokenConnectionState = .disconnected
     @Published private(set) var searchResults: [NotionPageSearchResult] = []
     @Published private(set) var searchError: String?
+    @Published private(set) var quickCaptureDestination: QuickCaptureDestination?
+    @Published private(set) var destinationSearchResults: [NotionDestinationSearchResult] = []
+    @Published private(set) var destinationSearchError: String?
+    @Published private(set) var isSearchingDestinations = false
+    @Published private(set) var captureRecords: [CaptureRecordSnapshot] = []
+    @Published private(set) var captureRecoveryMessage: String?
     @Published private(set) var serviceHealth: ServiceHealthState
+    @Published private(set) var globalShortcut: GlobalShortcut
 
     let pageURLInputState: PageURLInputState
 
@@ -41,14 +49,19 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "shortcut")
     private let pinCoordinator: PinCoordinator
     private let shortcutRegistrar: any GlobalShortcutRegistering
+    private let shortcutStore: GlobalShortcutStore
     private let pageURLInputPresenter: any PageURLInputPresenting
     private let pageRepository: (any PinnedPagePersisting)?
+    private let destinationRepository: (any QuickCaptureDestinationPersisting)?
+    private let captureRepository: CaptureRepository?
+    private let deliveryScheduler: DeliveryScheduler?
     private let credentialVault: PersonalTokenCredentialVault
     private let legacyCacheCleaner: any LegacyNativePageCacheCleaning
     private let legacyCacheDirectory: URL
     private let notionClientFactory: (PersonalIntegrationToken) -> any NotionWorkspaceClient
-    private weak var setupOptionsPresenter: (any SetupOptionsPresenting)?
+    private weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
     private var searchTask: Task<Void, Never>?
+    private var destinationSearchTask: Task<Void, Never>?
     private var bootstrapTask: Task<Void, Never>?
     private var restorePinnedPageTask: Task<Void, Never>?
     private var persistPinnedPageTask: Task<Void, Never>?
@@ -61,8 +74,12 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         panelCoordinator: (any PiPPanelCoordinating)? = nil,
         pasteboard: any PasteboardReading = SystemPasteboardReader(),
         shortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar(),
+        shortcutStore: GlobalShortcutStore = GlobalShortcutStore(),
         pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
         pageRepository: (any PinnedPagePersisting)? = nil,
+        destinationRepository: (any QuickCaptureDestinationPersisting)? = nil,
+        captureRepository: CaptureRepository? = nil,
+        deliveryScheduler: DeliveryScheduler? = nil,
         credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
         legacyCacheCleaner: any LegacyNativePageCacheCleaning = NoOpLegacyNativePageCacheCleaner(),
         legacyCacheDirectory: URL = FileSystemLegacyNativePageCacheCleaner.defaultDirectoryURL,
@@ -86,12 +103,17 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             requestPageURLFocus: inputPresenter.presentAndFocus
         )
         self.shortcutRegistrar = shortcutRegistrar
+        self.shortcutStore = shortcutStore
         self.pageRepository = pageRepository
+        self.destinationRepository = destinationRepository
+        self.captureRepository = captureRepository
+        self.deliveryScheduler = deliveryScheduler
         self.credentialVault = credentialVault
         self.legacyCacheCleaner = legacyCacheCleaner
         self.legacyCacheDirectory = legacyCacheDirectory
         self.notionClientFactory = notionClientFactory
         serviceHealth = initialServiceHealth
+        globalShortcut = shortcutStore.load()
         submissionRelay.handler = { [weak self] in
             self?.validatePageURL()
         }
@@ -108,11 +130,16 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         bootstrapTask = Task { [weak self] in
             await self?.bootstrapPersonalTokenConnection()
         }
+        Task { [weak self] in
+            await self?.loadQuickCaptureDestination()
+            await self?.deliveryScheduler?.trigger()
+            await self?.refreshCaptureRecords()
+        }
         restorePinnedPageFromRepository()
     }
 
-    func bind(setupOptionsPresenter: any SetupOptionsPresenting) {
-        self.setupOptionsPresenter = setupOptionsPresenter
+    func bind(settingsWindowPresenter: any SettingsWindowPresenting) {
+        self.settingsWindowPresenter = settingsWindowPresenter
     }
 
     func retryRecovery(for issue: ServiceHealthIssue) {
@@ -130,6 +157,28 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         }
     }
 
+    @discardableResult
+    func applyGlobalShortcut(_ shortcut: GlobalShortcut) -> Bool {
+        guard shortcut.isValid else { return false }
+        do {
+            try shortcutRegistrar.register(shortcut: shortcut) { [weak self] in
+                self?.handleGlobalShortcut()
+            }
+            globalShortcut = shortcut
+            shortcutStore.save(shortcut)
+            resolveServiceIssue(.globalShortcutUnavailable)
+            return true
+        } catch {
+            logger.error("Global shortcut registration failed")
+            reportServiceIssue(.globalShortcutUnavailable)
+            return false
+        }
+    }
+
+    func resetGlobalShortcut() {
+        _ = applyGlobalShortcut(.default)
+    }
+
     func prepareForTermination() async {
         while let persistenceTask = persistPinnedPageTask {
             let expectedGeneration = persistenceGeneration
@@ -140,10 +189,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
     func handleMenuBarActivation() {
         guard pinCoordinator.toggleCurrentPage() else {
-            setupOptionsPresenter?.show()
+            settingsWindowPresenter?.show()
             return
         }
-        setupOptionsPresenter?.hide()
     }
 
     func validatePageURL() {
@@ -176,7 +224,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             restorePinnedPageTask = nil
         }
         pinCoordinator.pin(page: page)
-        setupOptionsPresenter?.hide()
         activePage = page
         pendingPage = page
         lastActivationSource = source
@@ -206,6 +253,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             try credentialVault.save(token)
             guard isCurrentConnectionAttempt(generation) else { return }
             connectionState = .connected(workspaceName: connection.workspaceName)
+            await deliveryScheduler?.trigger(reconnected: true)
         } catch let error as PersonalIntegrationTokenError {
             guard isCurrentConnectionAttempt(generation) else { return }
             connectionState = .failed(error == .missing ? "Enter your Notion personal access token." : "Use a Notion personal access token that starts with ntn_.")
@@ -231,6 +279,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             let connection = try await notionClientFactory(token).validateConnection()
             guard isCurrentConnectionAttempt(generation) else { return }
             connectionState = .connected(workspaceName: connection.workspaceName)
+            await deliveryScheduler?.trigger(reconnected: true)
         } catch let error as NotionAPIClientError {
             guard isCurrentConnectionAttempt(generation) else { return }
             connectionState = .failed(Self.reconnectMessage(for: error))
@@ -248,9 +297,13 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             bootstrapTask = nil
             searchTask?.cancel()
             searchTask = nil
+            destinationSearchTask?.cancel()
+            destinationSearchTask = nil
             connectionState = .disconnected
             searchResults = []
             searchError = nil
+            destinationSearchResults = []
+            destinationSearchError = nil
         } catch {
             connectionState = .failed("Could not remove the saved token.")
             return
@@ -270,6 +323,87 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             await self?.loadNotionSearchResults(query: query, connectionGeneration: generation)
         }
         await searchTask?.value
+    }
+
+    func searchQuickCaptureDestinations(query: String) async {
+        destinationSearchTask?.cancel()
+        let generation = connectionGeneration
+        isSearchingDestinations = true
+        destinationSearchTask = Task { [weak self] in
+            await self?.loadDestinationSearchResults(
+                query: query,
+                connectionGeneration: generation
+            )
+        }
+        await destinationSearchTask?.value
+    }
+
+    func selectQuickCaptureDestination(
+        _ destination: QuickCaptureDestination
+    ) async {
+        guard let destinationRepository else {
+            destinationSearchError = "Quick Capture settings are unavailable."
+            return
+        }
+        do {
+            try await destinationRepository.replaceDefault(with: destination)
+            quickCaptureDestination = destination
+            destinationSearchError = nil
+        } catch {
+            destinationSearchError = "Could not save the Quick Capture destination."
+        }
+    }
+
+    func clearQuickCaptureDestination() async {
+        guard let destinationRepository else {
+            destinationSearchError = "Quick Capture settings are unavailable."
+            return
+        }
+        do {
+            try await destinationRepository.clearDefault()
+            quickCaptureDestination = nil
+            destinationSearchError = nil
+        } catch {
+            destinationSearchError = "Could not clear the Quick Capture destination."
+        }
+    }
+
+    func hasUsablePersonalToken() -> Bool {
+        guard isNotionConnected else { return false }
+        return (try? credentialVault.load()) != nil
+    }
+
+    func refreshCaptureRecords() async {
+        guard let captureRepository else { return }
+        do {
+            captureRecords = try await captureRepository.records()
+                .sorted { $0.updatedAt > $1.updatedAt }
+            captureRecoveryMessage = nil
+        } catch {
+            captureRecoveryMessage = "Could not load Quick Capture delivery history."
+        }
+    }
+
+    func openLocalCapture(recordID: String) async {
+        guard let captureRepository else {
+            captureRecoveryMessage = "Local capture recovery is unavailable."
+            return
+        }
+        do {
+            guard let record = try await captureRepository.record(id: recordID) else {
+                captureRecoveryMessage = "The local capture could not be found."
+                return
+            }
+            let markdown = try CaptureExport.markdown(records: [record], drafts: [])
+            let safeID = record.id.filter { $0.isLetter || $0.isNumber }.prefix(24)
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("NotionPiP-Recovery-\(safeID).md")
+            try Data(markdown.utf8).write(to: url, options: .atomic)
+            NSWorkspace.shared.open(url)
+            captureRecoveryMessage = nil
+        } catch {
+            captureRecoveryMessage = "Could not open the local capture export."
+        }
     }
 
     private func loadNotionSearchResults(query: String, connectionGeneration: Int) async {
@@ -298,6 +432,48 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         }
     }
 
+    private func loadDestinationSearchResults(
+        query: String,
+        connectionGeneration: Int
+    ) async {
+        defer {
+            if isCurrentConnectionAttempt(connectionGeneration) {
+                isSearchingDestinations = false
+            }
+        }
+        do {
+            guard isCurrentConnectionAttempt(connectionGeneration) else { return }
+            guard isNotionConnected else {
+                destinationSearchResults = []
+                destinationSearchError = "Reconnect to Notion to search destinations."
+                return
+            }
+            guard let token = try credentialVault.load() else {
+                destinationSearchResults = []
+                destinationSearchError = "Connect a Notion personal access token first."
+                return
+            }
+            destinationSearchError = nil
+            let results = try await notionClientFactory(token)
+                .searchDestinations(query: query)
+            guard isCurrentConnectionAttempt(connectionGeneration) else { return }
+            destinationSearchResults = results
+        } catch {
+            guard isCurrentConnectionAttempt(connectionGeneration) else { return }
+            destinationSearchResults = []
+            destinationSearchError = "Could not search Notion destinations."
+        }
+    }
+
+    private func loadQuickCaptureDestination() async {
+        guard let destinationRepository else { return }
+        do {
+            quickCaptureDestination = try await destinationRepository.defaultDestination()
+        } catch {
+            destinationSearchError = "Could not load the Quick Capture destination."
+        }
+    }
+
     private func handleGlobalShortcut() {
         guard pinCoordinator.stashOrRestoreCurrentPage() else {
             pageURLInputPresenter.presentAndFocus()
@@ -306,15 +482,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     }
 
     private func registerGlobalShortcut() {
-        do {
-            try shortcutRegistrar.register { [weak self] in
-                self?.handleGlobalShortcut()
-            }
-            resolveServiceIssue(.globalShortcutUnavailable)
-        } catch {
-            logger.error("Global shortcut registration failed")
-            reportServiceIssue(.globalShortcutUnavailable)
-        }
+        _ = applyGlobalShortcut(globalShortcut)
     }
 
     private func showValidationFailure(_ message: String) {
