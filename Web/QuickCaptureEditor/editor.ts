@@ -667,6 +667,7 @@ declare global {
       };
     };
     NotionPiPBridge?: {
+      snapshot(): EditorSnapshot;
       applyNativeReply(reply: unknown): boolean;
       restore(draftID: string, expectedRevision: number): Promise<BridgeReply>;
       resolveConflict(action: ConflictAction, operationID: string): Promise<BridgeReply>;
@@ -1154,6 +1155,12 @@ function bootstrap(): void {
   });
 
   window.NotionPiPBridge = {
+    snapshot: () => ({
+      draftID: snapshot.draftID,
+      title: titleInput.value,
+      revision: snapshot.revision ?? 0,
+      document: normalizeDocument(editor.getJSON()),
+    }),
     applyNativeReply: (reply) => {
       if (!isBridgeReply(reply)) return false;
       applyReply(reply);

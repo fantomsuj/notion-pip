@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 
 struct PiPChromeView: View {
-    static let newPageAccessibilityLabel = "Create New Notion Page"
-    static let newPageHelp = "Create a new page in Notion"
+    static let primaryActionID = AppCommandID.quickCapture
+    static let primaryActionAccessibilityLabel = "Quick Capture"
+    static let primaryActionHelp = "Capture a note for Notion"
     static let stashAccessibilityLabel = "Stash Notion PiP to Side"
     static let stashHelp = "Move the Notion PiP to the nearest screen edge"
 
@@ -61,14 +62,14 @@ struct PiPChromeView: View {
                     }
 
                     Button {
-                        commandModel.perform(.newNotionPage)
+                        commandModel.perform(Self.primaryActionID)
                     } label: {
                         Image(systemName: "plus")
                     }
                     .buttonStyle(.plain)
-                    .disabled(!(commandModel.command(for: .newNotionPage)?.isEnabled ?? false))
-                    .accessibilityLabel(Self.newPageAccessibilityLabel)
-                    .help(Self.newPageHelp)
+                    .disabled(!(commandModel.command(for: Self.primaryActionID)?.isEnabled ?? false))
+                    .accessibilityLabel(Self.primaryActionAccessibilityLabel)
+                    .help(Self.primaryActionHelp)
 
                     Button(action: webSession.reload) {
                         Image(systemName: "arrow.clockwise")

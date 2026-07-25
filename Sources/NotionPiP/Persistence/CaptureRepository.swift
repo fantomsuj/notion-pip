@@ -246,6 +246,32 @@ actor CaptureRepository {
         }
     }
 
+    func discardDraft(
+        id: String,
+        expectedRevision: Int
+    ) throws {
+        guard let draft = try draftModel(id: id) else {
+            throw CaptureRepositoryError.draftNotFound(id)
+        }
+        guard draft.revision == expectedRevision else {
+            throw CaptureRepositoryError.staleRevision(
+                expected: expectedRevision,
+                actual: draft.revision
+            )
+        }
+        guard draft.captureRecordID == nil,
+              let disposition = DraftDisposition(rawValue: draft.dispositionRawValue),
+              disposition != .abandoned
+        else {
+            throw CaptureRepositoryError.abandonedDraftImmutable
+        }
+        let returnDraftID = draft.returnDraftID
+        try commit {
+            modelContext.delete(draft)
+            try reactivateReturnDraft(id: returnDraftID, at: clock.now())
+        }
+    }
+
     func draft(id: String) throws -> CaptureDraftSnapshot? {
         try draftModel(id: id).map(snapshot)
     }
@@ -333,6 +359,22 @@ actor CaptureRepository {
                         ),
                         on: model
                     )
+                } else if (model.destinationKind == "page_parent"
+                            || model.destinationKind == "data_source"),
+                          isCaptureDeliveryJournal(model.operationJournal)
+                {
+                    model.stateRawValue = DeliveryState.retrying.rawValue
+                    model.nextAttemptAt = now
+                    model.requiresManagedCheck = false
+                    setSafeError(
+                        SafeDeliveryError(
+                            code: "interruptedJournaledDelivery",
+                            message: "Resuming delivery to the page already created in Notion.",
+                            statusCode: nil,
+                            retryAfter: nil
+                        ),
+                        on: model
+                    )
                 } else {
                     model.stateRawValue = DeliveryState.uncertain.rawValue
                     model.nextAttemptAt = nil
@@ -355,6 +397,24 @@ actor CaptureRepository {
         }
     }
 
+    func resumeUnauthorizedRetries(at now: Date) throws -> Int {
+        let records = try modelContext.fetch(FetchDescriptor<CaptureRecordModel>())
+            .filter {
+                $0.stateRawValue == DeliveryState.retrying.rawValue
+                    && $0.nextAttemptAt == nil
+                    && $0.safeErrorCode == "unauthorized"
+            }
+        guard !records.isEmpty else { return 0 }
+        return try commit {
+            for record in records {
+                record.nextAttemptAt = now
+                record.updatedAt = now
+                record.revision += 1
+            }
+            return records.count
+        }
+    }
+
     func markDelivered(
         recordID: String,
         receipt: DeliveryReceipt,
@@ -372,6 +432,9 @@ actor CaptureRepository {
             model.remoteIdentity = receipt.remoteIdentity
             model.fingerprint = receipt.fingerprint
             model.requiresManagedCheck = false
+            if isCaptureDeliveryJournal(model.operationJournal) {
+                model.operationJournal = nil
+            }
             clearSafeError(on: model)
             model.revision += 1
             return try snapshot(model)
@@ -440,6 +503,27 @@ actor CaptureRepository {
         ])
         return try commit {
             model.operationJournal = operationJournal
+            model.updatedAt = clock.now()
+            model.revision += 1
+            return try snapshot(model)
+        }
+    }
+
+    func updateDeliveryJournal(
+        recordID: String,
+        journal: Data?
+    ) throws -> CaptureRecordSnapshot {
+        guard let model = try recordModel(id: recordID) else {
+            throw CaptureRepositoryError.recordNotFound(recordID)
+        }
+        let canonicalJournal: Data?
+        do {
+            canonicalJournal = try journal.map(CanonicalJSON.canonicalize)
+        } catch {
+            throw CaptureRepositoryError.invalidJSON
+        }
+        return try commit {
+            model.operationJournal = canonicalJournal
             model.updatedAt = clock.now()
             model.revision += 1
             return try snapshot(model)
@@ -556,6 +640,15 @@ actor CaptureRepository {
         model.safeErrorMessage = nil
         model.safeErrorStatusCode = nil
         model.safeErrorRetryAfter = nil
+    }
+
+    private func isCaptureDeliveryJournal(_ data: Data?) -> Bool {
+        guard let data,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return false
+        }
+        return object["stage"] as? String == "captureDelivery"
     }
 
     private func stashOtherActiveDrafts(except id: String, at now: Date) throws {

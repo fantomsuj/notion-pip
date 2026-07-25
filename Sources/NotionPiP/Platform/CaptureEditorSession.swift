@@ -226,6 +226,36 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         return await perform(request)
     }
 
+    func latestSnapshot() async throws -> CaptureEditorSnapshot {
+        let value = try await webView.callAsyncJavaScript(
+            "return window.NotionPiPBridge.snapshot()",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        guard let object = value as? [String: Any],
+              let draftID = object["draftID"] as? String,
+              !draftID.isEmpty,
+              let title = object["title"] as? String,
+              let revision = object["revision"] as? Int,
+              let documentObject = object["document"],
+              JSONSerialization.isValidJSONObject(documentObject)
+        else {
+            throw CaptureConflictResolverError.invalidReply
+        }
+        let document = try CanonicalJSON.encode(documentObject)
+        return CaptureEditorSnapshot(
+            draftID: draftID,
+            title: title,
+            document: document,
+            revision: revision
+        )
+    }
+
+    func reportCloseGuidance(_ message: String) {
+        status = .failed(message)
+    }
+
     private func perform(_ request: CaptureBridgeRequest) async -> CaptureBridgeReply {
         do {
             switch request {

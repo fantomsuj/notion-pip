@@ -77,6 +77,7 @@ final class KeychainSecretStore: SecretStoring {
     }
 }
 
+@MainActor
 final class PersonalTokenCredentialVault {
     private let store: any SecretStoring
 

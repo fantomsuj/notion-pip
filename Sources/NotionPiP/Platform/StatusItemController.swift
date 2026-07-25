@@ -5,7 +5,6 @@ final class StatusItemController: NSObject {
     private let statusItem: NSStatusItem
     private let runtime: AppRuntime
     private let commandModel: AppCommandModel
-    private let setupOptionsPresenter: SetupOptionsPopoverPresenter
 
     private lazy var eventRouter = StatusItemEventRouter(
         onRegularClick: { [weak self] in
@@ -19,13 +18,11 @@ final class StatusItemController: NSObject {
     init(
         runtime: AppRuntime,
         commandModel: AppCommandModel,
-        setupOptionsPresenter: SetupOptionsPopoverPresenter,
         statusBar: NSStatusBar = .system
     ) {
         statusItem = statusBar.statusItem(withLength: NSStatusItem.squareLength)
         self.runtime = runtime
         self.commandModel = commandModel
-        self.setupOptionsPresenter = setupOptionsPresenter
         super.init()
 
         guard let button = statusItem.button else { return }
@@ -42,7 +39,6 @@ final class StatusItemController: NSObject {
         button.target = self
         button.action = #selector(handleStatusItemAction(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        setupOptionsPresenter.attach(to: button)
     }
 
     @objc

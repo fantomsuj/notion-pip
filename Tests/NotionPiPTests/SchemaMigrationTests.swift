@@ -4,6 +4,54 @@ import XCTest
 @testable import NotionPiP
 
 final class SchemaMigrationTests: XCTestCase {
+    func testV1StoreMigratesToV2WithoutLosingExistingDraft() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("V1-to-V2.store")
+        let v1Schema = Schema(versionedSchema: NotionPiPSchemaV1.self)
+        let v1Configuration = ModelConfiguration(
+            schema: v1Schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+
+        do {
+            let v1Container = try ModelContainer(
+                for: v1Schema,
+                configurations: v1Configuration
+            )
+            let context = ModelContext(v1Container)
+            context.insert(
+                CaptureDraftModel(
+                    stableID: "legacy-draft",
+                    revision: 1,
+                    title: "Preserved",
+                    editorDocument: jsonData(["type": "doc", "content": []]),
+                    sourceDocument: nil,
+                    dispositionRawValue: DraftDisposition.active.rawValue,
+                    createdAt: Date(timeIntervalSince1970: 1_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_000)
+                )
+            )
+            try context.save()
+        }
+
+        let migratedContainer = try NotionPiPPersistence.makeContainer(storeURL: storeURL)
+        let captureRepository = CaptureRepository(container: migratedContainer)
+        let destinationRepository = QuickCaptureDestinationRepository(
+            container: migratedContainer
+        )
+
+        let migratedDraft = try await captureRepository.draft(id: "legacy-draft")
+        let migratedDestination = try await destinationRepository.defaultDestination()
+        XCTAssertEqual(migratedDraft?.title, "Preserved")
+        XCTAssertNil(migratedDestination)
+        XCTAssertEqual(NotionPiPSchemaV2.versionIdentifier, Schema.Version(2, 0, 0))
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 2)
+    }
+
     func testV1SchemaCanReopenAPersistedDraft() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -31,7 +79,7 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(draft?.title, "Persisted")
         XCTAssertEqual(draft?.revision, 1)
         XCTAssertEqual(NotionPiPSchemaV1.versionIdentifier, Schema.Version(1, 0, 0))
-        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 1)
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 2)
     }
 
     func testDeliveryStateRawValuesAreStable() {

@@ -19,7 +19,7 @@ enum WebNavigationDestination: Equatable, Sendable {
             return .unsupported
         }
 
-        let trustedHosts = ["app.notion.com", "notion.so", "www.notion.so"]
+        let trustedHosts = ["app.notion.com", "identity.notion.com", "notion.so", "www.notion.so"]
         if scheme == "https", trustedHosts.contains(host) {
             return .trustedNotion
         }

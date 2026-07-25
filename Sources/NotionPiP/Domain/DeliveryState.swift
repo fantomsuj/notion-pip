@@ -18,26 +18,55 @@ enum DraftDisposition: String, Codable, Sendable {
 enum CaptureDestination: Codable, Equatable, Sendable {
     case managed(databaseID: String)
     case manual(pageID: String)
+    case pageParent(pageID: String)
+    case dataSource(dataSourceID: String)
 
     var identifier: String {
         switch self {
         case let .managed(databaseID): databaseID
         case let .manual(pageID): pageID
+        case let .pageParent(pageID): pageID
+        case let .dataSource(dataSourceID): dataSourceID
         }
     }
 
     var isManaged: Bool {
-        if case .managed = self { true } else { false }
+        switch self {
+        case .managed:
+            true
+        case .manual, .pageParent, .dataSource:
+            false
+        }
     }
 
     var rawKind: String {
-        if isManaged { "managed" } else { "manual" }
+        switch self {
+        case .managed:
+            "managed"
+        case .manual:
+            "manual"
+        case .pageParent:
+            "page_parent"
+        case .dataSource:
+            "data_source"
+        }
+    }
+
+    var isJournaledPageCreation: Bool {
+        switch self {
+        case .pageParent, .dataSource:
+            true
+        case .managed, .manual:
+            false
+        }
     }
 
     init?(rawKind: String, identifier: String) {
         switch rawKind {
         case "managed": self = .managed(databaseID: identifier)
         case "manual": self = .manual(pageID: identifier)
+        case "page_parent": self = .pageParent(pageID: identifier)
+        case "data_source": self = .dataSource(dataSourceID: identifier)
         default: return nil
         }
     }

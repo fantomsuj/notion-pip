@@ -172,15 +172,15 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(panel.replacedPages, [created])
     }
 
-    func testMenuBarActivationWithoutCurrentPageShowsSetupOptions() {
+    func testMenuBarActivationWithoutCurrentPageShowsSettings() {
         let panel = RuntimePanelCoordinator()
-        let setup = RuntimeSetupOptionsPresenter()
+        let settings = RuntimeSettingsWindowPresenter()
         let runtime = makeRuntime(panel: panel)
-        runtime.bind(setupOptionsPresenter: setup)
+        runtime.bind(settingsWindowPresenter: settings)
 
         runtime.handleMenuBarActivation()
 
-        XCTAssertEqual(setup.showCount, 1)
+        XCTAssertEqual(settings.showCount, 1)
         XCTAssertFalse(panel.isVisible)
     }
 
@@ -209,11 +209,11 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(panel.currentPage, page)
     }
 
-    func testMenuBarActivationFallsBackToSetupWhenRuntimeAndPanelDisagree() throws {
+    func testMenuBarActivationFallsBackToSettingsWhenRuntimeAndPanelDisagree() throws {
         let panel = RuntimePanelCoordinator()
-        let setup = RuntimeSetupOptionsPresenter()
+        let settings = RuntimeSettingsWindowPresenter()
         let runtime = makeRuntime(panel: panel)
-        runtime.bind(setupOptionsPresenter: setup)
+        runtime.bind(settingsWindowPresenter: settings)
         runtime.activate(
             page: try makePage(id: firstPageID, title: "Roadmap"),
             source: .typedURL
@@ -222,24 +222,8 @@ final class RuntimeActivationTests: XCTestCase {
 
         runtime.handleMenuBarActivation()
 
-        XCTAssertEqual(setup.showCount, 1)
+        XCTAssertEqual(settings.showCount, 1)
         XCTAssertFalse(panel.isVisible)
-    }
-
-    func testSuccessfulPageActivationDismissesSetupOptions() throws {
-        let panel = RuntimePanelCoordinator()
-        let setup = RuntimeSetupOptionsPresenter()
-        let runtime = makeRuntime(panel: panel)
-        runtime.bind(setupOptionsPresenter: setup)
-        setup.show()
-
-        runtime.activate(
-            page: try makePage(id: firstPageID, title: "Roadmap"),
-            source: .typedURL
-        )
-
-        XCTAssertFalse(setup.isShown)
-        XCTAssertEqual(setup.hideCount, 1)
     }
 
     func testDisconnectAndReconnectPreventsLateSearchFromReplacingClearedResults() async throws {
@@ -735,21 +719,12 @@ private final class RuntimePanelCoordinator: PiPPanelCoordinating {
 }
 
 @MainActor
-private final class RuntimeSetupOptionsPresenter: SetupOptionsPresenting {
+private final class RuntimeSettingsWindowPresenter: SettingsWindowPresenting {
     private(set) var showCount = 0
-    private(set) var hideCount = 0
-    private(set) var isShown = false
 
     func show() {
         showCount += 1
-        isShown = true
     }
-
-    func hide() {
-        hideCount += 1
-        isShown = false
-    }
-    func toggle() {}
 }
 
 private final class RuntimePasteboard: PasteboardReading {
@@ -771,7 +746,7 @@ private final class RuntimeShortcutRegistrar: GlobalShortcutRegistering {
         self.failuresRemaining = failuresRemaining
     }
 
-    func register(handler: @escaping @MainActor () -> Void) throws {
+    func register(shortcut: GlobalShortcut, handler: @escaping @MainActor () -> Void) throws {
         if failuresRemaining > 0 {
             failuresRemaining -= 1
             throw RuntimeShortcutRegistrationError.failed

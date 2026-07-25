@@ -753,7 +753,13 @@ final class CaptureEditorFlowTests: XCTestCase {
         let repository = try CaptureRepository(inMemory: true)
         let capture = CaptureEditorSession(repository: repository)
         let notion = NotionWebSession()
-        notion.createNewPage()
+        notion.activate(
+            page: try NotionPageReference(
+                validating: XCTUnwrap(
+                    URL(string: "https://www.notion.so/0123456789abcdef0123456789abcdef")
+                )
+            )
+        )
         let notionWebView = try XCTUnwrap(notion.webView)
 
         XCTAssertFalse(capture.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())

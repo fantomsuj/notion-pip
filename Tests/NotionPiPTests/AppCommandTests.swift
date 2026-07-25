@@ -8,15 +8,12 @@ final class AppCommandTests: XCTestCase {
         let model = makeModel(events: { _ in })
 
         XCTAssertEqual(model.groups.map { $0.commands.map(\.id) }, [
-            [.newNotionPage, .quickCapture],
-            [.changePinnedPage],
+            [.quickCapture],
             [.settings],
             [.quit],
         ])
         XCTAssertEqual(model.commands.map(\.title), [
-            "New Notion Page",
             "Quick Capture",
-            "Change Pinned Page…",
             "Settings…",
             "Quit Notion PiP",
         ])
@@ -53,6 +50,8 @@ final class AppCommandTests: XCTestCase {
 
         XCTAssertEqual(toolbarMenu.commandIDs, AppCommandID.allCases)
         XCTAssertEqual(toolbarMenu.symbolName, "ellipsis.circle")
+        XCTAssertEqual(PiPChromeView.primaryActionID, .quickCapture)
+        XCTAssertEqual(PiPChromeView.primaryActionAccessibilityLabel, "Quick Capture")
     }
 
     func testStatusItemRouterUsesExplicitMouseEventType() {
@@ -74,9 +73,7 @@ final class AppCommandTests: XCTestCase {
 
     private func makeModel(events: @escaping (AppCommandID) -> Void) -> AppCommandModel {
         AppCommandModel(
-            newNotionPage: { events(.newNotionPage) },
             quickCapture: { events(.quickCapture) },
-            changePinnedPage: { events(.changePinnedPage) },
             settings: { events(.settings) },
             quit: { events(.quit) }
         )

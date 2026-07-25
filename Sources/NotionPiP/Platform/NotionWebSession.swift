@@ -88,12 +88,10 @@ enum NotionWebSessionState: Equatable {
 final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     NotionEditorActivityHandling
 {
-    static let newPageURL = URL(string: "https://www.notion.so/new")!
     static let warmRetentionInterval: TimeInterval = 60
 
     @Published private(set) var webView: WKWebView?
     @Published private(set) var state: NotionWebSessionState = .unloaded
-    @Published private(set) var isCreatingNewPage = false
     @Published private(set) var isTypingInPage = false
     private(set) var activePage: NotionPageReference?
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
@@ -110,7 +108,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var evictionCancellable: AnyCancellable?
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     @Published private var panelIsVisible = true
-    private var hasPendingNewPageNavigation = false
     private var stateBeforeSuspension: NotionWebSessionState = .unloaded
     private var loadedPageID: String?
     private var savedURL: URL?
@@ -202,8 +199,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
 
         let selectedPageChanged = activePage != nil
-        isCreatingNewPage = false
-        hasPendingNewPageNavigation = false
         activePage = page
         revealTopControls()
         savedURL = page.canonicalURL
@@ -216,31 +211,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         load(page.canonicalURL, pageID: page.pageID)
     }
 
-    func reselect(page: NotionPageReference) {
-        guard activePage?.pageID == page.pageID, isCreatingNewPage else {
-            return
-        }
-
-        isCreatingNewPage = false
-        hasPendingNewPageNavigation = false
-        revealTopControls()
-        savedURL = page.canonicalURL
-        savedURLPageID = page.pageID
-        savedInteractionState = nil
-        savedInteractionPageID = nil
-        guard panelIsVisible, state != .suspended else { return }
-        load(page.canonicalURL, pageID: page.pageID)
-    }
-
     func panelDidShow() {
         panelIsVisible = true
-        if hasPendingNewPageNavigation {
-            hasPendingNewPageNavigation = false
-            evictionCancellable?.cancel()
-            evictionCancellable = nil
-            load(Self.newPageURL)
-            return
-        }
         if state == .suspended {
             resumeSuspendedWebView()
         } else if webView == nil, let activePage {
@@ -259,20 +231,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         loadedPageID = pageID
         state = .loading
         loadRequest(ensureWebView(), URLRequest(url: url))
-    }
-
-    func createNewPage() {
-        guard !isCreatingNewPage else {
-            return
-        }
-
-        isCreatingNewPage = true
-        revealTopControls()
-        guard panelIsVisible else {
-            hasPendingNewPageNavigation = true
-            return
-        }
-        load(Self.newPageURL)
     }
 
     func reload() {
@@ -549,21 +507,13 @@ extension NotionWebSession: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         publishNavigationState(.active)
         adoptResolvedPage(at: webView.url)
-        isCreatingNewPage = false
     }
 
     func adoptResolvedPage(at url: URL?) {
-        let hasAdoptionAuthority: Bool
-        if let loadedPageID {
-            hasAdoptionAuthority = loadedPageID == activePage?.pageID
-        } else {
-            hasAdoptionAuthority = isCreatingNewPage
-        }
-
         guard let url,
               let resolvedPage = try? NotionPageReference(validating: url),
               webView?.url == url,
-              hasAdoptionAuthority,
+              loadedPageID == activePage?.pageID,
               resolvedPage.pageID != activePage?.pageID
         else {
             return
@@ -582,13 +532,11 @@ extension NotionWebSession: WKNavigationDelegate {
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: Error
     ) {
-        isCreatingNewPage = false
         revealTopControls()
         publishNavigationState(.failed(error.localizedDescription))
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        isCreatingNewPage = false
         revealTopControls()
         publishNavigationState(.failed(error.localizedDescription))
     }
