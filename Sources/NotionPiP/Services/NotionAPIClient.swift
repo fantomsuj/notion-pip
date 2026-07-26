@@ -7,12 +7,18 @@ protocol NotionRequestTransport: AnyObject, Sendable {
 protocol NotionWorkspaceClient: AnyObject {
     func validateConnection() async throws -> NotionConnectionSnapshot
     func searchPages(query: String) async throws -> [NotionPageSearchResult]
-    func searchDestinations(query: String) async throws -> [NotionDestinationSearchResult]
+    func searchDestinations(
+        query: String,
+        startCursor: String?
+    ) async throws -> NotionDestinationSearchPage
     func dataSourceTitleProperty(dataSourceID: String) async throws -> NotionDataSourceTitleProperty
 }
 
 extension NotionWorkspaceClient {
-    func searchDestinations(query: String) async throws -> [NotionDestinationSearchResult] {
+    func searchDestinations(
+        query: String,
+        startCursor: String?
+    ) async throws -> NotionDestinationSearchPage {
         throw NotionAPIClientError.invalidResponse
     }
 
@@ -117,6 +123,11 @@ struct NotionDestinationSearchResult: Equatable, Sendable {
     let lastEditedTime: String
 }
 
+struct NotionDestinationSearchPage: Equatable, Sendable {
+    let results: [NotionDestinationSearchResult]
+    let nextCursor: String?
+}
+
 struct NotionDataSourceTitleProperty: Equatable, Sendable {
     let name: String
 }
@@ -189,26 +200,34 @@ final class NotionAPIClient: NotionWorkspaceClient, NotionCapturePageAPI, Sendab
         return try response.results.compactMap(pageSearchResult)
     }
 
-    func searchDestinations(query: String) async throws -> [NotionDestinationSearchResult] {
+    func searchDestinations(
+        query: String,
+        startCursor: String?
+    ) async throws -> NotionDestinationSearchPage {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        var cursor: String?
-        var results: [NotionDestinationSearchResult] = []
-        repeat {
-            let body = NotionSearchRequestDTO(
-                filter: nil,
-                sort: .init(direction: "descending", timestamp: "last_edited_time"),
-                pageSize: 100,
-                query: normalizedQuery.isEmpty ? nil : normalizedQuery,
-                startCursor: cursor
-            )
-            let response: NotionSearchResponseDTO = try await post(
-                path: "/v1/search",
-                body: body
-            )
-            results.append(contentsOf: try response.results.compactMap(destinationSearchResult))
-            cursor = response.hasMore ? response.nextCursor : nil
-        } while cursor != nil
-        return results
+        let body = NotionSearchRequestDTO(
+            filter: nil,
+            sort: .init(direction: "descending", timestamp: "last_edited_time"),
+            pageSize: 25,
+            query: normalizedQuery.isEmpty ? nil : normalizedQuery,
+            startCursor: startCursor
+        )
+        let response: NotionSearchResponseDTO = try await post(path: "/v1/search", body: body)
+        let nextCursor: String?
+        if response.hasMore {
+            guard let cursor = response.nextCursor,
+                  !cursor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                throw NotionAPIClientError.malformedResponse
+            }
+            nextCursor = cursor
+        } else {
+            nextCursor = nil
+        }
+        return NotionDestinationSearchPage(
+            results: try response.results.compactMap(destinationSearchResult),
+            nextCursor: nextCursor
+        )
     }
 
     func dataSourceTitleProperty(

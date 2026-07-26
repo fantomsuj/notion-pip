@@ -23,6 +23,9 @@ struct QuickCaptureDestinationSettingsView: View {
                     TextField("Search pages and data sources", text: $query)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(search)
+                        .onChange(of: query) { _, newQuery in
+                            runtime.scheduleQuickCaptureDestinationSearch(query: newQuery)
+                        }
                     Button(action: search) {
                         if runtime.isSearchingDestinations {
                             ProgressView()
@@ -31,8 +34,13 @@ struct QuickCaptureDestinationSettingsView: View {
                             Image(systemName: "magnifyingglass")
                         }
                     }
-                    .disabled(runtime.isSearchingDestinations)
                     .accessibilityLabel("Search Quick Capture destinations")
+                }
+
+                if query.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 {
+                    Text("Enter at least 2 characters to search destinations")
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Colors.secondaryText)
                 }
 
                 ForEach(
@@ -59,6 +67,19 @@ struct QuickCaptureDestinationSettingsView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                }
+
+                if runtime.canLoadMoreDestinations {
+                    Button("Load More") {
+                        Task { await runtime.loadMoreQuickCaptureDestinations() }
+                    }
+                    .disabled(runtime.isSearchingDestinations)
+                }
+
+                if runtime.isDestinationSearchCapped {
+                    Text("Showing the first 100 results. Refine your search for more.")
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Colors.secondaryText)
                 }
             } else {
                 Text("Connect your personal Notion access token to search destinations.")
