@@ -277,9 +277,10 @@ actor CaptureRepository {
     }
 
     func drafts() throws -> [CaptureDraftSnapshot] {
-        try modelContext.fetch(FetchDescriptor<CaptureDraftModel>())
-            .map(snapshot)
-            .sorted { $0.id < $1.id }
+        try modelContext.fetch(
+            FetchDescriptor(sortBy: [SortDescriptor(\CaptureDraftModel.stableID)])
+        )
+        .map(snapshot)
     }
 
     func record(id: String) throws -> CaptureRecordSnapshot? {
@@ -287,62 +288,76 @@ actor CaptureRepository {
     }
 
     func records() throws -> [CaptureRecordSnapshot] {
-        try modelContext.fetch(FetchDescriptor<CaptureRecordModel>())
-            .map(snapshot)
-            .sorted { $0.id < $1.id }
+        try modelContext.fetch(
+            FetchDescriptor(sortBy: [SortDescriptor(\CaptureRecordModel.stableID)])
+        )
+        .map(snapshot)
     }
 
     func claimNext(at now: Date, retryPolicy: RetryPolicy) throws -> CaptureRecordSnapshot? {
-        let candidates = try modelContext.fetch(FetchDescriptor<CaptureRecordModel>())
-            .filter {
-                $0.stateRawValue == DeliveryState.queued.rawValue
-                    || $0.stateRawValue == DeliveryState.retrying.rawValue
+        let queued = DeliveryState.queued.rawValue
+        let retrying = DeliveryState.retrying.rawValue
+        let attentionCutoff = now.addingTimeInterval(-retryPolicy.attentionInterval)
+        let distantFuture = Date.distantFuture
+        let attentionDescriptor = FetchDescriptor<CaptureRecordModel>(
+            predicate: #Predicate {
+                ($0.stateRawValue == queued || $0.stateRawValue == retrying)
+                    && $0.firstQueuedAt <= attentionCutoff
             }
-            .sorted {
-                if $0.firstQueuedAt == $1.firstQueuedAt { return $0.stableID < $1.stableID }
-                return $0.firstQueuedAt < $1.firstQueuedAt
+        )
+        let attentionRecords = try modelContext.fetch(attentionDescriptor)
+        if !attentionRecords.isEmpty {
+            try commit {
+                for model in attentionRecords {
+                    model.stateRawValue = DeliveryState.uncertain.rawValue
+                    model.nextAttemptAt = nil
+                    model.inFlightAt = nil
+                    model.updatedAt = now
+                    model.revision += 1
+                    setSafeError(
+                        SafeDeliveryError(
+                            code: "requiresAttention",
+                            message: "Delivery needs review after seven days.",
+                            statusCode: nil,
+                            retryAfter: nil
+                        ),
+                        on: model
+                    )
+                }
             }
+        }
 
-        var changedForAttention = false
-        for model in candidates {
-            if retryPolicy.requiresAttention(firstQueuedAt: model.firstQueuedAt, now: now) {
-                model.stateRawValue = DeliveryState.uncertain.rawValue
-                model.nextAttemptAt = nil
-                model.inFlightAt = nil
-                model.updatedAt = now
-                model.revision += 1
-                setSafeError(
-                    SafeDeliveryError(
-                        code: "requiresAttention",
-                        message: "Delivery needs review after seven days.",
-                        statusCode: nil,
-                        retryAfter: nil
-                    ),
-                    on: model
-                )
-                changedForAttention = true
-                continue
-            }
-            guard let nextAttemptAt = model.nextAttemptAt, nextAttemptAt <= now else { continue }
-            return try commit {
-                model.stateRawValue = DeliveryState.inFlight.rawValue
-                model.inFlightAt = now
-                model.nextAttemptAt = nil
-                model.attemptCount += 1
-                model.updatedAt = now
-                model.revision += 1
-                return try snapshot(model)
-            }
+        var dueDescriptor = FetchDescriptor<CaptureRecordModel>(
+            predicate: #Predicate {
+                ($0.stateRawValue == queued || $0.stateRawValue == retrying)
+                    && $0.firstQueuedAt > attentionCutoff
+                    && ($0.nextAttemptAt ?? distantFuture) <= now
+            },
+            sortBy: [
+                SortDescriptor(\CaptureRecordModel.firstQueuedAt),
+                SortDescriptor(\CaptureRecordModel.stableID),
+            ]
+        )
+        dueDescriptor.fetchLimit = 1
+        guard let model = try modelContext.fetch(dueDescriptor).first else {
+            return nil
         }
-        if changedForAttention {
-            try commit {}
+        return try commit {
+            model.stateRawValue = DeliveryState.inFlight.rawValue
+            model.inFlightAt = now
+            model.nextAttemptAt = nil
+            model.attemptCount += 1
+            model.updatedAt = now
+            model.revision += 1
+            return try snapshot(model)
         }
-        return nil
     }
 
     func recoverInterruptedWork(at now: Date) throws -> Int {
-        let interrupted = try modelContext.fetch(FetchDescriptor<CaptureRecordModel>())
-            .filter { $0.stateRawValue == DeliveryState.inFlight.rawValue }
+        let inFlight = DeliveryState.inFlight.rawValue
+        let interrupted = try modelContext.fetch(
+            FetchDescriptor<CaptureRecordModel>(predicate: #Predicate { $0.stateRawValue == inFlight })
+        )
         guard !interrupted.isEmpty else { return 0 }
         return try commit {
             for model in interrupted {
@@ -398,12 +413,16 @@ actor CaptureRepository {
     }
 
     func resumeUnauthorizedRetries(at now: Date) throws -> Int {
-        let records = try modelContext.fetch(FetchDescriptor<CaptureRecordModel>())
-            .filter {
-                $0.stateRawValue == DeliveryState.retrying.rawValue
-                    && $0.nextAttemptAt == nil
-                    && $0.safeErrorCode == "unauthorized"
-            }
+        let retrying = DeliveryState.retrying.rawValue
+        let records = try modelContext.fetch(
+            FetchDescriptor<CaptureRecordModel>(
+                predicate: #Predicate {
+                    $0.stateRawValue == retrying
+                        && $0.nextAttemptAt == nil
+                        && $0.safeErrorCode == "unauthorized"
+                }
+            )
+        )
         guard !records.isEmpty else { return 0 }
         return try commit {
             for record in records {
@@ -532,18 +551,26 @@ actor CaptureRepository {
 
     func applyRetention(at now: Date, policy: RetentionPolicy) throws -> RetentionResult {
         let cutoff = now.addingTimeInterval(-policy.retentionInterval)
-        let records = try modelContext.fetch(FetchDescriptor<CaptureRecordModel>())
-        let deletableRecords = records.filter {
-            $0.stateRawValue == DeliveryState.delivered.rawValue
-                && ($0.deliveredAt ?? $0.updatedAt) < cutoff
-                && $0.operationJournal == nil
-        }
+        let delivered = DeliveryState.delivered.rawValue
+        let deletableRecords = try modelContext.fetch(
+            FetchDescriptor<CaptureRecordModel>(
+                predicate: #Predicate {
+                    $0.stateRawValue == delivered
+                        && $0.operationJournal == nil
+                        && ($0.deliveredAt ?? $0.updatedAt) < cutoff
+                }
+            )
+        )
         let deletableRecordIDs = Set(deletableRecords.map(\.stableID))
-        let drafts = try modelContext.fetch(FetchDescriptor<CaptureDraftModel>())
-        let deletableDrafts = drafts.filter {
-            guard $0.dispositionRawValue == DraftDisposition.abandoned.rawValue,
-                  $0.updatedAt < cutoff
-            else { return false }
+        let abandoned = DraftDisposition.abandoned.rawValue
+        let retentionDrafts = try modelContext.fetch(
+            FetchDescriptor<CaptureDraftModel>(
+                predicate: #Predicate {
+                    $0.dispositionRawValue == abandoned && $0.updatedAt < cutoff
+                }
+            )
+        )
+        let deletableDrafts = retentionDrafts.filter {
             guard let captureRecordID = $0.captureRecordID else { return true }
             return deletableRecordIDs.contains(captureRecordID)
         }
@@ -560,25 +587,35 @@ actor CaptureRepository {
     }
 
     private func draftModel(id: String) throws -> CaptureDraftModel? {
-        try modelContext.fetch(FetchDescriptor<CaptureDraftModel>()).first { $0.stableID == id }
+        var descriptor = FetchDescriptor<CaptureDraftModel>(
+            predicate: #Predicate { $0.stableID == id }
+        )
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first
     }
 
     private func recordModel(id: String) throws -> CaptureRecordModel? {
-        try modelContext.fetch(FetchDescriptor<CaptureRecordModel>()).first { $0.stableID == id }
+        var descriptor = FetchDescriptor<CaptureRecordModel>(
+            predicate: #Predicate { $0.stableID == id }
+        )
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first
     }
 
     private func activeDraft(except id: String) throws -> CaptureDraftModel? {
         try beforeHelperFetch(.activeDraft)
-        return try modelContext.fetch(FetchDescriptor<CaptureDraftModel>())
-            .filter {
-                $0.stableID != id
-                    && $0.dispositionRawValue == DraftDisposition.active.rawValue
-            }
-            .sorted {
-                if $0.updatedAt == $1.updatedAt { return $0.stableID < $1.stableID }
-                return $0.updatedAt > $1.updatedAt
-            }
-            .first
+        let active = DraftDisposition.active.rawValue
+        var descriptor = FetchDescriptor<CaptureDraftModel>(
+            predicate: #Predicate {
+                $0.stableID != id && $0.dispositionRawValue == active
+            },
+            sortBy: [
+                SortDescriptor(\CaptureDraftModel.updatedAt, order: .reverse),
+                SortDescriptor(\CaptureDraftModel.stableID),
+            ]
+        )
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first
     }
 
     private func reactivateReturnDraft(id: String?, at now: Date) throws {
@@ -653,8 +690,13 @@ actor CaptureRepository {
 
     private func stashOtherActiveDrafts(except id: String, at now: Date) throws {
         try beforeHelperFetch(.otherActiveDrafts)
-        for draft in try modelContext.fetch(FetchDescriptor<CaptureDraftModel>())
-        where draft.stableID != id && draft.dispositionRawValue == DraftDisposition.active.rawValue {
+        let active = DraftDisposition.active.rawValue
+        let descriptor = FetchDescriptor<CaptureDraftModel>(
+            predicate: #Predicate {
+                $0.stableID != id && $0.dispositionRawValue == active
+            }
+        )
+        for draft in try modelContext.fetch(descriptor) {
             draft.dispositionRawValue = DraftDisposition.stashed.rawValue
             draft.updatedAt = now
             draft.revision += 1
