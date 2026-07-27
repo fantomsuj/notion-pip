@@ -90,6 +90,91 @@ final class RetentionPolicyTests: XCTestCase {
         XCTAssertNotNil(retainedDraft)
     }
 
+    func testCleanupPreservesEveryProtectedRecordAndDraftState() async throws {
+        let clock = TestCaptureClock(Date(timeIntervalSince1970: 20_000))
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+
+        let journaled = try await seedRecord(repository, id: "journaled")
+        _ = try await DeliveryEngine(
+            repository: repository,
+            transport: RetentionTransport(),
+            clock: clock
+        ).drain()
+        _ = try await repository.recordReplacementBeforeArchive(
+            recordID: journaled.id,
+            replacementBlockIDs: ["new"],
+            blocksToArchive: ["old"]
+        )
+
+        let inFlight = try await seedRecord(repository, id: "in-flight")
+        _ = try await repository.claimNext(at: clock.now(), retryPolicy: RetryPolicy())
+        let queued = try await seedRecord(repository, id: "queued")
+        let retrying = try await seedRecord(repository, id: "retrying")
+        _ = try await repository.markRetrying(
+            recordID: retrying.id,
+            nextAttemptAt: clock.now().addingTimeInterval(60),
+            requiresManagedCheck: false,
+            safeError: safeError(code: "retrying"),
+            at: clock.now()
+        )
+        let uncertain = try await seedRecord(repository, id: "uncertain")
+        _ = try await repository.markUncertain(
+            recordID: uncertain.id,
+            safeError: safeError(code: "uncertain"),
+            at: clock.now()
+        )
+        let conflict = try await seedRecord(repository, id: "conflict")
+        _ = try await repository.markBlockedConflict(
+            recordID: conflict.id,
+            safeError: safeError(code: "conflict"),
+            at: clock.now()
+        )
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "protected-stashed",
+                title: "Stashed",
+                editorDocument: jsonData(["type": "doc", "content": []]),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "protected-active",
+                title: "Active",
+                editorDocument: jsonData(["type": "doc", "content": []]),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+
+        clock.advance(by: 31 * 86_400)
+        let result = try await repository.applyRetention(
+            at: clock.now(),
+            policy: RetentionPolicy()
+        )
+
+        let retainedInFlight = try await fetch(repository, id: inFlight.id)
+        let retainedQueued = try await fetch(repository, id: queued.id)
+        let retainedRetrying = try await fetch(repository, id: retrying.id)
+        let retainedUncertain = try await fetch(repository, id: uncertain.id)
+        let retainedConflict = try await fetch(repository, id: conflict.id)
+        let retainedJournaled = try await repository.record(id: journaled.id)
+        let retainedStashed = try await repository.draft(id: "protected-stashed")
+        let retainedActive = try await repository.draft(id: "protected-active")
+        XCTAssertEqual(result, RetentionResult(deletedRecords: 0, deletedDrafts: 0))
+        XCTAssertEqual(retainedInFlight.state, .inFlight)
+        XCTAssertEqual(retainedQueued.state, .queued)
+        XCTAssertEqual(retainedRetrying.state, .retrying)
+        XCTAssertEqual(retainedUncertain.state, .uncertain)
+        XCTAssertEqual(retainedConflict.state, .blockedConflict)
+        XCTAssertNotNil(retainedJournaled)
+        XCTAssertEqual(retainedStashed?.disposition, .stashed)
+        XCTAssertEqual(retainedActive?.disposition, .active)
+    }
+
     private func seedRecord(
         _ repository: CaptureRepository,
         id: String,
@@ -115,6 +200,15 @@ final class RetentionPolicyTests: XCTestCase {
     private func fetch(_ repository: CaptureRepository, id: String) async throws -> CaptureRecordSnapshot {
         let record = try await repository.record(id: id)
         return try XCTUnwrap(record)
+    }
+
+    private func safeError(code: String) -> SafeDeliveryError {
+        SafeDeliveryError(
+            code: code,
+            message: "Safe test error",
+            statusCode: nil,
+            retryAfter: nil
+        )
     }
 }
 

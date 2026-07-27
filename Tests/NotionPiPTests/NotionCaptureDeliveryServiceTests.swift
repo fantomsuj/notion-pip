@@ -112,6 +112,85 @@ final class NotionCaptureDeliveryServiceTests: XCTestCase {
         )
     }
 
+    func testAppliedCreateReturningServerErrorBecomesUncertainWithoutSecondCreate() async throws {
+        let clock = TestCaptureClock(Date(timeIntervalSince1970: 10_000))
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        _ = try await seedRecord(repository, paragraphCount: 1)
+        let api = RecordingCaptureAPI(
+            repository: repository,
+            recordID: "capture-1",
+            failCreateWithServerError: true
+        )
+        let service = NotionCaptureDeliveryService(repository: repository, api: api)
+        let engine = DeliveryEngine(repository: repository, transport: service, clock: clock)
+
+        _ = try await engine.drain()
+        clock.advance(by: 10)
+        _ = try await engine.drain()
+
+        let stored = try await repository.record(id: "capture-1")
+        let createCallCount = await api.calls.filter(\.isCreate).count
+        let appliedCreateCount = await api.appliedCreateCount
+        XCTAssertEqual(createCallCount, 1)
+        XCTAssertEqual(appliedCreateCount, 1)
+        XCTAssertEqual(stored?.state, .uncertain)
+    }
+
+    func testAppliedBlockBatchReturningServerErrorIsNotAppendedAgain() async throws {
+        let clock = TestCaptureClock(Date(timeIntervalSince1970: 10_000))
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        _ = try await seedRecord(repository, paragraphCount: 201)
+        let api = RecordingCaptureAPI(
+            repository: repository,
+            recordID: "capture-1",
+            failAppendCallWithServerError: 1
+        )
+        let service = NotionCaptureDeliveryService(repository: repository, api: api)
+        let engine = DeliveryEngine(repository: repository, transport: service, clock: clock)
+
+        _ = try await engine.drain()
+        clock.advance(by: 10)
+        _ = try await engine.drain()
+
+        let stored = try await repository.record(id: "capture-1")
+        let appendCallCount = await api.calls.filter(\.isAppend).count
+        let appliedAppendCount = await api.appliedAppendCount
+        XCTAssertEqual(appendCallCount, 1)
+        XCTAssertEqual(appliedAppendCount, 1)
+        XCTAssertEqual(stored?.state, .uncertain)
+    }
+
+    func testDataSourcePreflightServerErrorRemainsSafelyRetryable() async throws {
+        let clock = TestCaptureClock(Date(timeIntervalSince1970: 10_000))
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        _ = try await seedRecord(
+            repository,
+            paragraphCount: 1,
+            destination: .dataSource(dataSourceID: "source-1")
+        )
+        let api = RecordingCaptureAPI(
+            repository: repository,
+            recordID: "capture-1",
+            failTitleLookupCallWithServerError: 1
+        )
+        let service = NotionCaptureDeliveryService(repository: repository, api: api)
+        let engine = DeliveryEngine(repository: repository, transport: service, clock: clock)
+
+        _ = try await engine.drain()
+        let retrying = try await repository.record(id: "capture-1")
+        XCTAssertEqual(retrying?.state, .retrying)
+
+        clock.advance(by: 10)
+        _ = try await engine.drain()
+
+        let delivered = try await repository.record(id: "capture-1")
+        let createCallCount = await api.calls.filter(\.isCreate).count
+        let titleLookupCount = await api.titleLookupCount
+        XCTAssertEqual(titleLookupCount, 2)
+        XCTAssertEqual(createCallCount, 1)
+        XCTAssertEqual(delivered?.state, .delivered)
+    }
+
     private func seedRecord(
         _ repository: CaptureRepository,
         paragraphCount: Int,
@@ -164,6 +243,10 @@ private enum CaptureAPICall: Equatable, Sendable {
     var isCreate: Bool {
         if case .create = self { true } else { false }
     }
+
+    var isAppend: Bool {
+        if case .append = self { true } else { false }
+    }
 }
 
 private actor RecordingCaptureAPI: NotionCapturePageAPI {
@@ -171,26 +254,42 @@ private actor RecordingCaptureAPI: NotionCapturePageAPI {
     private let recordID: String
     private var failAppendCall: Int?
     private let failCreateAmbiguously: Bool
+    private let failCreateWithServerError: Bool
+    private let failAppendCallWithServerError: Int?
+    private let failTitleLookupCallWithServerError: Int?
     private var appendCount = 0
     private(set) var calls: [CaptureAPICall] = []
     private(set) var journalIndexesObservedBeforeAppend: [Int] = []
+    private(set) var appliedCreateCount = 0
+    private(set) var appliedAppendCount = 0
+    private(set) var titleLookupCount = 0
 
     init(
         repository: CaptureRepository,
         recordID: String,
         failAppendCall: Int? = nil,
-        failCreateAmbiguously: Bool = false
+        failCreateAmbiguously: Bool = false,
+        failCreateWithServerError: Bool = false,
+        failAppendCallWithServerError: Int? = nil,
+        failTitleLookupCallWithServerError: Int? = nil
     ) {
         self.repository = repository
         self.recordID = recordID
         self.failAppendCall = failAppendCall
         self.failCreateAmbiguously = failCreateAmbiguously
+        self.failCreateWithServerError = failCreateWithServerError
+        self.failAppendCallWithServerError = failAppendCallWithServerError
+        self.failTitleLookupCallWithServerError = failTitleLookupCallWithServerError
     }
 
     func dataSourceTitleProperty(
         dataSourceID: String
     ) async throws -> NotionDataSourceTitleProperty {
-        NotionDataSourceTitleProperty(name: "Name")
+        titleLookupCount += 1
+        if titleLookupCount == failTitleLookupCallWithServerError {
+            throw serverError()
+        }
+        return NotionDataSourceTitleProperty(name: "Name")
     }
 
     func createPage(
@@ -207,8 +306,12 @@ private actor RecordingCaptureAPI: NotionCapturePageAPI {
                 childCount: children.count
             )
         )
+        appliedCreateCount += 1
         if failCreateAmbiguously {
             throw URLError(.networkConnectionLost)
+        }
+        if failCreateWithServerError {
+            throw serverError()
         }
         return NotionCreatedPage(
             id: "remote-page",
@@ -224,6 +327,10 @@ private actor RecordingCaptureAPI: NotionCapturePageAPI {
         journalIndexesObservedBeforeAppend.append(object?["nextBatchIndex"] as? Int ?? -1)
         appendCount += 1
         calls.append(.append(pageID: pageID, childCount: children.count))
+        appliedAppendCount += 1
+        if appendCount == failAppendCallWithServerError {
+            throw serverError()
+        }
         if appendCount == failAppendCall {
             throw NotionAPIClientError.apiError(
                 NotionAPIErrorDetails(
@@ -239,5 +346,16 @@ private actor RecordingCaptureAPI: NotionCapturePageAPI {
 
     func allowAppends() {
         failAppendCall = nil
+    }
+
+    private func serverError() -> NotionAPIClientError {
+        .apiError(
+            NotionAPIErrorDetails(
+                statusCode: 500,
+                code: "internal_server_error",
+                message: "Server failed",
+                requestID: "request-500"
+            )
+        )
     }
 }

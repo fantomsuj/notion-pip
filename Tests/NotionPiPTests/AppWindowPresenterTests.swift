@@ -107,6 +107,33 @@ final class AppWindowPresenterTests: XCTestCase {
         XCTAssertNotNil(signposter.endCalls.first?.token)
         XCTAssertEqual(signposter.endCalls.first?.outcome, .success)
     }
+
+    func testLazyPresenterHasNoTerminationParticipantUntilWindowIsLive() async throws {
+        let window = FakeAppWindow()
+        var terminationCallCount = 0
+        let presenter = LazyAppWindowPresenter {
+            AppWindowPresenter(
+                window: window,
+                terminationHandler: {
+                    terminationCallCount += 1
+                    return true
+                }
+            )
+        }
+
+        XCTAssertNil(presenter.terminationParticipant)
+
+        presenter.show()
+        let participant = try XCTUnwrap(presenter.terminationParticipant)
+        let firstResult = await participant.prepareForTermination()
+        XCTAssertTrue(firstResult)
+        XCTAssertEqual(terminationCallCount, 1)
+
+        presenter.hide()
+        let hiddenResult = await participant.prepareForTermination()
+        XCTAssertTrue(hiddenResult)
+        XCTAssertEqual(terminationCallCount, 1)
+    }
 }
 
 @MainActor

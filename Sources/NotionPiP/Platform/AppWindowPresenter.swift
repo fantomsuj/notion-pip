@@ -14,6 +14,11 @@ protocol AppWindowPresenting: AnyObject {
 }
 
 @MainActor
+protocol ApplicationTerminationParticipating: AnyObject {
+    func prepareForTermination() async -> Bool
+}
+
+@MainActor
 final class LazyAppWindowPresenter: AppWindowPresenting {
     private let makePresenter: @MainActor () -> any AppWindowPresenting
     private let performanceSignposter: (any PerformanceSignposting)?
@@ -50,6 +55,10 @@ final class LazyAppWindowPresenter: AppWindowPresenting {
         presenter?.hide()
     }
 
+    var terminationParticipant: (any ApplicationTerminationParticipating)? {
+        presenter as? any ApplicationTerminationParticipating
+    }
+
     private func presenterOrCreate() -> any AppWindowPresenting {
         if let presenter {
             return presenter
@@ -62,20 +71,23 @@ final class LazyAppWindowPresenter: AppWindowPresenting {
 }
 
 @MainActor
-final class AppWindowPresenter: AppWindowPresenting {
+final class AppWindowPresenter: AppWindowPresenting, ApplicationTerminationParticipating {
     private let window: any AppWindow
     private let performanceSignposter: (any PerformanceSignposting)?
     private let firstPresentationOperation: PerformanceOperation?
+    private let terminationHandler: (@MainActor () async -> Bool)?
     private var didAttemptFirstPresentation = false
 
     init(
         window: any AppWindow,
         performanceSignposter: (any PerformanceSignposting)? = nil,
-        firstPresentationOperation: PerformanceOperation? = nil
+        firstPresentationOperation: PerformanceOperation? = nil,
+        terminationHandler: (@MainActor () async -> Bool)? = nil
     ) {
         self.window = window
         self.performanceSignposter = performanceSignposter
         self.firstPresentationOperation = firstPresentationOperation
+        self.terminationHandler = terminationHandler
     }
 
     func show() {
@@ -95,6 +107,11 @@ final class AppWindowPresenter: AppWindowPresenting {
 
     func hide() {
         window.orderOut()
+    }
+
+    func prepareForTermination() async -> Bool {
+        guard window.isVisible, let terminationHandler else { return true }
+        return await terminationHandler()
     }
 }
 

@@ -78,7 +78,13 @@ actor DeliveryEngine {
     func drain() async throws -> DeliveryDrainSummary {
         guard !isDraining else { return DeliveryDrainSummary() }
         isDraining = true
-        defer { isDraining = false }
+        var completed = false
+        defer {
+            isDraining = false
+            if !completed {
+                didPerformStartupRecovery = false
+            }
+        }
 
         if !didPerformStartupRecovery {
             _ = try await startupRecovery(clock.now())
@@ -102,6 +108,7 @@ actor DeliveryEngine {
                 summary.pausedForReconnect = summary.pausedForReconnect || paused
             }
         }
+        completed = true
         return summary
     }
 
