@@ -7,7 +7,9 @@ enum NotionPiPApp {
         let coldLaunchToken = AppPerformanceSignposter.shared.begin(.coldLaunchToStatusItem)
         let composition = AppComposition()
         let appDelegate = AppDelegate()
-        NSApplication.shared.delegate = appDelegate
+        let application = NSApplication.shared
+        application.delegate = appDelegate
+        application.mainMenu = AppMainMenuFactory.make()
         AppStartup.start(
             runtime: composition.runtime,
             appDelegate: appDelegate,
@@ -17,7 +19,7 @@ enum NotionPiPApp {
             }
         )
         withExtendedLifetime(composition) {
-            NSApplication.shared.run()
+            application.run()
         }
     }
 }
