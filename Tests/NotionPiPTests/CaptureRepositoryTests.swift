@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import XCTest
 @testable import NotionPiP
 
@@ -558,6 +559,154 @@ final class CaptureRepositoryTests: XCTestCase {
         XCTAssertEqual(activeAfterLaterSave, active)
     }
 
+    func testIDLookupsReturnExactModelsAndNilForMissingIDs() async throws {
+        let repository = try CaptureRepository(inMemory: true, clock: TestCaptureClock(referenceDate))
+        let firstDraft = try await repository.saveDraft(mutation(id: "draft-first", title: "First"), expectedRevision: 0)
+        _ = try await repository.enqueue(
+            draftID: firstDraft.id,
+            expectedRevision: firstDraft.revision,
+            destination: .managed(databaseID: "database-1")
+        )
+        let requestedDraft = try await repository.saveDraft(
+            mutation(id: "draft-requested", title: "Requested"),
+            expectedRevision: 0
+        )
+        let requestedRecord = try await repository.enqueue(
+            draftID: requestedDraft.id,
+            expectedRevision: requestedDraft.revision,
+            destination: .manual(pageID: "page-requested")
+        )
+
+        let fetchedDraft = try await repository.draft(id: requestedDraft.id)
+        let fetchedRecord = try await repository.record(id: requestedRecord.id)
+        let missingDraft = try await repository.draft(id: "missing-draft")
+        let missingRecord = try await repository.record(id: "missing-record")
+
+        XCTAssertEqual(fetchedDraft?.id, requestedDraft.id)
+        XCTAssertEqual(fetchedDraft?.title, "Requested")
+        XCTAssertEqual(fetchedRecord?.id, requestedRecord.id)
+        XCTAssertEqual(fetchedRecord?.title, "Requested")
+        XCTAssertEqual(fetchedRecord?.destination, .manual(pageID: "page-requested"))
+        XCTAssertNil(missingDraft)
+        XCTAssertNil(missingRecord)
+    }
+
+    func testNewActiveDraftReturnsNewestExistingActiveDraftUsingStableIDTieBreak() async throws {
+        let container = try NotionPiPPersistence.makeContainer(inMemory: true)
+        let context = ModelContext(container)
+        let older = referenceDate
+        let newest = older.addingTimeInterval(60)
+        context.insert(makeDraftModel(id: "old", updatedAt: older))
+        context.insert(makeDraftModel(id: "newest-b", updatedAt: newest))
+        context.insert(makeDraftModel(id: "newest-a", updatedAt: newest))
+        try context.save()
+        let repository = CaptureRepository(container: container, clock: TestCaptureClock(newest))
+
+        let saved = try await repository.saveDraft(mutation(id: "new-active", title: "New"), expectedRevision: 0)
+
+        XCTAssertEqual(saved.returnDraftID, "newest-a")
+    }
+
+    func testClaimNextUsesFirstQueuedAtBeforeStableID() async throws {
+        let clock = TestCaptureClock(referenceDate)
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        let olderWithLaterID = try await enqueueRecord(repository, id: "z-older")
+        clock.advance(by: 1)
+        _ = try await enqueueRecord(repository, id: "a-newer")
+
+        let claimed = try await repository.claimNext(at: clock.now(), retryPolicy: RetryPolicy())
+
+        XCTAssertEqual(claimed?.id, olderWithLaterID.id)
+    }
+
+    func testClaimNextUsesStableIDTieBreakForMatchingFirstQueuedAt() async throws {
+        let clock = TestCaptureClock(referenceDate)
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        let beta = try await enqueueRecord(repository, id: "beta")
+        let alpha = try await enqueueRecord(repository, id: "alpha")
+
+        let first = try await repository.claimNext(at: clock.now(), retryPolicy: RetryPolicy())
+        let second = try await repository.claimNext(at: clock.now(), retryPolicy: RetryPolicy())
+
+        XCTAssertEqual(first?.id, alpha.id)
+        XCTAssertEqual(second?.id, beta.id)
+    }
+
+    func testClaimNextMovesStaleWorkToAttentionAndClaimsNewerDueRecord() async throws {
+        let clock = TestCaptureClock(referenceDate)
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        let stale = try await enqueueRecord(repository, id: "stale")
+        clock.advance(by: 8 * 86_400)
+        let current = try await enqueueRecord(repository, id: "current")
+
+        let claimed = try await repository.claimNext(at: clock.now(), retryPolicy: RetryPolicy())
+        let staleAfterClaim = try await repository.record(id: stale.id)
+
+        XCTAssertEqual(claimed?.id, current.id)
+        XCTAssertEqual(staleAfterClaim?.state, .uncertain)
+        XCTAssertNil(staleAfterClaim?.nextAttemptAt)
+        XCTAssertEqual(staleAfterClaim?.safeError?.code, "requiresAttention")
+    }
+
+    func testClaimNextClaimsDueRetryButLeavesFutureRetryQueued() async throws {
+        let clock = TestCaptureClock(referenceDate)
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        let due = try await enqueueRecord(repository, id: "due")
+        let future = try await enqueueRecord(repository, id: "future")
+        let retryError = SafeDeliveryError(code: "temporary", message: nil, statusCode: 503, retryAfter: nil)
+        _ = try await repository.markRetrying(
+            recordID: due.id,
+            nextAttemptAt: clock.now(),
+            requiresManagedCheck: false,
+            safeError: retryError,
+            at: clock.now()
+        )
+        _ = try await repository.markRetrying(
+            recordID: future.id,
+            nextAttemptAt: clock.now().addingTimeInterval(60),
+            requiresManagedCheck: false,
+            safeError: retryError,
+            at: clock.now()
+        )
+
+        let claimed = try await repository.claimNext(at: clock.now(), retryPolicy: RetryPolicy())
+        let futureAfterClaim = try await repository.record(id: future.id)
+
+        XCTAssertEqual(claimed?.id, due.id)
+        XCTAssertEqual(futureAfterClaim?.state, .retrying)
+        XCTAssertEqual(futureAfterClaim?.nextAttemptAt, clock.now().addingTimeInterval(60))
+    }
+
+    func testResumeUnauthorizedRetriesMakesOnlyUnauthorizedRetryDue() async throws {
+        let clock = TestCaptureClock(referenceDate)
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        let unauthorized = try await enqueueRecord(repository, id: "unauthorized")
+        let other = try await enqueueRecord(repository, id: "other")
+        _ = try await repository.markRetrying(
+            recordID: unauthorized.id,
+            nextAttemptAt: nil,
+            requiresManagedCheck: false,
+            safeError: SafeDeliveryError(code: "unauthorized", message: "Reconnect", statusCode: 401, retryAfter: nil),
+            at: clock.now()
+        )
+        _ = try await repository.markRetrying(
+            recordID: other.id,
+            nextAttemptAt: nil,
+            requiresManagedCheck: false,
+            safeError: SafeDeliveryError(code: "temporary", message: nil, statusCode: 503, retryAfter: nil),
+            at: clock.now()
+        )
+
+        let resumed = try await repository.resumeUnauthorizedRetries(at: clock.now())
+        let unauthorizedAfterResume = try await repository.record(id: unauthorized.id)
+        let otherAfterResume = try await repository.record(id: other.id)
+
+        XCTAssertEqual(resumed, 1)
+        XCTAssertEqual(unauthorizedAfterResume?.state, .retrying)
+        XCTAssertEqual(unauthorizedAfterResume?.nextAttemptAt, clock.now())
+        XCTAssertNil(otherAfterResume?.nextAttemptAt)
+    }
+
     private func mutation(
         id: String,
         title: String,
@@ -574,6 +723,28 @@ final class CaptureRepositoryTests: XCTestCase {
 
     private var referenceDate: Date {
         Date(timeIntervalSinceReferenceDate: 0)
+    }
+
+    private func enqueueRecord(_ repository: CaptureRepository, id: String) async throws -> CaptureRecordSnapshot {
+        let draft = try await repository.saveDraft(mutation(id: id, title: id), expectedRevision: 0)
+        return try await repository.enqueue(
+            draftID: draft.id,
+            expectedRevision: draft.revision,
+            destination: .managed(databaseID: "database-1")
+        )
+    }
+
+    private func makeDraftModel(id: String, updatedAt: Date) -> CaptureDraftModel {
+        CaptureDraftModel(
+            stableID: id,
+            revision: 1,
+            title: id,
+            editorDocument: jsonData(["type": "doc", "content": []]),
+            sourceDocument: nil,
+            dispositionRawValue: DraftDisposition.active.rawValue,
+            createdAt: updatedAt,
+            updatedAt: updatedAt
+        )
     }
 }
 

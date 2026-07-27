@@ -56,7 +56,7 @@ final class NotionAPIClientTests: XCTestCase {
         XCTAssertTrue(String(decoding: body, as: UTF8.self).contains("roadmap"))
     }
 
-    func testDestinationSearchDecodesPagesAndDataSourcesAcrossPagination() async throws {
+    func testDestinationSearchReturnsOneNormalizedPageWithContinuationCursor() async throws {
         let transport = RecordingNotionTransport(responses: [
             jsonResponse("""
             {
@@ -78,6 +78,27 @@ final class NotionAPIClientTests: XCTestCase {
               ]
             }
             """),
+        ])
+        let client = makeClient(transport: transport)
+
+        let page = try await client.searchDestinations(query: "  notes  ", startCursor: nil)
+
+        XCTAssertEqual(page.results.map(\.destination), [
+            .pageParent(pageID: "0123456789abcdef0123456789abcdef", title: "Inbox"),
+            .dataSource(dataSourceID: "source-1", title: "Notes"),
+        ])
+        XCTAssertEqual(page.nextCursor, "cursor-2")
+        let requests = await transport.requests
+        XCTAssertEqual(requests.count, 1)
+        let body = try jsonObject(for: requests[0])
+        XCTAssertNil(body["filter"])
+        XCTAssertEqual(body["page_size"] as? Int, 25)
+        XCTAssertEqual(body["query"] as? String, "notes")
+        XCTAssertNil(body["start_cursor"])
+    }
+
+    func testDestinationSearchSendsSuppliedCursorWithoutFollowingIt() async throws {
+        let transport = RecordingNotionTransport(responses: [
             jsonResponse("""
             {
               "object":"list", "has_more":false, "next_cursor":null,
@@ -94,20 +115,16 @@ final class NotionAPIClientTests: XCTestCase {
         ])
         let client = makeClient(transport: transport)
 
-        let results = try await client.searchDestinations(query: "notes")
+        let page = try await client.searchDestinations(query: "notes", startCursor: "cursor-2")
 
-        XCTAssertEqual(results.map(\.destination), [
-            .pageParent(pageID: "0123456789abcdef0123456789abcdef", title: "Inbox"),
-            .dataSource(dataSourceID: "source-1", title: "Notes"),
+        XCTAssertEqual(page.results.map(\.destination), [
             .dataSource(dataSourceID: "source-2", title: "Journal"),
         ])
+        XCTAssertNil(page.nextCursor)
         let requests = await transport.requests
-        XCTAssertEqual(requests.count, 2)
-        let firstBody = try jsonObject(for: requests[0])
-        let secondBody = try jsonObject(for: requests[1])
-        XCTAssertNil(firstBody["filter"])
-        XCTAssertEqual(firstBody["query"] as? String, "notes")
-        XCTAssertEqual(secondBody["start_cursor"] as? String, "cursor-2")
+        XCTAssertEqual(requests.count, 1)
+        let body = try jsonObject(for: requests[0])
+        XCTAssertEqual(body["start_cursor"] as? String, "cursor-2")
     }
 
     func testRetrievesDataSourceTitleProperty() async throws {
@@ -254,8 +271,22 @@ final class NotionAPIClientTests: XCTestCase {
         let client = makeClient(transport: transport)
 
         do {
-            _ = try await client.searchDestinations(query: "")
+            _ = try await client.searchDestinations(query: "", startCursor: nil)
             XCTFail("Expected malformed search response to fail")
+        } catch {
+            XCTAssertEqual(error as? NotionAPIClientError, .malformedResponse)
+        }
+    }
+
+    func testRejectsDestinationSearchContinuationWithoutCursor() async throws {
+        let transport = RecordingNotionTransport(responses: [
+            jsonResponse(#"{"object":"list","has_more":true,"next_cursor":null,"results":[]}"#)
+        ])
+        let client = makeClient(transport: transport)
+
+        do {
+            _ = try await client.searchDestinations(query: "notes", startCursor: nil)
+            XCTFail("Expected malformed pagination metadata to fail")
         } catch {
             XCTAssertEqual(error as? NotionAPIClientError, .malformedResponse)
         }

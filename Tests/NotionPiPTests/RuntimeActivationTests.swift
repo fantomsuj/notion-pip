@@ -262,6 +262,166 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertNil(runtime.searchError)
     }
 
+    func testDestinationSearchRejectsShortOrWhitespaceOnlyQueriesAndClearsResults() async throws {
+        let client = RuntimeDestinationSearchClient(pages: [
+            destinationPage(ids: ["one"], nextCursor: nil),
+        ])
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            client: client,
+            destinationSearchDebounceDuration: .zero
+        )
+        await runtime.bootstrapPersonalTokenConnection()
+
+        await runtime.searchQuickCaptureDestinations(query: "notes")
+        await runtime.searchQuickCaptureDestinations(query: " a ")
+        await runtime.searchQuickCaptureDestinations(query: "   ")
+
+        XCTAssertTrue(runtime.destinationSearchResults.isEmpty)
+        XCTAssertNil(runtime.destinationSearchError)
+        XCTAssertFalse(runtime.canLoadMoreDestinations)
+        XCTAssertFalse(runtime.isSearchingDestinations)
+        let requests = await client.requests()
+        XCTAssertEqual(requests, [RuntimeDestinationSearchRequest(query: "notes", startCursor: nil)])
+    }
+
+    func testDestinationSearchDebouncesAutomaticQueriesAndImmediateSearchBypassesDelay() async throws {
+        let client = RuntimeDestinationSearchClient(pages: [
+            destinationPage(ids: ["immediate"], nextCursor: nil),
+        ])
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            client: client,
+            destinationSearchDebounceDuration: .seconds(60)
+        )
+        await runtime.bootstrapPersonalTokenConnection()
+
+        runtime.scheduleQuickCaptureDestinationSearch(query: "delayed")
+        await Task.yield()
+        let delayedRequests = await client.requests()
+        XCTAssertTrue(delayedRequests.isEmpty)
+
+        await runtime.searchQuickCaptureDestinations(query: "immediate")
+
+        let requests = await client.requests()
+        XCTAssertEqual(requests, [RuntimeDestinationSearchRequest(query: "immediate", startCursor: nil)])
+        XCTAssertEqual(runtime.destinationSearchResults.map(\.destination.title), ["immediate"])
+    }
+
+    func testDestinationSearchLoadMoreAppendsUniqueResultsUsingPreviousCursor() async throws {
+        let client = RuntimeDestinationSearchClient(pages: [
+            destinationPage(ids: ["one", "two"], nextCursor: "cursor-2"),
+            destinationPage(ids: ["two", "three"], nextCursor: nil),
+        ])
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            client: client,
+            destinationSearchDebounceDuration: .zero
+        )
+        await runtime.bootstrapPersonalTokenConnection()
+
+        await runtime.searchQuickCaptureDestinations(query: "notes")
+        await runtime.loadMoreQuickCaptureDestinations()
+
+        XCTAssertEqual(runtime.destinationSearchResults.map(\.destination.title), ["one", "two", "three"])
+        let requests = await client.requests()
+        XCTAssertEqual(requests, [
+            RuntimeDestinationSearchRequest(query: "notes", startCursor: nil),
+            RuntimeDestinationSearchRequest(query: "notes", startCursor: "cursor-2"),
+        ])
+        XCTAssertFalse(runtime.canLoadMoreDestinations)
+    }
+
+    func testDestinationSearchIgnoresOlderQueryCompletion() async throws {
+        let client = DelayedDestinationSearchClient()
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            client: client,
+            destinationSearchDebounceDuration: .zero
+        )
+        await runtime.bootstrapPersonalTokenConnection()
+
+        let firstSearch = Task { await runtime.searchQuickCaptureDestinations(query: "first") }
+        await client.waitUntilStarted(query: "first")
+        let secondSearch = Task { await runtime.searchQuickCaptureDestinations(query: "second") }
+        await client.waitUntilStarted(query: "second")
+        await client.finish(
+            query: "second",
+            with: destinationPage(ids: ["current"], nextCursor: nil)
+        )
+        await secondSearch.value
+        await client.finish(
+            query: "first",
+            with: destinationPage(ids: ["stale"], nextCursor: nil)
+        )
+        await firstSearch.value
+
+        XCTAssertEqual(runtime.destinationSearchResults.map(\.destination.title), ["current"])
+        XCTAssertNil(runtime.destinationSearchError)
+    }
+
+    func testDestinationSearchStopsOnRepeatedCursorWithoutDiscardingResults() async throws {
+        let client = RuntimeDestinationSearchClient(pages: [
+            destinationPage(ids: ["one"], nextCursor: "cursor-2"),
+            destinationPage(ids: ["two"], nextCursor: "cursor-2"),
+        ])
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            client: client,
+            destinationSearchDebounceDuration: .zero
+        )
+        await runtime.bootstrapPersonalTokenConnection()
+
+        await runtime.searchQuickCaptureDestinations(query: "notes")
+        await runtime.loadMoreQuickCaptureDestinations()
+
+        XCTAssertEqual(runtime.destinationSearchResults.map(\.destination.title), ["one", "two"])
+        XCTAssertEqual(runtime.destinationSearchError, "Could not search Notion destinations.")
+        XCTAssertFalse(runtime.canLoadMoreDestinations)
+    }
+
+    func testDestinationSearchCapsContinuationAfterFourPages() async throws {
+        let client = RuntimeDestinationSearchClient(pages: [
+            destinationPage(ids: ["one"], nextCursor: "cursor-2"),
+            destinationPage(ids: ["two"], nextCursor: "cursor-3"),
+            destinationPage(ids: ["three"], nextCursor: "cursor-4"),
+            destinationPage(ids: ["four"], nextCursor: "cursor-5"),
+        ])
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            client: client,
+            destinationSearchDebounceDuration: .zero
+        )
+        await runtime.bootstrapPersonalTokenConnection()
+
+        await runtime.searchQuickCaptureDestinations(query: "notes")
+        await runtime.loadMoreQuickCaptureDestinations()
+        await runtime.loadMoreQuickCaptureDestinations()
+        await runtime.loadMoreQuickCaptureDestinations()
+
+        XCTAssertEqual(runtime.destinationSearchResults.map(\.destination.title), ["one", "two", "three", "four"])
+        XCTAssertTrue(runtime.isDestinationSearchCapped)
+        XCTAssertFalse(runtime.canLoadMoreDestinations)
+    }
+
+    func testDestinationSearchCapsContinuationAtOneHundredDisplayedResults() async throws {
+        let client = RuntimeDestinationSearchClient(pages: [
+            destinationPage(ids: (0 ..< 100).map { "destination-\($0)" }, nextCursor: "cursor-2"),
+        ])
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            client: client,
+            destinationSearchDebounceDuration: .zero
+        )
+        await runtime.bootstrapPersonalTokenConnection()
+
+        await runtime.searchQuickCaptureDestinations(query: "notes")
+
+        XCTAssertEqual(runtime.destinationSearchResults.count, 100)
+        XCTAssertTrue(runtime.isDestinationSearchCapped)
+        XCTAssertFalse(runtime.canLoadMoreDestinations)
+    }
+
     func testStartRestoresSavedPageIntoVisiblePanel() async throws {
         let panel = RuntimePanelCoordinator()
         let repository = RuntimePinnedPageRepository()
@@ -668,6 +828,7 @@ final class RuntimeActivationTests: XCTestCase {
         pageURLInputPresenter: RuntimePageURLInputPresenter = RuntimePageURLInputPresenter(),
         pageRepository: (any PinnedPagePersisting)? = nil,
         client: any NotionWorkspaceClient = RuntimeNotionClient(),
+        destinationSearchDebounceDuration: Duration = .milliseconds(300),
         initialServiceHealth: ServiceHealthState = .healthy
     ) -> AppRuntime {
         let store = RuntimeSecretStore()
@@ -681,7 +842,23 @@ final class RuntimeActivationTests: XCTestCase {
             pageRepository: pageRepository,
             credentialVault: vault,
             notionClientFactory: { _ in client },
+            destinationSearchDebounceDuration: destinationSearchDebounceDuration,
             initialServiceHealth: initialServiceHealth
+        )
+    }
+
+    private func destinationPage(
+        ids: [String],
+        nextCursor: String?
+    ) -> NotionDestinationSearchPage {
+        NotionDestinationSearchPage(
+            results: ids.map {
+                NotionDestinationSearchResult(
+                    destination: .pageParent(pageID: $0, title: $0),
+                    lastEditedTime: ""
+                )
+            },
+            nextCursor: nextCursor
         )
     }
 
@@ -998,6 +1175,78 @@ private actor RuntimePinnedPageRepository: PinnedPagePersisting {
 private actor RuntimeNotionClient: NotionWorkspaceClient {
     func validateConnection() async throws -> NotionConnectionSnapshot { NotionConnectionSnapshot(workspaceName: "Workspace") }
     func searchPages(query: String) async throws -> [NotionPageSearchResult] { [] }
+}
+
+private struct RuntimeDestinationSearchRequest: Equatable, Sendable {
+    let query: String
+    let startCursor: String?
+}
+
+private actor RuntimeDestinationSearchClient: NotionWorkspaceClient {
+    private var pages: [NotionDestinationSearchPage]
+    private var recordedRequests: [RuntimeDestinationSearchRequest] = []
+
+    init(pages: [NotionDestinationSearchPage]) {
+        self.pages = pages
+    }
+
+    func validateConnection() async throws -> NotionConnectionSnapshot {
+        NotionConnectionSnapshot(workspaceName: "Workspace")
+    }
+
+    func searchPages(query: String) async throws -> [NotionPageSearchResult] {
+        []
+    }
+
+    func searchDestinations(
+        query: String,
+        startCursor: String?
+    ) async throws -> NotionDestinationSearchPage {
+        recordedRequests.append(
+            RuntimeDestinationSearchRequest(query: query, startCursor: startCursor)
+        )
+        guard !pages.isEmpty else {
+            throw NotionAPIClientError.invalidResponse
+        }
+        return pages.removeFirst()
+    }
+
+    func requests() -> [RuntimeDestinationSearchRequest] {
+        recordedRequests
+    }
+}
+
+private actor DelayedDestinationSearchClient: NotionWorkspaceClient {
+    private var startedQueries: Set<String> = []
+    private var continuations: [String: CheckedContinuation<NotionDestinationSearchPage, Never>] = [:]
+
+    func validateConnection() async throws -> NotionConnectionSnapshot {
+        NotionConnectionSnapshot(workspaceName: "Workspace")
+    }
+
+    func searchPages(query: String) async throws -> [NotionPageSearchResult] {
+        []
+    }
+
+    func searchDestinations(
+        query: String,
+        startCursor: String?
+    ) async throws -> NotionDestinationSearchPage {
+        startedQueries.insert(query)
+        return await withCheckedContinuation { continuation in
+            continuations[query] = continuation
+        }
+    }
+
+    func waitUntilStarted(query: String) async {
+        while !startedQueries.contains(query) {
+            await Task.yield()
+        }
+    }
+
+    func finish(query: String, with page: NotionDestinationSearchPage) {
+        continuations.removeValue(forKey: query)?.resume(returning: page)
+    }
 }
 
 private actor DelayedSearchClient: NotionWorkspaceClient {
