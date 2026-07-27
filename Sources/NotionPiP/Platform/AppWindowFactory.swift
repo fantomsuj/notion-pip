@@ -69,7 +69,19 @@ enum AppWindowFactory {
                 }
             }
         }
-        return AppWindowPresenter(window: window)
+        let terminationHandler: (@MainActor () async -> Bool)?
+        if let session {
+            terminationHandler = { [weak session] in
+                guard let session else { return true }
+                return await session.prepareForTermination()
+            }
+        } else {
+            terminationHandler = nil
+        }
+        return AppWindowPresenter(
+            window: window,
+            terminationHandler: terminationHandler
+        )
     }
 
     static func makeSettings(runtime: AppRuntime) -> AppWindowPresenter {

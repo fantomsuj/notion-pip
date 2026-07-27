@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let replyToApplicationShouldTerminate: @MainActor (NSApplication, Bool) -> Void
     private var urlHandler: (any ApplicationURLHandling)?
     private var bufferedOpenURLs: [URL] = []
-    private var terminationHandler: (@MainActor () async -> Void)?
+    private var terminationHandler: (@MainActor () async -> Bool)?
     private var terminationTask: Task<Void, Never>?
     private var performanceSignposter: (any PerformanceSignposting)?
     private var coldLaunchToken: PerformanceIntervalToken?
@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func bind(terminationHandler: @escaping @MainActor () async -> Void) {
+    func bind(terminationHandler: @escaping @MainActor () async -> Bool) {
         guard self.terminationHandler == nil else { return }
         self.terminationHandler = terminationHandler
     }
@@ -82,11 +82,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard terminationTask == nil else { return .terminateLater }
         let terminationHandler = terminationHandler
         let replyToApplicationShouldTerminate = replyToApplicationShouldTerminate
-        terminationTask = Task { @MainActor in
-            if let terminationHandler {
-                await terminationHandler()
-            }
-            replyToApplicationShouldTerminate(sender, true)
+        terminationTask = Task { @MainActor [weak self] in
+            let shouldTerminate = await terminationHandler?() ?? true
+            replyToApplicationShouldTerminate(sender, shouldTerminate)
+            self?.terminationTask = nil
         }
         return .terminateLater
     }
