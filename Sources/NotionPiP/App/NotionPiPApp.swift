@@ -11,7 +11,10 @@ enum NotionPiPApp {
         AppStartup.start(
             runtime: composition.runtime,
             appDelegate: appDelegate,
-            coldLaunchToken: coldLaunchToken
+            coldLaunchToken: coldLaunchToken,
+            terminationParticipantProvider: {
+                composition.quickCaptureTerminationParticipant
+            }
         )
         withExtendedLifetime(composition) {
             NSApplication.shared.run()
@@ -25,7 +28,10 @@ enum AppStartup {
         runtime: AppRuntime,
         appDelegate: AppDelegate,
         coldLaunchToken: PerformanceIntervalToken? = nil,
-        performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared
+        performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
+        terminationParticipantProvider: @escaping @MainActor () -> (
+            any ApplicationTerminationParticipating
+        )? = { nil }
     ) {
         runtime.start()
         appDelegate.bind(
@@ -33,7 +39,10 @@ enum AppStartup {
             performanceSignposter: performanceSignposter
         )
         appDelegate.bind {
+            let shouldTerminate = await terminationParticipantProvider()?
+                .prepareForTermination() ?? true
             await runtime.prepareForTermination()
+            return shouldTerminate
         }
         appDelegate.bind(urlHandler: runtime)
     }
@@ -42,7 +51,7 @@ enum AppStartup {
 @MainActor
 private final class AppComposition {
     let runtime: AppRuntime
-    private let quickCapturePresenter: any AppWindowPresenting
+    private let quickCapturePresenter: LazyAppWindowPresenter
     private let settingsWindowPresenter: SettingsWindowPresenter
     private let statusItemController: StatusItemController
 
@@ -131,7 +140,7 @@ private final class AppComposition {
         webSession.onPageResolved = { [weak runtime] page in
             runtime?.activate(page: page, source: .notionWebSession)
         }
-        let quickCapturePresenter: any AppWindowPresenting = LazyAppWindowPresenter(
+        let quickCapturePresenter = LazyAppWindowPresenter(
             makePresenter: {
                 AppWindowFactory.makeQuickCapture(
                     repository: captureRepository,
@@ -163,5 +172,11 @@ private final class AppComposition {
         self.quickCapturePresenter = quickCapturePresenter
         self.settingsWindowPresenter = settingsWindowPresenter
         self.statusItemController = statusItemController
+    }
+
+    var quickCaptureTerminationParticipant: (
+        any ApplicationTerminationParticipating
+    )? {
+        quickCapturePresenter.terminationParticipant
     }
 }

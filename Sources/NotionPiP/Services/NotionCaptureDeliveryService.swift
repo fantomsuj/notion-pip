@@ -233,8 +233,14 @@ actor NotionCaptureDeliveryService: CaptureDeliveryTransport {
         case .accessDenied:
             return .http(status: 403, retryAfter: nil, message: nil)
         case let .requestFailed(statusCode):
+            if ambiguousByDefault, (500 ... 599).contains(statusCode) {
+                return .ambiguous(message: nil)
+            }
             return .http(status: statusCode, retryAfter: nil, message: nil)
         case let .apiError(details):
+            if ambiguousByDefault, (500 ... 599).contains(details.statusCode) {
+                return .ambiguous(message: nil)
+            }
             return .http(
                 status: details.statusCode,
                 retryAfter: details.retryAfter,

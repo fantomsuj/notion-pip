@@ -22,28 +22,46 @@ enum CaptureRepositoryHelperFetch: Equatable, Sendable {
 
 typealias CaptureRepositoryHelperFetchCheck = @Sendable (CaptureRepositoryHelperFetch) throws -> Void
 
+enum CaptureRepositorySaveOperation: Equatable, Sendable {
+    case draftMutation
+    case enqueue
+    case claimNext
+    case interruptedRecovery
+    case unauthorizedResumption
+    case markDelivered
+    case deliveryTransition
+    case deliveryJournal
+    case retention
+}
+
+typealias CaptureRepositorySaveCheck = @Sendable (CaptureRepositorySaveOperation) throws -> Void
+
 @ModelActor
 actor CaptureRepository {
     private var clock: any CaptureClock = SystemCaptureClock()
     private var beforeHelperFetch: CaptureRepositoryHelperFetchCheck = { _ in }
+    private var beforeSave: CaptureRepositorySaveCheck = { _ in }
 
     init(
         storeURL: URL? = nil,
         inMemory: Bool = false,
         clock: any CaptureClock = SystemCaptureClock(),
-        beforeHelperFetch: @escaping CaptureRepositoryHelperFetchCheck = { _ in }
+        beforeHelperFetch: @escaping CaptureRepositoryHelperFetchCheck = { _ in },
+        beforeSave: @escaping CaptureRepositorySaveCheck = { _ in }
     ) throws {
         self.init(
             container: try NotionPiPPersistence.makeContainer(storeURL: storeURL, inMemory: inMemory),
             clock: clock,
-            beforeHelperFetch: beforeHelperFetch
+            beforeHelperFetch: beforeHelperFetch,
+            beforeSave: beforeSave
         )
     }
 
     init(
         container: ModelContainer,
         clock: any CaptureClock = SystemCaptureClock(),
-        beforeHelperFetch: @escaping CaptureRepositoryHelperFetchCheck = { _ in }
+        beforeHelperFetch: @escaping CaptureRepositoryHelperFetchCheck = { _ in },
+        beforeSave: @escaping CaptureRepositorySaveCheck = { _ in }
     ) {
         let context = ModelContext(container)
         context.autosaveEnabled = false
@@ -51,6 +69,7 @@ actor CaptureRepository {
         modelContainer = container
         self.clock = clock
         self.beforeHelperFetch = beforeHelperFetch
+        self.beforeSave = beforeSave
     }
 
     func saveDraft(_ mutation: DraftMutation, expectedRevision: Int) throws -> CaptureDraftSnapshot {
@@ -94,7 +113,7 @@ actor CaptureRepository {
                 )
             }
 
-            return try commit {
+            return try commit(operation: .draftMutation) {
                 if mutation.disposition == .active {
                     try stashOtherActiveDrafts(except: model.stableID, at: now)
                 }
@@ -114,7 +133,7 @@ actor CaptureRepository {
         guard mutation.disposition != .abandoned else {
             throw CaptureRepositoryError.invalidNewDraftDisposition(mutation.disposition)
         }
-        return try commit {
+        return try commit(operation: .draftMutation) {
             let returnDraftID: String?
             if mutation.disposition == .active {
                 returnDraftID = try activeDraft(except: mutation.id)?.stableID
@@ -152,7 +171,7 @@ actor CaptureRepository {
             throw CaptureRepositoryError.invalidDraftTransition(from: currentDisposition, to: .active)
         }
         let now = clock.now()
-        return try commit {
+        return try commit(operation: .draftMutation) {
             model.returnDraftID = try activeDraft(except: id)?.stableID
             try stashOtherActiveDrafts(except: id, at: now)
             model.dispositionRawValue = DraftDisposition.active.rawValue
@@ -177,7 +196,7 @@ actor CaptureRepository {
             throw CaptureRepositoryError.invalidDraftTransition(from: currentDisposition, to: .stashed)
         }
         let now = clock.now()
-        return try commit {
+        return try commit(operation: .draftMutation) {
             let returnDraftID = model.returnDraftID
             model.dispositionRawValue = DraftDisposition.stashed.rawValue
             model.returnDraftID = nil
@@ -233,7 +252,7 @@ actor CaptureRepository {
             deliveredAt: nil,
             updatedAt: now
         )
-        return try commit {
+        return try commit(operation: .enqueue) {
             modelContext.insert(record)
             let returnDraftID = draft.returnDraftID
             draft.dispositionRawValue = DraftDisposition.abandoned.rawValue
@@ -266,7 +285,7 @@ actor CaptureRepository {
             throw CaptureRepositoryError.abandonedDraftImmutable
         }
         let returnDraftID = draft.returnDraftID
-        try commit {
+        try commit(operation: .draftMutation) {
             modelContext.delete(draft)
             try reactivateReturnDraft(id: returnDraftID, at: clock.now())
         }
@@ -324,7 +343,7 @@ actor CaptureRepository {
                 continue
             }
             guard let nextAttemptAt = model.nextAttemptAt, nextAttemptAt <= now else { continue }
-            return try commit {
+            return try commit(operation: .claimNext) {
                 model.stateRawValue = DeliveryState.inFlight.rawValue
                 model.inFlightAt = now
                 model.nextAttemptAt = nil
@@ -335,7 +354,7 @@ actor CaptureRepository {
             }
         }
         if changedForAttention {
-            try commit {}
+            try commit(operation: .claimNext) {}
         }
         return nil
     }
@@ -344,7 +363,7 @@ actor CaptureRepository {
         let interrupted = try modelContext.fetch(FetchDescriptor<CaptureRecordModel>())
             .filter { $0.stateRawValue == DeliveryState.inFlight.rawValue }
         guard !interrupted.isEmpty else { return 0 }
-        return try commit {
+        return try commit(operation: .interruptedRecovery) {
             for model in interrupted {
                 if model.destinationKind == "managed" {
                     model.stateRawValue = DeliveryState.retrying.rawValue
@@ -405,7 +424,7 @@ actor CaptureRepository {
                     && $0.safeErrorCode == "unauthorized"
             }
         guard !records.isEmpty else { return 0 }
-        return try commit {
+        return try commit(operation: .unauthorizedResumption) {
             for record in records {
                 record.nextAttemptAt = now
                 record.updatedAt = now
@@ -423,7 +442,7 @@ actor CaptureRepository {
         guard let model = try recordModel(id: recordID) else {
             throw CaptureRepositoryError.recordNotFound(recordID)
         }
-        return try commit {
+        return try commit(operation: .markDelivered) {
             model.stateRawValue = DeliveryState.delivered.rawValue
             model.nextAttemptAt = nil
             model.inFlightAt = nil
@@ -501,7 +520,7 @@ actor CaptureRepository {
             "replacementBlockIDs": replacementBlockIDs.sorted(),
             "stage": "replacementWrittenAwaitingArchive",
         ])
-        return try commit {
+        return try commit(operation: .deliveryJournal) {
             model.operationJournal = operationJournal
             model.updatedAt = clock.now()
             model.revision += 1
@@ -522,7 +541,7 @@ actor CaptureRepository {
         } catch {
             throw CaptureRepositoryError.invalidJSON
         }
-        return try commit {
+        return try commit(operation: .deliveryJournal) {
             model.operationJournal = canonicalJournal
             model.updatedAt = clock.now()
             model.revision += 1
@@ -552,7 +571,7 @@ actor CaptureRepository {
             deletedDrafts: deletableDrafts.count
         )
         guard !deletableRecords.isEmpty || !deletableDrafts.isEmpty else { return result }
-        return try commit {
+        return try commit(operation: .retention) {
             deletableRecords.forEach(modelContext.delete)
             deletableDrafts.forEach(modelContext.delete)
             return result
@@ -605,7 +624,7 @@ actor CaptureRepository {
         guard let model = try recordModel(id: recordID) else {
             throw CaptureRepositoryError.recordNotFound(recordID)
         }
-        return try commit {
+        return try commit(operation: .deliveryTransition) {
             model.stateRawValue = state.rawValue
             model.nextAttemptAt = nextAttemptAt
             model.inFlightAt = nil
@@ -617,9 +636,13 @@ actor CaptureRepository {
         }
     }
 
-    private func commit<Result>(_ changes: () throws -> Result) throws -> Result {
+    private func commit<Result>(
+        operation: CaptureRepositorySaveOperation,
+        _ changes: () throws -> Result
+    ) throws -> Result {
         do {
             let result = try changes()
+            try beforeSave(operation)
             try modelContext.save()
             return result
         } catch {

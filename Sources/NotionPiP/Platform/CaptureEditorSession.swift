@@ -162,6 +162,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     private var committedStateTransitionOrder: [String] = []
     private var ambiguousStateTransitions: [String: CaptureStateTransitionOperation] = [:]
     private var activeDraftCreationTask: Task<CaptureEditorSnapshot, Error>?
+    private var terminationPersistenceTask: Task<Bool, Never>?
 
     init(
         repository: CaptureRepository,
@@ -250,6 +251,27 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
             document: document,
             revision: revision
         )
+    }
+
+    func prepareForTermination() async -> Bool {
+        if let terminationPersistenceTask {
+            return await terminationPersistenceTask.value
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return true }
+            do {
+                let snapshot = try await self.latestSnapshot()
+                try await self.persistTerminationSnapshot(snapshot)
+                return true
+            } catch {
+                self.status = .failed("Could not save the latest draft before quitting.")
+                return false
+            }
+        }
+        terminationPersistenceTask = task
+        let result = await task.value
+        terminationPersistenceTask = nil
+        return result
     }
 
     func reportCloseGuidance(_ message: String) {
@@ -665,6 +687,59 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
                 disposition: stored.disposition
             ),
             expectedRevision: expectedRevision
+        )
+    }
+
+    private func persistTerminationSnapshot(
+        _ snapshot: CaptureEditorSnapshot
+    ) async throws {
+        let canonicalDocument = try CaptureBridgeProtocol.canonicalDocument(snapshot.document)
+        guard var stored = try await repository.draft(id: snapshot.draftID) else {
+            throw CaptureRepositoryError.draftNotFound(snapshot.draftID)
+        }
+        guard stored.disposition != .abandoned else {
+            throw CaptureRepositoryError.abandonedDraftImmutable
+        }
+        if stored.title == snapshot.title, stored.editorDocument == canonicalDocument {
+            return
+        }
+
+        do {
+            _ = try await saveTerminationSnapshot(
+                snapshot,
+                canonicalDocument: canonicalDocument,
+                stored: stored
+            )
+        } catch CaptureRepositoryError.staleRevision {
+            guard let latest = try await repository.draft(id: snapshot.draftID) else {
+                throw CaptureRepositoryError.draftNotFound(snapshot.draftID)
+            }
+            stored = latest
+            if stored.title == snapshot.title, stored.editorDocument == canonicalDocument {
+                return
+            }
+            _ = try await saveTerminationSnapshot(
+                snapshot,
+                canonicalDocument: canonicalDocument,
+                stored: stored
+            )
+        }
+    }
+
+    private func saveTerminationSnapshot(
+        _ snapshot: CaptureEditorSnapshot,
+        canonicalDocument: Data,
+        stored: CaptureDraftSnapshot
+    ) async throws -> CaptureDraftSnapshot {
+        try await repository.saveDraft(
+            DraftMutation(
+                id: snapshot.draftID,
+                title: snapshot.title,
+                editorDocument: canonicalDocument,
+                sourceDocument: stored.sourceDocument,
+                disposition: stored.disposition
+            ),
+            expectedRevision: stored.revision
         )
     }
 

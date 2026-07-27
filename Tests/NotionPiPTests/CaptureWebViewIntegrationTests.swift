@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 import WebKit
 import XCTest
 @testable import NotionPiP
@@ -1059,6 +1060,103 @@ final class CaptureWebViewIntegrationTests: XCTestCase {
         XCTAssertEqual(changedRequests[0], changedRequests[1])
     }
 
+    func testTerminationFlushPersistsEditInsideDebounceWindowAndReopensLatestContent() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "termination-debounce-draft" }
+        )
+        try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+        _ = try await editEditor(
+            title: "Newest title",
+            body: "Newest body",
+            in: session.webView
+        )
+
+        let shouldTerminate = await session.prepareForTermination()
+
+        XCTAssertTrue(shouldTerminate)
+        session.tearDownBridge()
+        let reopened = CaptureEditorSession(repository: repository)
+        try await waitUntil { reopened.status == .ready }
+        try await waitForJavaScriptCondition(in: reopened.webView) {
+            "return !document.querySelector('#title').disabled"
+        }
+        let reopenedContent = try await editorDOM(in: reopened.webView)
+        XCTAssertEqual(reopenedContent["title"], "Newest title")
+        XCTAssertEqual(normalizedDOMText(reopenedContent["body"]), "Newest body")
+    }
+
+    func testTerminationFlushCompletesWhileAutosaveIsInFlight() async throws {
+        let gate = BlockingBridgeRequestGate { request in
+            if case .changed = request { return true }
+            return false
+        }
+        let repository = try CaptureRepository(inMemory: true)
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "termination-inflight-draft" },
+            beforeBridgeRequest: { request in await gate.suspendIfMatched(request) }
+        )
+        try await waitUntil { session.status == .ready }
+        _ = try await editEditor(
+            title: "In-flight title",
+            body: "In-flight body",
+            in: session.webView
+        )
+        try await waitUntil { gate.entered }
+
+        let termination = Task { @MainActor in
+            await session.prepareForTermination()
+        }
+        let persisted = try await waitForDraft(
+            repository,
+            id: "termination-inflight-draft"
+        ) {
+            $0.title == "In-flight title"
+                && String(decoding: $0.editorDocument, as: UTF8.self)
+                    .contains("In-flight body")
+        }
+        gate.resume()
+
+        let shouldTerminate = await termination.value
+        XCTAssertTrue(shouldTerminate)
+        XCTAssertGreaterThan(persisted.revision, 1)
+    }
+
+    func testTerminationPersistenceFailureCancelsQuitAndKeepsPreviousDraft() async throws {
+        let failure = WebViewCaptureSaveFailure()
+        let repository = try CaptureRepository(
+            inMemory: true,
+            beforeSave: failure.check
+        )
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "termination-failure-draft" }
+        )
+        try await waitUntil { session.status == .ready }
+        _ = try await editEditor(
+            title: "Unsaved title",
+            body: "Unsaved body",
+            in: session.webView
+        )
+        failure.failNext(.draftMutation)
+
+        let shouldTerminate = await session.prepareForTermination()
+        session.tearDownBridge()
+
+        let stored = try await repository.draft(id: "termination-failure-draft")
+        XCTAssertFalse(shouldTerminate)
+        XCTAssertEqual(stored?.title, "")
+        XCTAssertEqual(
+            session.status,
+            .failed("Could not save the latest draft before quitting.")
+        )
+    }
+
     func testNewNoteFlushesEditsLocksMutationAndFocusesEmptySuccessor() async throws {
         let gate = BlockingBridgeRequestGate { request in
             if case .stash = request { return true }
@@ -1699,6 +1797,27 @@ private final class WebViewCaptureRepositoryFailure: @unchecked Sendable {
         try lock.withLock {
             if self.checkpoint == checkpoint {
                 self.checkpoint = nil
+                throw ExpectedFailure()
+            }
+        }
+    }
+}
+
+private final class WebViewCaptureSaveFailure: Sendable {
+    struct ExpectedFailure: Error {}
+
+    private let operation = OSAllocatedUnfairLock<CaptureRepositorySaveOperation?>(
+        initialState: nil
+    )
+
+    func failNext(_ operation: CaptureRepositorySaveOperation) {
+        self.operation.withLock { $0 = operation }
+    }
+
+    func check(_ operation: CaptureRepositorySaveOperation) throws {
+        try self.operation.withLock {
+            if $0 == operation {
+                $0 = nil
                 throw ExpectedFailure()
             }
         }
