@@ -36,7 +36,9 @@ public struct NotionPageReference: Equatable, Hashable, Sendable {
         var canonicalComponents = URLComponents()
         canonicalComponents.scheme = "https"
         canonicalComponents.host = host == "app.notion.com" ? host : "www.notion.so"
-        canonicalComponents.path = "/\(component)"
+        canonicalComponents.path = host == "app.notion.com"
+            ? url.path
+            : "/\(component)"
 
         guard let canonicalURL = canonicalComponents.url else {
             throw NotionPageReferenceError.missingPageID

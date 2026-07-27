@@ -44,7 +44,7 @@ guidance lives in [`AGENTS.md`](AGENTS.md).
 
 ## Security boundary
 
-Only HTTPS pages on `app.notion.com`, `notion.so`, and `www.notion.so` with a 32-hex-character page ID are accepted. `notion.so` inputs canonicalize to `www.notion.so`, while `app.notion.com` inputs retain that host. Canonical URLs never retain credentials, query strings, or fragments. The `notion-pip` handoff contract is documented in `docs/HANDOFF_PROTOCOL.md`.
+Only HTTPS pages on `app.notion.com`, `notion.so`, and `www.notion.so` with a 32-hex-character page ID are accepted. `notion.so` inputs canonicalize to `www.notion.so`, while `app.notion.com` inputs retain their host and path. Canonical URLs never retain credentials, query strings, or fragments. The `notion-pip` handoff contract is documented in `docs/HANDOFF_PROTOCOL.md`.
 
 The development app is sandboxed with outbound network access. Ad-hoc signing is for local development only; it is not Developer ID distribution or notarization.
 

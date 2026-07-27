@@ -27,7 +27,7 @@ final class ExternalURLRouteTests: XCTestCase {
         components.queryItems = [
             URLQueryItem(
                 name: "url",
-                value: "https://app.notion.com/Project-\(pageID)?view=all#notes"
+                value: "https://app.notion.com/p/acme/Project-\(pageID)?view=all#notes"
             ),
             URLQueryItem(name: "source", value: "chrome-extension"),
         ]
@@ -39,7 +39,10 @@ final class ExternalURLRouteTests: XCTestCase {
             return XCTFail("Expected a pin route, got \(result)")
         }
         XCTAssertEqual(page.pageID, pageID)
-        XCTAssertEqual(page.canonicalURL.absoluteString, "https://app.notion.com/Project-\(pageID)")
+        XCTAssertEqual(
+            page.canonicalURL.absoluteString,
+            "https://app.notion.com/p/acme/Project-\(pageID)"
+        )
         XCTAssertEqual(source, .chromeExtension)
     }
 

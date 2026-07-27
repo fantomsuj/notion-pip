@@ -59,14 +59,17 @@ final class NotionPageReferenceTests: XCTestCase {
 
     func testAppHostRemainsAppHostWhileCanonicalURLStripsQueryAndFragment() throws {
         let input = try XCTUnwrap(
-            URL(string: "https://app.notion.com/Roadmap-\(pageID)?view=table#updates")
+            URL(string: "https://app.notion.com/p/acme/Roadmap-\(pageID)?view=table#updates")
         )
 
         let page = try NotionPageReference(validating: input)
 
         XCTAssertEqual(page.pageID, pageID)
         XCTAssertEqual(page.displayTitle, "Roadmap")
-        XCTAssertEqual(page.canonicalURL.absoluteString, "https://app.notion.com/Roadmap-\(pageID)")
+        XCTAssertEqual(
+            page.canonicalURL.absoluteString,
+            "https://app.notion.com/p/acme/Roadmap-\(pageID)"
+        )
         XCTAssertNil(page.canonicalURL.query)
         XCTAssertNil(page.canonicalURL.fragment)
     }
