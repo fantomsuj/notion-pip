@@ -581,6 +581,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
            savedInteractionPageID == page.pageID
         {
             interactionStateWriter(webView, savedInteractionState)
+            self.savedInteractionState = nil
+            savedInteractionPageID = nil
             loadedPageID = page.pageID
             state = .loading
         } else {

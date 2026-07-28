@@ -7,6 +7,67 @@ import XCTest
 
 @MainActor
 final class CaptureWebViewIntegrationTests: XCTestCase {
+    func testRendererTerminationReloadsEditorAndRestoresPersistedActiveDraftOnce() async throws {
+        let repository = try CaptureRepository(inMemory: true)
+        _ = try await repository.saveDraft(
+            DraftMutation(
+                id: "renderer-recovery-draft",
+                title: "Recovered draft",
+                editorDocument: Data(#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Restored after termination"}]}]}"#.utf8),
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+        var readyRequestCount = 0
+        let session = CaptureEditorSession(
+            repository: repository,
+            beforeBridgeRequest: { request in
+                if case .ready = request {
+                    readyRequestCount += 1
+                }
+            }
+        )
+        try await waitUntil { session.status == .ready }
+        XCTAssertEqual(readyRequestCount, 1)
+
+        session.webViewWebContentProcessDidTerminate(session.webView)
+        session.webViewWebContentProcessDidTerminate(session.webView)
+
+        XCTAssertEqual(session.status, .loading)
+        try await waitUntil { session.status == .ready }
+        let snapshot = try await session.latestSnapshot()
+
+        XCTAssertEqual(readyRequestCount, 2)
+        XCTAssertEqual(snapshot.draftID, "renderer-recovery-draft")
+        XCTAssertEqual(snapshot.title, "Recovered draft")
+        XCTAssertEqual(
+            snapshot.document,
+            Data(#"{"content":[{"content":[{"text":"Restored after termination","type":"text"}],"type":"paragraph"}],"type":"doc"}"#.utf8)
+        )
+    }
+
+    func testDisposeStopsLoadingTearsDownBridgeAndDoesNotRetainSession() async throws {
+        weak var weakSession: CaptureEditorSession?
+        var session: CaptureEditorSession? = CaptureEditorSession(
+            repository: try CaptureRepository(inMemory: true)
+        )
+        let webView = try XCTUnwrap(session?.webView)
+        weakSession = session
+
+        session?.dispose()
+        session?.dispose()
+
+        XCTAssertEqual(session?.installedHandlerNames, [])
+        XCTAssertNil(webView.navigationDelegate)
+        XCTAssertNil(webView.uiDelegate)
+        try await waitUntil { !webView.isLoading }
+
+        session = nil
+
+        XCTAssertNil(weakSession)
+    }
+
     func testEmptyAuthoritativeDraftFocusesTitleAndExposesAccessibleBody() async throws {
         let repository = try CaptureRepository(inMemory: true)
         let session = CaptureEditorSession(

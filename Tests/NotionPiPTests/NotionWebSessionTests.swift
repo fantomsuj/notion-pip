@@ -665,6 +665,34 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .loading)
     }
 
+    func testRestoredInteractionStateIsReleasedAfterApplyingToReplacementWebView() throws {
+        var eviction: (@MainActor () -> Void)?
+        weak var restoredState: InteractionStateSentinel?
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            scheduleEviction: { _, action in
+                eviction = action
+                return AnyCancellable {}
+            },
+            interactionStateReader: { _ in
+                let state = InteractionStateSentinel()
+                restoredState = state
+                return state
+            },
+            interactionStateWriter: { _, _ in }
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+
+        session.activate(page: page)
+        session.panelDidHide()
+        eviction?()
+        XCTAssertNotNil(restoredState)
+
+        session.panelDidShow()
+
+        XCTAssertNil(restoredState)
+    }
+
     func testChangingSelectedPageWhileSuspendedDiscardsStaleStateAndLoadsNewPage() throws {
         var eviction: (@MainActor () -> Void)?
         var requests: [URLRequest] = []
@@ -1399,6 +1427,8 @@ final class NotionWebSessionTests: XCTestCase {
         ]
     }
 }
+
+private final class InteractionStateSentinel {}
 
 private enum TestSelectionError: Error {
     case evaluationFailed

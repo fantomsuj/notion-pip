@@ -300,13 +300,13 @@ test("changed messages debounce to the latest canonical snapshot and expected re
     () => `request-${++sequence}`,
   );
 
-  publisher.changed({ draftID: "draft-1", title: "First", document: null }, 3);
+  publisher.changed(() => ({ draftID: "draft-1", title: "First", document: null }), 3);
   publisher.changed(
-    {
+    () => ({
       draftID: "draft-1",
       title: "Latest",
       document: { type: "doc", content: [{ type: "paragraph" }] },
-    },
+    }),
     3,
   );
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -323,6 +323,60 @@ test("changed messages debounce to the latest canonical snapshot and expected re
     },
     expectedRevision: 3,
   });
+});
+
+test("deferred change snapshots serialize once at flush and retry the exact emitted request", async () => {
+  const requests: BridgeRequest[] = [];
+  let title = "First";
+  let body = "First body";
+  let serializationCount = 0;
+  const snapshot = () => {
+    serializationCount += 1;
+    return {
+      draftID: "draft-1",
+      title,
+      document: {
+        content: [{ content: [{ text: body, type: "text" }], type: "paragraph" }],
+        type: "doc",
+      },
+    };
+  };
+  const publisher = new DebouncedChangePublisher(
+    1_000,
+    (request) => {
+      requests.push(structuredClone(request));
+      throw new Error("offline");
+    },
+    () => "deferred-change",
+  );
+
+  publisher.changed(snapshot, 1);
+  title = "Latest";
+  body = "Latest body";
+  publisher.changed(snapshot, 1);
+
+  assert.equal(serializationCount, 0);
+  await assert.rejects(publisher.flush(), /offline/);
+  assert.equal(serializationCount, 1);
+  assert.deepEqual(requests[0], {
+    version: BRIDGE_VERSION,
+    id: "deferred-change",
+    type: "changed",
+    snapshot: {
+      draftID: "draft-1",
+      title: "Latest",
+      document: {
+        content: [{ content: [{ text: "Latest body", type: "text" }], type: "paragraph" }],
+        type: "doc",
+      },
+    },
+    expectedRevision: 1,
+  });
+
+  await assert.rejects(publisher.retryFailed(), /offline/);
+
+  assert.equal(serializationCount, 1);
+  assert.deepEqual(requests[1], requests[0]);
 });
 
 test("bridge client requires the reply correlation ID to match", async () => {
@@ -361,7 +415,7 @@ test("new note waits for the pending changed acknowledgement before stashing", a
     await new Promise<void>((resolve) => { acknowledgeChange = resolve; });
     order.push("acknowledged");
   }, () => "change-1");
-  publisher.changed({ draftID: "draft-1", title: "Note", document: null }, 1);
+  publisher.changed(() => ({ draftID: "draft-1", title: "Note", document: null }), 1);
 
   const newNote = runAfterPendingChange(publisher, async () => { order.push("stash"); });
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -384,10 +438,10 @@ test("overlapping changes serialize and resolve revision after the prior acknowl
     }
   }, () => `change-${requests.length + 1}`);
 
-  publisher.changed({ draftID: "draft-1", title: "A", document: null }, () => revision);
+  publisher.changed(() => ({ draftID: "draft-1", title: "A", document: null }), () => revision);
   const first = publisher.flush();
   await new Promise((resolve) => setTimeout(resolve, 0));
-  publisher.changed({ draftID: "draft-1", title: "B", document: null }, () => revision);
+  publisher.changed(() => ({ draftID: "draft-1", title: "B", document: null }), () => revision);
   const second = publisher.flush();
 
   assert.equal(requests.length, 1);
@@ -414,9 +468,9 @@ test("failed change retries the identical request then allows later edits", asyn
     (error) => failures.push(error.message),
   );
 
-  publisher.changed({ draftID: "draft-1", title: "A", document: null }, () => revision);
+  publisher.changed(() => ({ draftID: "draft-1", title: "A", document: null }), () => revision);
   await assert.rejects(publisher.flush(), /acknowledgement lost/);
-  publisher.changed({ draftID: "draft-1", title: "B", document: null }, () => revision);
+  publisher.changed(() => ({ draftID: "draft-1", title: "B", document: null }), () => revision);
   await publisher.flush();
 
   assert.equal(requests.length, 3);
@@ -443,9 +497,9 @@ test("newer pending work survives repeated failure of the earlier exact request"
     () => `change-${++sequence}`,
   );
 
-  publisher.changed({ draftID: "draft-1", title: "A", document: null }, () => revision);
+  publisher.changed(() => ({ draftID: "draft-1", title: "A", document: null }), () => revision);
   await assert.rejects(publisher.flush(), /offline-1/);
-  publisher.changed({ draftID: "draft-1", title: "B", document: null }, () => revision);
+  publisher.changed(() => ({ draftID: "draft-1", title: "B", document: null }), () => revision);
   await assert.rejects(publisher.flush(), /offline-2/);
   await publisher.flush();
 
@@ -519,7 +573,7 @@ test("recoverable persistence negative acknowledgement retains the exact autosav
     () => "negative-ack-change",
   );
 
-  publisher.changed({ draftID: "draft-1", title: "Unsaved", document: null }, 1);
+  publisher.changed(() => ({ draftID: "draft-1", title: "Unsaved", document: null }), 1);
   await assert.rejects(publisher.flush(), /Disk unavailable/);
   await publisher.flush();
 
@@ -543,7 +597,7 @@ test("failed autosave publishes retry availability and retries only the exact re
     (available) => availability.push(available),
   );
 
-  publisher.changed({ draftID: "draft-1", title: "Exact edit", document: null }, 4);
+  publisher.changed(() => ({ draftID: "draft-1", title: "Exact edit", document: null }), 4);
   await assert.rejects(publisher.flush(), /Disk unavailable/);
   assert.equal(publisher.hasFailedRequest, true);
   assert.deepEqual(availability, [true]);
@@ -569,7 +623,7 @@ test("timer delivery rejection is observed instead of becoming unhandled", async
       () => "change-timer",
       (error) => failures.push(error.message),
     );
-    publisher.changed({ draftID: "draft-1", title: "A", document: null }, 1);
+    publisher.changed(() => ({ draftID: "draft-1", title: "A", document: null }), 1);
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.deepEqual(failures, ["offline"]);
     assert.deepEqual(unhandled, []);
@@ -697,7 +751,7 @@ test("stash transition locks before draining and captures only after the old dra
     await new Promise<void>((resolve) => { acknowledgeChange = resolve; });
     order.push("changed-acknowledged");
   }, () => "old-draft-change");
-  publisher.changed({ draftID: "draft-1", title: "Old edit", document: null }, 1);
+  publisher.changed(() => ({ draftID: "draft-1", title: "Old edit", document: null }), 1);
   const gate = new EditorTransitionGate(
     publisher,
     async (request) => {
@@ -770,7 +824,7 @@ test("definitive old-draft autosave rejection cancels the transition without ret
     },
     () => "stale-old-draft-change",
   );
-  publisher.changed({ draftID: "draft-1", title: "Current work", document: null }, 1);
+  publisher.changed(() => ({ draftID: "draft-1", title: "Current work", document: null }), 1);
   const gate = new EditorTransitionGate(
     publisher,
     async () => { throw new Error("transition must not dispatch"); },
@@ -817,7 +871,7 @@ test("missing old draft keeps the transition locked with the exact autosave retr
     },
     () => "missing-old-draft-change",
   );
-  publisher.changed({ draftID: "draft-1", title: "Visible work", document: null }, 1);
+  publisher.changed(() => ({ draftID: "draft-1", title: "Visible work", document: null }), 1);
   const gate = new EditorTransitionGate(
     publisher,
     async () => { throw new Error("transition must not dispatch"); },
@@ -856,7 +910,7 @@ test("conflict capture discards the superseded queued autosave", async () => {
     async (request) => { changedRequests.push(request); },
     () => "superseded-change",
   );
-  publisher.changed({ draftID: "draft-1", title: "Discard me", document: null }, 1);
+  publisher.changed(() => ({ draftID: "draft-1", title: "Discard me", document: null }), 1);
   const gate = new EditorTransitionGate(
     publisher,
     async (request) => {

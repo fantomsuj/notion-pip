@@ -54,6 +54,7 @@ enum AppStartup {
 private final class AppComposition {
     let runtime: AppRuntime
     private let quickCapturePresenter: LazyAppWindowPresenter
+    private let quickCaptureReleaseRelay: QuickCaptureReleaseRelay
     private let settingsWindowPresenter: SettingsWindowPresenter
     private let statusItemController: StatusItemController
 
@@ -146,6 +147,7 @@ private final class AppComposition {
         webSession.onPageResolved = { [weak runtime] page in
             runtime?.activate(page: page, source: .notionWebSession)
         }
+        let quickCaptureReleaseRelay = QuickCaptureReleaseRelay()
         let quickCapturePresenter = LazyAppWindowPresenter(
             makePresenter: {
                 AppWindowFactory.makeQuickCapture(
@@ -153,6 +155,9 @@ private final class AppComposition {
                     lifecycle: captureLifecycle,
                     onNeedsConfiguration: { _ in
                         actionRelay.showSettings()
+                    },
+                    onSuccessfulClose: { [weak quickCaptureReleaseRelay] in
+                        quickCaptureReleaseRelay?.scheduleReleaseAfterSuccessfulClose()
                     }
                 ) { [weak runtime] in
                     guard let page = runtime?.activePage else { return }
@@ -162,6 +167,7 @@ private final class AppComposition {
             performanceSignposter: AppPerformanceSignposter.shared,
             firstPresentationOperation: .firstQuickCapturePresentation
         )
+        quickCaptureReleaseRelay.presenter = quickCapturePresenter
         let settingsWindowPresenter = SettingsWindowPresenter(
             windowPresenter: AppWindowFactory.makeSettings(runtime: runtime)
         )
@@ -176,6 +182,7 @@ private final class AppComposition {
 
         self.runtime = runtime
         self.quickCapturePresenter = quickCapturePresenter
+        self.quickCaptureReleaseRelay = quickCaptureReleaseRelay
         self.settingsWindowPresenter = settingsWindowPresenter
         self.statusItemController = statusItemController
     }
@@ -184,5 +191,14 @@ private final class AppComposition {
         any ApplicationTerminationParticipating
     )? {
         quickCapturePresenter.terminationParticipant
+    }
+}
+
+@MainActor
+private final class QuickCaptureReleaseRelay {
+    weak var presenter: LazyAppWindowPresenter?
+
+    func scheduleReleaseAfterSuccessfulClose() {
+        presenter?.scheduleReleaseAfterSuccessfulClose()
     }
 }
