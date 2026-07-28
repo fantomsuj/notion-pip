@@ -1,4 +1,41 @@
 import AppKit
+import Combine
+
+enum StatusMenuContextCommand: Int, Equatable, Sendable {
+    case stash = -1
+    case show = -2
+    case openSettings = -3
+
+    var menuItemTag: Int {
+        rawValue
+    }
+
+    init?(menuItemTag: Int) {
+        self.init(rawValue: menuItemTag)
+    }
+
+    init(presentationState: PiPPresentationState) {
+        switch presentationState {
+        case .unavailable:
+            self = .openSettings
+        case .visible:
+            self = .stash
+        case .stashed:
+            self = .show
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .stash:
+            "Stash Notion PiP"
+        case .show:
+            "Show Notion PiP"
+        case .openSettings:
+            "Open Settings…"
+        }
+    }
+}
 
 @MainActor
 final class StatusItemController: NSObject {
@@ -6,11 +43,9 @@ final class StatusItemController: NSObject {
     private let runtime: AppRuntime
     private let commandModel: AppCommandModel
     private let panelSizeController: PanelSizeController?
+    private var visibilityCancellable: AnyCancellable?
 
     private lazy var eventRouter = StatusItemEventRouter(
-        onRegularClick: { [weak self] in
-            self?.runtime.handleMenuBarActivation()
-        },
         onMenu: { [weak self] in
             self?.showCommandMenu()
         }
@@ -36,13 +71,19 @@ final class StatusItemController: NSObject {
         image?.isTemplate = true
         button.image = image
         button.imagePosition = .imageOnly
-        button.toolTip = "Show or hide Notion PiP. Right-click for menu."
+        button.toolTip = "Notion PiP"
         button.setAccessibilityLabel("Notion PiP")
-        button.setAccessibilityHelp(
-            "Show or hide the pinned Notion page. Right-click for app commands.")
+        button.setAccessibilityHelp("Open commands for the pinned Notion page and app.")
         button.target = self
         button.action = #selector(handleStatusItemAction(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+
+        statusItem.isVisible = runtime.effectiveMenuBarIconVisibility
+        visibilityCancellable = runtime.$effectiveMenuBarIconVisibility
+            .removeDuplicates()
+            .sink { [weak statusItem] isVisible in
+                statusItem?.isVisible = isVisible
+            }
     }
 
     @objc
@@ -53,8 +94,9 @@ final class StatusItemController: NSObject {
 
     private func showCommandMenu() {
         guard let button = statusItem.button else { return }
-        let menu = AppKitCommandMenuFactory.make(
+        let menu = AppKitCommandMenuFactory.makeStatusItemMenu(
             commandModel: commandModel,
+            contextualCommand: runtime.statusMenuContextCommand,
             panelSizeController: panelSizeController
         )
         configureActions(in: menu)
@@ -75,6 +117,9 @@ final class StatusItemController: NSObject {
         for item in menu.items where !item.isSeparatorItem {
             if let submenu = item.submenu {
                 configurePanelSizeActions(in: submenu)
+            } else if StatusMenuContextCommand(menuItemTag: item.tag) != nil {
+                item.target = self
+                item.action = #selector(performContextualCommand(_:))
             } else if AppCommandID(rawValue: item.tag) != nil {
                 item.target = self
                 item.action = #selector(performCommand(_:))
@@ -116,5 +161,11 @@ final class StatusItemController: NSObject {
     @objc
     private func managePanelSizes(_ sender: NSMenuItem) {
         panelSizeController?.managePanelSizes()
+    }
+
+    @objc
+    private func performContextualCommand(_ sender: NSMenuItem) {
+        guard let command = StatusMenuContextCommand(menuItemTag: sender.tag) else { return }
+        runtime.performStatusMenuContextCommand(command)
     }
 }

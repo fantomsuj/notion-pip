@@ -6,6 +6,7 @@ import SwiftUI
 protocol PiPPanelWindow: AnyObject {
     var frame: CGRect { get }
     var isVisible: Bool { get }
+    var onClose: (@MainActor () -> Void)? { get set }
     func present()
     func orderOut()
     func setFrame(_ frame: CGRect, display: Bool)
@@ -22,17 +23,33 @@ protocol PiPStashHandle: AnyObject {
     func orderOut()
 }
 
+enum PiPPresentationState: Equatable, Sendable {
+    case unavailable
+    case visible
+    case stashed
+}
+
 @MainActor
 protocol PiPPanelCoordinating: AnyObject {
     var currentPage: NotionPageReference? { get }
-    var isVisible: Bool { get }
+    var presentationState: PiPPresentationState { get }
     func show(page: NotionPageReference)
+    func show(page: NotionPageReference, restoration: DurablePageRestoration?)
     func reloadPinnedPage(_ page: NotionPageReference)
     func showCurrentPage() -> Bool
-    func hide()
-    func toggleCurrentPage() -> Bool
     func stashOrRestoreCurrentPage() -> Bool
     func replace(page: NotionPageReference)
+    func replace(page: NotionPageReference, restoration: DurablePageRestoration?)
+}
+
+extension PiPPanelCoordinating {
+    func show(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        show(page: page)
+    }
+
+    func replace(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        replace(page: page)
+    }
 }
 
 @MainActor
@@ -64,8 +81,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     var onManualResizeCompletion: (@MainActor (CGSize) -> Void)?
     var onPinnedPageAvailabilityChange: (@MainActor () -> Void)?
 
-    var isVisible: Bool {
-        panel.isVisible
+    var presentationState: PiPPresentationState {
+        guard currentPage != nil else { return .unavailable }
+        return panel.isVisible ? .visible : .stashed
     }
 
     var hasPinnedPage: Bool {
@@ -90,9 +108,11 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 
     convenience init(
         webSession: NotionWebSession = NotionWebSession(),
+        pageSwitcherController: PageSwitcherController = PageSwitcherController(),
         commandModel: AppCommandModel = .noOp,
         onReloadSavedPin: @escaping () -> Void = {},
         panelSizeController: PanelSizeController? = nil,
+        onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in },
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
         let stashHandle = PiPStashHandleController()
@@ -181,19 +201,17 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             contentRectForFrameRect: contentRectForFrameRect
         )
         panelSizeController?.bind(to: self)
-        panel.onClose = { [weak self] in
-            self?.pageLoader.panelDidHide()
-        }
-
         let contentView = NSHostingView(
             rootView: PiPChromeView(
                 webSession: webSession,
+                pageSwitcherController: pageSwitcherController,
                 commandModel: commandModel,
                 panelSizeController: panelSizeController,
                 onReloadSavedPin: onReloadSavedPin,
                 onStash: { [weak self] in
-                    self?.stash(visibleFrames: NSScreen.screens.map(\.visibleFrame))
-                }
+                    _ = self?.stashOrRestoreCurrentPage()
+                },
+                onPageSwitcherSelection: onPageSwitcherSelection
             )
         )
         // The retained panel owns its geometry while SwiftUI swaps the WebView in and out.
@@ -267,6 +285,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
                 self?.recordPanelMove()
             }
         }
+        panel.onClose = { [weak self] in
+            _ = self?.stashOrRestoreCurrentPage()
+        }
     }
 
     isolated deinit {
@@ -282,18 +303,22 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     }
 
     func show(page: NotionPageReference) {
+        show(page: page, restoration: nil)
+    }
+
+    func show(page: NotionPageReference, restoration: DurablePageRestoration?) {
         let hadPinnedPage = currentPage != nil
         let measurement = beginFirstPresentation()
         prepareInitialFrameIfNeeded()
         if currentPage?.canonicalURL != page.canonicalURL {
-            pageLoader.activate(page: page)
+            pageLoader.activate(page: page, restoration: restoration)
             currentPage = page
         } else {
             pageLoader.reselect(page: page)
         }
         restoreStashedPanelFrame()
-        dismissStashHandle()
         panel.present()
+        dismissStashHandle()
         endFirstPresentation(measurement)
         pageLoader.panelDidShow()
         if !hadPinnedPage {
@@ -307,9 +332,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         let measurement = beginFirstPresentation()
         prepareInitialFrameIfNeeded()
         restoreStashedPanelFrame()
-        dismissStashHandle()
         currentPage = page
         panel.present()
+        dismissStashHandle()
         endFirstPresentation(measurement)
         pageLoader.panelDidShow()
         pageLoader.reloadPinnedPage(page)
@@ -319,43 +344,27 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         logger.notice("Pinned page reload requested")
     }
 
-    func hide() {
-        pageLoader.panelDidHide()
-        restoreStashedPanelFrame()
-        panel.orderOut()
-        dismissStashHandle()
-    }
-
     func showCurrentPage() -> Bool {
         guard currentPage != nil else { return false }
         let measurement = beginFirstPresentation()
         prepareInitialFrameIfNeeded()
         restoreStashedPanelFrame()
-        dismissStashHandle()
         panel.present()
+        dismissStashHandle()
         endFirstPresentation(measurement)
         pageLoader.panelDidShow()
         logger.notice("Existing panel show requested")
         return true
     }
 
-    func toggleCurrentPage() -> Bool {
-        guard currentPage != nil else { return false }
-        if isVisible {
-            hide()
-        } else {
-            _ = showCurrentPage()
-        }
-        return true
-    }
-
     func stashOrRestoreCurrentPage() -> Bool {
         guard currentPage != nil else { return false }
-        if panel.isVisible {
-            if !stash(visibleFrames: visibleFramesProvider()) {
-                hide()
-            }
-        } else {
+        switch presentationState {
+        case .unavailable:
+            return false
+        case .visible:
+            _ = stash(visibleFrames: visibleFramesProvider())
+        case .stashed:
             _ = showCurrentPage()
         }
         return true
@@ -363,6 +372,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 
     func replace(page: NotionPageReference) {
         show(page: page)
+    }
+
+    func replace(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        show(page: page, restoration: restoration)
     }
 
     @discardableResult
@@ -406,9 +419,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         }
 
         stashedPanelFrame = panel.frame
+        presentStashHandle(stashHandle, placement: placement)
         pageLoader.panelDidHide()
         panel.orderOut()
-        presentStashHandle(stashHandle, placement: placement)
         logger.notice("Panel stashed to screen edge")
         return true
     }
@@ -421,8 +434,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         let measurement = beginFirstPresentation()
         prepareInitialFrameIfNeeded()
         restoreStashedPanelFrame()
-        dismissStashHandle()
         panel.present()
+        dismissStashHandle()
         endFirstPresentation(measurement)
         pageLoader.panelDidShow()
         logger.notice("Panel restored from screen edge")
@@ -438,13 +451,12 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         }
 
         guard stashHandle?.isVisible == true else { return }
+        guard !visibleFrames.isEmpty else { return }
         guard let activeStashPlacement,
             let placement = PanelStashPolicy.snappedPlacement(
-                for: activeStashPlacement.frame,
-                visibleFrames: visibleFrames
-            )
-        else {
-            dismissStashHandle()
+            for: activeStashPlacement.frame,
+            visibleFrames: visibleFrames
+        ) else {
             return
         }
         if let stashHandle {
@@ -608,8 +620,11 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     }
 
     override func close() {
-        onClose?()
-        orderOut(nil)
+        if let onClose {
+            onClose()
+        } else {
+            orderOut(nil)
+        }
     }
 
     func present() {

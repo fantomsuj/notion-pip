@@ -4,6 +4,47 @@ import XCTest
 @testable import NotionPiP
 
 final class SchemaMigrationTests: XCTestCase {
+    func testV2PinnedPageBecomesV3ActivePageAndFirstFavorite() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("V2-to-V3.store")
+        let v2Schema = Schema(versionedSchema: NotionPiPSchemaV2.self)
+        let v2Configuration = ModelConfiguration(
+            schema: v2Schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        let pageID = "0123456789abcdef0123456789abcdef"
+        let pageURL = try XCTUnwrap(URL(string: "https://www.notion.so/Legacy-\(pageID)"))
+
+        do {
+            let v2Container = try ModelContainer(
+                for: v2Schema,
+                configurations: v2Configuration
+            )
+            let context = ModelContext(v2Container)
+            context.insert(
+                PinnedPageModel(
+                    stableID: pageID,
+                    canonicalURL: pageURL.absoluteString,
+                    displayTitle: "Legacy",
+                    pinnedAt: Date(timeIntervalSince1970: 2_000)
+                )
+            )
+            try context.save()
+        }
+
+        let migratedContainer = try NotionPiPPersistence.makeContainer(storeURL: storeURL)
+        let workingSet = try await PageRepository(container: migratedContainer).workingSet()
+
+        XCTAssertEqual(workingSet.activePage?.pageID, pageID)
+        XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [pageID])
+        XCTAssertEqual(NotionPiPSchemaV3.versionIdentifier, Schema.Version(3, 0, 0))
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 3)
+    }
+
     func testV1StoreMigratesToV2WithoutLosingExistingDraft() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -49,7 +90,7 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(migratedDraft?.title, "Preserved")
         XCTAssertNil(migratedDestination)
         XCTAssertEqual(NotionPiPSchemaV2.versionIdentifier, Schema.Version(2, 0, 0))
-        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 2)
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 3)
     }
 
     func testV1SchemaCanReopenAPersistedDraft() async throws {
@@ -79,7 +120,7 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(draft?.title, "Persisted")
         XCTAssertEqual(draft?.revision, 1)
         XCTAssertEqual(NotionPiPSchemaV1.versionIdentifier, Schema.Version(1, 0, 0))
-        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 2)
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 3)
     }
 
     func testDeliveryStateRawValuesAreStable() {

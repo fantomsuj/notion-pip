@@ -86,8 +86,9 @@ prints `Verified .../dist/NotionPiP.app` with a process ID.
 
 ### What the user should expect
 
-- Notion PiP is a menu-bar accessory, so it appears in the menu bar rather than
-  the Dock.
+- Notion PiP is an accessory, so it does not appear in the Dock. Its menu-bar
+  icon is shown by default but can be hidden in Settings; the PiP remains
+  reachable through its edge handle or global shortcut.
 - The user signs in to their own Notion account inside the app. Never ask them
   to paste a Notion password, session cookie, or integration token into chat or
   the terminal.
@@ -103,8 +104,10 @@ prints `Verified .../dist/NotionPiP.app` with a process ID.
   path.
 - If Xcode reports an incomplete first launch, ask the user to open Xcode and
   finish its prompts, then rerun the script.
-- If the app launched but seems absent, look for the Notion PiP icon in the menu
-  bar; do not treat the missing Dock icon as a crash.
+- If the app launched but seems absent, first look for the Notion PiP icon in
+  the menu bar. If the icon preference is off, use the configured global
+  shortcut; a shortcut registration failure temporarily forces the icon back
+  on. Do not treat the missing Dock icon as a crash.
 - If verification fails, rerun the failing command or the build script and
   inspect its actual output before editing code.
 - If the script unexpectedly invokes or fails at npm, an existing

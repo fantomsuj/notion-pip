@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 
 enum PerformanceOperation: String, CaseIterable, Sendable {
-    case coldLaunchToStatusItem = "ColdLaunchToStatusItem"
+    case coldLaunchToReady = "ColdLaunchToReady"
     case firstPiPPresentation = "FirstPiPPresentation"
     case firstQuickCapturePresentation = "FirstQuickCapturePresentation"
 }
@@ -50,8 +50,8 @@ final class AppPerformanceSignposter: PerformanceSignposting {
 
         let state: OSSignpostIntervalState
         switch operation {
-        case .coldLaunchToStatusItem:
-            state = lifecycleSignposter.beginInterval("ColdLaunchToStatusItem")
+        case .coldLaunchToReady:
+            state = lifecycleSignposter.beginInterval("ColdLaunchToReady")
         case .firstPiPPresentation:
             state = presentationSignposter.beginInterval("FirstPiPPresentation")
         case .firstQuickCapturePresentation:
@@ -69,9 +69,9 @@ final class AppPerformanceSignposter: PerformanceSignposting {
         }
 
         switch interval.operation {
-        case .coldLaunchToStatusItem:
+        case .coldLaunchToReady:
             lifecycleSignposter.endInterval(
-                "ColdLaunchToStatusItem",
+                "ColdLaunchToReady",
                 interval.state,
                 "outcome=\(outcome.rawValue, privacy: .public)"
             )

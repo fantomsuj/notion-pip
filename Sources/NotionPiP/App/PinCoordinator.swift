@@ -15,6 +15,10 @@ final class PinCoordinator {
         panelCoordinator.currentPage
     }
 
+    var presentationState: PiPPresentationState {
+        panelCoordinator.presentationState
+    }
+
     init(
         panelCoordinator: any PiPPanelCoordinating,
         pasteboard: any PasteboardReading,
@@ -26,24 +30,27 @@ final class PinCoordinator {
     }
 
     func pin(page: NotionPageReference) {
+        pin(page: page, restoration: nil)
+    }
+
+    func pin(
+        page: NotionPageReference,
+        restoration: DurablePageRestoration?
+    ) {
         guard let currentPage = panelCoordinator.currentPage else {
-            panelCoordinator.show(page: page)
+            panelCoordinator.show(page: page, restoration: restoration)
             return
         }
 
         if currentPage.canonicalURL == page.canonicalURL {
             panelCoordinator.show(page: page)
         } else {
-            panelCoordinator.replace(page: page)
+            panelCoordinator.replace(page: page, restoration: restoration)
         }
     }
 
     func reloadPinnedPage(_ page: NotionPageReference) {
         panelCoordinator.reloadPinnedPage(page)
-    }
-
-    func toggleCurrentPage() -> Bool {
-        panelCoordinator.toggleCurrentPage()
     }
 
     func stashOrRestoreCurrentPage() -> Bool {

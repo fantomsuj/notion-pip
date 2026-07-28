@@ -5,6 +5,26 @@ enum AppKitCommandMenuFactory {
     static let resetPanelSizeMarker = "panel-size:reset"
     static let managePanelSizesMarker = "panel-size:manage"
 
+    static func makeStatusItemMenu(
+        commandModel: AppCommandModel,
+        contextualCommand: StatusMenuContextCommand,
+        panelSizeController: PanelSizeController? = nil
+    ) -> NSMenu {
+        let menu = make(
+            commandModel: commandModel,
+            panelSizeController: panelSizeController
+        )
+        menu.insertItem(.separator(), at: 0)
+        let contextualItem = NSMenuItem(
+            title: contextualCommand.title,
+            action: nil,
+            keyEquivalent: ""
+        )
+        contextualItem.tag = contextualCommand.menuItemTag
+        menu.insertItem(contextualItem, at: 0)
+        return menu
+    }
+
     static func make(
         commandModel: AppCommandModel,
         panelSizeController: PanelSizeController? = nil

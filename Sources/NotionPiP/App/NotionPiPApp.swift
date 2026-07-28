@@ -4,7 +4,7 @@ import OSLog
 @main
 enum NotionPiPApp {
     static func main() {
-        let coldLaunchToken = AppPerformanceSignposter.shared.begin(.coldLaunchToStatusItem)
+        let coldLaunchToken = AppPerformanceSignposter.shared.begin(.coldLaunchToReady)
         let composition = AppComposition()
         let appDelegate = AppDelegate()
         let application = NSApplication.shared
@@ -56,6 +56,7 @@ enum AppStartup {
 private final class AppComposition {
     let runtime: AppRuntime
     private let quickCapturePresenter: LazyAppWindowPresenter
+    private let quickCaptureReleaseRelay: QuickCaptureReleaseRelay
     private let settingsWindowPresenter: SettingsWindowPresenter
     private let statusItemController: StatusItemController
     private let panelSizeController: PanelSizeController
@@ -110,11 +111,15 @@ private final class AppComposition {
             settings: { actionRelay.showSettings() },
             quit: { actionRelay.quit() }
         )
+        let pageSwitcherController = PageSwitcherController(store: pageRepository)
+        let pageSwitcherRelay = PageSwitcherSelectionRelay()
         let panelCoordinator = PiPPanelCoordinator(
             webSession: webSession,
+            pageSwitcherController: pageSwitcherController,
             commandModel: commandModel,
             onReloadSavedPin: { actionRelay.reloadSavedPin() },
-            panelSizeController: panelSizeController
+            panelSizeController: panelSizeController,
+            onPageSwitcherSelection: pageSwitcherRelay.perform
         )
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
@@ -151,6 +156,27 @@ private final class AppComposition {
         webSession.onPageResolved = { [weak runtime] page in
             runtime?.activate(page: page, source: .notionWebSession)
         }
+        let quickCaptureReleaseRelay = QuickCaptureReleaseRelay()
+        webSession.onRestorationCaptured = { restoration in
+            guard let pageRepository else { return }
+            Task {
+                _ = try? await pageRepository.saveRestoration(restoration)
+            }
+        }
+        pageSwitcherController.onWorkingSetChanged = { [weak webSession] snapshot in
+            let pageIDs = Set(
+                (snapshot.pinnedPages + snapshot.recentPages).map(\.pageID)
+            )
+            webSession?.evictInteractionSnapshots(retaining: pageIDs)
+        }
+        pageSwitcherRelay.handler = { [weak runtime] selection in
+            guard case let .activate(page, restoration) = selection else { return }
+            runtime?.activate(
+                page: page,
+                source: .pageSwitcher,
+                restoration: restoration
+            )
+        }
         let quickCapturePresenter = LazyAppWindowPresenter(
             makePresenter: {
                 AppWindowFactory.makeQuickCapture(
@@ -158,6 +184,9 @@ private final class AppComposition {
                     lifecycle: captureLifecycle,
                     onNeedsConfiguration: { _ in
                         actionRelay.showSettings()
+                    },
+                    onSuccessfulClose: { [weak quickCaptureReleaseRelay] in
+                        quickCaptureReleaseRelay?.scheduleReleaseAfterSuccessfulClose()
                     }
                 ) { [weak runtime] in
                     guard let page = runtime?.activePage else { return }
@@ -167,6 +196,7 @@ private final class AppComposition {
             performanceSignposter: AppPerformanceSignposter.shared,
             firstPresentationOperation: .firstQuickCapturePresentation
         )
+        quickCaptureReleaseRelay.presenter = quickCapturePresenter
         let settingsWindowPresenter = SettingsWindowPresenter(
             windowPresenter: AppWindowFactory.makeSettings(
                 runtime: runtime,
@@ -188,6 +218,7 @@ private final class AppComposition {
 
         self.runtime = runtime
         self.quickCapturePresenter = quickCapturePresenter
+        self.quickCaptureReleaseRelay = quickCaptureReleaseRelay
         self.settingsWindowPresenter = settingsWindowPresenter
         self.statusItemController = statusItemController
         self.panelSizeController = panelSizeController
@@ -199,5 +230,23 @@ private final class AppComposition {
         )?
     {
         quickCapturePresenter.terminationParticipant
+    }
+}
+
+@MainActor
+private final class QuickCaptureReleaseRelay {
+    weak var presenter: LazyAppWindowPresenter?
+
+    func scheduleReleaseAfterSuccessfulClose() {
+        presenter?.scheduleReleaseAfterSuccessfulClose()
+    }
+}
+
+@MainActor
+private final class PageSwitcherSelectionRelay {
+    var handler: (PageSwitcherSelection) -> Void = { _ in }
+
+    func perform(_ selection: PageSwitcherSelection) {
+        handler(selection)
     }
 }
