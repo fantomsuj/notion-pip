@@ -617,7 +617,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = WKWebsiteDataStore.default()
         configuration.preferences.inactiveSchedulingPolicy = .suspend
-        return WKWebView(frame: .zero, configuration: configuration)
+        return ExternalDropActivatingWebView(frame: .zero, configuration: configuration)
     }
 
     private static func installEditorActivityBridge(
