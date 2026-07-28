@@ -36,6 +36,40 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.presentCount, 2)
     }
 
+    func testPanelCoordinatorReloadPinnedPageForceLoadsAndPresentsCurrentPage() throws {
+        let panel = FakePanelWindow()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(panel: panel, pageLoader: loader)
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+
+        coordinator.show(page: page)
+        coordinator.reloadPinnedPage(page)
+
+        XCTAssertEqual(loader.reloadedPages, [page])
+        XCTAssertEqual(loader.lifecycleEvents, [.activated, .shown, .shown, .reloaded])
+        XCTAssertEqual(panel.presentCount, 2)
+        XCTAssertEqual(coordinator.currentPage, page)
+    }
+
+    func testPanelCoordinatorLoadsSamePageIDWhenCanonicalRouteChanges() throws {
+        let panel = FakePanelWindow()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(panel: panel, pageLoader: loader)
+        let oldPage = try NotionPageReference(
+            validating: XCTUnwrap(URL(string: "https://www.notion.so/Roadmap-\(firstPageID)"))
+        )
+        let correctedPage = try NotionPageReference(
+            validating: XCTUnwrap(URL(string: "https://www.notion.so/acme/Roadmap-\(firstPageID)"))
+        )
+
+        coordinator.show(page: oldPage)
+        coordinator.show(page: correctedPage)
+
+        XCTAssertEqual(loader.activatedPages, [oldPage, correctedPage])
+        XCTAssertTrue(loader.reselectedPages.isEmpty)
+        XCTAssertEqual(coordinator.currentPage, correctedPage)
+    }
+
     func testPanelCoordinatorReplacesPageInExistingPanel() throws {
         let panel = FakePanelWindow()
         let loader = FakePageLoader()
@@ -585,13 +619,27 @@ private final class FakePanelWindow: PiPPanelWindow {
 
 @MainActor
 private final class FakePageLoader: NotionPageLoading {
+    enum LifecycleEvent: Equatable {
+        case activated
+        case reloaded
+        case shown
+    }
+
     private(set) var activatedPages: [NotionPageReference] = []
+    private(set) var reloadedPages: [NotionPageReference] = []
     private(set) var reselectedPages: [NotionPageReference] = []
+    private(set) var lifecycleEvents: [LifecycleEvent] = []
     private(set) var panelShowCount = 0
     private(set) var panelHideCount = 0
 
     func activate(page: NotionPageReference) {
         activatedPages.append(page)
+        lifecycleEvents.append(.activated)
+    }
+
+    func reloadPinnedPage(_ page: NotionPageReference) {
+        reloadedPages.append(page)
+        lifecycleEvents.append(.reloaded)
     }
 
     func reselect(page: NotionPageReference) {
@@ -600,6 +648,7 @@ private final class FakePageLoader: NotionPageLoading {
 
     func panelDidShow() {
         panelShowCount += 1
+        lifecycleEvents.append(.shown)
     }
 
     func panelDidHide() {
@@ -654,6 +703,10 @@ final class FakePanelCoordinator: PiPPanelCoordinating {
         currentPage = page
         shownPages.append(page)
         isVisible = true
+    }
+
+    func reloadPinnedPage(_ page: NotionPageReference) {
+        currentPage = page
     }
 
     func replace(page: NotionPageReference) {

@@ -112,6 +112,7 @@ private final class AppComposition {
             webSession: webSession,
             pageSwitcherController: pageSwitcherController,
             commandModel: commandModel,
+            onReloadSavedPin: { actionRelay.reloadSavedPin() },
             onPageSwitcherSelection: pageSwitcherRelay.perform
         )
         let runtime = AppRuntime(
@@ -124,6 +125,9 @@ private final class AppComposition {
             legacyCacheCleaner: FileSystemLegacyNativePageCacheCleaner(),
             initialServiceHealth: initialServiceHealth
         )
+        actionRelay.reloadSavedPinAction = { [weak runtime] in
+            runtime?.reloadSavedPin()
+        }
         let captureLifecycle: QuickCaptureLifecycleCoordinator?
         if let captureRepository, let destinationRepository, let deliveryScheduler {
             captureLifecycle = QuickCaptureLifecycleCoordinator(

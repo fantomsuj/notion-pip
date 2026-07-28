@@ -46,6 +46,30 @@ final class ExternalURLRouteTests: XCTestCase {
         XCTAssertEqual(source, .chromeExtension)
     }
 
+    func testWWWWorkspacePageURLParsesPinRouteWithoutDroppingWorkspacePath() throws {
+        var components = exactRouteComponents()
+        components.queryItems = [
+            URLQueryItem(
+                name: "url",
+                value: "https://www.notion.so/acme/Project-\(pageID)?view=all#notes"
+            ),
+            URLQueryItem(name: "source", value: "chrome-extension"),
+        ]
+        let routeURL = try XCTUnwrap(components.url)
+
+        let result = ExternalURLRoute.parse(routeURL)
+
+        guard case let .success(.pin(page, source)) = result else {
+            return XCTFail("Expected a pin route, got \(result)")
+        }
+        XCTAssertEqual(page.pageID, pageID)
+        XCTAssertEqual(
+            page.canonicalURL.absoluteString,
+            "https://www.notion.so/acme/Project-\(pageID)"
+        )
+        XCTAssertEqual(source, .chromeExtension)
+    }
+
     func testUnknownActionIsRejected() throws {
         let routeURL = try route(action: "open", source: "chrome-extension")
 

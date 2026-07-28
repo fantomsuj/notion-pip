@@ -225,6 +225,11 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         activate(page: page, source: .pagePicker)
     }
 
+    func reloadSavedPin() {
+        guard let activePage else { return }
+        pinCoordinator.reloadPinnedPage(activePage)
+    }
+
     func activate(page: NotionPageReference, source: PageActivationSource) {
         activate(page: page, source: source, restoration: nil)
     }
