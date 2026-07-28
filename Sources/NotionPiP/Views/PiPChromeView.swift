@@ -17,7 +17,7 @@ struct PiPChromeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
-    @State private var isHoveringTopEdge = false
+    @StateObject private var topControlsHover = TopControlsHoverController()
     @State private var presentsPageSwitcher = false
     @ObservedObject var pageSwitcherController: PageSwitcherController
     let commandModel: AppCommandModel
@@ -26,7 +26,7 @@ struct PiPChromeView: View {
     let onPageSwitcherSelection: (PageSwitcherSelection) -> Void
     var showsTopControls: Bool {
         Self.shouldShowTopControls(
-            isHoveringTopEdge: isHoveringTopEdge,
+            isHoveringTopEdge: topControlsHover.isHovering,
             isVoiceOverEnabled: voiceOverEnabled,
             isSwitchControlEnabled: switchControlEnabled,
             isFullKeyboardAccessEnabled: NSApplication.shared.isFullKeyboardAccessEnabled
@@ -147,7 +147,7 @@ struct PiPChromeView: View {
             }
             .contentShape(Rectangle())
             .onHover { isHovering in
-                isHoveringTopEdge = isHovering
+                topControlsHover.setHovering(isHovering)
             }
             .padding(.horizontal, DesignTokens.Spacing.control)
             .frame(
@@ -194,9 +194,7 @@ struct PiPChromeView: View {
                     .frame(height: Self.topControlsRevealHeight)
                     .contentShape(Rectangle())
                     .onHover { isHovering in
-                        if isHovering {
-                            isHoveringTopEdge = true
-                        }
+                        topControlsHover.setHovering(isHovering)
                     }
                     .accessibilityHidden(true)
             }
@@ -205,6 +203,9 @@ struct PiPChromeView: View {
             reduceMotion ? nil : .easeOut(duration: 0.16),
             value: showsTopControls
         )
+        .onDisappear {
+            topControlsHover.cancel()
+        }
     }
 }
 

@@ -26,6 +26,58 @@ final class PiPChromeViewTests: XCTestCase {
         XCTAssertEqual(stashCount, 1)
     }
 
+    func testTopControlsAppearOnlyAfterPointerRemainsAtTopEdge() async throws {
+        let controller = TopControlsHoverController(revealDelay: .milliseconds(30))
+
+        controller.setHovering(true)
+
+        XCTAssertFalse(controller.isHovering)
+        try await Task.sleep(for: .milliseconds(40))
+        XCTAssertTrue(controller.isHovering)
+    }
+
+    func testTopControlsDoNotAppearWhenPointerLeavesBeforeRevealDelay() async throws {
+        let controller = TopControlsHoverController(revealDelay: .milliseconds(30))
+
+        controller.setHovering(true)
+        try await Task.sleep(for: .milliseconds(10))
+        controller.setHovering(false)
+        try await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertFalse(controller.isHovering)
+    }
+
+    func testTopControlsDismissShortlyAfterPointerLeaves() async throws {
+        let controller = TopControlsHoverController(
+            revealDelay: .milliseconds(10),
+            dismissalDelay: .milliseconds(10)
+        )
+
+        controller.setHovering(true)
+        try await Task.sleep(for: .milliseconds(20))
+        controller.setHovering(false)
+
+        try await Task.sleep(for: .milliseconds(30))
+
+        XCTAssertFalse(controller.isHovering)
+    }
+
+    func testTopControlsStayVisibleWhenPointerReentersBeforeDismissal() async throws {
+        let controller = TopControlsHoverController(
+            revealDelay: .milliseconds(10),
+            dismissalDelay: .milliseconds(30)
+        )
+
+        controller.setHovering(true)
+        try await Task.sleep(for: .milliseconds(20))
+        controller.setHovering(false)
+        try await Task.sleep(for: .milliseconds(10))
+        controller.setHovering(true)
+        try await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertTrue(controller.isHovering)
+    }
+
     func testRepinActionInvokesProvidedRecoveryHandler() {
         var invocationCount = 0
         let chrome = PiPChromeView(
