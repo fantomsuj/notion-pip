@@ -56,11 +56,11 @@ enum AppWindowFactory {
                         switch outcome {
                         case .discarded, .enqueued:
                             window.orderOut()
-                        case let .needsConfiguration(message):
+                        case .needsConfiguration(let message):
                             session.reportCloseGuidance(message)
                             window.orderOut()
                             onNeedsConfiguration(message)
-                        case let .failed(message):
+                        case .failed(let message):
                             session.reportCloseGuidance(message)
                         }
                     } catch {
@@ -84,12 +84,20 @@ enum AppWindowFactory {
         )
     }
 
-    static func makeSettings(runtime: AppRuntime) -> AppWindowPresenter {
+    static func makeSettings(
+        runtime: AppRuntime,
+        panelSizeController: PanelSizeController
+    ) -> AppWindowPresenter {
         AppWindowPresenter(
             window: makeWindow(
                 role: .settings,
                 title: "Notion PiP Settings",
-                content: AnyView(SettingsView(runtime: runtime))
+                content: AnyView(
+                    SettingsView(
+                        runtime: runtime,
+                        panelSizeController: panelSizeController
+                    )
+                )
             )
         )
     }

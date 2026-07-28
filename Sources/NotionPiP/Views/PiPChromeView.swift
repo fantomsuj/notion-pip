@@ -15,6 +15,7 @@ struct PiPChromeView: View {
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     let commandModel: AppCommandModel
+    let panelSizeController: PanelSizeController?
     let onReloadSavedPin: () -> Void
     let onStash: () -> Void
     var showsTopControls: Bool {
@@ -45,11 +46,13 @@ struct PiPChromeView: View {
     init(
         webSession: NotionWebSession,
         commandModel: AppCommandModel = .noOp,
+        panelSizeController: PanelSizeController? = nil,
         onReloadSavedPin: @escaping () -> Void = {},
         onStash: @escaping () -> Void = {}
     ) {
         self.webSession = webSession
         self.commandModel = commandModel
+        self.panelSizeController = panelSizeController
         self.onReloadSavedPin = onReloadSavedPin
         self.onStash = onStash
     }
@@ -93,7 +96,10 @@ struct PiPChromeView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Open Notion page in browser")
 
-                    PiPAppCommandMenu(commandModel: commandModel)
+                    PiPAppCommandMenu(
+                        commandModel: commandModel,
+                        panelSizeController: panelSizeController
+                    )
 
                     Button(action: onStash) {
                         Image(systemName: "arrow.down.right.and.arrow.up.left")
@@ -139,7 +145,7 @@ struct PiPChromeView: View {
             }
 
             if Self.shouldHostNotionWebView(for: webSession),
-               let webView = webSession.webView
+                let webView = webSession.webView
             {
                 NotionWebView(webView: webView)
             } else {

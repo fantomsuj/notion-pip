@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+
 @testable import NotionPiP
 
 @MainActor
@@ -7,16 +8,20 @@ final class AppCommandTests: XCTestCase {
     func testSharedCommandsHaveStableGroupsLabelsAndShortcuts() {
         let model = makeModel(events: { _ in })
 
-        XCTAssertEqual(model.groups.map { $0.commands.map(\.id) }, [
-            [.quickCapture],
-            [.settings],
-            [.quit],
-        ])
-        XCTAssertEqual(model.commands.map(\.title), [
-            "Quick Capture",
-            "Settings…",
-            "Quit Notion PiP",
-        ])
+        XCTAssertEqual(
+            model.groups.map { $0.commands.map(\.id) },
+            [
+                [.quickCapture],
+                [.settings],
+                [.quit],
+            ])
+        XCTAssertEqual(
+            model.commands.map(\.title),
+            [
+                "Quick Capture",
+                "Settings…",
+                "Quit Notion PiP",
+            ])
         XCTAssertEqual(model.command(for: .quickCapture)?.keyEquivalent, "n")
         XCTAssertEqual(model.command(for: .settings)?.keyEquivalent, ",")
         XCTAssertEqual(model.command(for: .quit)?.keyEquivalent, "q")
@@ -52,6 +57,52 @@ final class AppCommandTests: XCTestCase {
         XCTAssertEqual(toolbarMenu.symbolName, "ellipsis.circle")
         XCTAssertEqual(PiPChromeView.primaryActionID, .quickCapture)
         XCTAssertEqual(PiPChromeView.primaryActionAccessibilityLabel, "Quick Capture")
+    }
+
+    func testPanelSizeSubmenuUsesSharedRowsDefaultSuffixAndDisabledApplyState() throws {
+        let defaultsName = "AppCommandTests.PanelSizes.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defaults.removePersistentDomain(forName: defaultsName)
+        let controller = PanelSizeController(
+            store: PanelSizePreferencesStore(defaults: defaults)
+        )
+        let model = makeModel(events: { _ in })
+
+        let menu = AppKitCommandMenuFactory.make(
+            commandModel: model,
+            panelSizeController: controller
+        )
+        let submenu = try XCTUnwrap(
+            menu.item(withTitle: "Panel Size")?.submenu
+        )
+        let actionableItems = submenu.items.filter { !$0.isSeparatorItem }
+
+        XCTAssertEqual(
+            actionableItems.map(\.title),
+            [
+                "Compact",
+                "Comfortable — Default",
+                "Wide",
+                "Reset to Default Size",
+                "Manage Panel Sizes…",
+            ]
+        )
+        XCTAssertEqual(
+            actionableItems.map(\.isEnabled),
+            [false, false, false, false, true]
+        )
+        XCTAssertEqual(
+            actionableItems.prefix(3).compactMap {
+                $0.representedObject as? String
+            },
+            controller.presets.map(\.id.rawValue)
+        )
+
+        let toolbarMenu = PiPAppCommandMenu(
+            commandModel: model,
+            panelSizeController: controller
+        )
+        XCTAssertTrue(toolbarMenu.panelSizeController === controller)
     }
 
     func testStatusItemRouterUsesExplicitMouseEventType() {

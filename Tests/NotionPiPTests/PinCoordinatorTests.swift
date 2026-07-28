@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import XCTest
+
 @testable import NotionPiP
 
 @MainActor
@@ -497,7 +498,7 @@ final class PinCoordinatorTests: XCTestCase {
             visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
         )
 
-        XCTAssertEqual(panel.frame, CGRect(x: 640, y: 380, width: 360, height: 420))
+        XCTAssertEqual(panel.frame, CGRect(x: 640, y: 260, width: 360, height: 420))
     }
 
     func testPinCoordinatorUsesReplaceForDifferentActivePage() throws {
@@ -526,7 +527,8 @@ final class PinCoordinatorTests: XCTestCase {
         )
         let routeURL = try XCTUnwrap(
             URL(
-                string: "notion-pip://pin?url=https%3A%2F%2Fwww.notion.so%2F\(firstPageID)&source=chrome-extension"
+                string:
+                    "notion-pip://pin?url=https%3A%2F%2Fwww.notion.so%2F\(firstPageID)&source=chrome-extension"
             )
         )
 
@@ -541,7 +543,8 @@ final class PinCoordinatorTests: XCTestCase {
         let handler = FakeApplicationURLHandler()
         let routeURL = try XCTUnwrap(
             URL(
-                string: "notion-pip://pin?url=https%3A%2F%2Fwww.notion.so%2F\(firstPageID)&source=chrome-extension"
+                string:
+                    "notion-pip://pin?url=https%3A%2F%2Fwww.notion.so%2F\(firstPageID)&source=chrome-extension"
             )
         )
 
@@ -582,10 +585,142 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertNotNil(shortcut.handler)
     }
 
+    func testPanelSizeApplyRequiresAPinnedPage() {
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 100, y: 100, width: 520, height: 680)
+        )
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+
+        XCTAssertFalse(
+            coordinator.applyPanelContentSize(
+                CGSize(width: 680, height: 720)
+            )
+        )
+        XCTAssertTrue(panel.setFrames.isEmpty)
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    func testApplyingSizeToHiddenPanelShowsRetainedPageWithoutReloading() throws {
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 620, y: 100, width: 360, height: 680)
+        )
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        coordinator.show(page: page)
+        coordinator.hide()
+
+        XCTAssertTrue(
+            coordinator.applyPanelContentSize(
+                CGSize(width: 680, height: 720)
+            )
+        )
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.presentCount, 2)
+        XCTAssertEqual(loader.activatedPages, [page])
+        XCTAssertTrue(loader.reloadedPages.isEmpty)
+        XCTAssertEqual(loader.panelShowCount, 2)
+    }
+
+    func testApplyingSizeToStashedPanelDismissesHandleWithoutReloading() throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 620, y: 100, width: 360, height: 680)
+        )
+        let handle = FakeStashHandle()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: handle,
+            visibleFramesProvider: { [visibleFrame] }
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        coordinator.show(page: page)
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+
+        XCTAssertTrue(
+            coordinator.applyPanelContentSize(
+                CGSize(width: 420, height: 520)
+            )
+        )
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertFalse(handle.isVisible)
+        XCTAssertEqual(loader.activatedPages, [page])
+        XCTAssertTrue(loader.reloadedPages.isEmpty)
+        XCTAssertEqual(loader.panelShowCount, 2)
+    }
+
+    func testTemporaryDisplayClampRestoresPreferredSizeAndEdgeAnchor() {
+        let largeScreen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let smallScreen = CGRect(x: 0, y: 0, width: 500, height: 400)
+        let screens = MutableVisibleFrames([largeScreen])
+        let preferredFrame = CGRect(x: 300, y: 60, width: 680, height: 720)
+        let panel = FakePanelWindow(frame: preferredFrame)
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: { screens.value },
+            initialPreferredContentSize: preferredFrame.size
+        )
+
+        screens.value = [smallScreen]
+        coordinator.reclampPanelFrame(visibleFrames: screens.value)
+        XCTAssertEqual(panel.frame, smallScreen)
+
+        screens.value = [largeScreen]
+        coordinator.reclampPanelFrame(visibleFrames: screens.value)
+        XCTAssertEqual(panel.frame, preferredFrame)
+    }
+
+    func testManualMoveToAnotherDisplayUpdatesPreferredDisplayAnchor() {
+        let firstScreen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let secondScreen = CGRect(x: 1_000, y: 0, width: 1_000, height: 800)
+        let screens = MutableVisibleFrames([firstScreen, secondScreen])
+        let firstFrame = CGRect(x: 500, y: 180, width: 480, height: 600)
+        let secondFrame = CGRect(x: 1_500, y: 180, width: 480, height: 600)
+        let panel = FakePanelWindow(frame: firstFrame)
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: { screens.value },
+            initialPreferredContentSize: firstFrame.size
+        )
+
+        panel.move(to: secondFrame)
+        coordinator.recordPanelMove()
+        coordinator.reclampPanelFrame(visibleFrames: screens.value)
+
+        XCTAssertEqual(panel.frame, secondFrame)
+    }
+
     private func makePage(id: String, title: String) throws -> NotionPageReference {
         try NotionPageReference(
             validating: XCTUnwrap(URL(string: "https://www.notion.so/\(title)-\(id)"))
         )
+    }
+}
+
+@MainActor
+private final class MutableVisibleFrames {
+    var value: [CGRect]
+
+    init(_ value: [CGRect]) {
+        self.value = value
     }
 }
 
@@ -614,6 +749,10 @@ private final class FakePanelWindow: PiPPanelWindow {
     func setFrame(_ frame: CGRect, display: Bool) {
         self.frame = frame
         setFrames.append(frame)
+    }
+
+    func move(to frame: CGRect) {
+        self.frame = frame
     }
 }
 
