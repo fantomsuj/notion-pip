@@ -6,7 +6,7 @@ enum NotionPiPPersistence {
         storeURL: URL? = nil,
         inMemory: Bool = false
     ) throws -> ModelContainer {
-        let schema = Schema(versionedSchema: NotionPiPSchemaV2.self)
+        let schema = Schema(versionedSchema: NotionPiPSchemaV3.self)
         let configuration: ModelConfiguration
         if inMemory {
             configuration = ModelConfiguration(
