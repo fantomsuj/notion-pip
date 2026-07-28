@@ -21,6 +21,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var captureRecoveryMessage: String?
     @Published private(set) var serviceHealth: ServiceHealthState
     @Published private(set) var globalShortcut: GlobalShortcut
+    @Published private(set) var savedMenuBarIconVisibility: Bool
+    @Published private(set) var effectiveMenuBarIconVisibility: Bool
+    @Published private(set) var isMenuBarIconVisibilityForced: Bool
 
     let pageURLInputState: PageURLInputState
 
@@ -48,10 +51,19 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         return false
     }
 
+    var pipPresentationState: PiPPresentationState {
+        pinCoordinator.presentationState
+    }
+
+    var statusMenuContextCommand: StatusMenuContextCommand {
+        StatusMenuContextCommand(presentationState: pipPresentationState)
+    }
+
     private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "shortcut")
     private let pinCoordinator: PinCoordinator
     private let shortcutRegistrar: any GlobalShortcutRegistering
     private let shortcutStore: GlobalShortcutStore
+    private let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
     private let pageURLInputPresenter: any PageURLInputPresenting
     private let pageRepository: (any PinnedPagePersisting)?
     private let destinationRepository: (any QuickCaptureDestinationPersisting)?
@@ -89,6 +101,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         pasteboard: any PasteboardReading = SystemPasteboardReader(),
         shortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar(),
         shortcutStore: GlobalShortcutStore = GlobalShortcutStore(),
+        menuBarIconPreferenceStore: MenuBarIconPreferenceStore = MenuBarIconPreferenceStore(),
         pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
         pageRepository: (any PinnedPagePersisting)? = nil,
         destinationRepository: (any QuickCaptureDestinationPersisting)? = nil,
@@ -119,6 +132,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         )
         self.shortcutRegistrar = shortcutRegistrar
         self.shortcutStore = shortcutStore
+        self.menuBarIconPreferenceStore = menuBarIconPreferenceStore
         self.pageRepository = pageRepository
         self.destinationRepository = destinationRepository
         self.captureRepository = captureRepository
@@ -130,6 +144,13 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.destinationSearchDebounceDuration = destinationSearchDebounceDuration
         serviceHealth = initialServiceHealth
         globalShortcut = shortcutStore.load()
+        let savedMenuBarIconVisibility = menuBarIconPreferenceStore.load()
+        let isMenuBarIconVisibilityForced = initialServiceHealth.issues
+            .contains(.globalShortcutUnavailable) && !savedMenuBarIconVisibility
+        self.savedMenuBarIconVisibility = savedMenuBarIconVisibility
+        effectiveMenuBarIconVisibility = savedMenuBarIconVisibility
+            || isMenuBarIconVisibilityForced
+        self.isMenuBarIconVisibilityForced = isMenuBarIconVisibilityForced
         submissionRelay.handler = { [weak self] in
             self?.validatePageURL()
         }
@@ -203,8 +224,14 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         }
     }
 
-    func handleMenuBarActivation() {
-        guard pinCoordinator.toggleCurrentPage() else {
+    func setMenuBarIconVisibility(_ isVisible: Bool) {
+        menuBarIconPreferenceStore.save(isVisible)
+        savedMenuBarIconVisibility = isVisible
+        updateEffectiveMenuBarIconVisibility()
+    }
+
+    func performStatusMenuContextCommand() {
+        guard pinCoordinator.stashOrRestoreCurrentPage() else {
             settingsWindowPresenter?.show()
             return
         }
@@ -708,7 +735,11 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         let logger = logger
         restorePinnedPageTask?.cancel()
         restorePinnedPageTask = Task { [weak self] in
-            guard !Task.isCancelled, let pageRepository else { return }
+            guard !Task.isCancelled else { return }
+            guard let pageRepository else {
+                self?.showSettingsIfRestoreStillEmpty(expectedGeneration: expectedGeneration)
+                return
+            }
             do {
                 let workingSet = try await (pageRepository as? any PageWorkingSetPersisting)?
                     .workingSet()
@@ -719,12 +750,20 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
                 }
                 guard !Task.isCancelled else { return }
                 self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
-                guard let storedPage else { return }
+                guard let storedPage else {
+                    self?.showSettingsIfRestoreStillEmpty(
+                        expectedGeneration: expectedGeneration
+                    )
+                    return
+                }
                 guard let page = try? NotionPageReference(validating: storedPage.canonicalURL),
                       page.canonicalURL == storedPage.canonicalURL,
                       page.pageID == storedPage.pageID
                 else {
                     logger.error("Pinned page restore skipped page_id=\(storedPage.pageID, privacy: .private) category=invalid-stored-value")
+                    self?.showSettingsIfRestoreStillEmpty(
+                        expectedGeneration: expectedGeneration
+                    )
                     return
                 }
                 guard !Task.isCancelled else { return }
@@ -737,8 +776,19 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
                 guard !Task.isCancelled else { return }
                 logger.error("Pinned page restore failed category=repository-read")
                 self?.reportServiceIssue(.pinnedPagePersistenceUnavailable)
+                self?.showSettingsIfRestoreStillEmpty(expectedGeneration: expectedGeneration)
             }
         }
+    }
+
+    private func showSettingsIfRestoreStillEmpty(expectedGeneration: Int) {
+        guard expectedGeneration == pageSelectionGeneration,
+              activePage == nil,
+              !Task.isCancelled
+        else {
+            return
+        }
+        settingsWindowPresenter?.show()
     }
 
     private func enqueuePersistence(of page: NotionPageReference) {
@@ -763,10 +813,23 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
     private func reportServiceIssue(_ issue: ServiceHealthIssue) {
         serviceHealth.report(issue)
+        if issue == .globalShortcutUnavailable {
+            updateEffectiveMenuBarIconVisibility()
+        }
     }
 
     private func resolveServiceIssue(_ issue: ServiceHealthIssue) {
         serviceHealth.resolve(issue)
+        if issue == .globalShortcutUnavailable {
+            updateEffectiveMenuBarIconVisibility()
+        }
+    }
+
+    private func updateEffectiveMenuBarIconVisibility() {
+        let isForced = serviceHealth.issues.contains(.globalShortcutUnavailable)
+            && !savedMenuBarIconVisibility
+        isMenuBarIconVisibilityForced = isForced
+        effectiveMenuBarIconVisibility = savedMenuBarIconVisibility || isForced
     }
 
     private static func connectionMessage(for error: NotionAPIClientError) -> String {

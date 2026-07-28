@@ -54,21 +54,52 @@ final class AppCommandTests: XCTestCase {
         XCTAssertEqual(PiPChromeView.primaryActionAccessibilityLabel, "Quick Capture")
     }
 
-    func testStatusItemRouterUsesExplicitMouseEventType() {
-        var regularClickCount = 0
+    func testStatusItemRouterOpensMenuForBothMouseButtons() {
         var menuCount = 0
         let router = StatusItemEventRouter(
-            onRegularClick: { regularClickCount += 1 },
             onMenu: { menuCount += 1 }
         )
 
         router.handle(eventType: .rightMouseUp)
-        XCTAssertEqual(regularClickCount, 0)
         XCTAssertEqual(menuCount, 1)
 
         router.handle(eventType: .leftMouseUp)
-        XCTAssertEqual(regularClickCount, 1)
-        XCTAssertEqual(menuCount, 1)
+        XCTAssertEqual(menuCount, 2)
+    }
+
+    func testStatusMenuContextCommandsMatchEveryPresentationState() {
+        XCTAssertEqual(
+            StatusMenuContextCommand(presentationState: .visible),
+            .stash
+        )
+        XCTAssertEqual(
+            StatusMenuContextCommand(presentationState: .stashed),
+            .show
+        )
+        XCTAssertEqual(
+            StatusMenuContextCommand(presentationState: .unavailable),
+            .openSettings
+        )
+        XCTAssertEqual(StatusMenuContextCommand.stash.title, "Stash Notion PiP")
+        XCTAssertEqual(StatusMenuContextCommand.show.title, "Show Notion PiP")
+        XCTAssertEqual(StatusMenuContextCommand.openSettings.title, "Open Settings…")
+    }
+
+    func testStatusItemMenuPrependsContextWhileRetainingSharedCommands() {
+        let model = makeModel(events: { _ in })
+
+        let menu = AppKitCommandMenuFactory.makeStatusItemMenu(
+            commandModel: model,
+            contextualCommand: .stash
+        )
+        let commandItems = menu.items.filter { !$0.isSeparatorItem }
+
+        XCTAssertEqual(commandItems.first?.title, "Stash Notion PiP")
+        XCTAssertEqual(
+            Array(commandItems.dropFirst().map(\.title)),
+            model.commands.map(\.title)
+        )
+        XCTAssertEqual(commandItems.first?.tag, StatusMenuContextCommand.menuItemTag)
     }
 
     private func makeModel(events: @escaping (AppCommandID) -> Void) -> AppCommandModel {

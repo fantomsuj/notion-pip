@@ -53,7 +53,7 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(savedPages, [page])
     }
 
-    func testShortcutShowsHiddenPinnedPanelWithoutRepinningOrReadingPasteboard() throws {
+    func testShortcutRestoresStashedPinnedPanelWithoutRepinningOrReadingPasteboard() throws {
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
         let pasteboard = RuntimePasteboard(value: "https://www.notion.so/Notes-\(secondPageID)")
@@ -66,7 +66,7 @@ final class RuntimeActivationTests: XCTestCase {
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         runtime.activate(page: page, source: .typedURL)
-        panel.hide()
+        panel.simulateStashedState()
         runtime.start()
 
         shortcut.handler?()
@@ -158,6 +158,34 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertNotNil(shortcut.handler)
     }
 
+    func testShortcutFailureForcesHiddenMenuBarIconWithoutChangingSavedPreference() throws {
+        let suiteName = "RuntimeMenuBarPreferenceTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        let preferenceStore = MenuBarIconPreferenceStore(defaults: defaults)
+        preferenceStore.save(false)
+        let shortcut = RuntimeShortcutRegistrar(failuresRemaining: 1)
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            shortcutRegistrar: shortcut,
+            menuBarIconPreferenceStore: preferenceStore
+        )
+
+        runtime.start()
+
+        XCTAssertFalse(runtime.savedMenuBarIconVisibility)
+        XCTAssertTrue(runtime.effectiveMenuBarIconVisibility)
+        XCTAssertTrue(runtime.isMenuBarIconVisibilityForced)
+        XCTAssertFalse(preferenceStore.load())
+
+        runtime.retryRecovery(for: .globalShortcutUnavailable)
+
+        XCTAssertFalse(runtime.savedMenuBarIconVisibility)
+        XCTAssertFalse(runtime.effectiveMenuBarIconVisibility)
+        XCTAssertFalse(runtime.isMenuBarIconVisibilityForced)
+        XCTAssertFalse(preferenceStore.load())
+    }
+
     func testInitialPersistentStoreFailureIsPublished() {
         let runtime = makeRuntime(
             panel: RuntimePanelCoordinator(),
@@ -206,44 +234,45 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(panel.replacedPages, [created])
     }
 
-    func testMenuBarActivationWithoutCurrentPageShowsSettings() {
+    func testStatusMenuContextActionWithoutCurrentPageShowsSettings() {
         let panel = RuntimePanelCoordinator()
         let settings = RuntimeSettingsWindowPresenter()
         let runtime = makeRuntime(panel: panel)
         runtime.bind(settingsWindowPresenter: settings)
 
-        runtime.handleMenuBarActivation()
+        runtime.performStatusMenuContextCommand()
 
         XCTAssertEqual(settings.showCount, 1)
         XCTAssertFalse(panel.isVisible)
     }
 
-    func testMenuBarActivationShowsHiddenCurrentPanelWithoutRepinning() throws {
+    func testStatusMenuContextActionRestoresStashedPanelWithoutRepinning() throws {
         let panel = RuntimePanelCoordinator()
         let runtime = makeRuntime(panel: panel)
         let page = try makePage(id: firstPageID, title: "Roadmap")
         runtime.activate(page: page, source: .typedURL)
-        panel.hide()
+        panel.simulateStashedState()
 
-        runtime.handleMenuBarActivation()
+        runtime.performStatusMenuContextCommand()
 
         XCTAssertTrue(panel.isVisible)
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
     }
 
-    func testMenuBarActivationHidesVisibleCurrentPanel() throws {
+    func testStatusMenuContextActionStashesVisibleCurrentPanel() throws {
         let panel = RuntimePanelCoordinator()
         let runtime = makeRuntime(panel: panel)
         let page = try makePage(id: firstPageID, title: "Roadmap")
         runtime.activate(page: page, source: .typedURL)
 
-        runtime.handleMenuBarActivation()
+        runtime.performStatusMenuContextCommand()
 
         XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(panel.isStashed)
         XCTAssertEqual(panel.currentPage, page)
     }
 
-    func testMenuBarActivationFallsBackToSettingsWhenRuntimeAndPanelDisagree() throws {
+    func testStatusMenuContextActionFallsBackToSettingsWhenRuntimeAndPanelDisagree() throws {
         let panel = RuntimePanelCoordinator()
         let settings = RuntimeSettingsWindowPresenter()
         let runtime = makeRuntime(panel: panel)
@@ -254,7 +283,7 @@ final class RuntimeActivationTests: XCTestCase {
         )
         panel.loseCurrentPage()
 
-        runtime.handleMenuBarActivation()
+        runtime.performStatusMenuContextCommand()
 
         XCTAssertEqual(settings.showCount, 1)
         XCTAssertFalse(panel.isVisible)
@@ -735,6 +764,44 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(restoreRequestCount, 0)
     }
 
+    func testNoSavedPageOpensSettingsAfterRestoreCompletes() async throws {
+        let settings = RuntimeSettingsWindowPresenter()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            pageRepository: repository
+        )
+        runtime.bind(settingsWindowPresenter: settings)
+
+        runtime.start()
+        try await repository.waitUntilRestoreRequested()
+        await repository.finishRestore(with: nil)
+        try await repository.waitUntilRestoreReturned()
+        await waitUntil { settings.showCount == 1 }
+
+        XCTAssertNil(runtime.activePage)
+        XCTAssertEqual(settings.showCount, 1)
+    }
+
+    func testDirectActivationSuppressesSettingsAfterEmptyRestore() async throws {
+        let settings = RuntimeSettingsWindowPresenter()
+        let repository = RuntimePinnedPageRepository()
+        let panel = RuntimePanelCoordinator()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let directPage = try makePage(id: secondPageID, title: "Direct")
+        runtime.bind(settingsWindowPresenter: settings)
+
+        runtime.start()
+        try await repository.waitUntilRestoreRequested()
+        runtime.activate(page: directPage, source: .typedURL)
+        await repository.finishRestore(with: nil)
+        for _ in 0 ..< 10 { await Task.yield() }
+
+        XCTAssertEqual(runtime.activePage, directPage)
+        XCTAssertEqual(panel.currentPage, directPage)
+        XCTAssertEqual(settings.showCount, 0)
+    }
+
     func testDisconnectWhileRestoreIsDelayedStillRestoresSavedPage() async throws {
         let panel = RuntimePanelCoordinator()
         let repository = RuntimePinnedPageRepository()
@@ -820,6 +887,7 @@ final class RuntimeActivationTests: XCTestCase {
 
     func testCorruptRestoredPageLeavesRuntimeEmpty() async throws {
         let panel = RuntimePanelCoordinator()
+        let settings = RuntimeSettingsWindowPresenter()
         let repository = RuntimePinnedPageRepository()
         let runtime = makeRuntime(panel: panel, pageRepository: repository)
         let mismatchedPage = try makeStoredPage(id: secondPageID, title: "Mismatch")
@@ -829,6 +897,7 @@ final class RuntimeActivationTests: XCTestCase {
             displayTitle: mismatchedPage.displayTitle,
             timestamp: mismatchedPage.timestamp
         )
+        runtime.bind(settingsWindowPresenter: settings)
 
         runtime.start()
         try await repository.waitUntilRestoreRequested()
@@ -839,6 +908,7 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertNil(runtime.activePage)
         XCTAssertNil(runtime.lastActivationSource)
         XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(settings.showCount, 1)
     }
 
     func testStartingTwiceRequestsRestoreOnce() async throws {
@@ -863,15 +933,22 @@ final class RuntimeActivationTests: XCTestCase {
         pageRepository: (any PinnedPagePersisting)? = nil,
         client: any NotionWorkspaceClient = RuntimeNotionClient(),
         destinationSearchDebounceDuration: Duration = .milliseconds(300),
-        initialServiceHealth: ServiceHealthState = .healthy
+        initialServiceHealth: ServiceHealthState = .healthy,
+        menuBarIconPreferenceStore: MenuBarIconPreferenceStore? = nil
     ) -> AppRuntime {
         let store = RuntimeSecretStore()
         let vault = PersonalTokenCredentialVault(store: store)
         try! vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
+        let preferenceStore = menuBarIconPreferenceStore ?? MenuBarIconPreferenceStore(
+            defaults: UserDefaults(
+                suiteName: "RuntimeActivationTests.\(UUID().uuidString)"
+            )!
+        )
         return AppRuntime(
             panelCoordinator: panel,
             pasteboard: pasteboard,
             shortcutRegistrar: shortcutRegistrar,
+            menuBarIconPreferenceStore: preferenceStore,
             pageURLInputPresenter: pageURLInputPresenter,
             pageRepository: pageRepository,
             credentialVault: vault,
@@ -932,6 +1009,11 @@ private final class RuntimePanelCoordinator: PiPPanelCoordinating {
     private(set) var isVisible = false
     private(set) var isStashed = false
 
+    var presentationState: PiPPresentationState {
+        guard currentPage != nil else { return .unavailable }
+        return isVisible ? .visible : .stashed
+    }
+
     func show(page: NotionPageReference) {
         currentPage = page
         shownPages.append(page)
@@ -960,19 +1042,9 @@ private final class RuntimePanelCoordinator: PiPPanelCoordinating {
         return true
     }
 
-    func hide() {
+    func simulateStashedState() {
         isVisible = false
-        isStashed = false
-    }
-
-    func toggleCurrentPage() -> Bool {
-        guard currentPage != nil else { return false }
-        if isVisible {
-            hide()
-        } else {
-            _ = showCurrentPage()
-        }
-        return true
+        isStashed = currentPage != nil
     }
 
     func stashOrRestoreCurrentPage() -> Bool {
