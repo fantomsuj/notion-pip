@@ -73,6 +73,11 @@ struct PiPChromeView: View {
         onReloadSavedPin()
     }
 
+    func openInNotionAndStash() {
+        webSession.openInBrowser()
+        onStash()
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -121,8 +126,8 @@ struct PiPChromeView: View {
                     .accessibilityLabel(Self.reloadAccessibilityLabel)
                     .help(Self.reloadHelp)
 
-                    Button(action: webSession.openInBrowser) {
-                        Image(systemName: "safari")
+                    Button(action: openInNotionAndStash) {
+                        NotionToolbarMark()
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Open Notion page in browser")
@@ -200,5 +205,19 @@ struct PiPChromeView: View {
             reduceMotion ? nil : .easeOut(duration: 0.16),
             value: showsTopControls
         )
+    }
+}
+
+private struct NotionToolbarMark: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 1.5)
+                .stroke(lineWidth: 1.2)
+            Text("N")
+                .font(.system(size: 11, weight: .black, design: .serif))
+                .offset(y: -0.25)
+        }
+        .frame(width: 15, height: 15)
+        .accessibilityHidden(true)
     }
 }
