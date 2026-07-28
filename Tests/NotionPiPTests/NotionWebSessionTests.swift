@@ -476,6 +476,136 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertNotNil(session as WKUIDelegate)
     }
 
+    func testVisibleRendererTerminationRecreatesAndReloadsCanonicalPage() throws {
+        var createdWebViews: [WKWebView] = []
+        var loads: [(WKWebView, URL?)] = []
+        let session = NotionWebSession(
+            loadRequest: { webView, request in
+                loads.append((webView, request.url))
+            },
+            webViewFactory: {
+                let webView = WKWebView()
+                createdWebViews.append(webView)
+                return webView
+            }
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        session.activate(page: page)
+        let retiredWebView = try XCTUnwrap(session.webView)
+
+        session.webViewWebContentProcessDidTerminate(retiredWebView)
+
+        let replacementWebView = try XCTUnwrap(session.webView)
+        XCTAssertFalse(replacementWebView === retiredWebView)
+        XCTAssertEqual(createdWebViews.count, 2)
+        XCTAssertEqual(loads.map(\.1), [page.canonicalURL, page.canonicalURL])
+        XCTAssertTrue(loads[0].0 === retiredWebView)
+        XCTAssertTrue(loads[1].0 === replacementWebView)
+        XCTAssertEqual(session.state, .loading)
+        XCTAssertNil(retiredWebView.navigationDelegate)
+        XCTAssertNil(retiredWebView.uiDelegate)
+        XCTAssertTrue(retiredWebView.configuration.userContentController.userScripts.isEmpty)
+    }
+
+    func testHiddenRendererTerminationDefersRecoveryUntilPanelShows() throws {
+        var creationCount = 0
+        var loadedURLs: [URL?] = []
+        let session = NotionWebSession(
+            loadRequest: { _, request in loadedURLs.append(request.url) },
+            webViewFactory: {
+                creationCount += 1
+                return WKWebView()
+            },
+            scheduleEviction: { _, _ in AnyCancellable {} }
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        session.activate(page: page)
+        let retiredWebView = try XCTUnwrap(session.webView)
+        session.panelDidHide()
+
+        session.webViewWebContentProcessDidTerminate(retiredWebView)
+
+        XCTAssertNil(session.webView)
+        XCTAssertEqual(session.state, .unloaded)
+        XCTAssertEqual(creationCount, 1)
+        XCTAssertEqual(loadedURLs, [page.canonicalURL])
+
+        session.panelDidShow()
+
+        XCTAssertNotNil(session.webView)
+        XCTAssertEqual(session.state, .loading)
+        XCTAssertEqual(creationCount, 2)
+        XCTAssertEqual(loadedURLs, [page.canonicalURL, page.canonicalURL])
+    }
+
+    func testRetiredWebViewCallbacksCannotMutateReplacementState() throws {
+        let session = NotionWebSession(loadRequest: { _, _ in })
+        let firstPage = try makePage(id: firstPageID, title: "Roadmap")
+        let secondPage = try makePage(id: secondPageID, title: "Notes")
+        session.activate(page: firstPage)
+        let retiredWebView = try XCTUnwrap(session.webView)
+        session.webViewWebContentProcessDidTerminate(retiredWebView)
+        let replacementWebView = try XCTUnwrap(session.webView)
+        session.webView(replacementWebView, didFinish: nil)
+        XCTAssertEqual(session.state, .active)
+
+        retiredWebView.load(URLRequest(url: secondPage.canonicalURL))
+        session.webView(retiredWebView, didStartProvisionalNavigation: nil)
+        session.webView(
+            retiredWebView,
+            didFailProvisionalNavigation: nil,
+            withError: NSError(
+                domain: "Test",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Stale provisional failure"]
+            )
+        )
+        session.webView(
+            retiredWebView,
+            didFail: nil,
+            withError: NSError(
+                domain: "Test",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Stale committed failure"]
+            )
+        )
+        session.webView(retiredWebView, didFinish: nil)
+        session.adoptResolvedPage(at: secondPage.canonicalURL, from: retiredWebView)
+        session.handleEditorActivity(.typingStarted, from: retiredWebView)
+
+        XCTAssertEqual(session.state, .active)
+        XCTAssertEqual(session.activePage, firstPage)
+        XCTAssertFalse(session.isTypingInPage)
+    }
+
+    func testRendererTeardownRemovesBridgeAndObservationExactlyOnce() throws {
+        var bridgeRemovalCount = 0
+        var observationInvalidationCount = 0
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            invalidateURLObservation: { observation in
+                observationInvalidationCount += 1
+                observation.invalidate()
+            },
+            removeActivityBridge: { controller in
+                bridgeRemovalCount += 1
+                controller.removeScriptMessageHandler(
+                    forName: NotionEditorActivityBridge.handlerName,
+                    contentWorld: .page
+                )
+                controller.removeAllUserScripts()
+            }
+        )
+        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let retiredWebView = try XCTUnwrap(session.webView)
+
+        session.webViewWebContentProcessDidTerminate(retiredWebView)
+        session.webViewWebContentProcessDidTerminate(retiredWebView)
+
+        XCTAssertEqual(bridgeRemovalCount, 1)
+        XCTAssertEqual(observationInvalidationCount, 1)
+    }
+
     func testMemoryPressureEvictsOnlyHiddenNonTypingWarmWebView() throws {
         var stoppedWebViews: [WKWebView] = []
         let session = NotionWebSession(
@@ -1046,6 +1176,78 @@ final class NotionWebSessionTests: XCTestCase {
         )
     }
 
+    func testEditorActivityScriptExecutesEditableEventLifecycleWithoutJavaScriptErrors() async throws {
+        let webView = WKWebView()
+        let session = NotionWebSession(webView: webView)
+        webView.loadHTMLString(
+            """
+            <!doctype html>
+            <html>
+              <body>
+                <input id="editor" type="text">
+                <script>
+                  window.__notionPiPTestErrors = [];
+                  window.addEventListener('error', (event) => {
+                    window.__notionPiPTestErrors.push(event.message);
+                  });
+                </script>
+              </body>
+            </html>
+            """,
+            baseURL: try XCTUnwrap(URL(string: "https://www.notion.so/activity-fixture"))
+        )
+        try await waitForJavaScriptCondition(in: webView) {
+            "document.readyState === 'complete' && Boolean(document.querySelector('#editor'))"
+        }
+
+        try await dispatchEditorActivity(
+            """
+            const editor = document.querySelector('#editor');
+            editor.focus();
+            editor.dispatchEvent(new InputEvent('beforeinput', {
+              bubbles: true,
+              inputType: 'insertText',
+              data: 'a',
+            }));
+            """,
+            in: webView
+        )
+        try await waitForCondition { session.isTypingInPage }
+
+        try await dispatchEditorActivity(
+            "document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }));",
+            in: webView
+        )
+        try await waitForCondition { !session.isTypingInPage }
+
+        try await beginTyping(in: webView)
+        try await waitForCondition { session.isTypingInPage }
+        try await dispatchEditorActivity(
+            "document.querySelector('#editor').blur();",
+            in: webView
+        )
+        try await waitForCondition { !session.isTypingInPage }
+
+        for key in ["Tab", "Escape"] {
+            try await beginTyping(in: webView)
+            try await waitForCondition { session.isTypingInPage }
+            try await dispatchEditorActivity(
+                """
+                document.querySelector('#editor').dispatchEvent(
+                  new KeyboardEvent('keydown', { key: '\(key)', bubbles: true })
+                );
+                """,
+                in: webView
+            )
+            try await waitForCondition { !session.isTypingInPage }
+        }
+
+        let errors = try await webView.evaluateJavaScript(
+            "window.__notionPiPTestErrors"
+        ) as? [String]
+        XCTAssertEqual(errors, [])
+    }
+
     func testNavigationResetsTypingActivity() throws {
         let session = NotionWebSession()
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
@@ -1123,6 +1325,68 @@ final class NotionWebSessionTests: XCTestCase {
         )
     }
 
+    private func beginTyping(in webView: WKWebView) async throws {
+        try await dispatchEditorActivity(
+            """
+            const editor = document.querySelector('#editor');
+            editor.focus();
+            editor.dispatchEvent(new InputEvent('beforeinput', {
+              bubbles: true,
+              inputType: 'insertText',
+              data: 'a',
+            }));
+            """,
+            in: webView
+        )
+    }
+
+    private func dispatchEditorActivity(
+        _ source: String,
+        in webView: WKWebView
+    ) async throws {
+        _ = try await webView.evaluateJavaScript(
+            """
+            (() => {
+              \(source)
+              return true;
+            })();
+            """
+        )
+    }
+
+    private func waitForCondition(
+        timeout: Duration = .seconds(3),
+        _ condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if condition() {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        throw NotionWebSessionTestError.timeout
+    }
+
+    private func waitForJavaScriptCondition(
+        in webView: WKWebView,
+        timeout: Duration = .seconds(3),
+        expression: () -> String
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if let matches = try? await webView.evaluateJavaScript(expression()) as? Bool,
+               matches
+            {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        throw NotionWebSessionTestError.timeout
+    }
+
     private func validSelectionSnapshotValue() -> [String: Any] {
         [
             "version": 1,
@@ -1175,4 +1439,8 @@ private final class SelectionEvaluationRecorder {
             completion(.success(true))
         }
     }
+}
+
+private enum NotionWebSessionTestError: Error {
+    case timeout
 }

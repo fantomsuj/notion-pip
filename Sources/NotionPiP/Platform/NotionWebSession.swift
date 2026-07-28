@@ -11,6 +11,8 @@ typealias NotionWebEvictionScheduler = @MainActor (
 typealias NotionWebAttachmentScheduler = @MainActor (
     @escaping @MainActor () -> Void
 ) -> Void
+typealias NotionWebURLObservationInvalidator = @MainActor (NSKeyValueObservation) -> Void
+typealias NotionWebActivityBridgeRemover = @MainActor (WKUserContentController) -> Void
 
 enum NotionEditorActivity: String, Equatable {
     case typingStarted
@@ -40,12 +42,21 @@ enum NotionEditorActivityBridge {
 
 @MainActor
 private protocol NotionEditorActivityHandling: AnyObject {
-    func handleEditorActivity(_ activity: NotionEditorActivity)
+    func handleEditorActivity(
+        _ activity: NotionEditorActivity,
+        from webView: WKWebView?,
+        generation: UInt
+    )
 }
 
 @MainActor
 private final class WeakNotionEditorActivityMessageHandler: NSObject, WKScriptMessageHandler {
     weak var delegate: (any NotionEditorActivityHandling)?
+    let generation: UInt
+
+    init(generation: UInt) {
+        self.generation = generation
+    }
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -60,7 +71,11 @@ private final class WeakNotionEditorActivityMessageHandler: NSObject, WKScriptMe
             return
         }
 
-        delegate?.handleEditorActivity(activity)
+        delegate?.handleEditorActivity(
+            activity,
+            from: message.webView,
+            generation: generation
+        )
     }
 }
 
@@ -110,8 +125,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let selectionEvaluator: NotionEditorSelectionEvaluator
     private let scheduleAfterAttachment: NotionWebAttachmentScheduler
     private let focusWebView: @MainActor (WKWebView) -> Void
-    private let editorActivityHandler: WeakNotionEditorActivityMessageHandler
+    private let invalidateURLObservation: NotionWebURLObservationInvalidator
+    private let removeActivityBridge: NotionWebActivityBridgeRemover
+    private var editorActivityHandler: WeakNotionEditorActivityMessageHandler?
     private var urlObservation: NSKeyValueObservation?
+    private var webViewGeneration: UInt = 0
     private var evictionCancellable: AnyCancellable?
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     @Published private var panelIsVisible = true
@@ -183,9 +201,18 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         },
         focusWebView: @escaping @MainActor (WKWebView) -> Void = { webView in
             _ = webView.window?.makeFirstResponder(webView)
+        },
+        invalidateURLObservation: @escaping NotionWebURLObservationInvalidator = {
+            $0.invalidate()
+        },
+        removeActivityBridge: @escaping NotionWebActivityBridgeRemover = {
+            $0.removeScriptMessageHandler(
+                forName: NotionEditorActivityBridge.handlerName,
+                contentWorld: .page
+            )
+            $0.removeAllUserScripts()
         }
     ) {
-        let activityHandler = WeakNotionEditorActivityMessageHandler()
         self.webView = nil
         self.openURL = openURL
         self.loadRequest = loadRequest
@@ -198,7 +225,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.selectionEvaluator = selectionEvaluator
         self.scheduleAfterAttachment = scheduleAfterAttachment
         self.focusWebView = focusWebView
-        editorActivityHandler = activityHandler
+        self.invalidateURLObservation = invalidateURLObservation
+        self.removeActivityBridge = removeActivityBridge
         super.init()
         if let webView {
             configure(webView)
@@ -207,17 +235,25 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     private func configure(_ webView: WKWebView) {
+        webViewGeneration &+= 1
+        let generation = webViewGeneration
+        let activityHandler = WeakNotionEditorActivityMessageHandler(generation: generation)
+        activityHandler.delegate = self
+        editorActivityHandler = activityHandler
         self.webView = webView
         Self.installEditorActivityBridge(
             in: webView.configuration.userContentController,
-            handler: editorActivityHandler
+            handler: activityHandler
         )
-        editorActivityHandler.delegate = self
         webView.navigationDelegate = self
         webView.uiDelegate = self
         urlObservation = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             MainActor.assumeIsolated {
-                self?.adoptResolvedPage(at: webView.url)
+                self?.adoptResolvedPage(
+                    at: webView.url,
+                    from: webView,
+                    generation: generation
+                )
             }
         }
     }
@@ -335,6 +371,24 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         isTypingInPage = isTyping
     }
 
+    func handleEditorActivity(
+        _ activity: NotionEditorActivity,
+        from webView: WKWebView?
+    ) {
+        handleEditorActivity(activity, from: webView, generation: webViewGeneration)
+    }
+
+    func handleEditorActivity(
+        _ activity: NotionEditorActivity,
+        from webView: WKWebView?,
+        generation: UInt
+    ) {
+        guard let webView, isCurrent(webView, generation: generation) else {
+            return
+        }
+        handleEditorActivity(activity)
+    }
+
     func revealTopControls() {
         handleEditorActivity(.editingEnded)
     }
@@ -367,19 +421,40 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
         savedInteractionState = interactionStateReader(webView)
         savedInteractionPageID = loadedPageID
-        stopLoading(webView)
-        urlObservation?.invalidate()
-        urlObservation = nil
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: NotionEditorActivityBridge.handlerName,
-            contentWorld: .page
-        )
-        webView.configuration.userContentController.removeAllUserScripts()
+        retire(webView)
+        state = .unloaded
+    }
+
+    @discardableResult
+    private func retire(_ webView: WKWebView) -> Bool {
+        guard isCurrent(webView) else {
+            return false
+        }
+
+        evictionCancellable?.cancel()
+        evictionCancellable = nil
+        editorActivityHandler?.delegate = nil
+        editorActivityHandler = nil
+        webViewGeneration &+= 1
+        self.webView = nil
+        loadedPageID = nil
+        if let urlObservation {
+            invalidateURLObservation(urlObservation)
+            self.urlObservation = nil
+        }
+        removeActivityBridge(webView.configuration.userContentController)
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
+        stopLoading(webView)
         webView.removeFromSuperview()
-        self.webView = nil
-        state = .unloaded
+        return true
+    }
+
+    private func isCurrent(_ webView: WKWebView, generation: UInt? = nil) -> Bool {
+        guard self.webView === webView else {
+            return false
+        }
+        return generation == nil || generation == webViewGeneration
     }
 
     private func captureSelectionAndSuspendIfNeeded() {
@@ -568,7 +643,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
           if (window.__notionPiPChromeActivityInstalled) return;
           window.__notionPiPChromeActivityInstalled = true;
 
-          let isTyping = false;
+          var isTyping = false;
 
           const editableElement = (node) => {
             const element = node instanceof Element ? node : node?.parentElement;
@@ -629,7 +704,10 @@ extension NotionWebSession: WKNavigationDelegate {
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction
     ) async -> WKNavigationActionPolicy {
-        navigationPolicy(
+        guard isCurrent(webView) else {
+            return .cancel
+        }
+        return navigationPolicy(
             for: navigationAction.request.url,
             targetFrameIsPresent: navigationAction.targetFrame != nil
         )
@@ -657,6 +735,7 @@ extension NotionWebSession: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        guard isCurrent(webView) else { return }
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(.loading)
@@ -666,18 +745,37 @@ extension NotionWebSession: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard isCurrent(webView) else { return }
         invalidateEditorSelection()
         publishNavigationState(.active)
         if !panelIsVisible {
             suspendWebViewIfNeeded()
         }
-        adoptResolvedPage(at: webView.url)
+        adoptResolvedPage(
+            at: webView.url,
+            from: webView,
+            generation: webViewGeneration
+        )
     }
 
     func adoptResolvedPage(at url: URL?) {
+        guard let webView else { return }
+        adoptResolvedPage(at: url, from: webView, generation: webViewGeneration)
+    }
+
+    func adoptResolvedPage(at url: URL?, from webView: WKWebView) {
+        adoptResolvedPage(at: url, from: webView, generation: webViewGeneration)
+    }
+
+    private func adoptResolvedPage(
+        at url: URL?,
+        from webView: WKWebView,
+        generation: UInt
+    ) {
         guard let url,
+              isCurrent(webView, generation: generation),
               let resolvedPage = try? NotionPageReference(validating: url),
-              webView?.url == url,
+              webView.url == url,
               loadedPageID == activePage?.pageID,
               resolvedPage.pageID != activePage?.pageID
         else {
@@ -698,6 +796,7 @@ extension NotionWebSession: WKNavigationDelegate {
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: Error
     ) {
+        guard isCurrent(webView) else { return }
         guard !isCancellation(error) else {
             invalidateEditorSelectionAndSuspendIfHidden()
             return
@@ -711,6 +810,7 @@ extension NotionWebSession: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        guard isCurrent(webView) else { return }
         guard !isCancellation(error) else {
             invalidateEditorSelectionAndSuspendIfHidden()
             return
@@ -727,6 +827,30 @@ extension NotionWebSession: WKNavigationDelegate {
         let error = error as NSError
         return error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled
     }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard isCurrent(webView) else { return }
+
+        revealTopControls()
+        invalidateEditorSelection()
+        let page = activePage
+        if let page {
+            savedURL = page.canonicalURL
+            savedURLPageID = page.pageID
+        }
+
+        // WebKit cannot provide unsaved DOM edits after its renderer exits, so only
+        // the canonical page can be recovered. Never restore stale interaction state.
+        savedInteractionState = nil
+        savedInteractionPageID = nil
+        guard retire(webView) else { return }
+
+        guard panelIsVisible, let page else {
+            state = .unloaded
+            return
+        }
+        load(page.canonicalURL, pageID: page.pageID)
+    }
 }
 
 extension NotionWebSession: WKUIDelegate {
@@ -736,13 +860,15 @@ extension NotionWebSession: WKUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        handleNewWindowRequest(navigationAction.request, in: webView)
+        guard isCurrent(webView) else { return nil }
+        return handleNewWindowRequest(navigationAction.request, in: webView)
     }
 
     func handleNewWindowRequest(
         _ request: URLRequest,
         in webView: WKWebView
     ) -> WKWebView? {
+        guard isCurrent(webView) else { return nil }
         switch WebNavigationDestination.classify(request.url) {
         case .trustedNotion:
             loadRequest(webView, request)
