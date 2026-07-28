@@ -589,11 +589,20 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         else {
             return
         }
+        let previousVisibleFrame = preferredVisibleFrame
         preferredVisibleFrame = visibleFrame
         preservedFrameAnchor = PanelFramePolicy.nearestAnchor(
             for: panel.frame,
             in: visibleFrame
         )
+        guard previousVisibleFrame != visibleFrame else { return }
+
+        let placement = preferredPlacement(
+            anchoredTo: panel.frame,
+            visibleFrames: [visibleFrame]
+        )
+        guard placement.frame != panel.frame else { return }
+        setPanelFrame(placement.frame, display: panel.isVisible)
     }
 
     private func setPanelFrame(_ frame: CGRect, display: Bool) {

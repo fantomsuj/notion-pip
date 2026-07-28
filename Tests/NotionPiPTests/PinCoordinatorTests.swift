@@ -819,6 +819,29 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.frame, secondFrame)
     }
 
+    func testManualMoveClampsOnSmallerDisplayAndRestoresOnLargerDisplay() async {
+        let largeScreen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let smallScreen = CGRect(x: 1_000, y: 0, width: 500, height: 400)
+        let screens = MutableVisibleFrames([largeScreen, smallScreen])
+        let preferredFrame = CGRect(x: 300, y: 60, width: 680, height: 720)
+        let panel = FakePanelWindow(frame: preferredFrame)
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: { screens.value },
+            initialPreferredContentSize: preferredFrame.size
+        )
+
+        panel.move(to: CGRect(x: 1_000, y: 0, width: 680, height: 720))
+        coordinator.recordPanelMove()
+        XCTAssertEqual(panel.frame, smallScreen)
+        await Task.yield()
+
+        panel.move(to: CGRect(x: 0, y: 0, width: 500, height: 400))
+        coordinator.recordPanelMove()
+        XCTAssertEqual(panel.frame, CGRect(x: 0, y: 0, width: 680, height: 720))
+    }
+
     private func makePage(id: String, title: String) throws -> NotionPageReference {
         try NotionPageReference(
             validating: XCTUnwrap(URL(string: "https://www.notion.so/\(title)-\(id)"))
