@@ -4,7 +4,7 @@ import OSLog
 @main
 enum NotionPiPApp {
     static func main() {
-        let coldLaunchToken = AppPerformanceSignposter.shared.begin(.coldLaunchToStatusItem)
+        let coldLaunchToken = AppPerformanceSignposter.shared.begin(.coldLaunchToReady)
         let composition = AppComposition()
         let appDelegate = AppDelegate()
         let application = NSApplication.shared

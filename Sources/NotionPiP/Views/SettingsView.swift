@@ -31,6 +31,24 @@ struct SettingsView: View {
                     GlobalShortcutRecorderView(runtime: runtime)
                 }
 
+                Section("Menu Bar") {
+                    Toggle(
+                        "Show Notion PiP in the menu bar",
+                        isOn: Binding(
+                            get: { runtime.savedMenuBarIconVisibility },
+                            set: { isVisible in
+                                runtime.setMenuBarIconVisibility(isVisible)
+                            }
+                        )
+                    )
+
+                    if runtime.isMenuBarIconVisibilityForced {
+                        Text("The menu-bar icon is temporarily visible because the global shortcut is unavailable. Retry the shortcut to return to your saved setting.")
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.Colors.secondaryText)
+                    }
+                }
+
                 Section("Personal Notion Access") {
                 switch runtime.connectionState {
                 case .disconnected, .failed:
@@ -75,7 +93,7 @@ struct SettingsView: View {
                 Section("About") {
                 LabeledContent("Application", value: "Notion PiP")
                 LabeledContent("Minimum macOS", value: "14.0")
-                Text("The app runs as a menu-bar accessory and keeps credentials out of page URLs and logs.")
+                Text("The app runs as an accessory with optional menu-bar presence and keeps credentials out of page URLs and logs.")
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
                     DeveloperStatusView()

@@ -2,6 +2,22 @@ import AppKit
 
 @MainActor
 enum AppKitCommandMenuFactory {
+    static func makeStatusItemMenu(
+        commandModel: AppCommandModel,
+        contextualCommand: StatusMenuContextCommand
+    ) -> NSMenu {
+        let menu = make(commandModel: commandModel)
+        menu.insertItem(.separator(), at: 0)
+        let contextualItem = NSMenuItem(
+            title: contextualCommand.title,
+            action: nil,
+            keyEquivalent: ""
+        )
+        contextualItem.tag = contextualCommand.menuItemTag
+        menu.insertItem(contextualItem, at: 0)
+        return menu
+    }
+
     static func make(commandModel: AppCommandModel) -> NSMenu {
         let menu = NSMenu(title: "Notion PiP")
         menu.autoenablesItems = false

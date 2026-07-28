@@ -15,6 +15,10 @@ final class PinCoordinator {
         panelCoordinator.currentPage
     }
 
+    var presentationState: PiPPresentationState {
+        panelCoordinator.presentationState
+    }
+
     init(
         panelCoordinator: any PiPPanelCoordinating,
         pasteboard: any PasteboardReading,
@@ -47,10 +51,6 @@ final class PinCoordinator {
 
     func reloadPinnedPage(_ page: NotionPageReference) {
         panelCoordinator.reloadPinnedPage(page)
-    }
-
-    func toggleCurrentPage() -> Bool {
-        panelCoordinator.toggleCurrentPage()
     }
 
     func stashOrRestoreCurrentPage() -> Bool {
