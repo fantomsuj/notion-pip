@@ -1,0 +1,81 @@
+import Foundation
+import OSLog
+
+extension AppRuntime {
+    func prepareForTermination() async {
+        while let persistenceTask = persistPinnedPageTask {
+            let expectedGeneration = persistenceGeneration
+            await persistenceTask.value
+            guard expectedGeneration != persistenceGeneration else { return }
+        }
+    }
+
+    func restorePinnedPageFromRepository() {
+        let expectedGeneration = pageSelectionGeneration
+        let pageRepository = pageRepository
+        let logger = logger
+        restorePinnedPageTask?.cancel()
+        restorePinnedPageTask = Task { [weak self] in
+            guard !Task.isCancelled, let pageRepository else { return }
+            do {
+                let workingSet = try await (pageRepository as? any PageWorkingSetPersisting)?
+                    .workingSet()
+                let storedPage = if let workingSet {
+                    workingSet.activePage
+                } else {
+                    try await pageRepository.currentPinnedPage()
+                }
+                guard !Task.isCancelled else { return }
+                self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
+                guard let storedPage else { return }
+                guard let page = try? NotionPageReference(validating: storedPage.canonicalURL),
+                      page.canonicalURL == storedPage.canonicalURL,
+                      page.pageID == storedPage.pageID
+                else {
+                    logger.error(
+                        """
+                        Pinned page restore skipped page_id=\(storedPage.pageID, privacy: .private) \
+                        category=invalid-stored-value
+                        """
+                    )
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                self?.restorePinnedPage(
+                    page,
+                    restoration: workingSet?.restoration(for: page.pageID),
+                    expectedGeneration: expectedGeneration
+                )
+            } catch {
+                guard !Task.isCancelled else { return }
+                logger.error("Pinned page restore failed category=repository-read")
+                self?.reportServiceIssue(.pinnedPagePersistenceUnavailable)
+            }
+        }
+    }
+
+    func enqueuePersistence(of page: NotionPageReference) {
+        guard let pageRepository else { return }
+        let previousTask = persistPinnedPageTask
+        let logger = logger
+        persistenceGeneration &+= 1
+        persistPinnedPageTask = Task { [weak self] in
+            await previousTask?.value
+            guard !Task.isCancelled else { return }
+            do {
+                _ = try await pageRepository.replaceCurrent(with: page)
+                guard !Task.isCancelled else { return }
+                self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
+            } catch {
+                guard !Task.isCancelled else { return }
+                logger.error(
+                    """
+                    Pinned page save failed page_id=\(page.pageID, privacy: .private) \
+                    category=repository-write
+                    """
+                )
+                self?.reportServiceIssue(.pinnedPagePersistenceUnavailable)
+            }
+        }
+    }
+}

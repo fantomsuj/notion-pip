@@ -20,17 +20,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         set { pageURLInputState.text = newValue }
     }
 
-    var validationMessage: String? {
-        pageURLInputState.validationMessage
-    }
-
-    var validationFailed: Bool {
-        pageURLInputState.validationFailed
-    }
-
-    var pageURLFocusRequest: Int {
-        pageURLInputState.focusRequest
-    }
+    var validationMessage: String? { pageURLInputState.validationMessage }
+    var validationFailed: Bool { pageURLInputState.validationFailed }
+    var pageURLFocusRequest: Int { pageURLInputState.focusRequest }
 
     var connectionState: PersonalTokenConnectionState {
         connectionController.state
@@ -72,24 +64,24 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         destinationController.isSearchCapped
     }
 
-    private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "shortcut")
-    private let pinCoordinator: PinCoordinator
-    private let shortcutRegistrar: any GlobalShortcutRegistering
-    private let shortcutStore: GlobalShortcutStore
-    private let pageURLInputPresenter: any PageURLInputPresenting
-    private let pageRepository: (any PinnedPagePersisting)?
+    let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "shortcut")
+    let pinCoordinator: PinCoordinator
+    let shortcutRegistrar: any GlobalShortcutRegistering
+    let shortcutStore: GlobalShortcutStore
+    let pageURLInputPresenter: any PageURLInputPresenting
+    let pageRepository: (any PinnedPagePersisting)?
     private let captureRepository: CaptureRepository?
     private let deliveryScheduler: DeliveryScheduler?
     private let connectionController: NotionConnectionController
     private let destinationController: QuickCaptureDestinationController
-    private weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
+    weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
     private var connectionObservation: AnyCancellable?
     private var destinationObservation: AnyCancellable?
     private var bootstrapTask: Task<Void, Never>?
-    private var restorePinnedPageTask: Task<Void, Never>?
-    private var persistPinnedPageTask: Task<Void, Never>?
-    private var persistenceGeneration = 0
-    private var pageSelectionGeneration = 0
+    var restorePinnedPageTask: Task<Void, Never>?
+    var persistPinnedPageTask: Task<Void, Never>?
+    var persistenceGeneration = 0
+    var pageSelectionGeneration = 0
     private var started = false
 
     init(
@@ -165,7 +157,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         started = true
 
         registerGlobalShortcut()
-
         bootstrapTask = Task { [weak self] in
             await self?.bootstrapPersonalTokenConnection()
         }
@@ -193,102 +184,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             }
         case .persistentStoreUnavailable:
             break
-        }
-    }
-
-    @discardableResult
-    func applyGlobalShortcut(_ shortcut: GlobalShortcut) -> Bool {
-        guard shortcut.isValid else { return false }
-        do {
-            try shortcutRegistrar.register(shortcut: shortcut) { [weak self] in
-                self?.handleGlobalShortcut()
-            }
-            globalShortcut = shortcut
-            shortcutStore.save(shortcut)
-            resolveServiceIssue(.globalShortcutUnavailable)
-            return true
-        } catch {
-            logger.error("Global shortcut registration failed")
-            reportServiceIssue(.globalShortcutUnavailable)
-            return false
-        }
-    }
-
-    func resetGlobalShortcut() {
-        _ = applyGlobalShortcut(.default)
-    }
-
-    func prepareForTermination() async {
-        while let persistenceTask = persistPinnedPageTask {
-            let expectedGeneration = persistenceGeneration
-            await persistenceTask.value
-            guard expectedGeneration != persistenceGeneration else { return }
-        }
-    }
-
-    func handleMenuBarActivation() {
-        guard pinCoordinator.toggleCurrentPage() else {
-            settingsWindowPresenter?.show()
-            return
-        }
-    }
-
-    func validatePageURL() {
-        switch pinCoordinator.page(from: pageURLText) {
-        case let .success(page):
-            activate(page: page, source: .typedURL)
-            pageURLInputState.showPinned(page: page)
-            pageURLInputPresenter.hide()
-        case .failure:
-            showValidationFailure("Use an HTTPS Notion page URL with a page ID.")
-        }
-    }
-
-    func pin(page: NotionPageReference) {
-        activate(page: page, source: .pagePicker)
-    }
-
-    func reloadSavedPin() {
-        guard let activePage else { return }
-        pinCoordinator.reloadPinnedPage(activePage)
-    }
-
-    func activate(page: NotionPageReference, source: PageActivationSource) {
-        activate(page: page, source: source, restoration: nil)
-    }
-
-    func activate(
-        page: NotionPageReference,
-        source: PageActivationSource,
-        restoration: DurablePageRestoration?
-    ) {
-        activate(page: page, source: source, persist: true, restoration: restoration)
-    }
-
-    private func activate(
-        page: NotionPageReference,
-        source: PageActivationSource,
-        persist: Bool,
-        restoration: DurablePageRestoration? = nil
-    ) {
-        pageSelectionGeneration &+= 1
-        if persist {
-            restorePinnedPageTask?.cancel()
-            restorePinnedPageTask = nil
-        }
-        pinCoordinator.pin(page: page, restoration: restoration)
-        activePage = page
-        pendingPage = page
-        lastActivationSource = source
-
-        if persist {
-            enqueuePersistence(of: page)
-        }
-    }
-
-    func handleOpenURLs(_ urls: [URL]) {
-        for (page, source) in pinCoordinator.externalPages(from: urls) {
-            activate(page: page, source: .externalRoute(source))
         }
     }
 
@@ -373,102 +268,26 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         }
     }
 
-    private func handleGlobalShortcut() {
-        guard pinCoordinator.stashOrRestoreCurrentPage() else {
-            pageURLInputPresenter.presentAndFocus()
-            return
-        }
-    }
-
-    private func registerGlobalShortcut() {
-        _ = applyGlobalShortcut(globalShortcut)
-    }
-
-    private func showValidationFailure(_ message: String) {
-        pageURLInputState.showValidationFailure(message)
-    }
-
-    private func restorePinnedPage(
-        _ page: NotionPageReference,
-        restoration: DurablePageRestoration?,
-        expectedGeneration: Int
+    func publishActivation(
+        page: NotionPageReference,
+        source: PageActivationSource
     ) {
-        guard expectedGeneration == pageSelectionGeneration, !Task.isCancelled else { return }
-        activate(
-            page: page,
-            source: .restored,
-            persist: false,
-            restoration: restoration
-        )
+        activePage = page
+        pendingPage = page
+        lastActivationSource = source
     }
 
-    private func restorePinnedPageFromRepository() {
-        let expectedGeneration = pageSelectionGeneration
-        let pageRepository = pageRepository
-        let logger = logger
-        restorePinnedPageTask?.cancel()
-        restorePinnedPageTask = Task { [weak self] in
-            guard !Task.isCancelled, let pageRepository else { return }
-            do {
-                let workingSet = try await (pageRepository as? any PageWorkingSetPersisting)?
-                    .workingSet()
-                let storedPage = if let workingSet {
-                    workingSet.activePage
-                } else {
-                    try await pageRepository.currentPinnedPage()
-                }
-                guard !Task.isCancelled else { return }
-                self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
-                guard let storedPage else { return }
-                guard let page = try? NotionPageReference(validating: storedPage.canonicalURL),
-                      page.canonicalURL == storedPage.canonicalURL,
-                      page.pageID == storedPage.pageID
-                else {
-                    logger.error("Pinned page restore skipped page_id=\(storedPage.pageID, privacy: .private) category=invalid-stored-value")
-                    return
-                }
-                guard !Task.isCancelled else { return }
-                self?.restorePinnedPage(
-                    page,
-                    restoration: workingSet?.restoration(for: page.pageID),
-                    expectedGeneration: expectedGeneration
-                )
-            } catch {
-                guard !Task.isCancelled else { return }
-                logger.error("Pinned page restore failed category=repository-read")
-                self?.reportServiceIssue(.pinnedPagePersistenceUnavailable)
-            }
-        }
+    func publishGlobalShortcut(_ shortcut: GlobalShortcut) {
+        globalShortcut = shortcut
     }
 
-    private func enqueuePersistence(of page: NotionPageReference) {
-        guard let pageRepository else { return }
-        let previousTask = persistPinnedPageTask
-        let logger = logger
-        persistenceGeneration &+= 1
-        persistPinnedPageTask = Task { [weak self] in
-            await previousTask?.value
-            guard !Task.isCancelled else { return }
-            do {
-                _ = try await pageRepository.replaceCurrent(with: page)
-                guard !Task.isCancelled else { return }
-                self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
-            } catch {
-                guard !Task.isCancelled else { return }
-                logger.error("Pinned page save failed page_id=\(page.pageID, privacy: .private) category=repository-write")
-                self?.reportServiceIssue(.pinnedPagePersistenceUnavailable)
-            }
-        }
-    }
-
-    private func reportServiceIssue(_ issue: ServiceHealthIssue) {
+    func reportServiceIssue(_ issue: ServiceHealthIssue) {
         serviceHealth.report(issue)
     }
 
-    private func resolveServiceIssue(_ issue: ServiceHealthIssue) {
+    func resolveServiceIssue(_ issue: ServiceHealthIssue) {
         serviceHealth.resolve(issue)
     }
-
 }
 
 @MainActor
