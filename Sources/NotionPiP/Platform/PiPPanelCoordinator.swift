@@ -27,12 +27,24 @@ protocol PiPPanelCoordinating: AnyObject {
     var currentPage: NotionPageReference? { get }
     var isVisible: Bool { get }
     func show(page: NotionPageReference)
+    func show(page: NotionPageReference, restoration: DurablePageRestoration?)
     func reloadPinnedPage(_ page: NotionPageReference)
     func showCurrentPage() -> Bool
     func hide()
     func toggleCurrentPage() -> Bool
     func stashOrRestoreCurrentPage() -> Bool
     func replace(page: NotionPageReference)
+    func replace(page: NotionPageReference, restoration: DurablePageRestoration?)
+}
+
+extension PiPPanelCoordinating {
+    func show(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        show(page: page)
+    }
+
+    func replace(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        replace(page: page)
+    }
 }
 
 @MainActor
@@ -58,8 +70,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
 
     convenience init(
         webSession: NotionWebSession = NotionWebSession(),
+        pageSwitcherController: PageSwitcherController = PageSwitcherController(),
         commandModel: AppCommandModel = .noOp,
         onReloadSavedPin: @escaping () -> Void = {},
+        onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in },
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
         let stashHandle = PiPStashHandleController()
@@ -111,11 +125,13 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         let contentView = NSHostingView(
             rootView: PiPChromeView(
                 webSession: webSession,
+                pageSwitcherController: pageSwitcherController,
                 commandModel: commandModel,
                 onReloadSavedPin: onReloadSavedPin,
                 onStash: { [weak self] in
                     self?.stash(visibleFrames: NSScreen.screens.map(\.visibleFrame))
-                }
+                },
+                onPageSwitcherSelection: onPageSwitcherSelection
             )
         )
         // The retained panel owns its geometry while SwiftUI swaps the WebView in and out.
@@ -157,10 +173,14 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     }
 
     func show(page: NotionPageReference) {
+        show(page: page, restoration: nil)
+    }
+
+    func show(page: NotionPageReference, restoration: DurablePageRestoration?) {
         let measurement = beginFirstPresentation()
         prepareInitialFrameIfNeeded()
         if currentPage?.canonicalURL != page.canonicalURL {
-            pageLoader.activate(page: page)
+            pageLoader.activate(page: page, restoration: restoration)
             currentPage = page
         } else {
             pageLoader.reselect(page: page)
@@ -230,6 +250,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
 
     func replace(page: NotionPageReference) {
         show(page: page)
+    }
+
+    func replace(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        show(page: page, restoration: restoration)
     }
 
     @discardableResult

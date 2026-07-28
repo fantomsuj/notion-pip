@@ -87,6 +87,170 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertNotNil(session.webView)
     }
 
+    func testPageSwitchCapturesOutgoingStateTearsDownViewAndRestoresItOnReturn() throws {
+        var createdWebViews: [WKWebView] = []
+        var stoppedWebViews: [WKWebView] = []
+        var endedEditing: [WKWebView] = []
+        var restoredStates: [String] = []
+        var capturedRestorations: [DurablePageRestoration] = []
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            webViewFactory: {
+                let webView = WKWebView()
+                createdWebViews.append(webView)
+                return webView
+            },
+            stopLoading: { stoppedWebViews.append($0) },
+            interactionStateReader: { webView in
+                createdWebViews.firstIndex(where: { $0 === webView }) == 0
+                    ? "first-state"
+                    : "second-state"
+            },
+            interactionStateWriter: { _, state in
+                if let state = state as? String {
+                    restoredStates.append(state)
+                }
+            },
+            endEditing: { endedEditing.append($0) }
+        )
+        session.onRestorationCaptured = { capturedRestorations.append($0) }
+        let first = try makePage(id: firstPageID, title: "First")
+        let second = try makePage(id: secondPageID, title: "Second")
+
+        session.activate(page: first)
+        let firstWebView = try XCTUnwrap(session.webView)
+        session.activate(page: second)
+        let secondWebView = try XCTUnwrap(session.webView)
+        session.activate(page: first)
+
+        XCTAssertFalse(firstWebView === secondWebView)
+        XCTAssertFalse(secondWebView === session.webView)
+        XCTAssertEqual(createdWebViews.count, 3)
+        XCTAssertEqual(stoppedWebViews, [firstWebView, secondWebView])
+        XCTAssertEqual(endedEditing, [firstWebView, secondWebView])
+        XCTAssertEqual(restoredStates, ["first-state"])
+        XCTAssertEqual(capturedRestorations.map(\.pageID), [firstPageID, secondPageID])
+    }
+
+    func testDurableRestorationLoadsValidatedLastURLAndAppliesScrollAfterFinish() throws {
+        var requests: [URLRequest] = []
+        var appliedRestorations: [DurablePageRestoration] = []
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let lastURL = try XCTUnwrap(
+            URL(string: "\(page.canonicalURL.absoluteString)?pvs=4")
+        )
+        let restoration = try DurablePageRestoration(
+            pageID: page.pageID,
+            validatingLastURL: lastURL,
+            scrollX: 3,
+            scrollY: 400,
+            scrollProgress: 0.6,
+            updatedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        let session = NotionWebSession(
+            loadRequest: { _, request in requests.append(request) },
+            scrollRestorer: { _, restoration in
+                appliedRestorations.append(restoration)
+            }
+        )
+
+        session.activate(page: page, restoration: restoration)
+        let webView = try XCTUnwrap(session.webView)
+        session.webView(webView, didFinish: nil)
+
+        XCTAssertEqual(requests.map(\.url), [lastURL])
+        XCTAssertEqual(appliedRestorations, [restoration])
+    }
+
+    func testFailedDurableURLFallsBackToCanonicalPageOnlyOnce() throws {
+        var requests: [URLRequest] = []
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let savedURL = try XCTUnwrap(
+            URL(string: "\(page.canonicalURL.absoluteString)?pvs=4")
+        )
+        let restoration = try DurablePageRestoration(
+            pageID: page.pageID,
+            validatingLastURL: savedURL,
+            scrollX: 0,
+            scrollY: 100,
+            scrollProgress: 0.2,
+            updatedAt: Date()
+        )
+        let session = NotionWebSession(
+            loadRequest: { _, request in requests.append(request) }
+        )
+        session.activate(page: page, restoration: restoration)
+        let webView = try XCTUnwrap(session.webView)
+        let error = NSError(domain: "Test", code: 1)
+
+        session.webView(webView, didFailProvisionalNavigation: nil, withError: error)
+        session.webView(webView, didFailProvisionalNavigation: nil, withError: error)
+
+        XCTAssertEqual(requests.map(\.url), [savedURL, page.canonicalURL])
+        guard case .failed = session.state else {
+            return XCTFail("Expected the canonical fallback failure to be published")
+        }
+    }
+
+    func testInteractionSnapshotEvictionKeepsDurableFallback() throws {
+        var requests: [URLRequest] = []
+        let first = try makePage(id: firstPageID, title: "First")
+        let second = try makePage(id: secondPageID, title: "Second")
+        let session = NotionWebSession(
+            loadRequest: { _, request in requests.append(request) },
+            interactionStateReader: { _ in "opaque" }
+        )
+
+        session.activate(page: first)
+        session.activate(page: second)
+        session.evictInteractionSnapshots(retaining: [])
+        session.activate(page: first)
+
+        XCTAssertEqual(requests.last?.url, first.canonicalURL)
+    }
+
+    func testScrollBridgeAcceptsOnlyStrictMainFrameNotionMessages() {
+        let body: [String: Any] = [
+            "x": 4.0,
+            "y": 120.0,
+            "progress": 0.5,
+        ]
+
+        XCTAssertEqual(
+            NotionScrollBridge.snapshot(
+                from: body,
+                isMainFrame: true,
+                scheme: "https",
+                host: "app.notion.com"
+            ),
+            NotionScrollSnapshot(x: 4, y: 120, progress: 0.5)
+        )
+        XCTAssertNil(
+            NotionScrollBridge.snapshot(
+                from: body,
+                isMainFrame: false,
+                scheme: "https",
+                host: "app.notion.com"
+            )
+        )
+        XCTAssertNil(
+            NotionScrollBridge.snapshot(
+                from: body,
+                isMainFrame: true,
+                scheme: "https",
+                host: "notion.example.com"
+            )
+        )
+        XCTAssertNil(
+            NotionScrollBridge.snapshot(
+                from: ["x": 0, "y": 1, "progress": 2],
+                isMainFrame: true,
+                scheme: "https",
+                host: "www.notion.so"
+            )
+        )
+    }
+
     func testNavigationDelegatePublishesReadyAndFailureStates() throws {
         let session = NotionWebSession()
         let page = try makePage(id: firstPageID, title: "Roadmap")
@@ -766,7 +930,7 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertTrue(resolvedPages.isEmpty)
     }
 
-    func testPostResumeStaleCandidateCannotReplaceOwnedCurrentWebViewURL() throws {
+    func testPostResumeStaleCandidateCannotReplaceReplacementWebViewURL() throws {
         var resolvedPages: [NotionPageReference] = []
         let webView = WKWebView()
         let session = NotionWebSession(
@@ -782,7 +946,9 @@ final class NotionWebSessionTests: XCTestCase {
         session.activate(page: secondPage)
 
         session.panelDidShow()
-        XCTAssertEqual(webView.url, secondPage.canonicalURL)
+        let replacementWebView = try XCTUnwrap(session.webView)
+        XCTAssertFalse(replacementWebView === webView)
+        XCTAssertEqual(replacementWebView.url, secondPage.canonicalURL)
         session.adoptResolvedPage(at: firstPage.canonicalURL)
 
         XCTAssertEqual(session.activePage, secondPage)
@@ -1131,28 +1297,10 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertFalse(String(reflecting: chrome.body).contains("Page surface"))
     }
 
-    func testTypingActivityHidesTopControlsUntilEditingEnds() {
-        let session = NotionWebSession()
-        let chrome = PiPChromeView(webSession: session)
-
-        XCTAssertFalse(session.isTypingInPage)
-        XCTAssertTrue(chrome.showsTopControls)
-
-        session.handleEditorActivity(.typingStarted)
-
-        XCTAssertTrue(session.isTypingInPage)
-        XCTAssertFalse(chrome.showsTopControls)
-
-        session.handleEditorActivity(.editingEnded)
-
-        XCTAssertFalse(session.isTypingInPage)
-        XCTAssertTrue(chrome.showsTopControls)
-    }
-
-    func testVoiceOverKeepsTopControlsVisibleWhileTyping() {
+    func testTopControlsAreHiddenUntilTopEdgeIsHovered() {
         XCTAssertFalse(
             PiPChromeView.shouldShowTopControls(
-                isTypingInPage: true,
+                isHoveringTopEdge: false,
                 isVoiceOverEnabled: false,
                 isSwitchControlEnabled: false,
                 isFullKeyboardAccessEnabled: false
@@ -1160,7 +1308,34 @@ final class NotionWebSessionTests: XCTestCase {
         )
         XCTAssertTrue(
             PiPChromeView.shouldShowTopControls(
-                isTypingInPage: true,
+                isHoveringTopEdge: true,
+                isVoiceOverEnabled: false,
+                isSwitchControlEnabled: false,
+                isFullKeyboardAccessEnabled: false
+            )
+        )
+    }
+
+    func testHiddenTopControlsReserveNoLayoutHeight() {
+        XCTAssertEqual(PiPChromeView.topControlsReservedHeight(isVisible: false), 0)
+        XCTAssertEqual(
+            PiPChromeView.topControlsReservedHeight(isVisible: true),
+            PiPChromeView.topControlsHeight
+        )
+    }
+
+    func testAccessibilityFeaturesKeepTopControlsVisibleWithoutHover() {
+        XCTAssertFalse(
+            PiPChromeView.shouldShowTopControls(
+                isHoveringTopEdge: false,
+                isVoiceOverEnabled: false,
+                isSwitchControlEnabled: false,
+                isFullKeyboardAccessEnabled: false
+            )
+        )
+        XCTAssertTrue(
+            PiPChromeView.shouldShowTopControls(
+                isHoveringTopEdge: false,
                 isVoiceOverEnabled: true,
                 isSwitchControlEnabled: false,
                 isFullKeyboardAccessEnabled: false
@@ -1168,7 +1343,7 @@ final class NotionWebSessionTests: XCTestCase {
         )
         XCTAssertTrue(
             PiPChromeView.shouldShowTopControls(
-                isTypingInPage: true,
+                isHoveringTopEdge: false,
                 isVoiceOverEnabled: false,
                 isSwitchControlEnabled: true,
                 isFullKeyboardAccessEnabled: false
@@ -1176,7 +1351,7 @@ final class NotionWebSessionTests: XCTestCase {
         )
         XCTAssertTrue(
             PiPChromeView.shouldShowTopControls(
-                isTypingInPage: true,
+                isHoveringTopEdge: false,
                 isVoiceOverEnabled: false,
                 isSwitchControlEnabled: false,
                 isFullKeyboardAccessEnabled: true

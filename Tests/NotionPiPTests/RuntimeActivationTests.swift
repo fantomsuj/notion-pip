@@ -4,6 +4,23 @@ import XCTest
 
 @MainActor
 final class RuntimeActivationTests: XCTestCase {
+    func testPageSwitcherActivationUsesUnifiedRuntimePathAndSource() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let page = try makePage(id: firstPageID, title: "Switcher")
+
+        runtime.activate(page: page, source: .pageSwitcher)
+        try await repository.waitUntilSaveCount(1)
+
+        XCTAssertEqual(panel.currentPage, page)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(runtime.activePage, page)
+        XCTAssertEqual(runtime.lastActivationSource, .pageSwitcher)
+        let savedPageIDs = await repository.savedPageIDs()
+        XCTAssertEqual(savedPageIDs, [page.pageID])
+    }
+
     private let firstPageID = "0123456789abcdef0123456789abcdef"
     private let secondPageID = "fedcba9876543210fedcba9876543210"
 
