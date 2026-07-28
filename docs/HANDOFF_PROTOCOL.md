@@ -26,4 +26,4 @@ notion-pip://pin?url=https%3A%2F%2Fwww.notion.so%2FProject-Roadmap-0123456789abc
 
 `source` is untrusted UX metadata. It never grants capabilities or changes URL validation. Unknown actions and sources are rejected. The implementation must not log the outer URL, its full query, credentials, or tokens; telemetry may record only a sanitized acceptance/rejection event and the allowlisted source.
 
-Application URL delivery and panel replacement are wired in the next implementation slice. This document fixes the parser contract they consume.
+Application URL delivery and panel replacement consume this parser contract.

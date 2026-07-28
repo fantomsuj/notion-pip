@@ -70,4 +70,4 @@ Codex will check the Mac and Xcode prerequisites, build and verify the app, and 
 
 Notion PiP accepts only HTTPS page URLs on `app.notion.com`, `notion.so`, and `www.notion.so` with a canonical 32-character hexadecimal page ID. `notion.so` inputs canonicalize to `www.notion.so`, while every accepted host retains its percent-encoded path; credentials, query strings, and fragments are removed. The `notion-pip` handoff contract is documented in [the handoff protocol](docs/HANDOFF_PROTOCOL.md).
 
-The development app is sandboxed with outbound network access. Its ad-hoc signature is for local development, not Developer ID distribution or notarization. Reference provenance and reuse exclusions live in [the upstream-reuse notes](docs/UPSTREAM_REUSE.md).
+The development app is sandboxed with outbound network access. Its ad-hoc signature is for local development, not Developer ID distribution or notarization. Windowing checks live in [the manual test matrix](docs/MANUAL_TEST_MATRIX.md), while reference provenance and reuse exclusions live in [the open-source research](docs/OPEN_SOURCE_RESEARCH.md) and [upstream-reuse notes](docs/UPSTREAM_REUSE.md).
