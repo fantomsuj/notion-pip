@@ -43,6 +43,36 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertNotNil(session.webView)
     }
 
+    func testActivateReloadsWhenSamePageIDUsesDifferentCanonicalRoute() throws {
+        var requests: [URLRequest] = []
+        let session = NotionWebSession(loadRequest: { _, request in requests.append(request) })
+        let oldPage = try NotionPageReference(
+            validating: XCTUnwrap(URL(string: "https://www.notion.so/Roadmap-\(firstPageID)"))
+        )
+        let correctedPage = try NotionPageReference(
+            validating: XCTUnwrap(URL(string: "https://www.notion.so/acme/Roadmap-\(firstPageID)"))
+        )
+
+        session.activate(page: oldPage)
+        session.activate(page: correctedPage)
+
+        XCTAssertEqual(requests.map(\.url), [oldPage.canonicalURL, correctedPage.canonicalURL])
+        XCTAssertEqual(session.activePage, correctedPage)
+    }
+
+    func testReloadPinnedPageForceLoadsCanonicalURLForActivePage() throws {
+        var requests: [URLRequest] = []
+        let session = NotionWebSession(loadRequest: { _, request in requests.append(request) })
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+
+        session.activate(page: page)
+        session.reloadPinnedPage(page)
+
+        XCTAssertEqual(requests.map(\.url), [page.canonicalURL, page.canonicalURL])
+        XCTAssertEqual(session.activePage, page)
+        XCTAssertEqual(session.state, .loading)
+    }
+
     func testActivateReplacesTheActivePage() throws {
         var requests: [URLRequest] = []
         let session = NotionWebSession(loadRequest: { _, request in requests.append(request) })
@@ -73,6 +103,22 @@ final class NotionWebSessionTests: XCTestCase {
             withError: NSError(domain: "Test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Offline"])
         )
         XCTAssertEqual(session.state, .failed("Offline"))
+    }
+
+    func testCancelledNavigationDoesNotReplaceLoadingStateWithFailure() throws {
+        let session = NotionWebSession()
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        session.activate(page: page)
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+        let webView = try XCTUnwrap(session.webView)
+
+        navigationDelegate.webView?(
+            webView,
+            didFailProvisionalNavigation: nil,
+            withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+        )
+
+        XCTAssertEqual(session.state, .loading)
     }
 
     func testOpenInBrowserUsesTheActivePageURL() throws {
@@ -121,6 +167,279 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(pausedWebViews, [webView])
         XCTAssertEqual(scheduledInterval, 60)
         XCTAssertTrue(session.webView === webView)
+    }
+
+    func testRetainedPageCaptureSuspendsThenFocusesAndRestoresSelectionOnShow() throws {
+        var captureCompletion: (@MainActor (Result<Any?, Error>) -> Void)?
+        var evaluations: [NotionEditorSelectionEvaluation] = []
+        var focusedWebViews: [WKWebView] = []
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = WKWebView()
+        webView.load(URLRequest(url: page.canonicalURL))
+        let container = NSView()
+        container.addSubview(webView)
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            scheduleEviction: { _, _ in AnyCancellable {} },
+            selectionEvaluator: { _, evaluation, completion in
+                evaluations.append(evaluation)
+                switch evaluation {
+                case .capture:
+                    captureCompletion = completion
+                case .restore:
+                    completion(.success(true))
+                }
+            },
+            scheduleAfterAttachment: { $0() },
+            focusWebView: { focusedWebViews.append($0) }
+        )
+        session.activate(page: page)
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+        navigationDelegate.webView?(webView, didFinish: nil)
+
+        session.panelDidHide()
+
+        XCTAssertEqual(session.state, .active)
+        XCTAssertTrue(webView.superview === container)
+        XCTAssertEqual(evaluations, [.capture])
+
+        captureCompletion?(.success(validSelectionSnapshotValue()))
+
+        XCTAssertEqual(session.state, .suspended)
+        XCTAssertNil(webView.superview)
+
+        session.panelDidShow()
+
+        XCTAssertTrue(session.webView === webView)
+        XCTAssertEqual(session.state, .active)
+        XCTAssertEqual(focusedWebViews, [webView])
+        XCTAssertEqual(evaluations.count, 2)
+        guard case .restore = evaluations.last else {
+            return XCTFail("Expected the captured selection to be restored")
+        }
+    }
+
+    func testShowingPanelBeforeCaptureCompletesPreventsLateSuspensionAndRestore() throws {
+        var captureCompletion: (@MainActor (Result<Any?, Error>) -> Void)?
+        var evaluations: [NotionEditorSelectionEvaluation] = []
+        var focusCount = 0
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = WKWebView()
+        webView.load(URLRequest(url: page.canonicalURL))
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            scheduleEviction: { _, _ in AnyCancellable {} },
+            selectionEvaluator: { _, evaluation, completion in
+                evaluations.append(evaluation)
+                if case .capture = evaluation {
+                    captureCompletion = completion
+                } else {
+                    completion(.success(true))
+                }
+            },
+            scheduleAfterAttachment: { $0() },
+            focusWebView: { _ in focusCount += 1 }
+        )
+        session.activate(page: page)
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+        navigationDelegate.webView?(webView, didFinish: nil)
+
+        session.panelDidHide()
+        session.panelDidShow()
+        captureCompletion?(.success(validSelectionSnapshotValue()))
+
+        XCTAssertEqual(session.state, .active)
+        XCTAssertTrue(session.webView === webView)
+        XCTAssertEqual(focusCount, 1)
+        XCTAssertEqual(evaluations, [.capture])
+    }
+
+    func testMissingMalformedAndFailedCaptureUseFocusOnlyFallback() throws {
+        let results: [Result<Any?, Error>] = [
+            .success(nil),
+            .success(["version": 1, "token": "missing-paths"]),
+            .failure(TestSelectionError.evaluationFailed),
+        ]
+
+        for result in results {
+            var evaluations: [NotionEditorSelectionEvaluation] = []
+            var focusCount = 0
+            let page = try makePage(id: firstPageID, title: "Roadmap")
+            let webView = WKWebView()
+            webView.load(URLRequest(url: page.canonicalURL))
+            let session = NotionWebSession(
+                webView: webView,
+                loadRequest: { _, _ in },
+                scheduleEviction: { _, _ in AnyCancellable {} },
+                selectionEvaluator: { _, evaluation, completion in
+                    evaluations.append(evaluation)
+                    switch evaluation {
+                    case .capture:
+                        completion(result)
+                    case .restore:
+                        completion(.success(true))
+                    }
+                },
+                scheduleAfterAttachment: { $0() },
+                focusWebView: { _ in focusCount += 1 }
+            )
+            session.activate(page: page)
+            let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+            navigationDelegate.webView?(webView, didFinish: nil)
+
+            session.panelDidHide()
+            session.panelDidShow()
+
+            XCTAssertEqual(session.state, .active)
+            XCTAssertEqual(focusCount, 1)
+            XCTAssertEqual(evaluations, [.capture])
+        }
+    }
+
+    func testNavigationInvalidatesCapturedSelectionBeforeRetainedShow() throws {
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = WKWebView()
+        webView.load(URLRequest(url: page.canonicalURL))
+        let recorder = SelectionEvaluationRecorder(
+            captureResult: .success(validSelectionSnapshotValue())
+        )
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            scheduleEviction: { _, _ in AnyCancellable {} },
+            selectionEvaluator: recorder.evaluate,
+            scheduleAfterAttachment: { $0() },
+            focusWebView: { _ in }
+        )
+        session.activate(page: page)
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+        navigationDelegate.webView?(webView, didFinish: nil)
+        session.panelDidHide()
+
+        navigationDelegate.webView?(webView, didStartProvisionalNavigation: nil)
+        session.panelDidShow()
+
+        XCTAssertEqual(recorder.restoreCount, 0)
+        XCTAssertEqual(session.state, .loading)
+    }
+
+    func testReloadInvalidatesCapturedSelectionBeforeRetainedShow() throws {
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = WKWebView()
+        webView.load(URLRequest(url: page.canonicalURL))
+        let recorder = SelectionEvaluationRecorder(
+            captureResult: .success(validSelectionSnapshotValue())
+        )
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            scheduleEviction: { _, _ in AnyCancellable {} },
+            selectionEvaluator: recorder.evaluate,
+            scheduleAfterAttachment: { $0() },
+            focusWebView: { _ in }
+        )
+        session.activate(page: page)
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+        navigationDelegate.webView?(webView, didFinish: nil)
+        session.panelDidHide()
+
+        session.reload()
+        session.panelDidShow()
+
+        XCTAssertEqual(recorder.restoreCount, 0)
+    }
+
+    func testNavigationWhileCapturePendingCancelsCaptureAndSuspendsImmediately() throws {
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = WKWebView()
+        webView.load(URLRequest(url: page.canonicalURL))
+        let container = NSView()
+        container.addSubview(webView)
+        let recorder = SelectionEvaluationRecorder()
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            scheduleEviction: { _, _ in AnyCancellable {} },
+            selectionEvaluator: recorder.evaluate,
+            scheduleAfterAttachment: { $0() },
+            focusWebView: { _ in }
+        )
+        session.activate(page: page)
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+        navigationDelegate.webView?(webView, didFinish: nil)
+        session.panelDidHide()
+
+        navigationDelegate.webView?(webView, didStartProvisionalNavigation: nil)
+
+        XCTAssertEqual(session.state, .suspended)
+        XCTAssertNil(webView.superview)
+
+        recorder.captureCompletion?(.success(validSelectionSnapshotValue()))
+        session.panelDidShow()
+
+        XCTAssertEqual(recorder.restoreCount, 0)
+        XCTAssertEqual(session.state, .loading)
+    }
+
+    func testPageReplacementNeverRestoresPriorPageSelection() throws {
+        let firstPage = try makePage(id: firstPageID, title: "Roadmap")
+        let secondPage = try makePage(id: secondPageID, title: "Notes")
+        let webView = WKWebView()
+        webView.load(URLRequest(url: firstPage.canonicalURL))
+        let recorder = SelectionEvaluationRecorder(
+            captureResult: .success(validSelectionSnapshotValue())
+        )
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            scheduleEviction: { _, _ in AnyCancellable {} },
+            selectionEvaluator: recorder.evaluate,
+            scheduleAfterAttachment: { $0() },
+            focusWebView: { _ in }
+        )
+        session.activate(page: firstPage)
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+        navigationDelegate.webView?(webView, didFinish: nil)
+        session.panelDidHide()
+
+        session.activate(page: secondPage)
+        session.panelDidShow()
+
+        XCTAssertEqual(recorder.restoreCount, 0)
+        XCTAssertEqual(session.activePage, secondPage)
+    }
+
+    func testEvictionNeverRestoresSelectionIntoReplacementWebView() throws {
+        var eviction: (@MainActor () -> Void)?
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = WKWebView()
+        webView.load(URLRequest(url: page.canonicalURL))
+        let recorder = SelectionEvaluationRecorder(
+            captureResult: .success(validSelectionSnapshotValue())
+        )
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            scheduleEviction: { _, action in
+                eviction = action
+                return AnyCancellable {}
+            },
+            selectionEvaluator: recorder.evaluate,
+            scheduleAfterAttachment: { $0() },
+            focusWebView: { _ in }
+        )
+        session.activate(page: page)
+        let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
+        navigationDelegate.webView?(webView, didFinish: nil)
+        session.panelDidHide()
+
+        eviction?()
+        session.panelDidShow()
+
+        XCTAssertFalse(session.webView === webView)
+        XCTAssertEqual(recorder.restoreCount, 0)
     }
 
     func testWarmPeriodEvictsAndCleansUpSuspendedWebView() throws {
@@ -789,6 +1108,8 @@ final class NotionWebSessionTests: XCTestCase {
 
         XCTAssertEqual(PiPChromeView.primaryActionAccessibilityLabel, "Quick Capture")
         XCTAssertEqual(PiPChromeView.primaryActionHelp, "Capture a note for Notion")
+        XCTAssertEqual(PiPChromeView.reloadAccessibilityLabel, "Re-pin current Notion page")
+        XCTAssertEqual(PiPChromeView.reloadHelp, "Re-pin the current Notion page")
         XCTAssertEqual(PiPChromeView.stashAccessibilityLabel, "Stash Notion PiP to Side")
         XCTAssertEqual(
             PiPChromeView.stashHelp,
@@ -800,5 +1121,58 @@ final class NotionWebSessionTests: XCTestCase {
         try NotionPageReference(
             validating: XCTUnwrap(URL(string: "https://www.notion.so/\(title)-\(id)"))
         )
+    }
+
+    private func validSelectionSnapshotValue() -> [String: Any] {
+        [
+            "version": 1,
+            "token": "selection-token",
+            "editablePath": [1, 2],
+            "anchorPath": [0],
+            "anchorOffset": 3,
+            "focusPath": [0],
+            "focusOffset": 7,
+        ]
+    }
+}
+
+private enum TestSelectionError: Error {
+    case evaluationFailed
+}
+
+@MainActor
+private final class SelectionEvaluationRecorder {
+    private(set) var evaluations: [NotionEditorSelectionEvaluation] = []
+    var captureCompletion: NotionEditorSelectionEvaluationCompletion?
+    var captureResult: Result<Any?, Error>?
+
+    var restoreCount: Int {
+        evaluations.reduce(into: 0) { count, evaluation in
+            if case .restore = evaluation {
+                count += 1
+            }
+        }
+    }
+
+    init(captureResult: Result<Any?, Error>? = nil) {
+        self.captureResult = captureResult
+    }
+
+    func evaluate(
+        _ webView: WKWebView,
+        _ evaluation: NotionEditorSelectionEvaluation,
+        _ completion: @escaping NotionEditorSelectionEvaluationCompletion
+    ) {
+        evaluations.append(evaluation)
+        switch evaluation {
+        case .capture:
+            if let captureResult {
+                completion(captureResult)
+            } else {
+                captureCompletion = completion
+            }
+        case .restore:
+            completion(.success(true))
+        }
     }
 }

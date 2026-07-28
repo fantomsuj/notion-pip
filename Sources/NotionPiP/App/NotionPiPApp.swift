@@ -108,7 +108,8 @@ private final class AppComposition {
         )
         let panelCoordinator = PiPPanelCoordinator(
             webSession: webSession,
-            commandModel: commandModel
+            commandModel: commandModel,
+            onReloadSavedPin: { actionRelay.reloadSavedPin() }
         )
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
@@ -120,6 +121,9 @@ private final class AppComposition {
             legacyCacheCleaner: FileSystemLegacyNativePageCacheCleaner(),
             initialServiceHealth: initialServiceHealth
         )
+        actionRelay.reloadSavedPinAction = { [weak runtime] in
+            runtime?.reloadSavedPin()
+        }
         let captureLifecycle: QuickCaptureLifecycleCoordinator?
         if let captureRepository, let destinationRepository, let deliveryScheduler {
             captureLifecycle = QuickCaptureLifecycleCoordinator(

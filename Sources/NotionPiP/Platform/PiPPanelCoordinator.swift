@@ -27,6 +27,7 @@ protocol PiPPanelCoordinating: AnyObject {
     var currentPage: NotionPageReference? { get }
     var isVisible: Bool { get }
     func show(page: NotionPageReference)
+    func reloadPinnedPage(_ page: NotionPageReference)
     func showCurrentPage() -> Bool
     func hide()
     func toggleCurrentPage() -> Bool
@@ -58,6 +59,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     convenience init(
         webSession: NotionWebSession = NotionWebSession(),
         commandModel: AppCommandModel = .noOp,
+        onReloadSavedPin: @escaping () -> Void = {},
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
         let stashHandle = PiPStashHandleController()
@@ -106,15 +108,19 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             self?.pageLoader.panelDidHide()
         }
 
-        panel.contentView = NSHostingView(
+        let contentView = NSHostingView(
             rootView: PiPChromeView(
                 webSession: webSession,
                 commandModel: commandModel,
+                onReloadSavedPin: onReloadSavedPin,
                 onStash: { [weak self] in
                     self?.stash(visibleFrames: NSScreen.screens.map(\.visibleFrame))
                 }
             )
         )
+        // The retained panel owns its geometry while SwiftUI swaps the WebView in and out.
+        contentView.sizingOptions = []
+        panel.contentView = contentView
     }
 
     init(
@@ -153,7 +159,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     func show(page: NotionPageReference) {
         let measurement = beginFirstPresentation()
         prepareInitialFrameIfNeeded()
-        if currentPage?.pageID != page.pageID {
+        if currentPage?.canonicalURL != page.canonicalURL {
             pageLoader.activate(page: page)
             currentPage = page
         } else {
@@ -165,6 +171,19 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         endFirstPresentation(measurement)
         pageLoader.panelDidShow()
         logger.notice("Panel show requested")
+    }
+
+    func reloadPinnedPage(_ page: NotionPageReference) {
+        let measurement = beginFirstPresentation()
+        prepareInitialFrameIfNeeded()
+        restoreStashedPanelFrame()
+        dismissStashHandle()
+        currentPage = page
+        panel.present()
+        endFirstPresentation(measurement)
+        pageLoader.panelDidShow()
+        pageLoader.reloadPinnedPage(page)
+        logger.notice("Pinned page reload requested")
     }
 
     func hide() {

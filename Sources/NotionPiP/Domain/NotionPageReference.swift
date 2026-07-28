@@ -33,12 +33,14 @@ public struct NotionPageReference: Equatable, Hashable, Sendable {
         let component = url.lastPathComponent
         let extraction = try Self.extractPageID(from: component)
 
+        guard let inputComponents = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw NotionPageReferenceError.missingPageID
+        }
+
         var canonicalComponents = URLComponents()
         canonicalComponents.scheme = "https"
         canonicalComponents.host = host == "app.notion.com" ? host : "www.notion.so"
-        canonicalComponents.path = host == "app.notion.com"
-            ? url.path
-            : "/\(component)"
+        canonicalComponents.percentEncodedPath = inputComponents.percentEncodedPath
 
         guard let canonicalURL = canonicalComponents.url else {
             throw NotionPageReferenceError.missingPageID
