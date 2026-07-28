@@ -4,6 +4,142 @@ import XCTest
 @testable import NotionPiP
 
 final class PageRepositoryTests: XCTestCase {
+    func testRecordVisitUpdatesActivePageAndKeepsOnlySevenUnpinnedRecents() async throws {
+        let repository = try PageRepository(container: makeContainer())
+        let pages = try (0..<8).map(page(number:))
+
+        for page in pages {
+            _ = try await repository.recordVisit(page)
+        }
+
+        let workingSet = try await repository.workingSet()
+        XCTAssertEqual(workingSet.activePage?.pageID, pages[7].pageID)
+        XCTAssertEqual(
+            workingSet.recentPages.map(\.pageID),
+            pages[1...7].reversed().map(\.pageID)
+        )
+    }
+
+    func testPinnedPageIsExcludedFromRecentsAndReturnsWhenUnpinned() async throws {
+        let clock = AdvancingPageClock(start: Date(timeIntervalSince1970: 1_000))
+        let repository = try PageRepository(container: makeContainer(), clock: clock)
+        let pinned = try page(number: 0)
+        let recent = try page(number: 1)
+
+        _ = try await repository.recordVisit(pinned)
+        _ = try await repository.setPinned(true, page: pinned)
+        _ = try await repository.recordVisit(recent)
+
+        var workingSet = try await repository.workingSet()
+        XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [pinned.pageID])
+        XCTAssertEqual(workingSet.recentPages.map(\.pageID), [recent.pageID])
+
+        _ = try await repository.setPinned(false, page: pinned)
+        workingSet = try await repository.workingSet()
+        XCTAssertTrue(workingSet.pinnedPages.isEmpty)
+        XCTAssertEqual(
+            workingSet.recentPages.map(\.pageID),
+            [recent.pageID, pinned.pageID]
+        )
+    }
+
+    func testEighthPinIsRejectedWithoutMutatingExistingPins() async throws {
+        let repository = try PageRepository(container: makeContainer())
+        let pages = try (0..<8).map(page(number:))
+        for page in pages.prefix(7) {
+            _ = try await repository.setPinned(true, page: page)
+        }
+
+        do {
+            _ = try await repository.setPinned(true, page: pages[7])
+            XCTFail("Expected the eighth pin to be rejected")
+        } catch {
+            XCTAssertEqual(error as? PageRepositoryError, .pinLimitReached(maximum: 7))
+        }
+
+        let workingSet = try await repository.workingSet()
+        XCTAssertEqual(Set(workingSet.pinnedPages.map(\.pageID)), Set(pages.prefix(7).map(\.pageID)))
+        XCTAssertFalse(workingSet.pinnedPages.contains { $0.pageID == pages[7].pageID })
+    }
+
+    func testFailedPinSaveRollsBackPinAndRecentMetadata() async throws {
+        let failure = FailNextPageSave()
+        let repository = try PageRepository(
+            container: makeContainer(),
+            clock: TestCaptureClock(Date(timeIntervalSince1970: 4_000)),
+            beforeSave: failure.check
+        )
+        let page = try page(number: 0)
+
+        failure.failNext()
+        do {
+            _ = try await repository.setPinned(true, page: page)
+            XCTFail("Expected injected pin save failure")
+        } catch is FailNextPageSave.ExpectedFailure {}
+
+        let workingSet = try await repository.workingSet()
+        XCTAssertTrue(workingSet.pinnedPages.isEmpty)
+        XCTAssertTrue(workingSet.recentPages.isEmpty)
+    }
+
+    func testRestorationOutsideWorkingSetIsPruned() async throws {
+        let repository = try PageRepository(container: makeContainer())
+        let retained = try page(number: 0)
+        let pruned = try page(number: 1)
+        _ = try await repository.recordVisit(retained)
+        _ = try await repository.saveRestoration(
+            try DurablePageRestoration(
+                pageID: retained.pageID,
+                validatingLastURL: retained.canonicalURL,
+                scrollX: 4,
+                scrollY: 80,
+                scrollProgress: 0.25,
+                updatedAt: Date(timeIntervalSince1970: 2_000)
+            )
+        )
+        _ = try await repository.saveRestoration(
+            try DurablePageRestoration(
+                pageID: pruned.pageID,
+                validatingLastURL: pruned.canonicalURL,
+                scrollX: 0,
+                scrollY: 10,
+                scrollProgress: 0.1,
+                updatedAt: Date(timeIntervalSince1970: 2_001)
+            )
+        )
+
+        let workingSet = try await repository.workingSet()
+        XCTAssertEqual(workingSet.restorations.map(\.pageID), [retained.pageID])
+        XCTAssertEqual(workingSet.restorations.first?.scrollY, 80)
+    }
+
+    func testWorkingSetSkipsCorruptRowsWithoutDiscardingValidRows() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let valid = try page(number: 0)
+        context.insert(
+            PinnedPageModel(
+                stableID: valid.pageID,
+                canonicalURL: valid.canonicalURL.absoluteString,
+                displayTitle: valid.displayTitle,
+                pinnedAt: Date(timeIntervalSince1970: 4_000)
+            )
+        )
+        context.insert(
+            RecentPageModel(
+                stableID: secondPageID,
+                canonicalURL: "https://example.com/not-notion",
+                displayTitle: "Corrupt",
+                visitedAt: Date(timeIntervalSince1970: 5_000)
+            )
+        )
+        try context.save()
+
+        let workingSet = try await PageRepository(container: container).workingSet()
+        XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [valid.pageID])
+        XCTAssertTrue(workingSet.recentPages.isEmpty)
+    }
+
     func testCaptureRepositoryAcceptsSharedContainer() throws {
         let repository = CaptureRepository(container: try makeContainer())
 
@@ -61,7 +197,7 @@ final class PageRepositoryTests: XCTestCase {
         XCTAssertEqual(draft?.revision, 2)
     }
 
-    func testReplacingCurrentPageKeepsOnlyLatestSelection() async throws {
+    func testReplacingCurrentPageRecordsVisitsWithoutImplicitlyPinning() async throws {
         let repository = try PageRepository(container: makeContainer())
         let first = try page(slug: "First", id: firstPageID)
         let second = try page(slug: "Second", id: secondPageID)
@@ -70,9 +206,10 @@ final class PageRepositoryTests: XCTestCase {
         _ = try await repository.replaceCurrent(with: second)
 
         let current = try await repository.currentPinnedPage()
-        let pinnedPageIDs = try await repository.pinnedPages().map(\.pageID)
         XCTAssertEqual(current?.pageID, secondPageID)
-        XCTAssertEqual(pinnedPageIDs, [secondPageID])
+        let workingSet = try await repository.workingSet()
+        XCTAssertTrue(workingSet.pinnedPages.isEmpty)
+        XCTAssertEqual(workingSet.recentPages.map(\.pageID), [secondPageID, firstPageID])
     }
 
     func testCurrentPageSurvivesReopeningOnDiskStore() async throws {
@@ -96,7 +233,7 @@ final class PageRepositoryTests: XCTestCase {
         XCTAssertEqual(current?.canonicalURL, page.canonicalURL)
     }
 
-    func testCorruptStoredCurrentPageThrowsInvalidStoredValue() async throws {
+    func testCorruptLegacyPinDoesNotBootstrapAnActivePage() async throws {
         let container = try makeContainer()
         let context = ModelContext(container)
         context.insert(
@@ -110,18 +247,11 @@ final class PageRepositoryTests: XCTestCase {
         try context.save()
         let repository = PageRepository(container: container)
 
-        do {
-            _ = try await repository.currentPinnedPage()
-            XCTFail("Expected corrupt stored page to throw")
-        } catch {
-            XCTAssertEqual(
-                error as? CaptureRepositoryError,
-                .invalidStoredValue("not a Notion URL")
-            )
-        }
+        let current = try await repository.currentPinnedPage()
+        XCTAssertNil(current)
     }
 
-    func testStoredPageIDMismatchThrowsInvalidStoredValue() async throws {
+    func testLegacyPinWithMismatchedPageIDDoesNotBootstrapAnActivePage() async throws {
         let container = try makeContainer()
         let context = ModelContext(container)
         let mismatchedPage = try page(slug: "Mismatch", id: secondPageID)
@@ -136,15 +266,8 @@ final class PageRepositoryTests: XCTestCase {
         try context.save()
         let repository = PageRepository(container: container)
 
-        do {
-            _ = try await repository.currentPinnedPage()
-            XCTFail("Expected mismatched stored page ID to throw")
-        } catch {
-            XCTAssertEqual(
-                error as? CaptureRepositoryError,
-                .invalidStoredValue(mismatchedPage.canonicalURL.absoluteString)
-            )
-        }
+        let current = try await repository.currentPinnedPage()
+        XCTAssertNil(current)
     }
 
     func testFailedReplacementRollsBackToPreviousCurrentPage() async throws {
@@ -165,10 +288,10 @@ final class PageRepositoryTests: XCTestCase {
         } catch is FailNextPageSave.ExpectedFailure {}
 
         let current = try await repository.currentPinnedPage()
-        let pinnedPageIDs = try await repository.pinnedPages().map(\.pageID)
         XCTAssertEqual(current?.pageID, original.pageID)
         XCTAssertEqual(current?.canonicalURL, original.canonicalURL)
-        XCTAssertEqual(pinnedPageIDs, [original.pageID])
+        let recentPageIDs = try await repository.recentPages().map(\.pageID)
+        XCTAssertEqual(recentPageIDs, [original.pageID])
     }
 
     func testFailedRecentInsertIsRolledBackBeforeLaterPinSave() async throws {
@@ -198,8 +321,29 @@ final class PageRepositoryTests: XCTestCase {
         try NotionPageReference(validating: XCTUnwrap(URL(string: "https://www.notion.so/\(slug)-\(id)")))
     }
 
+    private func page(number: Int) throws -> NotionPageReference {
+        let id = String(format: "%032x", number + 1)
+        return try page(slug: "Page-\(number)", id: id)
+    }
+
     private var firstPageID: String { "0123456789abcdef0123456789abcdef" }
     private var secondPageID: String { "fedcba9876543210fedcba9876543210" }
+}
+
+private final class AdvancingPageClock: CaptureClock, @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: Date
+
+    init(start: Date) {
+        current = start
+    }
+
+    func now() -> Date {
+        lock.withLock {
+            defer { current = current.addingTimeInterval(1) }
+            return current
+        }
+    }
 }
 
 private final class FailNextPageSave: @unchecked Sendable {
