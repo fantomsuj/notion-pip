@@ -15,6 +15,9 @@ Pin the Notion page you are living in and keep it close without turning it into 
 - Create a fresh Notion page from the `+` button; it becomes the new pinned page automatically.
 - Stash the panel against the nearest screen edge and restore it from its slim tab, the menu bar, or `Command-Shift-P`.
 - Keep working in the real, embedded Notion page—not a screenshot or a simplified native imitation.
+- Hover at the panel’s top edge and open the page switcher to resume one of seven
+  pinned favorites or seven recent pages. Search is local and works with partial,
+  out-of-order-free character matches.
 - Use Quick Capture to get a thought into your workspace without losing the thread of what you were doing.
 
 The app is intentionally a menu-bar accessory, so you will find it in the menu bar rather than the Dock.
@@ -24,6 +27,14 @@ The app is intentionally a menu-bar accessory, so you will find it in the menu b
 One of my favorite things about this project is its combination of native macOS behavior and the full Notion experience. Notion PiP is written in Swift 6.2 for macOS 14+ and uses WebKit’s `WKWebView` to host the live Notion app in a native floating panel. That means the panel gets to feel at home on the Mac while the page remains the actual Notion editor, with its familiar session and navigation.
 
 Around that WebKit core are the small native details that make a difference: a menu-bar home, an always-available panel, keyboard control, safe Notion URL handoff, persistence for your pinned page, and a Quick Capture flow.
+
+The page switcher keeps one live `WKWebView`, not one view per page. During the
+current app session, switching pages preserves WebKit interaction state such as
+navigation history when WebKit can restore it. Across launches—or after memory
+pressure discards that opaque state—the app restores the last validated Notion
+URL and makes a best-effort, two-second attempt to restore scroll position. If
+that fallback cannot load, it returns to the page’s canonical URL and natural
+scroll position.
 
 ## Why I love building with Notion
 

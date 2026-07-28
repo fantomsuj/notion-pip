@@ -7,16 +7,23 @@ struct PiPChromeView: View {
     static let primaryActionHelp = "Capture a note for Notion"
     static let stashAccessibilityLabel = "Stash Notion PiP to Side"
     static let stashHelp = "Move the Notion PiP to the nearest screen edge"
+    static let pageSwitcherAccessibilityLabel = "Switch Notion page"
+    static let topControlsHeight: CGFloat = 32
+    static let topControlsRevealHeight: CGFloat = 8
 
     @ObservedObject var webSession: NotionWebSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @State private var isHoveringTopEdge = false
+    @State private var presentsPageSwitcher = false
+    @ObservedObject var pageSwitcherController: PageSwitcherController
     let commandModel: AppCommandModel
     let onStash: () -> Void
+    let onPageSwitcherSelection: (PageSwitcherSelection) -> Void
     var showsTopControls: Bool {
         Self.shouldShowTopControls(
-            isTypingInPage: webSession.isTypingInPage,
+            isHoveringTopEdge: isHoveringTopEdge,
             isVoiceOverEnabled: voiceOverEnabled,
             isSwitchControlEnabled: switchControlEnabled,
             isFullKeyboardAccessEnabled: NSApplication.shared.isFullKeyboardAccessEnabled
@@ -24,15 +31,19 @@ struct PiPChromeView: View {
     }
 
     static func shouldShowTopControls(
-        isTypingInPage: Bool,
+        isHoveringTopEdge: Bool,
         isVoiceOverEnabled: Bool,
         isSwitchControlEnabled: Bool,
         isFullKeyboardAccessEnabled: Bool
     ) -> Bool {
-        !isTypingInPage
+        isHoveringTopEdge
             || isVoiceOverEnabled
             || isSwitchControlEnabled
             || isFullKeyboardAccessEnabled
+    }
+
+    static func topControlsReservedHeight(isVisible: Bool) -> CGFloat {
+        isVisible ? topControlsHeight : 0
     }
 
     static func shouldHostNotionWebView(for session: NotionWebSession) -> Bool {
@@ -41,12 +52,16 @@ struct PiPChromeView: View {
 
     init(
         webSession: NotionWebSession,
+        pageSwitcherController: PageSwitcherController = PageSwitcherController(),
         commandModel: AppCommandModel = .noOp,
-        onStash: @escaping () -> Void = {}
+        onStash: @escaping () -> Void = {},
+        onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in }
     ) {
         self.webSession = webSession
+        self.pageSwitcherController = pageSwitcherController
         self.commandModel = commandModel
         self.onStash = onStash
+        self.onPageSwitcherSelection = onPageSwitcherSelection
     }
 
     var body: some View {
@@ -70,6 +85,25 @@ struct PiPChromeView: View {
                     .disabled(!(commandModel.command(for: Self.primaryActionID)?.isEnabled ?? false))
                     .accessibilityLabel(Self.primaryActionAccessibilityLabel)
                     .help(Self.primaryActionHelp)
+
+                    Button {
+                        presentsPageSwitcher.toggle()
+                    } label: {
+                        Image(systemName: "rectangle.stack")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Self.pageSwitcherAccessibilityLabel)
+                    .help("Resume a pinned or recent Notion page")
+                    .popover(isPresented: $presentsPageSwitcher, arrowEdge: .top) {
+                        PageSwitcherView(
+                            controller: pageSwitcherController,
+                            onDismiss: { presentsPageSwitcher = false },
+                            onSelect: { selection in
+                                presentsPageSwitcher = false
+                                onPageSwitcherSelection(selection)
+                            }
+                        )
+                    }
 
                     Button(action: webSession.reload) {
                         Image(systemName: "arrow.clockwise")
@@ -98,18 +132,17 @@ struct PiPChromeView: View {
             }
             .contentShape(Rectangle())
             .onHover { isHovering in
-                if isHovering {
-                    webSession.revealTopControls()
-                }
+                isHoveringTopEdge = isHovering
             }
-            .animation(
-                reduceMotion ? nil : .easeOut(duration: 0.16),
-                value: showsTopControls
-            )
             .padding(.horizontal, DesignTokens.Spacing.control)
-            .frame(height: 32)
+            .frame(
+                height: Self.topControlsReservedHeight(isVisible: showsTopControls)
+            )
+            .clipped()
 
-            Divider()
+            if showsTopControls {
+                Divider()
+            }
 
             if case .failed = webSession.state {
                 HStack(spacing: DesignTokens.Spacing.control) {
@@ -140,5 +173,22 @@ struct PiPChromeView: View {
             }
         }
         .background(DesignTokens.Colors.background)
+        .overlay(alignment: .top) {
+            if !showsTopControls {
+                Color.clear
+                    .frame(height: Self.topControlsRevealHeight)
+                    .contentShape(Rectangle())
+                    .onHover { isHovering in
+                        if isHovering {
+                            isHoveringTopEdge = true
+                        }
+                    }
+                    .accessibilityHidden(true)
+            }
+        }
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 0.16),
+            value: showsTopControls
+        )
     }
 }

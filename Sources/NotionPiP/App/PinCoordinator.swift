@@ -26,15 +26,22 @@ final class PinCoordinator {
     }
 
     func pin(page: NotionPageReference) {
+        pin(page: page, restoration: nil)
+    }
+
+    func pin(
+        page: NotionPageReference,
+        restoration: DurablePageRestoration?
+    ) {
         guard let currentPage = panelCoordinator.currentPage else {
-            panelCoordinator.show(page: page)
+            panelCoordinator.show(page: page, restoration: restoration)
             return
         }
 
         if currentPage.pageID == page.pageID {
             panelCoordinator.show(page: page)
         } else {
-            panelCoordinator.replace(page: page)
+            panelCoordinator.replace(page: page, restoration: restoration)
         }
     }
 

@@ -106,9 +106,13 @@ private final class AppComposition {
             settings: { actionRelay.showSettings() },
             quit: { actionRelay.quit() }
         )
+        let pageSwitcherController = PageSwitcherController(store: pageRepository)
+        let pageSwitcherRelay = PageSwitcherSelectionRelay()
         let panelCoordinator = PiPPanelCoordinator(
             webSession: webSession,
-            commandModel: commandModel
+            pageSwitcherController: pageSwitcherController,
+            commandModel: commandModel,
+            onPageSwitcherSelection: pageSwitcherRelay.perform
         )
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
@@ -141,6 +145,26 @@ private final class AppComposition {
         }
         webSession.onPageResolved = { [weak runtime] page in
             runtime?.activate(page: page, source: .notionWebSession)
+        }
+        webSession.onRestorationCaptured = { restoration in
+            guard let pageRepository else { return }
+            Task {
+                _ = try? await pageRepository.saveRestoration(restoration)
+            }
+        }
+        pageSwitcherController.onWorkingSetChanged = { [weak webSession] snapshot in
+            let pageIDs = Set(
+                (snapshot.pinnedPages + snapshot.recentPages).map(\.pageID)
+            )
+            webSession?.evictInteractionSnapshots(retaining: pageIDs)
+        }
+        pageSwitcherRelay.handler = { [weak runtime] selection in
+            guard case let .activate(page, restoration) = selection else { return }
+            runtime?.activate(
+                page: page,
+                source: .pageSwitcher,
+                restoration: restoration
+            )
         }
         let quickCapturePresenter = LazyAppWindowPresenter(
             makePresenter: {
@@ -180,5 +204,14 @@ private final class AppComposition {
         any ApplicationTerminationParticipating
     )? {
         quickCapturePresenter.terminationParticipant
+    }
+}
+
+@MainActor
+private final class PageSwitcherSelectionRelay {
+    var handler: (PageSwitcherSelection) -> Void = { _ in }
+
+    func perform(_ selection: PageSwitcherSelection) {
+        handler(selection)
     }
 }
