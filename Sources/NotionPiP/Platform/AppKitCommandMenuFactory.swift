@@ -13,7 +13,7 @@ enum AppKitCommandMenuFactory {
             action: nil,
             keyEquivalent: ""
         )
-        contextualItem.tag = StatusMenuContextCommand.menuItemTag
+        contextualItem.tag = contextualCommand.menuItemTag
         menu.insertItem(contextualItem, at: 0)
         return menu
     }

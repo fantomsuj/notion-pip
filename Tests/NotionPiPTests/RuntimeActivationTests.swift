@@ -240,7 +240,7 @@ final class RuntimeActivationTests: XCTestCase {
         let runtime = makeRuntime(panel: panel)
         runtime.bind(settingsWindowPresenter: settings)
 
-        runtime.performStatusMenuContextCommand()
+        runtime.performStatusMenuContextCommand(.openSettings)
 
         XCTAssertEqual(settings.showCount, 1)
         XCTAssertFalse(panel.isVisible)
@@ -253,7 +253,7 @@ final class RuntimeActivationTests: XCTestCase {
         runtime.activate(page: page, source: .typedURL)
         panel.simulateStashedState()
 
-        runtime.performStatusMenuContextCommand()
+        runtime.performStatusMenuContextCommand(.show)
 
         XCTAssertTrue(panel.isVisible)
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
@@ -265,14 +265,14 @@ final class RuntimeActivationTests: XCTestCase {
         let page = try makePage(id: firstPageID, title: "Roadmap")
         runtime.activate(page: page, source: .typedURL)
 
-        runtime.performStatusMenuContextCommand()
+        runtime.performStatusMenuContextCommand(.stash)
 
         XCTAssertFalse(panel.isVisible)
         XCTAssertTrue(panel.isStashed)
         XCTAssertEqual(panel.currentPage, page)
     }
 
-    func testStatusMenuContextActionFallsBackToSettingsWhenRuntimeAndPanelDisagree() throws {
+    func testCapturedOpenSettingsCommandStillOpensSettingsAfterPageActivation() throws {
         let panel = RuntimePanelCoordinator()
         let settings = RuntimeSettingsWindowPresenter()
         let runtime = makeRuntime(panel: panel)
@@ -281,12 +281,26 @@ final class RuntimeActivationTests: XCTestCase {
             page: try makePage(id: firstPageID, title: "Roadmap"),
             source: .typedURL
         )
-        panel.loseCurrentPage()
 
-        runtime.performStatusMenuContextCommand()
+        runtime.performStatusMenuContextCommand(.openSettings)
 
         XCTAssertEqual(settings.showCount, 1)
+        XCTAssertTrue(panel.isVisible)
+    }
+
+    func testCapturedStashCommandDoesNotRestorePanelIfStateChangedWhileMenuWasOpen() throws {
+        let panel = RuntimePanelCoordinator()
+        let runtime = makeRuntime(panel: panel)
+        runtime.activate(
+            page: try makePage(id: firstPageID, title: "Roadmap"),
+            source: .typedURL
+        )
+        panel.simulateStashedState()
+
+        runtime.performStatusMenuContextCommand(.stash)
+
         XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(panel.isStashed)
     }
 
     func testDisconnectAndReconnectPreventsLateSearchFromReplacingClearedResults() async throws {

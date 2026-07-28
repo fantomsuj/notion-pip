@@ -99,7 +99,7 @@ final class AppCommandTests: XCTestCase {
             Array(commandItems.dropFirst().map(\.title)),
             model.commands.map(\.title)
         )
-        XCTAssertEqual(commandItems.first?.tag, StatusMenuContextCommand.menuItemTag)
+        XCTAssertEqual(commandItems.first?.tag, StatusMenuContextCommand.stash.menuItemTag)
     }
 
     private func makeModel(events: @escaping (AppCommandID) -> Void) -> AppCommandModel {

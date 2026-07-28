@@ -1,12 +1,18 @@
 import AppKit
 import Combine
 
-enum StatusMenuContextCommand: Equatable, Sendable {
-    case stash
-    case show
-    case openSettings
+enum StatusMenuContextCommand: Int, Equatable, Sendable {
+    case stash = -1
+    case show = -2
+    case openSettings = -3
 
-    static let menuItemTag = -1
+    var menuItemTag: Int {
+        rawValue
+    }
+
+    init?(menuItemTag: Int) {
+        self.init(rawValue: menuItemTag)
+    }
 
     init(presentationState: PiPPresentationState) {
         switch presentationState {
@@ -91,7 +97,7 @@ final class StatusItemController: NSObject {
         )
         for item in menu.items where !item.isSeparatorItem {
             item.target = self
-            item.action = item.tag == StatusMenuContextCommand.menuItemTag
+            item.action = StatusMenuContextCommand(menuItemTag: item.tag) != nil
                 ? #selector(performContextualCommand(_:))
                 : #selector(performCommand(_:))
         }
@@ -110,6 +116,7 @@ final class StatusItemController: NSObject {
 
     @objc
     private func performContextualCommand(_ sender: NSMenuItem) {
-        runtime.performStatusMenuContextCommand()
+        guard let command = StatusMenuContextCommand(menuItemTag: sender.tag) else { return }
+        runtime.performStatusMenuContextCommand(command)
     }
 }

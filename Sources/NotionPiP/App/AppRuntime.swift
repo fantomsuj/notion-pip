@@ -230,10 +230,16 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         updateEffectiveMenuBarIconVisibility()
     }
 
-    func performStatusMenuContextCommand() {
-        guard pinCoordinator.stashOrRestoreCurrentPage() else {
+    func performStatusMenuContextCommand(_ command: StatusMenuContextCommand) {
+        switch command {
+        case .openSettings:
             settingsWindowPresenter?.show()
-            return
+        case .stash:
+            guard pipPresentationState == .visible else { return }
+            _ = pinCoordinator.stashOrRestoreCurrentPage()
+        case .show:
+            guard pipPresentationState == .stashed else { return }
+            _ = pinCoordinator.stashOrRestoreCurrentPage()
         }
     }
 
