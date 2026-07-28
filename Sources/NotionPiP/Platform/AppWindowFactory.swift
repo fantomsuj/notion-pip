@@ -90,12 +90,20 @@ enum AppWindowFactory {
         )
     }
 
-    static func makeSettings(runtime: AppRuntime) -> AppWindowPresenter {
+    static func makeSettings(
+        runtime: AppRuntime,
+        panelSizeController: PanelSizeController
+    ) -> AppWindowPresenter {
         AppWindowPresenter(
             window: makeWindow(
                 role: .settings,
                 title: "Notion PiP Settings",
-                content: AnyView(SettingsView(runtime: runtime))
+                content: AnyView(
+                    SettingsView(
+                        runtime: runtime,
+                        panelSizeController: panelSizeController
+                    )
+                )
             )
         )
     }

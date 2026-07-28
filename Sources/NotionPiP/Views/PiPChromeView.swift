@@ -21,6 +21,7 @@ struct PiPChromeView: View {
     @State private var presentsPageSwitcher = false
     @ObservedObject var pageSwitcherController: PageSwitcherController
     let commandModel: AppCommandModel
+    let panelSizeController: PanelSizeController?
     let onReloadSavedPin: () -> Void
     let onStash: () -> Void
     let onPageSwitcherSelection: (PageSwitcherSelection) -> Void
@@ -57,6 +58,7 @@ struct PiPChromeView: View {
         webSession: NotionWebSession,
         pageSwitcherController: PageSwitcherController = PageSwitcherController(),
         commandModel: AppCommandModel = .noOp,
+        panelSizeController: PanelSizeController? = nil,
         onReloadSavedPin: @escaping () -> Void = {},
         onStash: @escaping () -> Void = {},
         onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in }
@@ -64,6 +66,7 @@ struct PiPChromeView: View {
         self.webSession = webSession
         self.pageSwitcherController = pageSwitcherController
         self.commandModel = commandModel
+        self.panelSizeController = panelSizeController
         self.onReloadSavedPin = onReloadSavedPin
         self.onStash = onStash
         self.onPageSwitcherSelection = onPageSwitcherSelection
@@ -132,7 +135,10 @@ struct PiPChromeView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Open Notion page in browser")
 
-                    PiPAppCommandMenu(commandModel: commandModel)
+                    PiPAppCommandMenu(
+                        commandModel: commandModel,
+                        panelSizeController: panelSizeController
+                    )
 
                     Button(action: onStash) {
                         Image(systemName: "arrow.down.right.and.arrow.up.left")
@@ -177,7 +183,7 @@ struct PiPChromeView: View {
             }
 
             if Self.shouldHostNotionWebView(for: webSession),
-               let webView = webSession.webView
+                let webView = webSession.webView
             {
                 NotionWebView(webView: webView)
             } else {

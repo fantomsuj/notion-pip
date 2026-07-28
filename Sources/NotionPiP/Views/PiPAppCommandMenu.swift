@@ -3,6 +3,7 @@ import SwiftUI
 
 struct PiPAppCommandMenu: View {
     let commandModel: AppCommandModel
+    var panelSizeController: PanelSizeController? = nil
 
     var commandIDs: [AppCommandID] {
         commandModel.commands.map(\.id)
@@ -19,6 +20,10 @@ struct PiPAppCommandMenu: View {
                 ForEach(group.commands, id: \.id) { command in
                     commandButton(command)
                 }
+            }
+            if let panelSizeController {
+                Divider()
+                PanelSizeMenu(controller: panelSizeController)
             }
         } label: {
             Image(systemName: symbolName)

@@ -5,7 +5,37 @@ struct ScreenGeometry: Equatable {
     let visibleFrame: CGRect
 }
 
+struct PanelFrameAnchor: Equatable {
+    enum HorizontalEdge: Equatable {
+        case left
+        case right
+    }
+
+    enum VerticalEdge: Equatable {
+        case bottom
+        case top
+    }
+
+    let horizontalEdge: HorizontalEdge
+    let horizontalInset: CGFloat
+    let verticalEdge: VerticalEdge
+    let verticalInset: CGFloat
+}
+
+struct PanelFramePlacement: Equatable {
+    /// The frame that can currently be shown on the selected display.
+    let frame: CGRect
+
+    /// The user's requested content size, even when `frame` had to be made smaller.
+    let preferredContentSize: CGSize
+
+    /// The edge relationship captured before any temporary size clamping.
+    let anchor: PanelFrameAnchor?
+}
+
 enum PanelFramePolicy {
+    /// Clamps an existing window frame. Prefer `placement` when the input size is
+    /// a content size so window chrome is included before clamping.
     static func clamped(
         _ frame: CGRect,
         visibleFrames: [CGRect],
@@ -29,6 +59,81 @@ enum PanelFramePolicy {
         )
     }
 
+    /// Resolves a preferred content size into the effective window frame that
+    /// can be displayed now.
+    ///
+    /// The preferred size and captured anchor are returned unchanged when the
+    /// effective frame must be temporarily clamped. Passing the returned anchor
+    /// to a later call restores the preferred size and placement when a larger
+    /// display becomes available.
+    static func placement(
+        preferredContentSize: CGSize,
+        anchoredTo currentFrame: CGRect,
+        visibleFrames: [CGRect],
+        minimumContentSize: CGSize = .zero,
+        preserving anchor: PanelFrameAnchor? = nil,
+        frameForContentRect: (CGRect) -> CGRect
+    ) -> PanelFramePlacement {
+        let preferredFrameSize = frameSize(
+            forContentSize: preferredContentSize,
+            minimumContentSize: minimumContentSize,
+            frameForContentRect: frameForContentRect
+        )
+
+        guard
+            let targetFrame = targetVisibleFrame(
+                for: currentFrame,
+                from: visibleFrames
+            )
+        else {
+            return PanelFramePlacement(
+                frame: CGRect(origin: currentFrame.origin, size: preferredFrameSize),
+                preferredContentSize: preferredContentSize,
+                anchor: anchor
+            )
+        }
+
+        let resolvedAnchor =
+            anchor
+            ?? nearestAnchor(
+                for: currentFrame,
+                in: targetFrame
+            )
+        let preferredFrame = frame(
+            of: preferredFrameSize,
+            anchoredBy: resolvedAnchor,
+            in: targetFrame
+        )
+
+        return PanelFramePlacement(
+            frame: clamped(preferredFrame, visibleFrames: [targetFrame]),
+            preferredContentSize: preferredContentSize,
+            anchor: resolvedAnchor
+        )
+    }
+
+    static func frameSize(
+        forContentSize contentSize: CGSize,
+        minimumContentSize: CGSize = .zero,
+        frameForContentRect: (CGRect) -> CGRect
+    ) -> CGSize {
+        let effectiveContentSize = CGSize(
+            width: max(contentSize.width, minimumContentSize.width),
+            height: max(contentSize.height, minimumContentSize.height)
+        )
+        return frameForContentRect(
+            CGRect(origin: .zero, size: effectiveContentSize)
+        ).size
+    }
+
+    static func contentSize(
+        forFrame frame: CGRect,
+        contentRectForFrameRect: (CGRect) -> CGRect
+    ) -> CGSize {
+        contentRectForFrameRect(frame).size
+    }
+
+    /// Legacy frame-size entry point retained for existing callers.
     static func initialFrame(
         size: CGSize,
         minimumSize: CGSize = .zero,
@@ -36,8 +141,9 @@ enum PanelFramePolicy {
         screens: [ScreenGeometry],
         inset: CGFloat = 24
     ) -> CGRect? {
-        guard let screen = screens.first(where: { $0.frame.contains(pointerLocation) })
-            ?? screens.first
+        guard
+            let screen = screens.first(where: { $0.frame.contains(pointerLocation) })
+                ?? screens.first
         else {
             return nil
         }
@@ -55,6 +161,27 @@ enum PanelFramePolicy {
         )
     }
 
+    static func initialFrame(
+        contentSize: CGSize,
+        minimumContentSize: CGSize = .zero,
+        pointerLocation: CGPoint,
+        screens: [ScreenGeometry],
+        inset: CGFloat = 24,
+        frameForContentRect: (CGRect) -> CGRect
+    ) -> CGRect? {
+        let convertedFrameSize = frameSize(
+            forContentSize: contentSize,
+            minimumContentSize: minimumContentSize,
+            frameForContentRect: frameForContentRect
+        )
+        return initialFrame(
+            size: convertedFrameSize,
+            pointerLocation: pointerLocation,
+            screens: screens,
+            inset: inset
+        )
+    }
+
     static func targetVisibleFrame(for frame: CGRect, from visibleFrames: [CGRect]) -> CGRect? {
         visibleFrames.max { first, second in
             let firstIntersection = intersectionArea(of: frame, and: first)
@@ -66,6 +193,43 @@ enum PanelFramePolicy {
             return squaredDistance(from: frame.center, to: first.center)
                 > squaredDistance(from: frame.center, to: second.center)
         }
+    }
+
+    static func nearestAnchor(
+        for frame: CGRect,
+        in visibleFrame: CGRect
+    ) -> PanelFrameAnchor {
+        let leftInset = frame.minX - visibleFrame.minX
+        let rightInset = visibleFrame.maxX - frame.maxX
+        let bottomInset = frame.minY - visibleFrame.minY
+        let topInset = visibleFrame.maxY - frame.maxY
+
+        let horizontalEdge: PanelFrameAnchor.HorizontalEdge
+        let horizontalInset: CGFloat
+        if leftInset < rightInset {
+            horizontalEdge = .left
+            horizontalInset = leftInset
+        } else {
+            horizontalEdge = .right
+            horizontalInset = rightInset
+        }
+
+        let verticalEdge: PanelFrameAnchor.VerticalEdge
+        let verticalInset: CGFloat
+        if bottomInset < topInset {
+            verticalEdge = .bottom
+            verticalInset = bottomInset
+        } else {
+            verticalEdge = .top
+            verticalInset = topInset
+        }
+
+        return PanelFrameAnchor(
+            horizontalEdge: horizontalEdge,
+            horizontalInset: horizontalInset,
+            verticalEdge: verticalEdge,
+            verticalInset: verticalInset
+        )
     }
 
     private static func normalized(_ frame: CGRect, minimumSize: CGSize) -> CGRect {
@@ -88,10 +252,32 @@ enum PanelFramePolicy {
         let deltaY = first.y - second.y
         return deltaX * deltaX + deltaY * deltaY
     }
+
+    private static func frame(
+        of size: CGSize,
+        anchoredBy anchor: PanelFrameAnchor,
+        in visibleFrame: CGRect
+    ) -> CGRect {
+        let x =
+            switch anchor.horizontalEdge {
+            case .left:
+                visibleFrame.minX + anchor.horizontalInset
+            case .right:
+                visibleFrame.maxX - anchor.horizontalInset - size.width
+            }
+        let y =
+            switch anchor.verticalEdge {
+            case .bottom:
+                visibleFrame.minY + anchor.verticalInset
+            case .top:
+                visibleFrame.maxY - anchor.verticalInset - size.height
+            }
+        return CGRect(origin: CGPoint(x: x, y: y), size: size)
+    }
 }
 
-private extension CGRect {
-    var center: CGPoint {
+extension CGRect {
+    fileprivate var center: CGPoint {
         CGPoint(x: midX, y: midY)
     }
 }

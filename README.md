@@ -18,6 +18,8 @@ Pin the Notion page you are living in and keep it close without turning it into 
 - Hover at the panel’s top edge and open the page switcher to resume one of seven
   pinned favorites or seven recent pages. Search is local and works with partial,
   out-of-order-free character matches.
+- Save device-local panel size presets in Settings and apply them from the PiP
+  or menu-bar menus without reloading the live Notion page.
 - Use Quick Capture to get a thought into your workspace without losing the thread of what you were doing.
 
 The app intentionally runs as an accessory rather than appearing in the Dock. Its menu-bar icon is shown by default, and you can turn it off in Settings while continuing to use the edge handle and global shortcut.
