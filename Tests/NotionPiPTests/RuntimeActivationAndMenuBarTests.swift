@@ -33,7 +33,7 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
     }
 
-    func testShortcutShowsHiddenPinnedPanelWithoutRepinningOrReadingPasteboard() throws {
+    func testShortcutRestoresStashedPinnedPanelWithoutRepinningOrReadingPasteboard() throws {
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
         let pasteboard = RuntimePasteboard(
@@ -48,7 +48,7 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         runtime.activate(page: page, source: .typedURL)
-        panel.hide()
+        panel.simulateStashedState()
         runtime.start()
 
         shortcut.handler?()
@@ -140,6 +140,34 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertNotNil(shortcut.handler)
     }
 
+    func testShortcutFailureForcesHiddenMenuBarIconWithoutChangingSavedPreference() throws {
+        let suiteName = "RuntimeMenuBarPreferenceTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        let preferenceStore = MenuBarIconPreferenceStore(defaults: defaults)
+        preferenceStore.save(false)
+        let shortcut = RuntimeShortcutRegistrar(failuresRemaining: 1)
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            shortcutRegistrar: shortcut,
+            menuBarIconPreferenceStore: preferenceStore
+        )
+
+        runtime.start()
+
+        XCTAssertFalse(runtime.savedMenuBarIconVisibility)
+        XCTAssertTrue(runtime.effectiveMenuBarIconVisibility)
+        XCTAssertTrue(runtime.isMenuBarIconVisibilityForced)
+        XCTAssertFalse(preferenceStore.load())
+
+        runtime.retryRecovery(for: .globalShortcutUnavailable)
+
+        XCTAssertFalse(runtime.savedMenuBarIconVisibility)
+        XCTAssertFalse(runtime.effectiveMenuBarIconVisibility)
+        XCTAssertFalse(runtime.isMenuBarIconVisibilityForced)
+        XCTAssertFalse(preferenceStore.load())
+    }
+
     func testInitialPersistentStoreFailureIsPublished() {
         let runtime = makeRuntime(
             panel: RuntimePanelCoordinator(),
@@ -200,44 +228,45 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertEqual(panel.replacedPages, [created])
     }
 
-    func testMenuBarActivationWithoutCurrentPageShowsSettings() {
+    func testStatusMenuContextActionWithoutCurrentPageShowsSettings() {
         let panel = RuntimePanelCoordinator()
         let settings = RuntimeSettingsWindowPresenter()
         let runtime = makeRuntime(panel: panel)
         runtime.bind(settingsWindowPresenter: settings)
 
-        runtime.handleMenuBarActivation()
+        runtime.performStatusMenuContextCommand(.openSettings)
 
         XCTAssertEqual(settings.showCount, 1)
         XCTAssertFalse(panel.isVisible)
     }
 
-    func testMenuBarActivationShowsHiddenCurrentPanelWithoutRepinning() throws {
+    func testStatusMenuContextActionRestoresStashedPanelWithoutRepinning() throws {
         let panel = RuntimePanelCoordinator()
         let runtime = makeRuntime(panel: panel)
         let page = try makePage(id: firstPageID, title: "Roadmap")
         runtime.activate(page: page, source: .typedURL)
-        panel.hide()
+        panel.simulateStashedState()
 
-        runtime.handleMenuBarActivation()
+        runtime.performStatusMenuContextCommand(.show)
 
         XCTAssertTrue(panel.isVisible)
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
     }
 
-    func testMenuBarActivationHidesVisibleCurrentPanel() throws {
+    func testStatusMenuContextActionStashesVisibleCurrentPanel() throws {
         let panel = RuntimePanelCoordinator()
         let runtime = makeRuntime(panel: panel)
         let page = try makePage(id: firstPageID, title: "Roadmap")
         runtime.activate(page: page, source: .typedURL)
 
-        runtime.handleMenuBarActivation()
+        runtime.performStatusMenuContextCommand(.stash)
 
         XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(panel.isStashed)
         XCTAssertEqual(panel.currentPage, page)
     }
 
-    func testMenuBarActivationFallsBackToSettingsWhenRuntimeAndPanelDisagree() throws {
+    func testCapturedOpenSettingsCommandStillOpensSettingsAfterPageActivation() throws {
         let panel = RuntimePanelCoordinator()
         let settings = RuntimeSettingsWindowPresenter()
         let runtime = makeRuntime(panel: panel)
@@ -246,20 +275,25 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
             page: try makePage(id: firstPageID, title: "Roadmap"),
             source: .typedURL
         )
-        panel.loseCurrentPage()
 
-        runtime.handleMenuBarActivation()
+        runtime.performStatusMenuContextCommand(.openSettings)
 
         XCTAssertEqual(settings.showCount, 1)
-        XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(panel.isVisible)
     }
-}
 
-@MainActor
-private final class RuntimeSettingsWindowPresenter: SettingsWindowPresenting {
-    private(set) var showCount = 0
+    func testCapturedStashCommandDoesNotRestorePanelIfStateChangedWhileMenuWasOpen() throws {
+        let panel = RuntimePanelCoordinator()
+        let runtime = makeRuntime(panel: panel)
+        runtime.activate(
+            page: try makePage(id: firstPageID, title: "Roadmap"),
+            source: .typedURL
+        )
+        panel.simulateStashedState()
 
-    func show() {
-        showCount += 1
+        runtime.performStatusMenuContextCommand(.stash)
+
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(panel.isStashed)
     }
 }

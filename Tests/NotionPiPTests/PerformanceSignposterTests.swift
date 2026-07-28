@@ -6,8 +6,8 @@ final class PerformanceSignposterTests: XCTestCase {
     func testFirstOnlyOperationReturnsOneTokenAndSafelyIgnoresRepeatedEnds() {
         let signposter = AppPerformanceSignposter()
 
-        let token = signposter.begin(.coldLaunchToStatusItem)
-        let duplicateToken = signposter.begin(.coldLaunchToStatusItem)
+        let token = signposter.begin(.coldLaunchToReady)
+        let duplicateToken = signposter.begin(.coldLaunchToReady)
 
         XCTAssertNotNil(token)
         XCTAssertNil(duplicateToken)

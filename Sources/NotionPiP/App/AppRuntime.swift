@@ -12,6 +12,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var captureRecoveryMessage: String?
     @Published private(set) var serviceHealth: ServiceHealthState
     @Published private(set) var globalShortcut: GlobalShortcut
+    @Published private(set) var savedMenuBarIconVisibility: Bool
+    @Published private(set) var effectiveMenuBarIconVisibility: Bool
+    @Published private(set) var isMenuBarIconVisibilityForced: Bool
 
     let pageURLInputState: PageURLInputState
 
@@ -24,50 +27,29 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     var validationFailed: Bool { pageURLInputState.validationFailed }
     var pageURLFocusRequest: Int { pageURLInputState.focusRequest }
 
-    var connectionState: PersonalTokenConnectionState {
-        connectionController.state
-    }
-
-    var searchResults: [NotionPageSearchResult] {
-        connectionController.searchResults
-    }
-
-    var searchError: String? {
-        connectionController.searchError
-    }
-
-    var isNotionConnected: Bool {
-        connectionController.isConnected
-    }
-
-    var quickCaptureDestination: QuickCaptureDestination? {
-        destinationController.destination
-    }
-
+    var connectionState: PersonalTokenConnectionState { connectionController.state }
+    var searchResults: [NotionPageSearchResult] { connectionController.searchResults }
+    var searchError: String? { connectionController.searchError }
+    var isNotionConnected: Bool { connectionController.isConnected }
+    var quickCaptureDestination: QuickCaptureDestination? { destinationController.destination }
     var destinationSearchResults: [NotionDestinationSearchResult] {
         destinationController.searchResults
     }
+    var destinationSearchError: String? { destinationController.searchError }
+    var isSearchingDestinations: Bool { destinationController.isSearching }
+    var canLoadMoreDestinations: Bool { destinationController.canLoadMore }
+    var isDestinationSearchCapped: Bool { destinationController.isSearchCapped }
+    var pipPresentationState: PiPPresentationState { pinCoordinator.presentationState }
 
-    var destinationSearchError: String? {
-        destinationController.searchError
-    }
-
-    var isSearchingDestinations: Bool {
-        destinationController.isSearching
-    }
-
-    var canLoadMoreDestinations: Bool {
-        destinationController.canLoadMore
-    }
-
-    var isDestinationSearchCapped: Bool {
-        destinationController.isSearchCapped
+    var statusMenuContextCommand: StatusMenuContextCommand {
+        StatusMenuContextCommand(presentationState: pipPresentationState)
     }
 
     let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "shortcut")
     let pinCoordinator: PinCoordinator
     let shortcutRegistrar: any GlobalShortcutRegistering
     let shortcutStore: GlobalShortcutStore
+    let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
     let pageURLInputPresenter: any PageURLInputPresenting
     let pageRepository: (any PinnedPagePersisting)?
     private let captureRepository: CaptureRepository?
@@ -89,6 +71,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         pasteboard: any PasteboardReading = SystemPasteboardReader(),
         shortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar(),
         shortcutStore: GlobalShortcutStore = GlobalShortcutStore(),
+        menuBarIconPreferenceStore: MenuBarIconPreferenceStore = MenuBarIconPreferenceStore(),
         pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
         pageRepository: (any PinnedPagePersisting)? = nil,
         destinationRepository: (any QuickCaptureDestinationPersisting)? = nil,
@@ -119,6 +102,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         )
         self.shortcutRegistrar = shortcutRegistrar
         self.shortcutStore = shortcutStore
+        self.menuBarIconPreferenceStore = menuBarIconPreferenceStore
         self.pageRepository = pageRepository
         self.captureRepository = captureRepository
         self.deliveryScheduler = deliveryScheduler
@@ -139,12 +123,14 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         )
         serviceHealth = initialServiceHealth
         globalShortcut = shortcutStore.load()
-        connectionObservation = connectionController.objectWillChange.sink { [weak self] in
-            self?.objectWillChange.send()
-        }
-        destinationObservation = destinationController.objectWillChange.sink { [weak self] in
-            self?.objectWillChange.send()
-        }
+        let iconState = Self.menuBarIconState(
+            store: menuBarIconPreferenceStore,
+            serviceHealth: initialServiceHealth
+        )
+        savedMenuBarIconVisibility = iconState.saved
+        effectiveMenuBarIconVisibility = iconState.effective
+        isMenuBarIconVisibilityForced = iconState.forced
+        observeControllers()
         submissionRelay.handler = { [weak self] in
             self?.validatePageURL()
         }
@@ -235,6 +221,65 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         connectionController.hasUsableToken()
     }
 
+    func publishActivation(
+        page: NotionPageReference,
+        source: PageActivationSource
+    ) {
+        activePage = page
+        pendingPage = page
+        lastActivationSource = source
+    }
+
+    func publishGlobalShortcut(_ shortcut: GlobalShortcut) {
+        globalShortcut = shortcut
+    }
+
+    func publishMenuBarIconVisibility(_ isVisible: Bool) {
+        savedMenuBarIconVisibility = isVisible
+        updateEffectiveMenuBarIconVisibility()
+    }
+
+    func reportServiceIssue(_ issue: ServiceHealthIssue) {
+        serviceHealth.report(issue)
+        if issue == .globalShortcutUnavailable {
+            updateEffectiveMenuBarIconVisibility()
+        }
+    }
+
+    func resolveServiceIssue(_ issue: ServiceHealthIssue) {
+        serviceHealth.resolve(issue)
+        if issue == .globalShortcutUnavailable {
+            updateEffectiveMenuBarIconVisibility()
+        }
+    }
+
+    private func updateEffectiveMenuBarIconVisibility() {
+        let isForced = serviceHealth.issues.contains(.globalShortcutUnavailable)
+            && !savedMenuBarIconVisibility
+        isMenuBarIconVisibilityForced = isForced
+        effectiveMenuBarIconVisibility = savedMenuBarIconVisibility || isForced
+    }
+
+    private func observeControllers() {
+        connectionObservation = connectionController.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
+        destinationObservation = destinationController.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
+    }
+
+    private static func menuBarIconState(
+        store: MenuBarIconPreferenceStore,
+        serviceHealth: ServiceHealthState
+    ) -> MenuBarIconState {
+        let saved = store.load()
+        let forced = serviceHealth.issues.contains(.globalShortcutUnavailable) && !saved
+        return MenuBarIconState(saved: saved, effective: saved || forced, forced: forced)
+    }
+}
+
+extension AppRuntime {
     func refreshCaptureRecords() async {
         guard let captureRepository else { return }
         do {
@@ -267,27 +312,12 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             captureRecoveryMessage = "Could not open the local capture export."
         }
     }
+}
 
-    func publishActivation(
-        page: NotionPageReference,
-        source: PageActivationSource
-    ) {
-        activePage = page
-        pendingPage = page
-        lastActivationSource = source
-    }
-
-    func publishGlobalShortcut(_ shortcut: GlobalShortcut) {
-        globalShortcut = shortcut
-    }
-
-    func reportServiceIssue(_ issue: ServiceHealthIssue) {
-        serviceHealth.report(issue)
-    }
-
-    func resolveServiceIssue(_ issue: ServiceHealthIssue) {
-        serviceHealth.resolve(issue)
-    }
+private struct MenuBarIconState {
+    let saved: Bool
+    let effective: Bool
+    let forced: Bool
 }
 
 @MainActor

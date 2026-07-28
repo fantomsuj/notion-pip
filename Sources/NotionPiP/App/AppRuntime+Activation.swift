@@ -23,8 +23,26 @@ extension AppRuntime {
         _ = applyGlobalShortcut(.default)
     }
 
+    func setMenuBarIconVisibility(_ isVisible: Bool) {
+        menuBarIconPreferenceStore.save(isVisible)
+        publishMenuBarIconVisibility(isVisible)
+    }
+
+    func performStatusMenuContextCommand(_ command: StatusMenuContextCommand) {
+        switch command {
+        case .openSettings:
+            settingsWindowPresenter?.show()
+        case .stash:
+            guard pipPresentationState == .visible else { return }
+            _ = pinCoordinator.stashOrRestoreCurrentPage()
+        case .show:
+            guard pipPresentationState == .stashed else { return }
+            _ = pinCoordinator.stashOrRestoreCurrentPage()
+        }
+    }
+
     func handleMenuBarActivation() {
-        guard pinCoordinator.toggleCurrentPage() else {
+        guard pinCoordinator.stashOrRestoreCurrentPage() else {
             settingsWindowPresenter?.show()
             return
         }

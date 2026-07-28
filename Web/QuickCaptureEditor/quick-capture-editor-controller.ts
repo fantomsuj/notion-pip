@@ -317,11 +317,11 @@ export class QuickCaptureEditorController {
     this.elements.status.dataset.state = "saving";
     this.elements.status.textContent = "Saving…";
     this.changes.changed(
-      {
+      () => ({
         draftID: this.snapshot.draftID,
         title: this.elements.title.value,
-        document: normalizeDocument(this.editor.getJSON()),
-      },
+        document: this.editor.getJSON(),
+      }),
       () => this.snapshot.revision ?? 0,
     );
   }

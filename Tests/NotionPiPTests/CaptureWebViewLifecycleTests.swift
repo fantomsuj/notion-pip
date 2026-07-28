@@ -7,6 +7,27 @@ import WebKit
 
 @MainActor
 final class CaptureWebViewLifecycleTests: XCTestCase {
+    func testDisposeStopsLoadingTearsDownBridgeAndDoesNotRetainSession() async throws {
+        weak var weakSession: CaptureEditorSession?
+        var session: CaptureEditorSession? = CaptureEditorSession(
+            repository: try CaptureRepository(inMemory: true)
+        )
+        let webView = try XCTUnwrap(session?.webView)
+        weakSession = session
+
+        session?.dispose()
+        session?.dispose()
+
+        XCTAssertEqual(session?.installedHandlerNames, [])
+        XCTAssertNil(webView.navigationDelegate)
+        XCTAssertNil(webView.uiDelegate)
+        try await waitUntil { !webView.isLoading }
+
+        session = nil
+
+        XCTAssertNil(weakSession)
+    }
+
     func testTerminationFlushPersistsEditInsideDebounceWindowAndReopensLatestContent() async throws {
         let repository = try CaptureRepository(inMemory: true)
         let session = CaptureEditorSession(

@@ -16,7 +16,11 @@ extension AppRuntime {
         let logger = logger
         restorePinnedPageTask?.cancel()
         restorePinnedPageTask = Task { [weak self] in
-            guard !Task.isCancelled, let pageRepository else { return }
+            guard !Task.isCancelled else { return }
+            guard let pageRepository else {
+                self?.showSettingsIfRestoreStillEmpty(expectedGeneration: expectedGeneration)
+                return
+            }
             do {
                 let workingSet = try await (pageRepository as? any PageWorkingSetPersisting)?
                     .workingSet()
@@ -27,16 +31,15 @@ extension AppRuntime {
                 }
                 guard !Task.isCancelled else { return }
                 self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
-                guard let storedPage else { return }
-                guard let page = try? NotionPageReference(validating: storedPage.canonicalURL),
-                      page.canonicalURL == storedPage.canonicalURL,
-                      page.pageID == storedPage.pageID
-                else {
-                    logger.error(
-                        """
-                        Pinned page restore skipped page_id=\(storedPage.pageID, privacy: .private) \
-                        category=invalid-stored-value
-                        """
+                guard let storedPage else {
+                    self?.showSettingsIfRestoreStillEmpty(
+                        expectedGeneration: expectedGeneration
+                    )
+                    return
+                }
+                guard let page = self?.validRestoredPage(from: storedPage) else {
+                    self?.showSettingsIfRestoreStillEmpty(
+                        expectedGeneration: expectedGeneration
                     )
                     return
                 }
@@ -50,8 +53,37 @@ extension AppRuntime {
                 guard !Task.isCancelled else { return }
                 logger.error("Pinned page restore failed category=repository-read")
                 self?.reportServiceIssue(.pinnedPagePersistenceUnavailable)
+                self?.showSettingsIfRestoreStillEmpty(expectedGeneration: expectedGeneration)
             }
         }
+    }
+
+    private func validRestoredPage(
+        from storedPage: StoredPageSnapshot
+    ) -> NotionPageReference? {
+        guard let page = try? NotionPageReference(validating: storedPage.canonicalURL),
+              page.canonicalURL == storedPage.canonicalURL,
+              page.pageID == storedPage.pageID
+        else {
+            logger.error(
+                """
+                Pinned page restore skipped page_id=\(storedPage.pageID, privacy: .private) \
+                category=invalid-stored-value
+                """
+            )
+            return nil
+        }
+        return page
+    }
+
+    private func showSettingsIfRestoreStillEmpty(expectedGeneration: Int) {
+        guard expectedGeneration == pageSelectionGeneration,
+              activePage == nil,
+              !Task.isCancelled
+        else {
+            return
+        }
+        settingsWindowPresenter?.show()
     }
 
     func enqueuePersistence(of page: NotionPageReference) {

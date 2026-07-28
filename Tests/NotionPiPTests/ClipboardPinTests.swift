@@ -47,7 +47,7 @@ final class ClipboardPinTests: XCTestCase {
         XCTAssertEqual(panel.currentPage, currentPage)
         XCTAssertEqual(panel.shownPages.count, 1)
         XCTAssertTrue(panel.replacedPages.isEmpty)
-        XCTAssertEqual(panel.hideCount, 0)
+        XCTAssertEqual(panel.presentationState, .visible)
         XCTAssertEqual(focusRequests, 1)
     }
 }

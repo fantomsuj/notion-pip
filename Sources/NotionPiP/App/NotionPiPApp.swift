@@ -4,7 +4,7 @@ import OSLog
 @main
 enum NotionPiPApp {
     static func main() {
-        let coldLaunchToken = AppPerformanceSignposter.shared.begin(.coldLaunchToStatusItem)
+        let coldLaunchToken = AppPerformanceSignposter.shared.begin(.coldLaunchToReady)
         let composition = AppComposition()
         let appDelegate = AppDelegate()
         let application = NSApplication.shared
@@ -31,9 +31,10 @@ enum AppStartup {
         appDelegate: AppDelegate,
         coldLaunchToken: PerformanceIntervalToken? = nil,
         performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
-        terminationParticipantProvider: @escaping @MainActor () -> (
-            any ApplicationTerminationParticipating
-        )? = { nil }
+        terminationParticipantProvider:
+            @escaping @MainActor () -> (
+                any ApplicationTerminationParticipating
+            )? = { nil }
     ) {
         runtime.start()
         appDelegate.bind(
@@ -41,7 +42,8 @@ enum AppStartup {
             performanceSignposter: performanceSignposter
         )
         appDelegate.bind {
-            let shouldTerminate = await terminationParticipantProvider()?
+            let shouldTerminate =
+                await terminationParticipantProvider()?
                 .prepareForTermination() ?? true
             await runtime.prepareForTermination()
             return shouldTerminate
@@ -54,8 +56,10 @@ enum AppStartup {
 private final class AppComposition {
     let runtime: AppRuntime
     private let quickCapturePresenter: LazyAppWindowPresenter
+    private let quickCaptureReleaseRelay: QuickCaptureReleaseRelay
     private let settingsWindowPresenter: SettingsWindowPresenter
     private let statusItemController: StatusItemController
+    private let panelSizeController: PanelSizeController
 
     init() {
         let actionRelay = AppCommandActionRelay()
@@ -101,6 +105,7 @@ private final class AppComposition {
             initialServiceHealth = ServiceHealthState(issues: [.persistentStoreUnavailable])
         }
 
+        let panelSizeController = PanelSizeController()
         let commandModel = AppCommandModel(
             quickCapture: { actionRelay.showQuickCapture() },
             settings: { actionRelay.showSettings() },
@@ -113,6 +118,7 @@ private final class AppComposition {
             pageSwitcherController: pageSwitcherController,
             commandModel: commandModel,
             onReloadSavedPin: { actionRelay.reloadSavedPin() },
+            panelSizeController: panelSizeController,
             onPageSwitcherSelection: pageSwitcherRelay.perform
         )
         let runtime = AppRuntime(
@@ -150,6 +156,7 @@ private final class AppComposition {
         webSession.onPageResolved = { [weak runtime] page in
             runtime?.activate(page: page, source: .notionWebSession)
         }
+        let quickCaptureReleaseRelay = QuickCaptureReleaseRelay()
         webSession.onRestorationCaptured = { restoration in
             guard let pageRepository else { return }
             Task {
@@ -177,6 +184,9 @@ private final class AppComposition {
                     lifecycle: captureLifecycle,
                     onNeedsConfiguration: { _ in
                         actionRelay.showSettings()
+                    },
+                    onSuccessfulClose: { [weak quickCaptureReleaseRelay] in
+                        quickCaptureReleaseRelay?.scheduleReleaseAfterSuccessfulClose()
                     }
                 ) { [weak runtime] in
                     guard let page = runtime?.activePage else { return }
@@ -186,28 +196,49 @@ private final class AppComposition {
             performanceSignposter: AppPerformanceSignposter.shared,
             firstPresentationOperation: .firstQuickCapturePresentation
         )
+        quickCaptureReleaseRelay.presenter = quickCapturePresenter
         let settingsWindowPresenter = SettingsWindowPresenter(
-            windowPresenter: AppWindowFactory.makeSettings(runtime: runtime)
+            windowPresenter: AppWindowFactory.makeSettings(
+                runtime: runtime,
+                panelSizeController: panelSizeController
+            )
         )
         let statusItemController = StatusItemController(
             runtime: runtime,
-            commandModel: commandModel
+            commandModel: commandModel,
+            panelSizeController: panelSizeController
         )
 
         actionRelay.quickCapturePresenter = quickCapturePresenter
         actionRelay.settingsWindowPresenter = settingsWindowPresenter
         runtime.bind(settingsWindowPresenter: settingsWindowPresenter)
+        panelSizeController.onManagePanelSizes = {
+            actionRelay.showSettings()
+        }
 
         self.runtime = runtime
         self.quickCapturePresenter = quickCapturePresenter
+        self.quickCaptureReleaseRelay = quickCaptureReleaseRelay
         self.settingsWindowPresenter = settingsWindowPresenter
         self.statusItemController = statusItemController
+        self.panelSizeController = panelSizeController
     }
 
-    var quickCaptureTerminationParticipant: (
-        any ApplicationTerminationParticipating
-    )? {
+    var quickCaptureTerminationParticipant:
+        (
+            any ApplicationTerminationParticipating
+        )?
+    {
         quickCapturePresenter.terminationParticipant
+    }
+}
+
+@MainActor
+private final class QuickCaptureReleaseRelay {
+    weak var presenter: LazyAppWindowPresenter?
+
+    func scheduleReleaseAfterSuccessfulClose() {
+        presenter?.scheduleReleaseAfterSuccessfulClose()
     }
 }
 

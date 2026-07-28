@@ -14,15 +14,22 @@ func makeRuntime(
     pageRepository: (any PinnedPagePersisting)? = nil,
     client: any NotionWorkspaceClient = RuntimeNotionClient(),
     destinationSearchDebounceDuration: Duration = .milliseconds(300),
-    initialServiceHealth: ServiceHealthState = .healthy
+    initialServiceHealth: ServiceHealthState = .healthy,
+    menuBarIconPreferenceStore: MenuBarIconPreferenceStore? = nil
 ) -> AppRuntime {
     let store = RuntimeSecretStore()
     let vault = PersonalTokenCredentialVault(store: store)
     try! vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
+    let preferenceStore = menuBarIconPreferenceStore ?? MenuBarIconPreferenceStore(
+        defaults: UserDefaults(
+            suiteName: "AppRuntimeTests.\(UUID().uuidString)"
+        )!
+    )
     return AppRuntime(
         panelCoordinator: panel,
         pasteboard: pasteboard,
         shortcutRegistrar: shortcutRegistrar,
+        menuBarIconPreferenceStore: preferenceStore,
         pageURLInputPresenter: pageURLInputPresenter,
         pageRepository: pageRepository,
         credentialVault: vault,
@@ -70,6 +77,11 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     private(set) var isVisible = false
     private(set) var isStashed = false
 
+    var presentationState: PiPPresentationState {
+        guard currentPage != nil else { return .unavailable }
+        return isVisible ? .visible : .stashed
+    }
+
     func show(page: NotionPageReference) {
         currentPage = page
         shownPages.append(page)
@@ -103,14 +115,9 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         isStashed = false
     }
 
-    func toggleCurrentPage() -> Bool {
-        guard currentPage != nil else { return false }
-        if isVisible {
-            hide()
-        } else {
-            _ = showCurrentPage()
-        }
-        return true
+    func simulateStashedState() {
+        isVisible = false
+        isStashed = currentPage != nil
     }
 
     func stashOrRestoreCurrentPage() -> Bool {
@@ -128,6 +135,15 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         currentPage = nil
         isVisible = false
         isStashed = false
+    }
+}
+
+@MainActor
+final class RuntimeSettingsWindowPresenter: SettingsWindowPresenting {
+    private(set) var showCount = 0
+
+    func show() {
+        showCount += 1
     }
 }
 

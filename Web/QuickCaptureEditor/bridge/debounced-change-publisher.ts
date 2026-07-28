@@ -9,7 +9,7 @@ import {
 export class DebouncedChangePublisher {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private pending: {
-    snapshot: Omit<EditorSnapshot, "revision">;
+    snapshot: () => PendingChangeSnapshot;
     expectedRevision: () => number;
   } | undefined;
   private deliveryTail: Promise<void> = Promise.resolve();
@@ -40,11 +40,11 @@ export class DebouncedChangePublisher {
   }
 
   changed(
-    snapshot: Omit<EditorSnapshot, "revision">,
+    snapshot: () => PendingChangeSnapshot,
     expectedRevision: number | (() => number),
   ): void {
     this.pending = {
-      snapshot: { ...snapshot, document: normalizeDocument(snapshot.document) },
+      snapshot,
       expectedRevision: typeof expectedRevision === "number" ? () => expectedRevision : expectedRevision,
     };
     if (this.timer !== undefined) clearTimeout(this.timer);
@@ -62,8 +62,9 @@ export class DebouncedChangePublisher {
         await this.deliver(this.failedRequest);
       }
       if (pending !== undefined) {
+        const snapshot = pending.snapshot();
         const request = makeRequest("changed", this.nextID(), {
-          snapshot: pending.snapshot,
+          snapshot: { ...snapshot, document: normalizeDocument(snapshot.document) },
           expectedRevision: pending.expectedRevision(),
         });
         pendingRequestCreated = true;
@@ -127,6 +128,12 @@ export class DebouncedChangePublisher {
     const isAvailable = request !== undefined;
     if (wasAvailable !== isAvailable) this.onRetryAvailabilityChanged(isAvailable);
   }
+}
+
+interface PendingChangeSnapshot {
+  readonly draftID: string;
+  readonly title: string;
+  readonly document: unknown;
 }
 
 export async function runAfterPendingChange<T>(

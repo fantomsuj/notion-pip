@@ -163,6 +163,8 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     private var ambiguousStateTransitions: [String: CaptureStateTransitionOperation] = [:]
     private var activeDraftCreationTask: Task<CaptureEditorSnapshot, Error>?
     private var terminationPersistenceTask: Task<Bool, Never>?
+    private var isDisposed = false
+    private var isRecoveringAfterRendererTermination = false
 
     init(
         repository: CaptureRepository,
@@ -284,6 +286,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
             case let .ready(id):
                 let snapshot = try await activeOrNewDraft()
                 status = .ready
+                isRecoveringAfterRendererTermination = false
                 return .success(id: id, result: .ready(snapshot))
 
             case let .changed(id, snapshot, expectedRevision):
@@ -825,6 +828,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     }
 
     private func loadLocalEditor() {
+        guard !isDisposed else { return }
         guard editorDocumentURL.isFileURL,
               FileManager.default.fileExists(atPath: editorDocumentURL.path)
         else {
@@ -842,6 +846,20 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         )
         scriptHandler.delegate = nil
         webView.navigationDelegate = nil
+    }
+
+    func dispose() {
+        guard !isDisposed else { return }
+        isDisposed = true
+        terminationPersistenceTask?.cancel()
+        activeDraftCreationTask?.cancel()
+        for transition in inFlightStateTransitions.values {
+            transition.task.cancel()
+        }
+        webView.stopLoading()
+        tearDownBridge()
+        webView.uiDelegate = nil
+        webView.removeFromSuperview()
     }
 
     func handleNavigation(to url: URL?) -> WKNavigationActionPolicy {
@@ -910,5 +928,16 @@ extension CaptureEditorSession: WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction
     ) async -> WKNavigationActionPolicy {
         handleNavigation(to: navigationAction.request.url)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard webView === self.webView,
+              !isDisposed,
+              !isRecoveringAfterRendererTermination
+        else { return }
+
+        isRecoveringAfterRendererTermination = true
+        status = .loading
+        loadLocalEditor()
     }
 }

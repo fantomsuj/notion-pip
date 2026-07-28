@@ -2,7 +2,7 @@
 
 > A little piece of Notion that stays with you.
 
-Notion PiP is a native macOS menu-bar app that keeps one Notion page in a durable floating panel, ready wherever your work takes you. Think of it as leaving a notebook open beside your keyboard: a calm, familiar place to put down a thought before it disappears.
+Notion PiP is a native macOS accessory that keeps one Notion page in a durable floating panel, ready wherever your work takes you. Its menu-bar icon is available by default and can be hidden in Settings. Think of it as leaving a notebook open beside your keyboard: a calm, familiar place to put down a thought before it disappears.
 
 I built it because I love Notion as a home for ideas. We live with an extraordinary amount of information at our fingertips, and personal knowledge management is my way of making that abundance useful instead of overwhelming. A page can become a project, a question, a draft, a trail of research, or simply a place to think.
 
@@ -13,20 +13,22 @@ I am happily biased toward writing. Writing is how I build scaffolding for my id
 Pin the Notion page you are living in and keep it close without turning it into another full window. The PiP can stay visible across Spaces, tuck itself neatly onto a screen edge, and return to the same live page when you need it again.
 
 - Create a fresh Notion page from the `+` button; it becomes the new pinned page automatically.
-- Stash the panel against the nearest screen edge and restore it from its slim tab, the menu bar, or `Command-Shift-P`.
+- Stash the panel against the nearest screen edge and restore it from its slim tab, the optional menu-bar icon, or `Command-Shift-P`.
 - Keep working in the real, embedded Notion page—not a screenshot or a simplified native imitation.
 - Hover at the panel’s top edge and open the page switcher to resume one of seven
   pinned favorites or seven recent pages. Search is local and works with partial,
   out-of-order-free character matches.
+- Save device-local panel size presets in Settings and apply them from the PiP
+  or menu-bar menus without reloading the live Notion page.
 - Use Quick Capture to get a thought into your workspace without losing the thread of what you were doing.
 
-The app is intentionally a menu-bar accessory, so you will find it in the menu bar rather than the Dock.
+The app intentionally runs as an accessory rather than appearing in the Dock. Its menu-bar icon is shown by default, and you can turn it off in Settings while continuing to use the edge handle and global shortcut.
 
 ## A native Mac app with a real Notion page inside
 
 One of my favorite things about this project is its combination of native macOS behavior and the full Notion experience. Notion PiP is written in Swift 6.2 for macOS 14+ and uses WebKit’s `WKWebView` to host the live Notion app in a native floating panel. That means the panel gets to feel at home on the Mac while the page remains the actual Notion editor, with its familiar session and navigation.
 
-Around that WebKit core are the small native details that make a difference: a menu-bar home, an always-available panel, keyboard control, safe Notion URL handoff, persistence for your pinned page, and a Quick Capture flow.
+Around that WebKit core are the small native details that make a difference: optional menu-bar access, an always-available panel or edge handle, keyboard control, safe Notion URL handoff, persistence for your pinned page, and a Quick Capture flow.
 
 The page switcher keeps one live `WKWebView`, not one view per page. During the
 current app session, switching pages preserves WebKit interaction state such as
@@ -70,4 +72,4 @@ Codex will check the Mac and Xcode prerequisites, build and verify the app, and 
 
 Notion PiP accepts only HTTPS page URLs on `app.notion.com`, `notion.so`, and `www.notion.so` with a canonical 32-character hexadecimal page ID. `notion.so` inputs canonicalize to `www.notion.so`, while every accepted host retains its percent-encoded path; credentials, query strings, and fragments are removed. The `notion-pip` handoff contract is documented in [the handoff protocol](docs/HANDOFF_PROTOCOL.md).
 
-The development app is sandboxed with outbound network access. Its ad-hoc signature is for local development, not Developer ID distribution or notarization. Reference provenance and reuse exclusions live in [the upstream-reuse notes](docs/UPSTREAM_REUSE.md).
+The development app is sandboxed with outbound network access. Its ad-hoc signature is for local development, not Developer ID distribution or notarization. Windowing checks live in [the manual test matrix](docs/MANUAL_TEST_MATRIX.md), while reference provenance and reuse exclusions live in [the open-source research](docs/OPEN_SOURCE_RESEARCH.md) and [upstream-reuse notes](docs/UPSTREAM_REUSE.md).

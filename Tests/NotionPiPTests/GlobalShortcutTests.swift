@@ -147,13 +147,12 @@ private final class ShortcutRegistrationEngineSpy: GlobalShortcutRegistrationEng
 private final class ShortcutTestPanelCoordinator: PiPPanelCoordinating {
     var currentPage: NotionPageReference?
     var isVisible = false
+    var presentationState: PiPPresentationState { .unavailable }
     func show(page: NotionPageReference) {}
     func reloadPinnedPage(_ page: NotionPageReference) {}
     func replace(page: NotionPageReference) {}
     func showCurrentPage() -> Bool { false }
-    func hide() {}
     func stashOrRestoreCurrentPage() -> Bool { false }
-    func toggleCurrentPage() -> Bool { false }
 }
 
 private final class ShortcutTestSecretStore: SecretStoring {

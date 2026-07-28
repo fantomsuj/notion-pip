@@ -40,8 +40,7 @@ final class NotionConnectionController: ObservableObject {
         credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
         legacyCacheCleaner: any LegacyNativePageCacheCleaning = NoOpLegacyNativePageCacheCleaner(),
         legacyCacheDirectory: URL = FileSystemLegacyNativePageCacheCleaner.defaultDirectoryURL,
-        notionClientFactory: @escaping (PersonalIntegrationToken) -> any NotionWorkspaceClient = {
-            token in
+        notionClientFactory: @escaping (PersonalIntegrationToken) -> any NotionWorkspaceClient = { token in
             NotionAPIClient(token: token)
         },
         onReconnect: @escaping @MainActor () async -> Void = {}
@@ -123,7 +122,10 @@ final class NotionConnectionController: ObservableObject {
             try legacyCacheCleaner.removeLegacyCache(at: legacyCacheDirectory)
         } catch {
             logger.error(
-                "Legacy native preview cache cleanup failed; personal token was removed category=legacy-preview-cache-cleanup"
+                """
+                Legacy native preview cache cleanup failed; personal token was removed \
+                category=legacy-preview-cache-cleanup
+                """
             )
         }
     }

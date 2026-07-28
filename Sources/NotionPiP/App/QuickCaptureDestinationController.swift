@@ -117,7 +117,9 @@ final class QuickCaptureDestinationController: ObservableObject {
         searchTask = nil
         resetSearchState()
     }
+}
 
+private extension QuickCaptureDestinationController {
     private func beginSearch(query: String, debounced: Bool) {
         searchTask?.cancel()
         searchTask = nil
@@ -185,16 +187,10 @@ final class QuickCaptureDestinationController: ObservableObject {
                 canLoadMore = false
                 return
             }
-            guard let currentLease = try connectionController.workspaceClientLease() else {
-                guard isCurrentSearch(
-                    connectionGeneration: connectionGeneration,
-                    searchGeneration: searchGeneration
-                ) else { return }
-                searchResults = []
-                searchError = "Connect a Notion personal access token first."
-                canLoadMore = false
-                return
-            }
+            guard let currentLease = try currentWorkspaceClientLease(
+                connectionGeneration: connectionGeneration,
+                searchGeneration: searchGeneration
+            ) else { return }
             lease = currentLease
             guard connectionController.isCurrent(currentLease),
                   currentLease.generation == connectionGeneration
@@ -202,36 +198,84 @@ final class QuickCaptureDestinationController: ObservableObject {
                 return
             }
             searchError = nil
-            let page = try await currentLease.client.searchDestinations(
+            guard let page = try await searchPage(
                 query: query,
-                startCursor: startCursor
-            )
-            guard connectionController.isCurrent(currentLease),
-                  isCurrentSearch(
-                      connectionGeneration: connectionGeneration,
-                      searchGeneration: searchGeneration
-                  )
-            else {
-                return
-            }
+                startCursor: startCursor,
+                lease: currentLease,
+                connectionGeneration: connectionGeneration,
+                searchGeneration: searchGeneration
+            ) else { return }
             apply(page, appendingResults: appendingResults)
         } catch is CancellationError {
             return
         } catch {
+            publishSearchFailure(
+                lease: lease,
+                connectionGeneration: connectionGeneration,
+                searchGeneration: searchGeneration,
+                appendingResults: appendingResults
+            )
+        }
+    }
+
+    private func currentWorkspaceClientLease(
+        connectionGeneration: Int,
+        searchGeneration: Int
+    ) throws -> NotionWorkspaceClientLease? {
+        guard let lease = try connectionController.workspaceClientLease() else {
             guard isCurrentSearch(
                 connectionGeneration: connectionGeneration,
                 searchGeneration: searchGeneration
-            ) else { return }
-            if let lease {
-                guard connectionController.isCurrent(lease) else { return }
-            }
-            if !appendingResults {
-                searchResults = []
-            }
-            searchError = "Could not search Notion destinations."
-            nextCursor = nil
+            ) else { return nil }
+            searchResults = []
+            searchError = "Connect a Notion personal access token first."
             canLoadMore = false
+            return nil
         }
+        return lease
+    }
+
+    private func searchPage(
+        query: String,
+        startCursor: String?,
+        lease: NotionWorkspaceClientLease,
+        connectionGeneration: Int,
+        searchGeneration: Int
+    ) async throws -> NotionDestinationSearchPage? {
+        let page = try await lease.client.searchDestinations(
+            query: query,
+            startCursor: startCursor
+        )
+        guard connectionController.isCurrent(lease),
+              isCurrentSearch(
+                  connectionGeneration: connectionGeneration,
+                  searchGeneration: searchGeneration
+              )
+        else {
+            return nil
+        }
+        return page
+    }
+
+    private func publishSearchFailure(
+        lease: NotionWorkspaceClientLease?,
+        connectionGeneration: Int,
+        searchGeneration: Int,
+        appendingResults: Bool
+    ) {
+        guard isCurrentSearch(
+            connectionGeneration: connectionGeneration,
+            searchGeneration: searchGeneration
+        ) else { return }
+        if let lease {
+            guard connectionController.isCurrent(lease) else { return }
+        }
+        if !appendingResults {
+            searchResults = []
+        }
+        searchError = "Could not search Notion destinations."
+        nextCursor = nil
+        canLoadMore = false
     }
 
     private func apply(

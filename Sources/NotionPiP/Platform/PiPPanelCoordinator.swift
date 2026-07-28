@@ -6,6 +6,7 @@ import SwiftUI
 protocol PiPPanelWindow: AnyObject {
     var frame: CGRect { get }
     var isVisible: Bool { get }
+    var onClose: (@MainActor () -> Void)? { get set }
     func present()
     func orderOut()
     func setFrame(_ frame: CGRect, display: Bool)
@@ -22,16 +23,20 @@ protocol PiPStashHandle: AnyObject {
     func orderOut()
 }
 
+enum PiPPresentationState: Equatable, Sendable {
+    case unavailable
+    case visible
+    case stashed
+}
+
 @MainActor
 protocol PiPPanelCoordinating: AnyObject {
     var currentPage: NotionPageReference? { get }
-    var isVisible: Bool { get }
+    var presentationState: PiPPresentationState { get }
     func show(page: NotionPageReference)
     func show(page: NotionPageReference, restoration: DurablePageRestoration?)
     func reloadPinnedPage(_ page: NotionPageReference)
     func showCurrentPage() -> Bool
-    func hide()
-    func toggleCurrentPage() -> Bool
     func stashOrRestoreCurrentPage() -> Bool
     func replace(page: NotionPageReference)
     func replace(page: NotionPageReference, restoration: DurablePageRestoration?)
@@ -48,7 +53,7 @@ extension PiPPanelCoordinating {
 }
 
 @MainActor
-final class PiPPanelCoordinator: PiPPanelCoordinating {
+final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     private static let autosaveName = "NotionPiPPanel"
 
     private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "panel")
@@ -57,15 +62,48 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     private let stashHandle: (any PiPStashHandle)?
     private let performanceSignposter: (any PerformanceSignposting)?
     private let visibleFramesProvider: @MainActor () -> [CGRect]
+    private let frameForContentRect: @MainActor (CGRect) -> CGRect
+    private let contentRectForFrameRect: @MainActor (CGRect) -> CGRect
     private(set) var currentPage: NotionPageReference?
     private var screenConfigurationObserver: NSObjectProtocol?
+    private var liveResizeObserver: NSObjectProtocol?
+    private var moveObserver: NSObjectProtocol?
     private var initialFrameProvider: (@MainActor () -> CGRect?)?
     private var activeStashPlacement: PanelStashPlacement?
     private var didAttemptFirstPresentation = false
     private var stashedPanelFrame: CGRect?
+    private var preferredWorkingContentSize: CGSize
+    private var preservedFrameAnchor: PanelFrameAnchor?
+    private var preferredVisibleFrame: CGRect?
+    private var programmaticFrameChangeGeneration = 0
+    private var isApplyingProgrammaticFrame = false
 
-    var isVisible: Bool {
-        panel.isVisible
+    var onManualResizeCompletion: (@MainActor (CGSize) -> Void)?
+    var onPinnedPageAvailabilityChange: (@MainActor () -> Void)?
+
+    var presentationState: PiPPresentationState {
+        guard currentPage != nil else { return .unavailable }
+        return panel.isVisible ? .visible : .stashed
+    }
+
+    var hasPinnedPage: Bool {
+        currentPage != nil
+    }
+
+    var currentPanelContentSize: CGSize {
+        PanelFramePolicy.contentSize(
+            forFrame: stashedPanelFrame ?? panel.frame,
+            contentRectForFrameRect: contentRectForFrameRect
+        )
+    }
+
+    var sizingScreenSize: CGSize {
+        let logicalFrame = stashedPanelFrame ?? panel.frame
+        return PanelFramePolicy.targetVisibleFrame(
+            for: logicalFrame,
+            from: visibleFramesProvider()
+        )?.size ?? NSScreen.main?.visibleFrame.size
+            ?? CGSize(width: 1_440, height: 900)
     }
 
     convenience init(
@@ -73,6 +111,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         pageSwitcherController: PageSwitcherController = PageSwitcherController(),
         commandModel: AppCommandModel = .noOp,
         onReloadSavedPin: @escaping () -> Void = {},
+        panelSizeController: PanelSizeController? = nil,
         onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in },
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
@@ -86,14 +125,41 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
 
         let didRestoreAutosavedFrame = panel.setFrameUsingName(Self.autosaveName)
         _ = panel.setFrameAutosaveName(Self.autosaveName)
-        if didRestoreAutosavedFrame {
+        let frameForContentRect: @MainActor (CGRect) -> CGRect = {
+            panel.frameRect(forContentRect: $0)
+        }
+        let contentRectForFrameRect: @MainActor (CGRect) -> CGRect = {
+            panel.contentRect(forFrameRect: $0)
+        }
+        let savedWorkingContentSize = panelSizeController?
+            .preferences.lastExplicitWorkingContentSize?.cgSize
+        var initialPreferredContentSize: CGSize?
+        if didRestoreAutosavedFrame, let savedWorkingContentSize {
+            let placement = PanelFramePolicy.placement(
+                preferredContentSize: savedWorkingContentSize,
+                anchoredTo: panel.frame,
+                visibleFrames: visibleFrames,
+                minimumContentSize: policy.minimumContentSize,
+                frameForContentRect: frameForContentRect
+            )
+            panel.setFrame(placement.frame, display: false)
+            initialPreferredContentSize = savedWorkingContentSize
+        } else if didRestoreAutosavedFrame {
+            let minimumFrameSize = PanelFramePolicy.frameSize(
+                forContentSize: policy.minimumContentSize,
+                frameForContentRect: frameForContentRect
+            )
             panel.setFrame(
                 PanelFramePolicy.clamped(
                     panel.frame,
                     visibleFrames: visibleFrames,
-                    minimumSize: policy.minimumContentSize
+                    minimumSize: minimumFrameSize
                 ),
                 display: false
+            )
+            initialPreferredContentSize = PanelFramePolicy.contentSize(
+                forFrame: panel.frame,
+                contentRectForFrameRect: contentRectForFrameRect
             )
         }
         let initialFrameProvider: (@MainActor () -> CGRect?)?
@@ -101,13 +167,26 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             initialFrameProvider = nil
         } else {
             initialFrameProvider = {
-                PanelFramePolicy.initialFrame(
-                    size: policy.initialContentSize,
-                    minimumSize: policy.minimumContentSize,
+                let screens = NSScreen.screens.map {
+                    ScreenGeometry(frame: $0.frame, visibleFrame: $0.visibleFrame)
+                }
+                let targetScreen =
+                    screens.first {
+                        $0.frame.contains(NSEvent.mouseLocation)
+                    } ?? screens.first
+                let contentSize =
+                    savedWorkingContentSize
+                    ?? panelSizeController?.preferences.defaultPreset.contentSize(
+                        forScreenSize: targetScreen?.visibleFrame.size
+                            ?? CGSize(width: 1_440, height: 900)
+                    ).cgSize
+                    ?? policy.initialContentSize
+                return PanelFramePolicy.initialFrame(
+                    contentSize: contentSize,
+                    minimumContentSize: policy.minimumContentSize,
                     pointerLocation: NSEvent.mouseLocation,
-                    screens: NSScreen.screens.map {
-                        ScreenGeometry(frame: $0.frame, visibleFrame: $0.visibleFrame)
-                    }
+                    screens: screens,
+                    frameForContentRect: frameForContentRect
                 )
             }
         }
@@ -116,20 +195,21 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             pageLoader: webSession,
             stashHandle: stashHandle,
             performanceSignposter: performanceSignposter,
-            initialFrameProvider: initialFrameProvider
+            initialFrameProvider: initialFrameProvider,
+            initialPreferredContentSize: initialPreferredContentSize,
+            frameForContentRect: frameForContentRect,
+            contentRectForFrameRect: contentRectForFrameRect
         )
-        panel.onClose = { [weak self] in
-            self?.pageLoader.panelDidHide()
-        }
-
+        panelSizeController?.bind(to: self)
         let contentView = NSHostingView(
             rootView: PiPChromeView(
                 webSession: webSession,
                 pageSwitcherController: pageSwitcherController,
                 commandModel: commandModel,
+                panelSizeController: panelSizeController,
                 onReloadSavedPin: onReloadSavedPin,
                 onStash: { [weak self] in
-                    self?.stash(visibleFrames: NSScreen.screens.map(\.visibleFrame))
+                    _ = self?.stashOrRestoreCurrentPage()
                 },
                 onPageSwitcherSelection: onPageSwitcherSelection
             )
@@ -147,7 +227,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         visibleFramesProvider: @escaping @MainActor () -> [CGRect] = {
             NSScreen.screens.map(\.visibleFrame)
         },
-        initialFrameProvider: (@MainActor () -> CGRect?)? = nil
+        initialFrameProvider: (@MainActor () -> CGRect?)? = nil,
+        initialPreferredContentSize: CGSize? = nil,
+        frameForContentRect: @escaping @MainActor (CGRect) -> CGRect = { $0 },
+        contentRectForFrameRect: @escaping @MainActor (CGRect) -> CGRect = { $0 }
     ) {
         self.panel = panel
         self.pageLoader = pageLoader
@@ -155,6 +238,26 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         self.performanceSignposter = performanceSignposter
         self.visibleFramesProvider = visibleFramesProvider
         self.initialFrameProvider = initialFrameProvider
+        self.frameForContentRect = frameForContentRect
+        self.contentRectForFrameRect = contentRectForFrameRect
+        preferredWorkingContentSize =
+            initialPreferredContentSize
+            ?? PanelFramePolicy.contentSize(
+                forFrame: panel.frame,
+                contentRectForFrameRect: contentRectForFrameRect
+            )
+        if initialPreferredContentSize != nil,
+            let visibleFrame = PanelFramePolicy.targetVisibleFrame(
+                for: panel.frame,
+                from: visibleFramesProvider()
+            )
+        {
+            preferredVisibleFrame = visibleFrame
+            preservedFrameAnchor = PanelFramePolicy.nearestAnchor(
+                for: panel.frame,
+                in: visibleFrame
+            )
+        }
         screenConfigurationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -164,11 +267,38 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
                 self?.reclampPanelFrame(visibleFrames: NSScreen.screens.map(\.visibleFrame))
             }
         }
+        liveResizeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didEndLiveResizeNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.recordManualResizeCompletion()
+            }
+        }
+        moveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.recordPanelMove()
+            }
+        }
+        panel.onClose = { [weak self] in
+            _ = self?.stashOrRestoreCurrentPage()
+        }
     }
 
     isolated deinit {
         if let screenConfigurationObserver {
             NotificationCenter.default.removeObserver(screenConfigurationObserver)
+        }
+        if let liveResizeObserver {
+            NotificationCenter.default.removeObserver(liveResizeObserver)
+        }
+        if let moveObserver {
+            NotificationCenter.default.removeObserver(moveObserver)
         }
     }
 
@@ -177,6 +307,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     }
 
     func show(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        let hadPinnedPage = currentPage != nil
         let measurement = beginFirstPresentation()
         prepareInitialFrameIfNeeded()
         if currentPage?.canonicalURL != page.canonicalURL {
@@ -186,31 +317,31 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
             pageLoader.reselect(page: page)
         }
         restoreStashedPanelFrame()
-        dismissStashHandle()
         panel.present()
+        dismissStashHandle()
         endFirstPresentation(measurement)
         pageLoader.panelDidShow()
+        if !hadPinnedPage {
+            onPinnedPageAvailabilityChange?()
+        }
         logger.notice("Panel show requested")
     }
 
     func reloadPinnedPage(_ page: NotionPageReference) {
+        let hadPinnedPage = currentPage != nil
         let measurement = beginFirstPresentation()
         prepareInitialFrameIfNeeded()
         restoreStashedPanelFrame()
-        dismissStashHandle()
         currentPage = page
         panel.present()
+        dismissStashHandle()
         endFirstPresentation(measurement)
         pageLoader.panelDidShow()
         pageLoader.reloadPinnedPage(page)
+        if !hadPinnedPage {
+            onPinnedPageAvailabilityChange?()
+        }
         logger.notice("Pinned page reload requested")
-    }
-
-    func hide() {
-        pageLoader.panelDidHide()
-        restoreStashedPanelFrame()
-        panel.orderOut()
-        dismissStashHandle()
     }
 
     func showCurrentPage() -> Bool {
@@ -218,31 +349,22 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         let measurement = beginFirstPresentation()
         prepareInitialFrameIfNeeded()
         restoreStashedPanelFrame()
-        dismissStashHandle()
         panel.present()
+        dismissStashHandle()
         endFirstPresentation(measurement)
         pageLoader.panelDidShow()
         logger.notice("Existing panel show requested")
         return true
     }
 
-    func toggleCurrentPage() -> Bool {
-        guard currentPage != nil else { return false }
-        if isVisible {
-            hide()
-        } else {
-            _ = showCurrentPage()
-        }
-        return true
-    }
-
     func stashOrRestoreCurrentPage() -> Bool {
         guard currentPage != nil else { return false }
-        if panel.isVisible {
-            if !stash(visibleFrames: visibleFramesProvider()) {
-                hide()
-            }
-        } else {
+        switch presentationState {
+        case .unavailable:
+            return false
+        case .visible:
+            _ = stash(visibleFrames: visibleFramesProvider())
+        case .stashed:
             _ = showCurrentPage()
         }
         return true
@@ -257,21 +379,49 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
     }
 
     @discardableResult
+    func applyPanelContentSize(_ contentSize: CGSize) -> Bool {
+        guard currentPage != nil else { return false }
+
+        let wasVisible = panel.isVisible
+        let logicalFrame = stashedPanelFrame ?? panel.frame
+        preferredWorkingContentSize = contentSize
+        preservedFrameAnchor = nil
+        preferredVisibleFrame = PanelFramePolicy.targetVisibleFrame(
+            for: logicalFrame,
+            from: visibleFramesProvider()
+        )
+        let placement = preferredPlacement(
+            anchoredTo: logicalFrame,
+            visibleFrames: visibleFramesProvider()
+        )
+        setPanelFrame(placement.frame, display: wasVisible)
+        stashedPanelFrame = nil
+        dismissStashHandle()
+
+        if !wasVisible {
+            panel.present()
+            pageLoader.panelDidShow()
+        }
+        logger.notice("Panel content size applied")
+        return true
+    }
+
+    @discardableResult
     func stash(visibleFrames: [CGRect]) -> Bool {
         guard currentPage != nil,
-              let stashHandle,
-              let placement = PanelStashPolicy.placement(
-                  for: panel.frame,
-                  visibleFrames: visibleFrames
-              )
+            let stashHandle,
+            let placement = PanelStashPolicy.placement(
+                for: panel.frame,
+                visibleFrames: visibleFrames
+            )
         else {
             return false
         }
 
         stashedPanelFrame = panel.frame
+        presentStashHandle(stashHandle, placement: placement)
         pageLoader.panelDidHide()
         panel.orderOut()
-        presentStashHandle(stashHandle, placement: placement)
         logger.notice("Panel stashed to screen edge")
         return true
     }
@@ -284,8 +434,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         let measurement = beginFirstPresentation()
         prepareInitialFrameIfNeeded()
         restoreStashedPanelFrame()
-        dismissStashHandle()
         panel.present()
+        dismissStashHandle()
         endFirstPresentation(measurement)
         pageLoader.panelDidShow()
         logger.notice("Panel restored from screen edge")
@@ -293,23 +443,20 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
 
     func reclampPanelFrame(visibleFrames: [CGRect]) {
         if stashedPanelFrame == nil {
-            panel.setFrame(
-                PanelFramePolicy.clamped(
-                    panel.frame,
-                    visibleFrames: visibleFrames,
-                    minimumSize: WindowRole.pictureInPicture.policy.minimumContentSize
-                ),
-                display: true
+            let placement = preferredPlacement(
+                anchoredTo: panel.frame,
+                visibleFrames: visibleFrames
             )
+            setPanelFrame(placement.frame, display: true)
         }
 
         guard stashHandle?.isVisible == true else { return }
+        guard !visibleFrames.isEmpty else { return }
         guard let activeStashPlacement,
-              let placement = PanelStashPolicy.snappedPlacement(
+            let placement = PanelStashPolicy.snappedPlacement(
             for: activeStashPlacement.frame,
             visibleFrames: visibleFrames
         ) else {
-            dismissStashHandle()
             return
         }
         if let stashHandle {
@@ -327,7 +474,15 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
         guard let initialFrameProvider else { return }
         self.initialFrameProvider = nil
         guard let frame = initialFrameProvider() else { return }
-        panel.setFrame(frame, display: false)
+        setPanelFrame(frame, display: false)
+        preferredWorkingContentSize = PanelFramePolicy.contentSize(
+            forFrame: frame,
+            contentRectForFrameRect: contentRectForFrameRect
+        )
+        preferredVisibleFrame = PanelFramePolicy.targetVisibleFrame(
+            for: frame,
+            from: visibleFramesProvider()
+        )
     }
 
     private func beginFirstPresentation() -> (
@@ -370,15 +525,99 @@ final class PiPPanelCoordinator: PiPPanelCoordinating {
 
     private func restoreStashedPanelFrame() {
         guard let stashedPanelFrame else { return }
-        panel.setFrame(
-            PanelFramePolicy.clamped(
-                stashedPanelFrame,
-                visibleFrames: visibleFramesProvider(),
-                minimumSize: WindowRole.pictureInPicture.policy.minimumContentSize
-            ),
-            display: false
+        let placement = preferredPlacement(
+            anchoredTo: stashedPanelFrame,
+            visibleFrames: visibleFramesProvider()
         )
+        setPanelFrame(placement.frame, display: false)
         self.stashedPanelFrame = nil
+    }
+
+    private func preferredPlacement(
+        anchoredTo frame: CGRect,
+        visibleFrames: [CGRect]
+    ) -> PanelFramePlacement {
+        if preservedFrameAnchor == nil, let preferredVisibleFrame {
+            preservedFrameAnchor = PanelFramePolicy.nearestAnchor(
+                for: frame,
+                in: preferredVisibleFrame
+            )
+        }
+        let placementFrames: [CGRect]
+        if let preferredVisibleFrame,
+            visibleFrames.contains(preferredVisibleFrame)
+        {
+            placementFrames = [preferredVisibleFrame]
+        } else {
+            placementFrames = visibleFrames
+        }
+        let placement = PanelFramePolicy.placement(
+            preferredContentSize: preferredWorkingContentSize,
+            anchoredTo: frame,
+            visibleFrames: placementFrames,
+            minimumContentSize: WindowRole.pictureInPicture.policy.minimumContentSize,
+            preserving: preservedFrameAnchor,
+            frameForContentRect: frameForContentRect
+        )
+        preservedFrameAnchor = placement.anchor
+        if preferredVisibleFrame == nil {
+            preferredVisibleFrame = PanelFramePolicy.targetVisibleFrame(
+                for: frame,
+                from: visibleFrames
+            )
+        }
+        return placement
+    }
+
+    private func recordManualResizeCompletion() {
+        let contentSize = currentPanelContentSize
+        preferredWorkingContentSize = contentSize
+        preservedFrameAnchor = nil
+        preferredVisibleFrame = PanelFramePolicy.targetVisibleFrame(
+            for: panel.frame,
+            from: visibleFramesProvider()
+        )
+        onManualResizeCompletion?(contentSize)
+    }
+
+    func recordPanelMove() {
+        guard !isApplyingProgrammaticFrame,
+            let visibleFrame = PanelFramePolicy.targetVisibleFrame(
+                for: panel.frame,
+                from: visibleFramesProvider()
+            )
+        else {
+            return
+        }
+        let previousVisibleFrame = preferredVisibleFrame
+        preferredVisibleFrame = visibleFrame
+        preservedFrameAnchor = PanelFramePolicy.nearestAnchor(
+            for: panel.frame,
+            in: visibleFrame
+        )
+        guard previousVisibleFrame != visibleFrame else { return }
+
+        let placement = preferredPlacement(
+            anchoredTo: panel.frame,
+            visibleFrames: [visibleFrame]
+        )
+        guard placement.frame != panel.frame else { return }
+        setPanelFrame(placement.frame, display: panel.isVisible)
+    }
+
+    private func setPanelFrame(_ frame: CGRect, display: Bool) {
+        programmaticFrameChangeGeneration &+= 1
+        let generation = programmaticFrameChangeGeneration
+        isApplyingProgrammaticFrame = true
+        panel.setFrame(frame, display: display)
+        Task { @MainActor [weak self] in
+            guard let self,
+                programmaticFrameChangeGeneration == generation
+            else {
+                return
+            }
+            isApplyingProgrammaticFrame = false
+        }
     }
 }
 
@@ -390,8 +629,11 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     }
 
     override func close() {
-        onClose?()
-        orderOut(nil)
+        if let onClose {
+            onClose()
+        } else {
+            orderOut(nil)
+        }
     }
 
     func present() {

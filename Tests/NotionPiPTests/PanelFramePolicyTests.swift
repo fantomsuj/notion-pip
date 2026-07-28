@@ -1,5 +1,6 @@
 import CoreGraphics
 import XCTest
+
 @testable import NotionPiP
 
 final class PanelFramePolicyTests: XCTestCase {
@@ -153,5 +154,153 @@ final class PanelFramePolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(clamped, visibleFrame)
+    }
+
+    func testInitialFrameConvertsAuthoritativeContentSizeBeforePlacement() {
+        let screens = [
+            ScreenGeometry(
+                frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 775)
+            )
+        ]
+
+        let frame = PanelFramePolicy.initialFrame(
+            contentSize: CGSize(width: 420, height: 520),
+            pointerLocation: CGPoint(x: 500, y: 400),
+            screens: screens,
+            frameForContentRect: { contentRect in
+                CGRect(
+                    origin: contentRect.origin,
+                    size: CGSize(
+                        width: contentRect.width + 12,
+                        height: contentRect.height + 40
+                    )
+                )
+            }
+        )
+
+        XCTAssertEqual(frame, CGRect(x: 544, y: 191, width: 432, height: 560))
+    }
+
+    func testContentAndFrameConversionHelpersUseInjectedWindowConversions() {
+        let frameSize = PanelFramePolicy.frameSize(
+            forContentSize: CGSize(width: 320, height: 360),
+            minimumContentSize: CGSize(width: 360, height: 420),
+            frameForContentRect: { contentRect in
+                CGRect(
+                    x: contentRect.minX - 6,
+                    y: contentRect.minY,
+                    width: contentRect.width + 12,
+                    height: contentRect.height + 38
+                )
+            }
+        )
+        let contentSize = PanelFramePolicy.contentSize(
+            forFrame: CGRect(x: 40, y: 50, width: 512, height: 638),
+            contentRectForFrameRect: { frameRect in
+                CGRect(
+                    x: frameRect.minX + 6,
+                    y: frameRect.minY,
+                    width: frameRect.width - 12,
+                    height: frameRect.height - 38
+                )
+            }
+        )
+
+        XCTAssertEqual(frameSize, CGSize(width: 372, height: 458))
+        XCTAssertEqual(contentSize, CGSize(width: 500, height: 600))
+    }
+
+    func testPlacementPreservesNearestScreenEdgesWhenApplyingContentSize() {
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 875)
+        let currentFrame = CGRect(x: 1_016, y: 251, width: 400, height: 600)
+
+        let placement = PanelFramePolicy.placement(
+            preferredContentSize: CGSize(width: 680, height: 720),
+            anchoredTo: currentFrame,
+            visibleFrames: [screen],
+            frameForContentRect: { contentRect in
+                CGRect(
+                    origin: contentRect.origin,
+                    size: CGSize(
+                        width: contentRect.width,
+                        height: contentRect.height + 32
+                    )
+                )
+            }
+        )
+
+        XCTAssertEqual(
+            placement.frame,
+            CGRect(x: 736, y: 99, width: 680, height: 752)
+        )
+        XCTAssertEqual(placement.preferredContentSize, CGSize(width: 680, height: 720))
+        XCTAssertEqual(
+            placement.anchor,
+            PanelFrameAnchor(
+                horizontalEdge: .right,
+                horizontalInset: 24,
+                verticalEdge: .top,
+                verticalInset: 24
+            )
+        )
+    }
+
+    func testOversizedPreferredContentSizeIsRetainedWhileFrameIsClamped() {
+        let screen = CGRect(x: 0, y: 0, width: 500, height: 400)
+        let currentFrame = CGRect(x: 76, y: 24, width: 400, height: 352)
+
+        let placement = PanelFramePolicy.placement(
+            preferredContentSize: CGSize(width: 680, height: 720),
+            anchoredTo: currentFrame,
+            visibleFrames: [screen],
+            frameForContentRect: frameWithTitleBar
+        )
+
+        XCTAssertEqual(placement.frame, screen)
+        XCTAssertEqual(placement.preferredContentSize, CGSize(width: 680, height: 720))
+        XCTAssertEqual(
+            placement.anchor,
+            PanelFrameAnchor(
+                horizontalEdge: .right,
+                horizontalInset: 24,
+                verticalEdge: .top,
+                verticalInset: 24
+            )
+        )
+    }
+
+    func testPreservedAnchorRestoresPreferredSizeOnLargerDisplay() throws {
+        let smallScreen = CGRect(x: 0, y: 0, width: 500, height: 400)
+        let originalFrame = CGRect(x: 76, y: 24, width: 400, height: 352)
+        let clamped = PanelFramePolicy.placement(
+            preferredContentSize: CGSize(width: 680, height: 720),
+            anchoredTo: originalFrame,
+            visibleFrames: [smallScreen],
+            frameForContentRect: frameWithTitleBar
+        )
+        let preservedAnchor = try XCTUnwrap(clamped.anchor)
+
+        let restored = PanelFramePolicy.placement(
+            preferredContentSize: clamped.preferredContentSize,
+            anchoredTo: clamped.frame,
+            visibleFrames: [CGRect(x: 0, y: 0, width: 1_440, height: 900)],
+            preserving: preservedAnchor,
+            frameForContentRect: frameWithTitleBar
+        )
+
+        XCTAssertEqual(restored.frame, CGRect(x: 736, y: 124, width: 680, height: 752))
+        XCTAssertEqual(restored.preferredContentSize, CGSize(width: 680, height: 720))
+        XCTAssertEqual(restored.anchor, preservedAnchor)
+    }
+
+    private func frameWithTitleBar(_ contentRect: CGRect) -> CGRect {
+        CGRect(
+            origin: contentRect.origin,
+            size: CGSize(
+                width: contentRect.width,
+                height: contentRect.height + 32
+            )
+        )
     }
 }

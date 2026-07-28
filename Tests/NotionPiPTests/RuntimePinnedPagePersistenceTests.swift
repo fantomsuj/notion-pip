@@ -81,6 +81,25 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertNil(panel.currentPage)
     }
 
+    func testNoSavedPageOpensSettingsAfterRestoreCompletes() async throws {
+        let settings = RuntimeSettingsWindowPresenter()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            pageRepository: repository
+        )
+        runtime.bind(settingsWindowPresenter: settings)
+
+        runtime.start()
+        try await repository.waitUntilRestoreRequested()
+        await repository.finishRestore(with: nil)
+        try await repository.waitUntilRestoreReturned()
+        await waitUntilRuntimeCondition { settings.showCount == 1 }
+
+        XCTAssertNil(runtime.activePage)
+        XCTAssertEqual(settings.showCount, 1)
+    }
+
     func testFailedRestorePublishesHealthAndRetryReadsRepositoryAgain() async throws {
         let repository = RuntimePinnedPageRepository()
         let runtime = makeRuntime(
@@ -188,6 +207,25 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertEqual(restoreRequestCount, 0)
     }
 
+    func testDirectActivationSuppressesSettingsAfterEmptyRestore() async throws {
+        let settings = RuntimeSettingsWindowPresenter()
+        let repository = RuntimePinnedPageRepository()
+        let panel = RuntimePanelCoordinator()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let directPage = try makePage(id: secondPageID, title: "Direct")
+        runtime.bind(settingsWindowPresenter: settings)
+
+        runtime.start()
+        try await repository.waitUntilRestoreRequested()
+        runtime.activate(page: directPage, source: .typedURL)
+        await repository.finishRestore(with: nil)
+        for _ in 0 ..< 10 { await Task.yield() }
+
+        XCTAssertEqual(runtime.activePage, directPage)
+        XCTAssertEqual(panel.currentPage, directPage)
+        XCTAssertEqual(settings.showCount, 0)
+    }
+
     func testDisconnectWhileRestoreIsDelayedStillRestoresSavedPage() async throws {
         let panel = RuntimePanelCoordinator()
         let repository = RuntimePinnedPageRepository()
@@ -286,6 +324,7 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
 
     func testCorruptRestoredPageLeavesRuntimeEmpty() async throws {
         let panel = RuntimePanelCoordinator()
+        let settings = RuntimeSettingsWindowPresenter()
         let repository = RuntimePinnedPageRepository()
         let runtime = makeRuntime(panel: panel, pageRepository: repository)
         let mismatchedPage = try makeStoredPage(id: secondPageID, title: "Mismatch")
@@ -295,6 +334,7 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
             displayTitle: mismatchedPage.displayTitle,
             timestamp: mismatchedPage.timestamp
         )
+        runtime.bind(settingsWindowPresenter: settings)
 
         runtime.start()
         try await repository.waitUntilRestoreRequested()
@@ -305,6 +345,7 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertNil(runtime.activePage)
         XCTAssertNil(runtime.lastActivationSource)
         XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(settings.showCount, 1)
     }
 
     func testStartingTwiceRequestsRestoreOnce() async throws {
