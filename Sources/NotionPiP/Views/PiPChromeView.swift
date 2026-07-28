@@ -17,7 +17,7 @@ struct PiPChromeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
-    @State private var isHoveringTopEdge = false
+    @StateObject private var topControlsHover = TopControlsHoverController()
     @State private var presentsPageSwitcher = false
     @ObservedObject var pageSwitcherController: PageSwitcherController
     let commandModel: AppCommandModel
@@ -27,7 +27,7 @@ struct PiPChromeView: View {
     let onPageSwitcherSelection: (PageSwitcherSelection) -> Void
     var showsTopControls: Bool {
         Self.shouldShowTopControls(
-            isHoveringTopEdge: isHoveringTopEdge,
+            isHoveringTopEdge: topControlsHover.isHovering,
             isVoiceOverEnabled: voiceOverEnabled,
             isSwitchControlEnabled: switchControlEnabled,
             isFullKeyboardAccessEnabled: NSApplication.shared.isFullKeyboardAccessEnabled
@@ -74,6 +74,11 @@ struct PiPChromeView: View {
 
     func repinCurrentPage() {
         onReloadSavedPin()
+    }
+
+    func openInNotionAndStash() {
+        webSession.openInBrowser()
+        onStash()
     }
 
     var body: some View {
@@ -124,8 +129,8 @@ struct PiPChromeView: View {
                     .accessibilityLabel(Self.reloadAccessibilityLabel)
                     .help(Self.reloadHelp)
 
-                    Button(action: webSession.openInBrowser) {
-                        Image(systemName: "safari")
+                    Button(action: openInNotionAndStash) {
+                        NotionToolbarMark()
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Open Notion page in browser")
@@ -148,7 +153,7 @@ struct PiPChromeView: View {
             }
             .contentShape(Rectangle())
             .onHover { isHovering in
-                isHoveringTopEdge = isHovering
+                topControlsHover.setHovering(isHovering)
             }
             .padding(.horizontal, DesignTokens.Spacing.control)
             .frame(
@@ -195,9 +200,7 @@ struct PiPChromeView: View {
                     .frame(height: Self.topControlsRevealHeight)
                     .contentShape(Rectangle())
                     .onHover { isHovering in
-                        if isHovering {
-                            isHoveringTopEdge = true
-                        }
+                        topControlsHover.setHovering(isHovering)
                     }
                     .accessibilityHidden(true)
             }
@@ -206,5 +209,22 @@ struct PiPChromeView: View {
             reduceMotion ? nil : .easeOut(duration: 0.16),
             value: showsTopControls
         )
+        .onDisappear {
+            topControlsHover.cancel()
+        }
+    }
+}
+
+private struct NotionToolbarMark: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 1.5)
+                .stroke(lineWidth: 1.2)
+            Text("N")
+                .font(.system(size: 11, weight: .black, design: .serif))
+                .offset(y: -0.25)
+        }
+        .frame(width: 15, height: 15)
+        .accessibilityHidden(true)
     }
 }
