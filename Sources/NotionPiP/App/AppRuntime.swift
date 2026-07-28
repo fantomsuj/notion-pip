@@ -8,12 +8,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var pendingPage: NotionPageReference?
     @Published private(set) var activePage: NotionPageReference?
     @Published private(set) var lastActivationSource: PageActivationSource?
-    @Published private(set) var quickCaptureDestination: QuickCaptureDestination?
-    @Published private(set) var destinationSearchResults: [NotionDestinationSearchResult] = []
-    @Published private(set) var destinationSearchError: String?
-    @Published private(set) var isSearchingDestinations = false
-    @Published private(set) var canLoadMoreDestinations = false
-    @Published private(set) var isDestinationSearchCapped = false
     @Published private(set) var captureRecords: [CaptureRecordSnapshot] = []
     @Published private(set) var captureRecoveryMessage: String?
     @Published private(set) var serviceHealth: ServiceHealthState
@@ -54,37 +48,49 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         connectionController.isConnected
     }
 
+    var quickCaptureDestination: QuickCaptureDestination? {
+        destinationController.destination
+    }
+
+    var destinationSearchResults: [NotionDestinationSearchResult] {
+        destinationController.searchResults
+    }
+
+    var destinationSearchError: String? {
+        destinationController.searchError
+    }
+
+    var isSearchingDestinations: Bool {
+        destinationController.isSearching
+    }
+
+    var canLoadMoreDestinations: Bool {
+        destinationController.canLoadMore
+    }
+
+    var isDestinationSearchCapped: Bool {
+        destinationController.isSearchCapped
+    }
+
     private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "shortcut")
     private let pinCoordinator: PinCoordinator
     private let shortcutRegistrar: any GlobalShortcutRegistering
     private let shortcutStore: GlobalShortcutStore
     private let pageURLInputPresenter: any PageURLInputPresenting
     private let pageRepository: (any PinnedPagePersisting)?
-    private let destinationRepository: (any QuickCaptureDestinationPersisting)?
     private let captureRepository: CaptureRepository?
     private let deliveryScheduler: DeliveryScheduler?
     private let connectionController: NotionConnectionController
-    private let destinationSearchDebounceDuration: Duration
+    private let destinationController: QuickCaptureDestinationController
     private weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
     private var connectionObservation: AnyCancellable?
-    private var destinationSearchTask: Task<Void, Never>?
+    private var destinationObservation: AnyCancellable?
     private var bootstrapTask: Task<Void, Never>?
     private var restorePinnedPageTask: Task<Void, Never>?
     private var persistPinnedPageTask: Task<Void, Never>?
     private var persistenceGeneration = 0
     private var pageSelectionGeneration = 0
-    private var destinationSearchGeneration = 0
-    private var activeDestinationSearchQuery: String?
-    private var destinationSearchNextCursor: String?
-    private var destinationSearchRequestedCursors: Set<String> = []
-    private var destinationSearchReturnedCursors: Set<String> = []
-    private var destinationSearchPageCount = 0
-    private var destinationSearchDisplayedResultCount = 0
     private var started = false
-
-    private static let destinationSearchMinimumQueryLength = 2
-    private static let maximumDestinationSearchPages = 4
-    private static let maximumDestinationSearchResults = 100
 
     init(
         panelCoordinator: (any PiPPanelCoordinating)? = nil,
@@ -122,10 +128,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.shortcutRegistrar = shortcutRegistrar
         self.shortcutStore = shortcutStore
         self.pageRepository = pageRepository
-        self.destinationRepository = destinationRepository
         self.captureRepository = captureRepository
         self.deliveryScheduler = deliveryScheduler
-        connectionController = NotionConnectionController(
+        let connectionController = NotionConnectionController(
             credentialVault: credentialVault,
             legacyCacheCleaner: legacyCacheCleaner,
             legacyCacheDirectory: legacyCacheDirectory,
@@ -134,10 +139,18 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
                 await deliveryScheduler?.trigger(reconnected: true)
             }
         )
-        self.destinationSearchDebounceDuration = destinationSearchDebounceDuration
+        self.connectionController = connectionController
+        destinationController = QuickCaptureDestinationController(
+            connectionController: connectionController,
+            repository: destinationRepository,
+            searchDebounceDuration: destinationSearchDebounceDuration
+        )
         serviceHealth = initialServiceHealth
         globalShortcut = shortcutStore.load()
         connectionObservation = connectionController.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
+        destinationObservation = destinationController.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }
         submissionRelay.handler = { [weak self] in
@@ -157,7 +170,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             await self?.bootstrapPersonalTokenConnection()
         }
         Task { [weak self] in
-            await self?.loadQuickCaptureDestination()
+            await self?.destinationController.loadSavedDestination()
             await self?.deliveryScheduler?.trigger()
             await self?.refreshCaptureRecords()
         }
@@ -294,7 +307,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         guard connectionController.state == .disconnected else { return }
         bootstrapTask?.cancel()
         bootstrapTask = nil
-        cancelDestinationSearch()
+        destinationController.resetAfterDisconnect()
     }
 
     func searchNotionPages(query: String) async {
@@ -302,106 +315,25 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     }
 
     func searchQuickCaptureDestinations(query: String) async {
-        beginDestinationSearch(query: query, debounced: false)
-        await destinationSearchTask?.value
+        await destinationController.search(query: query)
     }
 
     func scheduleQuickCaptureDestinationSearch(query: String) {
-        beginDestinationSearch(query: query, debounced: true)
+        destinationController.scheduleSearch(query: query)
     }
 
     func loadMoreQuickCaptureDestinations() async {
-        guard let query = activeDestinationSearchQuery,
-              let cursor = destinationSearchNextCursor,
-              !isSearchingDestinations,
-              !isDestinationSearchCapped
-        else {
-            return
-        }
-
-        guard destinationSearchRequestedCursors.insert(cursor).inserted else {
-            stopDestinationSearchForInvalidContinuation()
-            return
-        }
-
-        let connectionGeneration = connectionController.generation
-        let searchGeneration = destinationSearchGeneration
-        isSearchingDestinations = true
-        destinationSearchTask = Task { [weak self] in
-            await self?.loadDestinationSearchResults(
-                query: query,
-                startCursor: cursor,
-                connectionGeneration: connectionGeneration,
-                searchGeneration: searchGeneration,
-                appendingResults: true
-            )
-        }
-        await destinationSearchTask?.value
-    }
-
-    private func beginDestinationSearch(query: String, debounced: Bool) {
-        destinationSearchTask?.cancel()
-        destinationSearchTask = nil
-        destinationSearchGeneration &+= 1
-        resetDestinationSearchState()
-
-        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedQuery.count >= Self.destinationSearchMinimumQueryLength else {
-            return
-        }
-
-        let connectionGeneration = connectionController.generation
-        let searchGeneration = destinationSearchGeneration
-        activeDestinationSearchQuery = normalizedQuery
-        isSearchingDestinations = true
-        destinationSearchTask = Task { [weak self] in
-            guard let self else { return }
-            if debounced {
-                do {
-                    try await Task.sleep(for: self.destinationSearchDebounceDuration)
-                } catch {
-                    return
-                }
-            }
-            guard !Task.isCancelled else { return }
-            await self.loadDestinationSearchResults(
-                query: normalizedQuery,
-                startCursor: nil,
-                connectionGeneration: connectionGeneration,
-                searchGeneration: searchGeneration,
-                appendingResults: false
-            )
-        }
+        await destinationController.loadMore()
     }
 
     func selectQuickCaptureDestination(
         _ destination: QuickCaptureDestination
     ) async {
-        guard let destinationRepository else {
-            destinationSearchError = "Quick Capture settings are unavailable."
-            return
-        }
-        do {
-            try await destinationRepository.replaceDefault(with: destination)
-            quickCaptureDestination = destination
-            destinationSearchError = nil
-        } catch {
-            destinationSearchError = "Could not save the Quick Capture destination."
-        }
+        await destinationController.select(destination)
     }
 
     func clearQuickCaptureDestination() async {
-        guard let destinationRepository else {
-            destinationSearchError = "Quick Capture settings are unavailable."
-            return
-        }
-        do {
-            try await destinationRepository.clearDefault()
-            quickCaptureDestination = nil
-            destinationSearchError = nil
-        } catch {
-            destinationSearchError = "Could not clear the Quick Capture destination."
-        }
+        await destinationController.clear()
     }
 
     func hasUsablePersonalToken() -> Bool {
@@ -438,157 +370,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             captureRecoveryMessage = nil
         } catch {
             captureRecoveryMessage = "Could not open the local capture export."
-        }
-    }
-
-    private func loadDestinationSearchResults(
-        query: String,
-        startCursor: String?,
-        connectionGeneration: Int,
-        searchGeneration: Int,
-        appendingResults: Bool
-    ) async {
-        defer {
-            if isCurrentDestinationSearch(
-                connectionGeneration: connectionGeneration,
-                searchGeneration: searchGeneration
-            ) {
-                isSearchingDestinations = false
-            }
-        }
-        do {
-            guard isCurrentDestinationSearch(
-                connectionGeneration: connectionGeneration,
-                searchGeneration: searchGeneration
-            ) else { return }
-            guard isNotionConnected else {
-                destinationSearchResults = []
-                destinationSearchError = "Reconnect to Notion to search destinations."
-                canLoadMoreDestinations = false
-                return
-            }
-            guard let lease = try connectionController.workspaceClientLease() else {
-                destinationSearchResults = []
-                destinationSearchError = "Connect a Notion personal access token first."
-                canLoadMoreDestinations = false
-                return
-            }
-            guard lease.generation == connectionGeneration else { return }
-            destinationSearchError = nil
-            let page = try await lease.client.searchDestinations(
-                query: query,
-                startCursor: startCursor
-            )
-            guard isCurrentDestinationSearch(
-                connectionGeneration: connectionGeneration,
-                searchGeneration: searchGeneration
-            ) else { return }
-            applyDestinationSearchPage(page, appendingResults: appendingResults)
-        } catch is CancellationError {
-            return
-        } catch {
-            guard isCurrentDestinationSearch(
-                connectionGeneration: connectionGeneration,
-                searchGeneration: searchGeneration
-            ) else { return }
-            if !appendingResults {
-                destinationSearchResults = []
-            }
-            destinationSearchError = "Could not search Notion destinations."
-            destinationSearchNextCursor = nil
-            canLoadMoreDestinations = false
-        }
-    }
-
-    private func applyDestinationSearchPage(
-        _ page: NotionDestinationSearchPage,
-        appendingResults: Bool
-    ) {
-        let results: [NotionDestinationSearchResult]
-        if appendingResults {
-            var knownDestinations = Set(destinationSearchResults.map(destinationIdentifier))
-            results = destinationSearchResults + page.results.filter {
-                knownDestinations.insert(destinationIdentifier($0)).inserted
-            }
-        } else {
-            var knownDestinations: Set<String> = []
-            results = page.results.filter {
-                knownDestinations.insert(destinationIdentifier($0)).inserted
-            }
-        }
-        destinationSearchResults = Array(results.prefix(Self.maximumDestinationSearchResults))
-        destinationSearchPageCount += 1
-        destinationSearchDisplayedResultCount = destinationSearchResults.count
-
-        guard let nextCursor = page.nextCursor else {
-            destinationSearchNextCursor = nil
-            canLoadMoreDestinations = false
-            return
-        }
-
-        if destinationSearchReturnedCursors.contains(nextCursor) {
-            stopDestinationSearchForInvalidContinuation()
-            return
-        }
-        destinationSearchReturnedCursors.insert(nextCursor)
-
-        if destinationSearchPageCount >= Self.maximumDestinationSearchPages
-            || destinationSearchDisplayedResultCount >= Self.maximumDestinationSearchResults {
-            isDestinationSearchCapped = true
-            destinationSearchNextCursor = nil
-            canLoadMoreDestinations = false
-            return
-        }
-
-        destinationSearchNextCursor = nextCursor
-        canLoadMoreDestinations = true
-    }
-
-    private func destinationIdentifier(_ result: NotionDestinationSearchResult) -> String {
-        "\(result.destination.rawKind):\(result.destination.identifier)"
-    }
-
-    private func stopDestinationSearchForInvalidContinuation() {
-        destinationSearchNextCursor = nil
-        canLoadMoreDestinations = false
-        destinationSearchError = "Could not search Notion destinations."
-    }
-
-    private func cancelDestinationSearch() {
-        destinationSearchGeneration &+= 1
-        destinationSearchTask?.cancel()
-        destinationSearchTask = nil
-        resetDestinationSearchState()
-    }
-
-    private func resetDestinationSearchState() {
-        activeDestinationSearchQuery = nil
-        destinationSearchNextCursor = nil
-        destinationSearchRequestedCursors = []
-        destinationSearchReturnedCursors = []
-        destinationSearchPageCount = 0
-        destinationSearchDisplayedResultCount = 0
-        destinationSearchResults = []
-        destinationSearchError = nil
-        isSearchingDestinations = false
-        canLoadMoreDestinations = false
-        isDestinationSearchCapped = false
-    }
-
-    private func isCurrentDestinationSearch(
-        connectionGeneration: Int,
-        searchGeneration: Int
-    ) -> Bool {
-        connectionController.isCurrent(generation: connectionGeneration)
-            && searchGeneration == destinationSearchGeneration
-    }
-
-    private func loadQuickCaptureDestination() async {
-        guard let destinationRepository else { return }
-        do {
-            quickCaptureDestination = try await destinationRepository.defaultDestination()
-        } catch {
-            destinationSearchError = "Could not load the Quick Capture destination."
         }
     }
 
