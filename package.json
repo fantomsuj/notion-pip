@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --disable-warning=ExperimentalWarning --experimental-strip-types --test Web/**/*.test.ts",
+    "test": "node --disable-warning=ExperimentalWarning --experimental-strip-types --test Web/**/*.test.ts Web/**/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "build:editor": "node --disable-warning=ExperimentalWarning --experimental-strip-types Web/QuickCaptureEditor/build.ts"
   },
@@ -17,6 +17,7 @@
   "devDependencies": {
     "@types/node": "22.15.3",
     "esbuild": "0.28.1",
+    "happy-dom": "^20.11.1",
     "typescript": "7.0.2"
   }
 }
