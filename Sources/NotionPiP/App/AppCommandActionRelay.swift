@@ -4,6 +4,7 @@ import AppKit
 final class AppCommandActionRelay {
     weak var quickCapturePresenter: (any AppWindowPresenting)?
     weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
+    var reloadSavedPinAction: () -> Void = {}
 
     func showQuickCapture() {
         quickCapturePresenter?.show()
@@ -11,6 +12,10 @@ final class AppCommandActionRelay {
 
     func showSettings() {
         settingsWindowPresenter?.show()
+    }
+
+    func reloadSavedPin() {
+        reloadSavedPinAction()
     }
 
     func quit() {

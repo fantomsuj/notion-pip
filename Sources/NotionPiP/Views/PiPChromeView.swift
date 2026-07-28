@@ -5,6 +5,8 @@ struct PiPChromeView: View {
     static let primaryActionID = AppCommandID.quickCapture
     static let primaryActionAccessibilityLabel = "Quick Capture"
     static let primaryActionHelp = "Capture a note for Notion"
+    static let reloadAccessibilityLabel = "Re-pin current Notion page"
+    static let reloadHelp = "Re-pin the current Notion page"
     static let stashAccessibilityLabel = "Stash Notion PiP to Side"
     static let stashHelp = "Move the Notion PiP to the nearest screen edge"
 
@@ -13,6 +15,7 @@ struct PiPChromeView: View {
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     let commandModel: AppCommandModel
+    let onReloadSavedPin: () -> Void
     let onStash: () -> Void
     var showsTopControls: Bool {
         Self.shouldShowTopControls(
@@ -42,11 +45,17 @@ struct PiPChromeView: View {
     init(
         webSession: NotionWebSession,
         commandModel: AppCommandModel = .noOp,
+        onReloadSavedPin: @escaping () -> Void = {},
         onStash: @escaping () -> Void = {}
     ) {
         self.webSession = webSession
         self.commandModel = commandModel
+        self.onReloadSavedPin = onReloadSavedPin
         self.onStash = onStash
+    }
+
+    func repinCurrentPage() {
+        onReloadSavedPin()
     }
 
     var body: some View {
@@ -71,11 +80,12 @@ struct PiPChromeView: View {
                     .accessibilityLabel(Self.primaryActionAccessibilityLabel)
                     .help(Self.primaryActionHelp)
 
-                    Button(action: webSession.reload) {
+                    Button(action: repinCurrentPage) {
                         Image(systemName: "arrow.clockwise")
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Reload Notion page")
+                    .accessibilityLabel(Self.reloadAccessibilityLabel)
+                    .help(Self.reloadHelp)
 
                     Button(action: webSession.openInBrowser) {
                         Image(systemName: "safari")
@@ -117,7 +127,7 @@ struct PiPChromeView: View {
                         .font(.caption)
                         .foregroundStyle(DesignTokens.Colors.error)
                     Spacer()
-                    Button("Try Again", action: webSession.reload)
+                    Button("Try Again", action: repinCurrentPage)
                         .accessibilityLabel("Retry loading Notion page")
                 }
                 .padding(.horizontal, DesignTokens.Spacing.control)

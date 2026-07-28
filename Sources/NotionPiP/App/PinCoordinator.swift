@@ -31,11 +31,15 @@ final class PinCoordinator {
             return
         }
 
-        if currentPage.pageID == page.pageID {
+        if currentPage.canonicalURL == page.canonicalURL {
             panelCoordinator.show(page: page)
         } else {
             panelCoordinator.replace(page: page)
         }
+    }
+
+    func reloadPinnedPage(_ page: NotionPageReference) {
+        panelCoordinator.reloadPinnedPage(page)
     }
 
     func toggleCurrentPage() -> Bool {

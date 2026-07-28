@@ -148,6 +148,7 @@ private final class ShortcutTestPanelCoordinator: PiPPanelCoordinating {
     var currentPage: NotionPageReference?
     var isVisible = false
     func show(page: NotionPageReference) {}
+    func reloadPinnedPage(_ page: NotionPageReference) {}
     func replace(page: NotionPageReference) {}
     func showCurrentPage() -> Bool { false }
     func hide() {}

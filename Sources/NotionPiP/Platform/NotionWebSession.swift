@@ -8,6 +8,9 @@ typealias NotionWebEvictionScheduler = @MainActor (
     TimeInterval,
     @escaping @MainActor () -> Void
 ) -> AnyCancellable
+typealias NotionWebAttachmentScheduler = @MainActor (
+    @escaping @MainActor () -> Void
+) -> Void
 
 enum NotionEditorActivity: String, Equatable {
     case typingStarted
@@ -64,6 +67,7 @@ private final class WeakNotionEditorActivityMessageHandler: NSObject, WKScriptMe
 @MainActor
 protocol NotionPageLoading: AnyObject {
     func activate(page: NotionPageReference)
+    func reloadPinnedPage(_ page: NotionPageReference)
     func reselect(page: NotionPageReference)
     func panelDidShow()
     func panelDidHide()
@@ -103,6 +107,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let stopLoading: @MainActor (WKWebView) -> Void
     private let interactionStateReader: @MainActor (WKWebView) -> Any?
     private let interactionStateWriter: @MainActor (WKWebView, Any) -> Void
+    private let selectionEvaluator: NotionEditorSelectionEvaluator
+    private let scheduleAfterAttachment: NotionWebAttachmentScheduler
+    private let focusWebView: @MainActor (WKWebView) -> Void
     private let editorActivityHandler: WeakNotionEditorActivityMessageHandler
     private var urlObservation: NSKeyValueObservation?
     private var evictionCancellable: AnyCancellable?
@@ -114,6 +121,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var savedURLPageID: String?
     private var savedInteractionState: Any?
     private var savedInteractionPageID: String?
+    private var selectionCaptureGeneration = 0
+    private var savedEditorSelection: (
+        pageID: String,
+        snapshot: NotionEditorSelectionSnapshot
+    )?
 
     var shouldHostWebView: Bool {
         panelIsVisible
@@ -147,6 +159,30 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         },
         interactionStateWriter: @escaping @MainActor (WKWebView, Any) -> Void = {
             $0.interactionState = $1
+        },
+        selectionEvaluator: @escaping NotionEditorSelectionEvaluator = {
+            webView,
+            evaluation,
+            completion in
+            webView.evaluateJavaScript(evaluation.script) { value, error in
+                MainActor.assumeIsolated {
+                    if let error {
+                        completion(.failure(error))
+                    } else {
+                        completion(.success(value))
+                    }
+                }
+            }
+        },
+        scheduleAfterAttachment: @escaping NotionWebAttachmentScheduler = { action in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    action()
+                }
+            }
+        },
+        focusWebView: @escaping @MainActor (WKWebView) -> Void = { webView in
+            _ = webView.window?.makeFirstResponder(webView)
         }
     ) {
         let activityHandler = WeakNotionEditorActivityMessageHandler()
@@ -159,6 +195,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.stopLoading = stopLoading
         self.interactionStateReader = interactionStateReader
         self.interactionStateWriter = interactionStateWriter
+        self.selectionEvaluator = selectionEvaluator
+        self.scheduleAfterAttachment = scheduleAfterAttachment
+        self.focusWebView = focusWebView
         editorActivityHandler = activityHandler
         super.init()
         if let webView {
@@ -194,38 +233,68 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func activate(page: NotionPageReference) {
-        guard activePage?.pageID != page.pageID else {
+        guard activePage?.canonicalURL != page.canonicalURL else {
             return
         }
 
-        let selectedPageChanged = activePage != nil
+        prepare(page: page)
+        guard panelIsVisible, state != .suspended else {
+            if !panelIsVisible {
+                suspendWebViewIfNeeded()
+            }
+            return
+        }
+        load(page.canonicalURL, pageID: page.pageID)
+    }
+
+    func reloadPinnedPage(_ page: NotionPageReference) {
+        prepare(page: page)
+        load(page.canonicalURL, pageID: page.pageID)
+    }
+
+    private func prepare(page: NotionPageReference) {
+        let selectedRouteChanged = activePage?.canonicalURL != page.canonicalURL
         activePage = page
         revealTopControls()
         savedURL = page.canonicalURL
         savedURLPageID = page.pageID
-        if selectedPageChanged {
+        if selectedRouteChanged {
             savedInteractionState = nil
             savedInteractionPageID = nil
+            invalidateEditorSelection()
         }
-        guard panelIsVisible, state != .suspended else { return }
-        load(page.canonicalURL, pageID: page.pageID)
     }
 
     func panelDidShow() {
+        let wasHidden = !panelIsVisible
+        let retainedWebView = webView
+        let retainedPageID = loadedPageID
+        selectionCaptureGeneration &+= 1
         panelIsVisible = true
         if state == .suspended {
             resumeSuspendedWebView()
         } else if webView == nil, let activePage {
             restoreOrLoad(page: activePage)
         }
+        if wasHidden,
+           let retainedWebView,
+           webView === retainedWebView,
+           retainedPageID == activePage?.pageID
+        {
+            restoreSelectionAfterAttachment(
+                in: retainedWebView,
+                pageID: retainedPageID
+            )
+        }
     }
 
     func panelDidHide() {
         panelIsVisible = false
-        suspendWebViewIfNeeded()
+        captureSelectionAndSuspendIfNeeded()
     }
 
     private func load(_ url: URL, pageID: String? = nil) {
+        invalidateEditorSelection()
         savedURL = url
         savedURLPageID = pageID
         loadedPageID = pageID
@@ -238,8 +307,12 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             return
         }
 
+        invalidateEditorSelection()
         revealTopControls()
-        guard panelIsVisible else { return }
+        guard panelIsVisible else {
+            suspendWebViewIfNeeded()
+            return
+        }
         if let webView {
             state = .loading
             webView.reload()
@@ -287,6 +360,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
         evictionCancellable?.cancel()
         evictionCancellable = nil
+        invalidateEditorSelection()
         if loadedPageID == activePage?.pageID {
             savedURL = webView.url ?? savedURL ?? activePage?.canonicalURL
             savedURLPageID = loadedPageID
@@ -308,6 +382,52 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         state = .unloaded
     }
 
+    private func captureSelectionAndSuspendIfNeeded() {
+        invalidateEditorSelection()
+        let generation = selectionCaptureGeneration
+        guard let webView,
+              state == .active,
+              let pageID = activePage?.pageID,
+              loadedPageID == pageID,
+              Self.isTrustedSelectionContext(webView, pageID: pageID)
+        else {
+            suspendWebViewIfNeeded()
+            return
+        }
+
+        selectionEvaluator(webView, .capture) { [weak self, weak webView] result in
+            guard let self,
+                  let webView,
+                  self.selectionCaptureGeneration == generation,
+                  !self.panelIsVisible,
+                  self.webView === webView,
+                  self.activePage?.pageID == pageID,
+                  self.loadedPageID == pageID
+            else {
+                return
+            }
+
+            if case let .success(value) = result,
+               let snapshot = NotionEditorSelectionSnapshot(javaScriptValue: value)
+            {
+                self.savedEditorSelection = (pageID, snapshot)
+            }
+            self.suspendWebViewIfNeeded()
+        }
+    }
+
+    private func invalidateEditorSelection() {
+        selectionCaptureGeneration &+= 1
+        savedEditorSelection = nil
+    }
+
+    private func invalidateEditorSelectionAndSuspendIfHidden() {
+        invalidateEditorSelection()
+        if !panelIsVisible {
+            suspendWebViewIfNeeded()
+        }
+    }
+
     private func suspendWebViewIfNeeded() {
         guard let webView, state != .suspended else {
             revealTopControls()
@@ -327,6 +447,42 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
     }
 
+    private func restoreSelectionAfterAttachment(in webView: WKWebView, pageID: String?) {
+        guard let pageID else { return }
+        scheduleAfterAttachment { [weak self, weak webView] in
+            guard let self,
+                  let webView,
+                  self.panelIsVisible,
+                  self.webView === webView,
+                  self.activePage?.pageID == pageID,
+                  self.loadedPageID == pageID
+            else {
+                return
+            }
+
+            self.focusWebView(webView)
+            let savedSelection = self.savedEditorSelection
+            self.savedEditorSelection = nil
+            guard savedSelection?.pageID == pageID,
+                  let snapshot = savedSelection?.snapshot,
+                  Self.isTrustedSelectionContext(webView, pageID: pageID)
+            else {
+                return
+            }
+            self.selectionEvaluator(webView, .restore(snapshot)) { _ in }
+        }
+    }
+
+    private static func isTrustedSelectionContext(_ webView: WKWebView, pageID: String) -> Bool {
+        guard WebNavigationDestination.classify(webView.url) == .trustedNotion,
+              let url = webView.url,
+              let page = try? NotionPageReference(validating: url)
+        else {
+            return false
+        }
+        return page.pageID == pageID
+    }
+
     private func resumeSuspendedWebView() {
         evictionCancellable?.cancel()
         evictionCancellable = nil
@@ -344,6 +500,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     private func restoreOrLoad(page: NotionPageReference) {
+        invalidateEditorSelection()
         let webView = ensureWebView()
         if let savedInteractionState,
            savedInteractionPageID == page.pageID
@@ -501,11 +658,19 @@ extension NotionWebSession: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         revealTopControls()
+        invalidateEditorSelection()
         publishNavigationState(.loading)
+        if !panelIsVisible {
+            suspendWebViewIfNeeded()
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        invalidateEditorSelection()
         publishNavigationState(.active)
+        if !panelIsVisible {
+            suspendWebViewIfNeeded()
+        }
         adoptResolvedPage(at: webView.url)
     }
 
@@ -520,6 +685,7 @@ extension NotionWebSession: WKNavigationDelegate {
         }
 
         revealTopControls()
+        invalidateEditorSelection()
         activePage = resolvedPage
         loadedPageID = resolvedPage.pageID
         savedURL = url
@@ -532,13 +698,34 @@ extension NotionWebSession: WKNavigationDelegate {
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: Error
     ) {
+        guard !isCancellation(error) else {
+            invalidateEditorSelectionAndSuspendIfHidden()
+            return
+        }
         revealTopControls()
+        invalidateEditorSelection()
         publishNavigationState(.failed(error.localizedDescription))
+        if !panelIsVisible {
+            suspendWebViewIfNeeded()
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        guard !isCancellation(error) else {
+            invalidateEditorSelectionAndSuspendIfHidden()
+            return
+        }
         revealTopControls()
+        invalidateEditorSelection()
         publishNavigationState(.failed(error.localizedDescription))
+        if !panelIsVisible {
+            suspendWebViewIfNeeded()
+        }
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        let error = error as NSError
+        return error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled
     }
 }
 

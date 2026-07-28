@@ -19,6 +19,23 @@ final class RuntimeActivationTests: XCTestCase {
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
     }
 
+    func testReloadSavedPinReusesActivePageWithoutPersistingItAgain() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        runtime.activate(page: page, source: .typedURL)
+        try await repository.waitUntilSaveCount(1)
+
+        runtime.reloadSavedPin()
+        for _ in 0 ..< 3 { await Task.yield() }
+        let savedPages = await repository.savedPages()
+
+        XCTAssertEqual(panel.reloadedPages, [page])
+        XCTAssertEqual(runtime.activePage, page)
+        XCTAssertEqual(savedPages, [page])
+    }
+
     func testShortcutShowsHiddenPinnedPanelWithoutRepinningOrReadingPasteboard() throws {
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
@@ -893,6 +910,7 @@ final class RuntimeActivationTests: XCTestCase {
 private final class RuntimePanelCoordinator: PiPPanelCoordinating {
     private(set) var currentPage: NotionPageReference?
     private(set) var shownPages: [NotionPageReference] = []
+    private(set) var reloadedPages: [NotionPageReference] = []
     private(set) var replacedPages: [NotionPageReference] = []
     private(set) var isVisible = false
     private(set) var isStashed = false
@@ -900,6 +918,13 @@ private final class RuntimePanelCoordinator: PiPPanelCoordinating {
     func show(page: NotionPageReference) {
         currentPage = page
         shownPages.append(page)
+        isVisible = true
+        isStashed = false
+    }
+
+    func reloadPinnedPage(_ page: NotionPageReference) {
+        currentPage = page
+        reloadedPages.append(page)
         isVisible = true
         isStashed = false
     }
