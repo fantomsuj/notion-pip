@@ -4,7 +4,7 @@ protocol NotionRequestTransport: AnyObject, Sendable {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
 }
 
-protocol NotionWorkspaceClient: AnyObject {
+protocol NotionWorkspaceClient: AnyObject, Sendable {
     func validateConnection() async throws -> NotionConnectionSnapshot
     func searchPages(query: String) async throws -> [NotionPageSearchResult]
     func searchDestinations(

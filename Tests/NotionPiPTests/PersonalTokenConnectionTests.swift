@@ -265,6 +265,7 @@ private final class DeleteFailingConnectionTestSecretStore: SecretStoring {
     func delete() throws { throw CocoaError(.fileWriteUnknown) }
 }
 
+@MainActor
 private final class ConnectionTestClient: NotionWorkspaceClient {
     private let connection: NotionConnectionSnapshot?
     private let error: NotionAPIClientError?

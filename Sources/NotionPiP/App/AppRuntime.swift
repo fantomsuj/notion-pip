@@ -8,9 +8,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var pendingPage: NotionPageReference?
     @Published private(set) var activePage: NotionPageReference?
     @Published private(set) var lastActivationSource: PageActivationSource?
-    @Published private(set) var connectionState: PersonalTokenConnectionState = .disconnected
-    @Published private(set) var searchResults: [NotionPageSearchResult] = []
-    @Published private(set) var searchError: String?
     @Published private(set) var quickCaptureDestination: QuickCaptureDestination?
     @Published private(set) var destinationSearchResults: [NotionDestinationSearchResult] = []
     @Published private(set) var destinationSearchError: String?
@@ -41,11 +38,20 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         pageURLInputState.focusRequest
     }
 
+    var connectionState: PersonalTokenConnectionState {
+        connectionController.state
+    }
+
+    var searchResults: [NotionPageSearchResult] {
+        connectionController.searchResults
+    }
+
+    var searchError: String? {
+        connectionController.searchError
+    }
+
     var isNotionConnected: Bool {
-        if case .connected = connectionState {
-            return true
-        }
-        return false
+        connectionController.isConnected
     }
 
     private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "shortcut")
@@ -57,20 +63,16 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     private let destinationRepository: (any QuickCaptureDestinationPersisting)?
     private let captureRepository: CaptureRepository?
     private let deliveryScheduler: DeliveryScheduler?
-    private let credentialVault: PersonalTokenCredentialVault
-    private let legacyCacheCleaner: any LegacyNativePageCacheCleaning
-    private let legacyCacheDirectory: URL
-    private let notionClientFactory: (PersonalIntegrationToken) -> any NotionWorkspaceClient
+    private let connectionController: NotionConnectionController
     private let destinationSearchDebounceDuration: Duration
     private weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
-    private var searchTask: Task<Void, Never>?
+    private var connectionObservation: AnyCancellable?
     private var destinationSearchTask: Task<Void, Never>?
     private var bootstrapTask: Task<Void, Never>?
     private var restorePinnedPageTask: Task<Void, Never>?
     private var persistPinnedPageTask: Task<Void, Never>?
     private var persistenceGeneration = 0
     private var pageSelectionGeneration = 0
-    private var connectionGeneration = 0
     private var destinationSearchGeneration = 0
     private var activeDestinationSearchQuery: String?
     private var destinationSearchNextCursor: String?
@@ -123,13 +125,21 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.destinationRepository = destinationRepository
         self.captureRepository = captureRepository
         self.deliveryScheduler = deliveryScheduler
-        self.credentialVault = credentialVault
-        self.legacyCacheCleaner = legacyCacheCleaner
-        self.legacyCacheDirectory = legacyCacheDirectory
-        self.notionClientFactory = notionClientFactory
+        connectionController = NotionConnectionController(
+            credentialVault: credentialVault,
+            legacyCacheCleaner: legacyCacheCleaner,
+            legacyCacheDirectory: legacyCacheDirectory,
+            notionClientFactory: notionClientFactory,
+            onReconnect: {
+                await deliveryScheduler?.trigger(reconnected: true)
+            }
+        )
         self.destinationSearchDebounceDuration = destinationSearchDebounceDuration
         serviceHealth = initialServiceHealth
         globalShortcut = shortcutStore.load()
+        connectionObservation = connectionController.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
         submissionRelay.handler = { [weak self] in
             self?.validatePageURL()
         }
@@ -272,84 +282,23 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     func connectPersonalToken(_ rawValue: String) async {
         bootstrapTask?.cancel()
         bootstrapTask = nil
-        connectionGeneration &+= 1
-        let generation = connectionGeneration
-
-        do {
-            let token = try PersonalIntegrationToken(validating: rawValue)
-            connectionState = .connecting
-            let connection = try await notionClientFactory(token).validateConnection()
-            guard isCurrentConnectionAttempt(generation) else { return }
-            try credentialVault.save(token)
-            guard isCurrentConnectionAttempt(generation) else { return }
-            connectionState = .connected(workspaceName: connection.workspaceName)
-            await deliveryScheduler?.trigger(reconnected: true)
-        } catch let error as PersonalIntegrationTokenError {
-            guard isCurrentConnectionAttempt(generation) else { return }
-            connectionState = .failed(error == .missing ? "Enter your Notion personal access token." : "Use a Notion personal access token that starts with ntn_.")
-        } catch let error as NotionAPIClientError {
-            guard isCurrentConnectionAttempt(generation) else { return }
-            connectionState = .failed(Self.connectionMessage(for: error))
-        } catch {
-            guard isCurrentConnectionAttempt(generation) else { return }
-            connectionState = .failed("Could not connect to Notion. Check your network and try again.")
-        }
+        await connectionController.connect(rawValue)
     }
 
     func bootstrapPersonalTokenConnection() async {
-        let generation = connectionGeneration
-
-        do {
-            guard let token = try credentialVault.load() else {
-                guard isCurrentConnectionAttempt(generation) else { return }
-                connectionState = .disconnected
-                return
-            }
-            connectionState = .connecting
-            let connection = try await notionClientFactory(token).validateConnection()
-            guard isCurrentConnectionAttempt(generation) else { return }
-            connectionState = .connected(workspaceName: connection.workspaceName)
-            await deliveryScheduler?.trigger(reconnected: true)
-        } catch let error as NotionAPIClientError {
-            guard isCurrentConnectionAttempt(generation) else { return }
-            connectionState = .failed(Self.reconnectMessage(for: error))
-        } catch {
-            guard isCurrentConnectionAttempt(generation) else { return }
-            connectionState = .failed("Saved Notion access needs to be reconnected.")
-        }
+        await connectionController.bootstrapSavedToken()
     }
 
     func disconnectPersonalToken() {
-        do {
-            try credentialVault.disconnect()
-            connectionGeneration &+= 1
-            bootstrapTask?.cancel()
-            bootstrapTask = nil
-            searchTask?.cancel()
-            searchTask = nil
-            cancelDestinationSearch()
-            connectionState = .disconnected
-            searchResults = []
-            searchError = nil
-        } catch {
-            connectionState = .failed("Could not remove the saved token.")
-            return
-        }
-
-        do {
-            try legacyCacheCleaner.removeLegacyCache(at: legacyCacheDirectory)
-        } catch {
-            logger.error("Legacy native preview cache cleanup failed; personal token was removed category=legacy-preview-cache-cleanup")
-        }
+        connectionController.disconnect()
+        guard connectionController.state == .disconnected else { return }
+        bootstrapTask?.cancel()
+        bootstrapTask = nil
+        cancelDestinationSearch()
     }
 
     func searchNotionPages(query: String) async {
-        searchTask?.cancel()
-        let generation = connectionGeneration
-        searchTask = Task { [weak self] in
-            await self?.loadNotionSearchResults(query: query, connectionGeneration: generation)
-        }
-        await searchTask?.value
+        await connectionController.searchPages(query: query)
     }
 
     func searchQuickCaptureDestinations(query: String) async {
@@ -375,7 +324,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             return
         }
 
-        let connectionGeneration = connectionGeneration
+        let connectionGeneration = connectionController.generation
         let searchGeneration = destinationSearchGeneration
         isSearchingDestinations = true
         destinationSearchTask = Task { [weak self] in
@@ -401,7 +350,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             return
         }
 
-        let connectionGeneration = connectionGeneration
+        let connectionGeneration = connectionController.generation
         let searchGeneration = destinationSearchGeneration
         activeDestinationSearchQuery = normalizedQuery
         isSearchingDestinations = true
@@ -456,8 +405,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     }
 
     func hasUsablePersonalToken() -> Bool {
-        guard isNotionConnected else { return false }
-        return (try? credentialVault.load()) != nil
+        connectionController.hasUsableToken()
     }
 
     func refreshCaptureRecords() async {
@@ -493,32 +441,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         }
     }
 
-    private func loadNotionSearchResults(query: String, connectionGeneration: Int) async {
-        do {
-            guard isCurrentConnectionAttempt(connectionGeneration) else { return }
-            guard isNotionConnected else {
-                searchResults = []
-                searchError = "Reconnect to Notion to search your workspace."
-                return
-            }
-            guard let token = try credentialVault.load() else {
-                guard isCurrentConnectionAttempt(connectionGeneration) else { return }
-                searchResults = []
-                searchError = "Connect a Notion personal access token first."
-                return
-            }
-            guard isCurrentConnectionAttempt(connectionGeneration) else { return }
-            searchError = nil
-            let results = try await notionClientFactory(token).searchPages(query: query)
-            guard isCurrentConnectionAttempt(connectionGeneration) else { return }
-            searchResults = results
-        } catch {
-            guard isCurrentConnectionAttempt(connectionGeneration) else { return }
-            searchResults = []
-            searchError = "Could not search Notion. Check the token, permissions, and network."
-        }
-    }
-
     private func loadDestinationSearchResults(
         query: String,
         startCursor: String?,
@@ -545,14 +467,15 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
                 canLoadMoreDestinations = false
                 return
             }
-            guard let token = try credentialVault.load() else {
+            guard let lease = try connectionController.workspaceClientLease() else {
                 destinationSearchResults = []
                 destinationSearchError = "Connect a Notion personal access token first."
                 canLoadMoreDestinations = false
                 return
             }
+            guard lease.generation == connectionGeneration else { return }
             destinationSearchError = nil
-            let page = try await notionClientFactory(token).searchDestinations(
+            let page = try await lease.client.searchDestinations(
                 query: query,
                 startCursor: startCursor
             )
@@ -656,7 +579,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         connectionGeneration: Int,
         searchGeneration: Int
     ) -> Bool {
-        isCurrentConnectionAttempt(connectionGeneration)
+        connectionController.isCurrent(generation: connectionGeneration)
             && searchGeneration == destinationSearchGeneration
     }
 
@@ -682,10 +605,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
     private func showValidationFailure(_ message: String) {
         pageURLInputState.showValidationFailure(message)
-    }
-
-    private func isCurrentConnectionAttempt(_ generation: Int) -> Bool {
-        generation == connectionGeneration && !Task.isCancelled
     }
 
     private func restorePinnedPage(
@@ -769,91 +688,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         serviceHealth.resolve(issue)
     }
 
-    private static func connectionMessage(for error: NotionAPIClientError) -> String {
-        switch error {
-        case .unauthorized:
-            "Notion did not accept this token."
-        case .accessDenied:
-            "This token does not have the Notion API capability."
-        case .apiError(let details) where details.statusCode == 401:
-            "Notion did not accept this token."
-        case .apiError(let details) where details.statusCode == 403:
-            "This token does not have the Notion API capability."
-        default:
-            "Could not connect to Notion. Check your network and try again."
-        }
-    }
-
-    private static func reconnectMessage(for error: NotionAPIClientError) -> String {
-        switch error {
-        case .unauthorized:
-            "Notion did not accept this token. Reconnect to continue."
-        case .accessDenied:
-            "This token does not have the Notion API capability. Reconnect to continue."
-        case .apiError(let details) where details.statusCode == 401:
-            "Notion did not accept this token. Reconnect to continue."
-        case .apiError(let details) where details.statusCode == 403:
-            "This token does not have the Notion API capability. Reconnect to continue."
-        default:
-            "Saved Notion access needs to be reconnected."
-        }
-    }
-}
-
-struct ServiceHealthState: Equatable, Sendable {
-    static let healthy = ServiceHealthState()
-
-    private(set) var issues: [ServiceHealthIssue]
-
-    var isHealthy: Bool {
-        issues.isEmpty
-    }
-
-    init(issues: Set<ServiceHealthIssue> = []) {
-        self.issues = issues.sorted()
-    }
-
-    mutating func report(_ issue: ServiceHealthIssue) {
-        guard !issues.contains(issue) else { return }
-        issues.append(issue)
-        issues.sort()
-    }
-
-    mutating func resolve(_ issue: ServiceHealthIssue) {
-        issues.removeAll { $0 == issue }
-    }
-}
-
-enum ServiceHealthIssue: String, Comparable, Identifiable, Sendable {
-    case persistentStoreUnavailable
-    case pinnedPagePersistenceUnavailable
-    case globalShortcutUnavailable
-
-    var id: String {
-        rawValue
-    }
-
-    static func < (lhs: ServiceHealthIssue, rhs: ServiceHealthIssue) -> Bool {
-        lhs.rawValue < rhs.rawValue
-    }
-}
-
-enum PageActivationSource: Equatable, Sendable {
-    case restored
-    case typedURL
-    case clipboard
-    case externalRoute(ExternalURLSource)
-    case notionSearch
-    case notionWebSession
-    case pagePicker
-    case pageSwitcher
-}
-
-enum PersonalTokenConnectionState: Equatable {
-    case disconnected
-    case connecting
-    case connected(workspaceName: String)
-    case failed(String)
 }
 
 @MainActor
