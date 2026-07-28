@@ -707,6 +707,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             isAttemptingDurableRestoration = false
             pendingScrollRestoration = nil
             interactionStateWriter(webView, interactionState)
+            interactionStates.removeValue(forKey: page.pageID)
             loadedPageID = page.pageID
             state = .loading
         } else {

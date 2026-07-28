@@ -134,6 +134,88 @@ final class AppWindowPresenterTests: XCTestCase {
         XCTAssertTrue(hiddenResult)
         XCTAssertEqual(terminationCallCount, 1)
     }
+
+    func testSuccessfulCloseReleaseDisposesHiddenPresenterAfterScheduledDelay() {
+        var scheduledRelease: (() -> Void)?
+        var scheduledDelay: TimeInterval?
+        var cancellationCount = 0
+        var factoryCount = 0
+        let resource = ResourceDisposalSpy()
+        let presenter = LazyAppWindowPresenter(
+            makePresenter: {
+                factoryCount += 1
+                return resource
+            },
+            releaseScheduler: { delay, action in
+                scheduledDelay = delay
+                scheduledRelease = action
+                return { cancellationCount += 1 }
+            }
+        )
+
+        presenter.show()
+        presenter.hide()
+        presenter.scheduleReleaseAfterSuccessfulClose()
+
+        XCTAssertEqual(factoryCount, 1)
+        XCTAssertEqual(scheduledDelay, 60)
+        XCTAssertEqual(cancellationCount, 0)
+        XCTAssertEqual(resource.disposeCount, 0)
+
+        scheduledRelease?()
+
+        XCTAssertEqual(resource.disposeCount, 1)
+        XCTAssertNil(presenter.terminationParticipant)
+    }
+
+    func testReopeningBeforeReleaseExpiryCancelsPendingRelease() {
+        var scheduledRelease: (() -> Void)?
+        var cancellationCount = 0
+        let resource = ResourceDisposalSpy()
+        let presenter = LazyAppWindowPresenter(
+            makePresenter: { resource },
+            releaseScheduler: { _, action in
+                scheduledRelease = action
+                return { cancellationCount += 1 }
+            }
+        )
+
+        presenter.show()
+        presenter.hide()
+        presenter.scheduleReleaseAfterSuccessfulClose()
+        presenter.show()
+        scheduledRelease?()
+
+        XCTAssertEqual(cancellationCount, 1)
+        XCTAssertEqual(resource.showCount, 2)
+        XCTAssertEqual(resource.disposeCount, 0)
+    }
+
+    func testReopeningAfterReleaseExpiryConstructsANewPresenter() {
+        var scheduledRelease: (() -> Void)?
+        var createdResources: [ResourceDisposalSpy] = []
+        let presenter = LazyAppWindowPresenter(
+            makePresenter: {
+                let resource = ResourceDisposalSpy()
+                createdResources.append(resource)
+                return resource
+            },
+            releaseScheduler: { _, action in
+                scheduledRelease = action
+                return {}
+            }
+        )
+
+        presenter.show()
+        presenter.hide()
+        presenter.scheduleReleaseAfterSuccessfulClose()
+        scheduledRelease?()
+        presenter.show()
+
+        XCTAssertEqual(createdResources.count, 2)
+        XCTAssertEqual(createdResources[0].disposeCount, 1)
+        XCTAssertEqual(createdResources[1].showCount, 1)
+    }
 }
 
 @MainActor
@@ -143,6 +225,16 @@ private final class FakeAppWindowPresenter: AppWindowPresenting {
 
     func show() { showCount += 1 }
     func hide() { hideCount += 1 }
+}
+
+@MainActor
+private final class ResourceDisposalSpy: AppWindowPresenting, AppWindowResourceDisposing {
+    private(set) var showCount = 0
+    private(set) var disposeCount = 0
+
+    func show() { showCount += 1 }
+    func hide() {}
+    func disposeResources() { disposeCount += 1 }
 }
 
 @MainActor
