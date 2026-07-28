@@ -121,7 +121,7 @@ test("stash transition locks before draining and captures only after the old dra
     await new Promise<void>((resolve) => { acknowledgeChange = resolve; });
     order.push("changed-acknowledged");
   }, () => "old-draft-change");
-  publisher.changed({ draftID: "draft-1", title: "Old edit", document: null }, 1);
+  publisher.changed(() => ({ draftID: "draft-1", title: "Old edit", document: null }), 1);
   const gate = new EditorTransitionGate(
     publisher,
     async (request) => {
@@ -194,7 +194,7 @@ test("definitive old-draft autosave rejection cancels the transition without ret
     },
     () => "stale-old-draft-change",
   );
-  publisher.changed({ draftID: "draft-1", title: "Current work", document: null }, 1);
+  publisher.changed(() => ({ draftID: "draft-1", title: "Current work", document: null }), 1);
   const gate = new EditorTransitionGate(
     publisher,
     async () => { throw new Error("transition must not dispatch"); },
@@ -241,7 +241,7 @@ test("missing old draft keeps the transition locked with the exact autosave retr
     },
     () => "missing-old-draft-change",
   );
-  publisher.changed({ draftID: "draft-1", title: "Visible work", document: null }, 1);
+  publisher.changed(() => ({ draftID: "draft-1", title: "Visible work", document: null }), 1);
   const gate = new EditorTransitionGate(
     publisher,
     async () => { throw new Error("transition must not dispatch"); },
@@ -280,7 +280,7 @@ test("conflict capture discards the superseded queued autosave", async () => {
     async (request) => { changedRequests.push(request); },
     () => "superseded-change",
   );
-  publisher.changed({ draftID: "draft-1", title: "Discard me", document: null }, 1);
+  publisher.changed(() => ({ draftID: "draft-1", title: "Discard me", document: null }), 1);
   const gate = new EditorTransitionGate(
     publisher,
     async (request) => {

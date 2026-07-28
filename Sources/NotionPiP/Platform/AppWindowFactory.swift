@@ -7,6 +7,7 @@ enum AppWindowFactory {
         repository: CaptureRepository?,
         lifecycle: QuickCaptureLifecycleCoordinator? = nil,
         onNeedsConfiguration: @escaping @MainActor (String) -> Void = { _ in },
+        onSuccessfulClose: @escaping @MainActor () -> Void = {},
         openInNotion: @escaping () -> Void
     ) -> AppWindowPresenter {
         let content: AnyView
@@ -56,10 +57,12 @@ enum AppWindowFactory {
                         switch outcome {
                         case .discarded, .enqueued:
                             window.orderOut()
+                            onSuccessfulClose()
                         case let .needsConfiguration(message):
                             session.reportCloseGuidance(message)
                             window.orderOut()
                             onNeedsConfiguration(message)
+                            onSuccessfulClose()
                         case let .failed(message):
                             session.reportCloseGuidance(message)
                         }
@@ -80,7 +83,10 @@ enum AppWindowFactory {
         }
         return AppWindowPresenter(
             window: window,
-            terminationHandler: terminationHandler
+            terminationHandler: terminationHandler,
+            resourceDisposalHandler: { [weak session] in
+                session?.dispose()
+            }
         )
     }
 
