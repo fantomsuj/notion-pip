@@ -8,18 +8,17 @@ final class PersonalTokenConnectionTests: XCTestCase {
         let secretStore = ConnectionTestSecretStore()
         let vault = PersonalTokenCredentialVault(store: secretStore)
         let client = ConnectionTestClient(connection: NotionConnectionSnapshot(workspaceName: "Personal Workspace"))
-        let runtime = AppRuntime(
-            panelCoordinator: FakePanelCoordinator(),
-            pasteboard: ConnectionTestPasteboard(),
-            shortcutRegistrar: ConnectionTestShortcutRegistrar(),
-            pageURLInputPresenter: FakePageURLInputPresenter(),
+        let controller = NotionConnectionController(
             credentialVault: vault,
             notionClientFactory: { _ in client }
         )
 
-        await runtime.connectPersonalToken("ntn_1234567890abcdef")
+        await controller.connect("ntn_1234567890abcdef")
 
-        XCTAssertEqual(runtime.connectionState, .connected(workspaceName: "Personal Workspace"))
+        XCTAssertEqual(
+            controller.state,
+            .connected(workspaceName: "Personal Workspace")
+        )
         XCTAssertEqual(try vault.load()?.redactedDescription, "ntn_…cdef")
         XCTAssertEqual(client.validationCount, 1)
     }
@@ -28,18 +27,17 @@ final class PersonalTokenConnectionTests: XCTestCase {
         let secretStore = ConnectionTestSecretStore()
         let vault = PersonalTokenCredentialVault(store: secretStore)
         let client = ConnectionTestClient(error: .unauthorized)
-        let runtime = AppRuntime(
-            panelCoordinator: FakePanelCoordinator(),
-            pasteboard: ConnectionTestPasteboard(),
-            shortcutRegistrar: ConnectionTestShortcutRegistrar(),
-            pageURLInputPresenter: FakePageURLInputPresenter(),
+        let controller = NotionConnectionController(
             credentialVault: vault,
             notionClientFactory: { _ in client }
         )
 
-        await runtime.connectPersonalToken("ntn_1234567890abcdef")
+        await controller.connect("ntn_1234567890abcdef")
 
-        XCTAssertEqual(runtime.connectionState, .failed("Notion did not accept this token."))
+        XCTAssertEqual(
+            controller.state,
+            .failed("Notion did not accept this token.")
+        )
         XCTAssertNil(try vault.load())
     }
 
@@ -48,28 +46,15 @@ final class PersonalTokenConnectionTests: XCTestCase {
         let vault = PersonalTokenCredentialVault(store: secretStore)
         try vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
         let client = ConnectionTestClient(connection: NotionConnectionSnapshot(workspaceName: "Saved Workspace"))
-        let runtime = makeRuntime(vault: vault, client: client)
+        let controller = makeController(vault: vault, client: client)
 
-        await runtime.bootstrapPersonalTokenConnection()
-
-        XCTAssertEqual(client.validationCount, 1)
-        XCTAssertEqual(runtime.connectionState, .connected(workspaceName: "Saved Workspace"))
-    }
-
-    func testStartBootstrapsSavedTokenBeforePublishingConnectedState() async throws {
-        let secretStore = ConnectionTestSecretStore()
-        let vault = PersonalTokenCredentialVault(store: secretStore)
-        try vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
-        let client = ConnectionTestClient(connection: NotionConnectionSnapshot(workspaceName: "Launch Workspace"))
-        let runtime = makeRuntime(vault: vault, client: client)
-
-        runtime.start()
-        for _ in 0 ..< 20 where runtime.connectionState != .connected(workspaceName: "Launch Workspace") {
-            await Task.yield()
-        }
+        await controller.bootstrapSavedToken()
 
         XCTAssertEqual(client.validationCount, 1)
-        XCTAssertEqual(runtime.connectionState, .connected(workspaceName: "Launch Workspace"))
+        XCTAssertEqual(
+            controller.state,
+            .connected(workspaceName: "Saved Workspace")
+        )
     }
 
     func testDisconnectDuringSavedTokenBootstrapDoesNotReconnect() async throws {
@@ -77,24 +62,20 @@ final class PersonalTokenConnectionTests: XCTestCase {
         let vault = PersonalTokenCredentialVault(store: secretStore)
         try vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
         let client = DelayedConnectionTestClient(workspaceName: "Saved Workspace")
-        let runtime = AppRuntime(
-            panelCoordinator: FakePanelCoordinator(),
-            pasteboard: ConnectionTestPasteboard(),
-            shortcutRegistrar: ConnectionTestShortcutRegistrar(),
-            pageURLInputPresenter: FakePageURLInputPresenter(),
+        let controller = NotionConnectionController(
             credentialVault: vault,
             notionClientFactory: { _ in client }
         )
 
         let bootstrap = Task {
-            await runtime.bootstrapPersonalTokenConnection()
+            await controller.bootstrapSavedToken()
         }
         await client.waitUntilValidationStarts()
-        runtime.disconnectPersonalToken()
+        controller.disconnect()
         await client.finishValidation()
         await bootstrap.value
 
-        XCTAssertEqual(runtime.connectionState, .disconnected)
+        XCTAssertEqual(controller.state, .disconnected)
         XCTAssertNil(try vault.load())
     }
 
@@ -104,20 +85,18 @@ final class PersonalTokenConnectionTests: XCTestCase {
         let vault = PersonalTokenCredentialVault(store: secretStore)
         try vault.save(PersonalIntegrationToken(validating: rawToken))
         let client = ConnectionTestClient(error: .unauthorized)
-        let runtime = makeRuntime(vault: vault, client: client)
+        let controller = makeController(vault: vault, client: client)
 
-        await runtime.bootstrapPersonalTokenConnection()
-        await runtime.searchNotionPages(query: "private")
-        let page = try NotionPageReference(
-            validating: XCTUnwrap(URL(string: "https://www.notion.so/Private-0123456789abcdef0123456789abcdef"))
+        await controller.bootstrapSavedToken()
+        await controller.searchPages(query: "private")
+
+        XCTAssertEqual(
+            controller.state,
+            .failed("Notion did not accept this token. Reconnect to continue.")
         )
-        runtime.activate(page: page, source: .typedURL)
-        for _ in 0 ..< 3 { await Task.yield() }
-
-        XCTAssertEqual(runtime.connectionState, .failed("Notion did not accept this token. Reconnect to continue."))
         XCTAssertEqual(client.validationCount, 1)
         XCTAssertEqual(client.searchCount, 0)
-        XCTAssertFalse(connectionMessage(runtime.connectionState).contains(rawToken))
+        XCTAssertFalse(connectionMessage(controller.state).contains(rawToken))
     }
 
     func testDisconnectRemovesLegacyNativePreviewCacheAtExplicitDirectory() throws {
@@ -130,18 +109,18 @@ final class PersonalTokenConnectionTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let vault = PersonalTokenCredentialVault(store: ConnectionTestSecretStore())
         try vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
-        let runtime = makeRuntime(
+        let controller = makeController(
             vault: vault,
             client: ConnectionTestClient(connection: NotionConnectionSnapshot(workspaceName: "Personal Workspace")),
             legacyCacheCleaner: FileSystemLegacyNativePageCacheCleaner(),
             legacyCacheDirectory: cacheDirectory
         )
 
-        runtime.disconnectPersonalToken()
+        controller.disconnect()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: cacheDirectory.path))
         XCTAssertNil(try vault.load())
-        XCTAssertEqual(runtime.connectionState, .disconnected)
+        XCTAssertEqual(controller.state, .disconnected)
     }
 
     func testCleanupFailureStillLeavesTokenDisconnected() throws {
@@ -149,31 +128,31 @@ final class PersonalTokenConnectionTests: XCTestCase {
         let cleaner = FailingLegacyNativePageCacheCleaner()
         let vault = PersonalTokenCredentialVault(store: ConnectionTestSecretStore())
         try vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
-        let runtime = makeRuntime(
+        let controller = makeController(
             vault: vault,
             client: ConnectionTestClient(connection: NotionConnectionSnapshot(workspaceName: "Personal Workspace")),
             legacyCacheCleaner: cleaner,
             legacyCacheDirectory: cacheDirectory
         )
 
-        runtime.disconnectPersonalToken()
+        controller.disconnect()
 
         XCTAssertEqual(cleaner.requestedDirectories, [cacheDirectory])
         XCTAssertNil(try vault.load())
-        XCTAssertEqual(runtime.connectionState, .disconnected)
+        XCTAssertEqual(controller.state, .disconnected)
     }
 
-    func testStartDoesNotAutomaticallyCleanLegacyNativePreviewCache() {
+    func testBootstrapSavedTokenDoesNotCleanLegacyNativePreviewCache() async {
         let cleaner = RecordingLegacyNativePageCacheCleaner()
         let vault = PersonalTokenCredentialVault(store: ConnectionTestSecretStore())
-        let runtime = makeRuntime(
+        let controller = makeController(
             vault: vault,
             client: ConnectionTestClient(connection: NotionConnectionSnapshot(workspaceName: "Personal Workspace")),
             legacyCacheCleaner: cleaner,
             legacyCacheDirectory: URL(fileURLWithPath: "/explicit/legacy/NativePageCache", isDirectory: true)
         )
 
-        runtime.start()
+        await controller.bootstrapSavedToken()
 
         XCTAssertTrue(cleaner.requestedDirectories.isEmpty)
     }
@@ -212,31 +191,30 @@ final class PersonalTokenConnectionTests: XCTestCase {
         try vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
         let cleaner = RecordingLegacyNativePageCacheCleaner()
         let cacheDirectory = URL(fileURLWithPath: "/explicit/legacy/NativePageCache", isDirectory: true)
-        let runtime = makeRuntime(
+        let controller = makeController(
             vault: vault,
             client: ConnectionTestClient(connection: NotionConnectionSnapshot(workspaceName: "Personal Workspace")),
             legacyCacheCleaner: cleaner,
             legacyCacheDirectory: cacheDirectory
         )
 
-        runtime.disconnectPersonalToken()
+        controller.disconnect()
 
         XCTAssertTrue(cleaner.requestedDirectories.isEmpty)
-        XCTAssertEqual(runtime.connectionState, .failed("Could not remove the saved token."))
+        XCTAssertEqual(
+            controller.state,
+            .failed("Could not remove the saved token.")
+        )
         XCTAssertNotNil(try vault.load())
     }
 
-    private func makeRuntime(
+    private func makeController(
         vault: PersonalTokenCredentialVault,
-        client: ConnectionTestClient,
+        client: any NotionWorkspaceClient,
         legacyCacheCleaner: any LegacyNativePageCacheCleaning = NoOpLegacyNativePageCacheCleaner(),
         legacyCacheDirectory: URL = FileSystemLegacyNativePageCacheCleaner.defaultDirectoryURL
-    ) -> AppRuntime {
-        AppRuntime(
-            panelCoordinator: FakePanelCoordinator(),
-            pasteboard: ConnectionTestPasteboard(),
-            shortcutRegistrar: ConnectionTestShortcutRegistrar(),
-            pageURLInputPresenter: FakePageURLInputPresenter(),
+    ) -> NotionConnectionController {
+        NotionConnectionController(
             credentialVault: vault,
             legacyCacheCleaner: legacyCacheCleaner,
             legacyCacheDirectory: legacyCacheDirectory,
@@ -265,6 +243,7 @@ private final class DeleteFailingConnectionTestSecretStore: SecretStoring {
     func delete() throws { throw CocoaError(.fileWriteUnknown) }
 }
 
+@MainActor
 private final class ConnectionTestClient: NotionWorkspaceClient {
     private let connection: NotionConnectionSnapshot?
     private let error: NotionAPIClientError?
