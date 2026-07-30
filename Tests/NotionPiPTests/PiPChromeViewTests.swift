@@ -36,6 +36,11 @@ final class PiPChromeViewTests: XCTestCase {
         XCTAssertTrue(controller.isHovering)
     }
 
+    func testTopControlsHoverSurfaceExtendsBeyondVisibleToolbar() {
+        XCTAssertEqual(PiPChromeView.topControlsHoverOutset, 12)
+        XCTAssertEqual(PiPChromeView.topControlsRevealHeight, 8)
+    }
+
     func testTopControlsDoNotAppearWhenPointerLeavesBeforeRevealDelay() async throws {
         let controller = TopControlsHoverController(revealDelay: .milliseconds(30))
 

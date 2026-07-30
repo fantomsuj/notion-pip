@@ -12,6 +12,7 @@ struct PiPChromeView: View {
     static let pageSwitcherAccessibilityLabel = "Switch Notion page"
     static let topControlsHeight: CGFloat = 32
     static let topControlsRevealHeight: CGFloat = 8
+    static let topControlsHoverOutset: CGFloat = 12
 
     @ObservedObject var webSession: NotionWebSession
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -151,7 +152,9 @@ struct PiPChromeView: View {
                 .allowsHitTesting(showsTopControls)
                 .accessibilityHidden(!showsTopControls)
             }
-            .contentShape(Rectangle())
+            .contentShape(
+                Rectangle().inset(by: -Self.topControlsHoverOutset)
+            )
             .onHover { isHovering in
                 topControlsHover.setHovering(isHovering)
             }
