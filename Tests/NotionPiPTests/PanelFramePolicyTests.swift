@@ -4,6 +4,36 @@ import XCTest
 @testable import NotionPiP
 
 final class PanelFramePolicyTests: XCTestCase {
+    func testCornerSnapAlignsWindowNearTopRightCorner() {
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 875)
+        let frame = CGRect(x: 870, y: 220, width: 520, height: 600)
+
+        XCTAssertEqual(
+            PanelFramePolicy.cornerSnapped(frame, visibleFrames: [screen]),
+            CGRect(x: 896, y: 251, width: 520, height: 600)
+        )
+    }
+
+    func testCornerSnapPreservesFreePlacementWhenOnlyOneAxisIsNearAnEdge() {
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 875)
+        let frame = CGRect(x: 880, y: 100, width: 520, height: 600)
+
+        XCTAssertEqual(PanelFramePolicy.cornerSnapped(frame, visibleFrames: [screen]), frame)
+    }
+
+    func testCornerSnapUsesSelectedDisplayCoordinates() {
+        let screens = [
+            CGRect(x: -1_920, y: 0, width: 1_920, height: 1_055),
+            CGRect(x: 0, y: 0, width: 1_440, height: 875),
+        ]
+        let frame = CGRect(x: -1_880, y: 30, width: 520, height: 600)
+
+        XCTAssertEqual(
+            PanelFramePolicy.cornerSnapped(frame, visibleFrames: screens),
+            CGRect(x: -1_896, y: 24, width: 520, height: 600)
+        )
+    }
+
     func testOffscreenFrameIsClampedInsideAvailableScreen() {
         let restoredFrame = CGRect(x: 1_800, y: 1_200, width: 320, height: 240)
         let visibleFrame = CGRect(x: 0, y: 0, width: 1_000, height: 800)
