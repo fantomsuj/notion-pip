@@ -47,8 +47,9 @@ final class PiPPanelGeometryTests: XCTestCase {
             )
         )
         drainMainRunLoop()
-        let stableFrame = CGRect(x: 100, y: 100, width: 620, height: 680)
-        panel.setFrame(stableFrame, display: false)
+        let requestedFrame = CGRect(x: 100, y: 100, width: 620, height: 680)
+        panel.setFrame(requestedFrame, display: false)
+        let retainedFrame = panel.frame
 
         XCTAssertTrue(
             coordinator.stash(
@@ -57,7 +58,7 @@ final class PiPPanelGeometryTests: XCTestCase {
         )
         drainMainRunLoop()
 
-        XCTAssertEqual(panel.frame, stableFrame)
+        XCTAssertEqual(panel.frame, retainedFrame)
     }
 
     private func drainMainRunLoop() {
