@@ -683,7 +683,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         orderOut(nil)
     }
 
-    func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
+    override func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
         guard animate else {
             setFrame(frame, display: display)
             return
