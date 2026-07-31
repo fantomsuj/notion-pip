@@ -1,5 +1,6 @@
 import AppKit
 import OSLog
+import QuartzCore
 import SwiftUI
 
 @MainActor
@@ -10,6 +11,13 @@ protocol PiPPanelWindow: AnyObject {
     func present()
     func orderOut()
     func setFrame(_ frame: CGRect, display: Bool)
+    func setFrame(_ frame: CGRect, display: Bool, animate: Bool)
+}
+
+extension PiPPanelWindow {
+    func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
+        setFrame(frame, display: display)
+    }
 }
 
 @MainActor
@@ -68,6 +76,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     private var screenConfigurationObserver: NSObjectProtocol?
     private var liveResizeObserver: NSObjectProtocol?
     private var moveObserver: NSObjectProtocol?
+    private var cornerSnapTask: Task<Void, Never>?
     private var initialFrameProvider: (@MainActor () -> CGRect?)?
     private var activeStashPlacement: PanelStashPlacement?
     private var didAttemptFirstPresentation = false
@@ -300,6 +309,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         if let moveObserver {
             NotificationCenter.default.removeObserver(moveObserver)
         }
+        cornerSnapTask?.cancel()
     }
 
     func show(page: NotionPageReference) {
@@ -595,6 +605,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             for: panel.frame,
             in: visibleFrame
         )
+        scheduleCornerSnap()
         guard previousVisibleFrame != visibleFrame else { return }
 
         let placement = preferredPlacement(
@@ -605,11 +616,38 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         setPanelFrame(placement.frame, display: panel.isVisible)
     }
 
-    private func setPanelFrame(_ frame: CGRect, display: Bool) {
+    private func scheduleCornerSnap() {
+        cornerSnapTask?.cancel()
+        cornerSnapTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(140))
+            guard !Task.isCancelled else { return }
+            guard NSEvent.pressedMouseButtons & 1 == 0 else {
+                self?.scheduleCornerSnap()
+                return
+            }
+            self?.snapPanelToCorner()
+        }
+    }
+
+    func snapPanelToCorner() {
+        let snappedFrame = PanelFramePolicy.cornerSnapped(
+            panel.frame,
+            visibleFrames: visibleFramesProvider()
+        )
+        guard snappedFrame != panel.frame else { return }
+        preservedFrameAnchor = nil
+        preferredVisibleFrame = PanelFramePolicy.targetVisibleFrame(
+            for: snappedFrame,
+            from: visibleFramesProvider()
+        )
+        setPanelFrame(snappedFrame, display: panel.isVisible, animate: true)
+    }
+
+    private func setPanelFrame(_ frame: CGRect, display: Bool, animate: Bool = false) {
         programmaticFrameChangeGeneration &+= 1
         let generation = programmaticFrameChangeGeneration
         isApplyingProgrammaticFrame = true
-        panel.setFrame(frame, display: display)
+        panel.setFrame(frame, display: display, animate: animate)
         Task { @MainActor [weak self] in
             guard let self,
                 programmaticFrameChangeGeneration == generation
@@ -643,5 +681,17 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
 
     func orderOut() {
         orderOut(nil)
+    }
+
+    func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
+        guard animate else {
+            setFrame(frame, display: display)
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().setFrame(frame, display: display)
+        }
     }
 }

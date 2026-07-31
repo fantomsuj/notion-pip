@@ -34,6 +34,37 @@ struct PanelFramePlacement: Equatable {
 }
 
 enum PanelFramePolicy {
+    static let cornerInset: CGFloat = 24
+    static let cornerSnapThreshold: CGFloat = 72
+
+    /// Returns a corner-aligned frame when both axes are close enough to make
+    /// the user's intent unambiguous. Frames away from a corner are unchanged.
+    static func cornerSnapped(
+        _ frame: CGRect,
+        visibleFrames: [CGRect],
+        inset: CGFloat = cornerInset,
+        threshold: CGFloat = cornerSnapThreshold
+    ) -> CGRect {
+        guard let visibleFrame = targetVisibleFrame(for: frame, from: visibleFrames) else {
+            return frame
+        }
+
+        let leftX = visibleFrame.minX + inset
+        let rightX = visibleFrame.maxX - frame.width - inset
+        let bottomY = visibleFrame.minY + inset
+        let topY = visibleFrame.maxY - frame.height - inset
+        let targetX = abs(frame.minX - leftX) <= abs(frame.minX - rightX) ? leftX : rightX
+        let targetY = abs(frame.minY - bottomY) <= abs(frame.minY - topY) ? bottomY : topY
+
+        guard abs(frame.minX - targetX) <= threshold,
+            abs(frame.minY - targetY) <= threshold
+        else {
+            return frame
+        }
+
+        return CGRect(origin: CGPoint(x: targetX, y: targetY), size: frame.size)
+    }
+
     /// Clamps an existing window frame. Prefer `placement` when the input size is
     /// a content size so window chrome is included before clamping.
     static func clamped(
