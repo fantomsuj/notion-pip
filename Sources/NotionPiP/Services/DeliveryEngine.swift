@@ -45,7 +45,7 @@ struct DeliveryDrainSummary: Equatable, Sendable {
 }
 
 actor DeliveryEngine {
-    private let repository: CaptureRepository
+    private let repository: any CaptureDeliveryPersisting
     private let transport: any CaptureDeliveryTransport
     private let clock: any CaptureClock
     private let retryPolicy: RetryPolicy
@@ -54,7 +54,7 @@ actor DeliveryEngine {
     private var didPerformStartupRecovery = false
 
     init(
-        repository: CaptureRepository,
+        repository: any CaptureDeliveryPersisting,
         transport: any CaptureDeliveryTransport,
         clock: any CaptureClock = SystemCaptureClock(),
         retryPolicy: RetryPolicy = RetryPolicy(),

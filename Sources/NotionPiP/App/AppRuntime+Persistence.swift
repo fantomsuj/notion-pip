@@ -22,13 +22,8 @@ extension AppRuntime {
                 return
             }
             do {
-                let workingSet = try await (pageRepository as? any PageWorkingSetPersisting)?
-                    .workingSet()
-                let storedPage = if let workingSet {
-                    workingSet.activePage
-                } else {
-                    try await pageRepository.currentPinnedPage()
-                }
+                let workingSet = try await pageRepository.workingSet()
+                let storedPage = workingSet.activePage
                 guard !Task.isCancelled else { return }
                 self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
                 guard let storedPage else {
@@ -95,7 +90,7 @@ extension AppRuntime {
             await previousTask?.value
             guard !Task.isCancelled else { return }
             do {
-                _ = try await pageRepository.replaceCurrent(with: page)
+                _ = try await pageRepository.recordVisit(page)
                 guard !Task.isCancelled else { return }
                 self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
             } catch {
