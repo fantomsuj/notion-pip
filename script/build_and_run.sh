@@ -18,6 +18,25 @@ APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 ENTITLEMENTS="$ROOT_DIR/Support/NotionPiP.entitlements"
 
+VERSION_CONFIG="$ROOT_DIR/Support/Version.env"
+
+if [[ ! -f "$VERSION_CONFIG" ]]; then
+    echo "error: missing release version configuration at $VERSION_CONFIG" >&2
+    exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$VERSION_CONFIG"
+
+if [[ ! "${NOTION_PIP_VERSION:-}" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+    echo "error: NOTION_PIP_VERSION must contain two or three numeric components" >&2
+    exit 1
+fi
+if [[ ! "${NOTION_PIP_BUILD_NUMBER:-}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: NOTION_PIP_BUILD_NUMBER must be a positive integer" >&2
+    exit 1
+fi
+
 case "$MODE" in
     run|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify)
         ;;
@@ -78,9 +97,9 @@ cat >"$INFO_PLIST" <<PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>$NOTION_PIP_VERSION</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$NOTION_PIP_BUILD_NUMBER</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
