@@ -136,61 +136,6 @@ final class NotionConnectionControllerTests: XCTestCase {
         )
     }
 
-    func testDisconnectClearsSearchAndRemovesLegacyCache() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let cacheDirectory = root.appendingPathComponent("NativePageCache", isDirectory: true)
-        try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = ConnectionControllerTestSecretStore()
-        let vault = PersonalTokenCredentialVault(store: store)
-        try vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
-        let searchResult = try makeSearchResult(title: "Roadmap")
-        let client = ImmediateConnectionControllerClient(
-            validation: .success(NotionConnectionSnapshot(workspaceName: "Workspace")),
-            search: .success([searchResult])
-        )
-        let controller = NotionConnectionController(
-            credentialVault: vault,
-            legacyCacheCleaner: FileSystemLegacyNativePageCacheCleaner(),
-            legacyCacheDirectory: cacheDirectory,
-            notionClientFactory: { _ in client }
-        )
-        await controller.bootstrapSavedToken()
-        await controller.searchPages(query: "Roadmap")
-
-        controller.disconnect()
-
-        XCTAssertEqual(controller.state, .disconnected)
-        XCTAssertTrue(controller.searchResults.isEmpty)
-        XCTAssertNil(controller.searchError)
-        XCTAssertNil(try vault.load())
-        XCTAssertFalse(FileManager.default.fileExists(atPath: cacheDirectory.path))
-    }
-
-    func testCredentialDeletionFailureDoesNotCleanLegacyCache() async throws {
-        let store = DeleteFailingConnectionControllerTestSecretStore()
-        let vault = PersonalTokenCredentialVault(store: store)
-        try vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
-        let cleaner = RecordingConnectionControllerCacheCleaner()
-        let controller = NotionConnectionController(
-            credentialVault: vault,
-            legacyCacheCleaner: cleaner,
-            legacyCacheDirectory: URL(fileURLWithPath: "/explicit/legacy-cache"),
-            notionClientFactory: { _ in
-                ImmediateConnectionControllerClient(
-                    validation: .success(NotionConnectionSnapshot(workspaceName: "Workspace"))
-                )
-            }
-        )
-
-        controller.disconnect()
-
-        XCTAssertEqual(controller.state, .failed("Could not remove the saved token."))
-        XCTAssertTrue(cleaner.requestedDirectories.isEmpty)
-        XCTAssertNotNil(try vault.load())
-    }
-
     func testDisconnectAndReconnectRejectsLateWorkspaceSearchResult() async throws {
         let store = ConnectionControllerTestSecretStore()
         let vault = PersonalTokenCredentialVault(store: store)
@@ -284,22 +229,6 @@ private final class ConnectionControllerTestSecretStore: SecretStoring {
     func read() throws -> Data? { data }
     func write(_ data: Data) throws { self.data = data }
     func delete() throws { data = nil }
-}
-
-private final class DeleteFailingConnectionControllerTestSecretStore: SecretStoring {
-    var data: Data?
-
-    func read() throws -> Data? { data }
-    func write(_ data: Data) throws { self.data = data }
-    func delete() throws { throw CocoaError(.fileWriteUnknown) }
-}
-
-private final class RecordingConnectionControllerCacheCleaner: LegacyNativePageCacheCleaning {
-    private(set) var requestedDirectories: [URL] = []
-
-    func removeLegacyCache(at directory: URL) throws {
-        requestedDirectories.append(directory)
-    }
 }
 
 private actor ConnectionControllerReconnectRecorder {

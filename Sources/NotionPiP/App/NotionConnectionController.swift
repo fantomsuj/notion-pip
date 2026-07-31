@@ -1,6 +1,5 @@
 import Combine
 import Foundation
-import OSLog
 
 struct NotionWorkspaceClientLease {
     let generation: Int
@@ -24,13 +23,7 @@ final class NotionConnectionController: ObservableObject {
         connectionGeneration
     }
 
-    private let logger = Logger(
-        subsystem: "com.fantomsuj.NotionPiP",
-        category: "notion-connection"
-    )
     private let credentialVault: PersonalTokenCredentialVault
-    private let legacyCacheCleaner: any LegacyNativePageCacheCleaning
-    private let legacyCacheDirectory: URL
     private let notionClientFactory: (PersonalIntegrationToken) -> any NotionWorkspaceClient
     private let onReconnect: @MainActor () async -> Void
     private var searchTask: Task<Void, Never>?
@@ -38,16 +31,12 @@ final class NotionConnectionController: ObservableObject {
 
     init(
         credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
-        legacyCacheCleaner: any LegacyNativePageCacheCleaning = NoOpLegacyNativePageCacheCleaner(),
-        legacyCacheDirectory: URL = FileSystemLegacyNativePageCacheCleaner.defaultDirectoryURL,
         notionClientFactory: @escaping (PersonalIntegrationToken) -> any NotionWorkspaceClient = { token in
             NotionAPIClient(token: token)
         },
         onReconnect: @escaping @MainActor () async -> Void = {}
     ) {
         self.credentialVault = credentialVault
-        self.legacyCacheCleaner = legacyCacheCleaner
-        self.legacyCacheDirectory = legacyCacheDirectory
         self.notionClientFactory = notionClientFactory
         self.onReconnect = onReconnect
     }
@@ -118,16 +107,6 @@ final class NotionConnectionController: ObservableObject {
             return
         }
 
-        do {
-            try legacyCacheCleaner.removeLegacyCache(at: legacyCacheDirectory)
-        } catch {
-            logger.error(
-                """
-                Legacy native preview cache cleanup failed; personal token was removed \
-                category=legacy-preview-cache-cleanup
-                """
-            )
-        }
     }
 
     func searchPages(query: String) async {
