@@ -8,13 +8,13 @@ enum QuickCaptureCloseOutcome: Equatable, Sendable {
 }
 
 actor QuickCaptureLifecycleCoordinator {
-    private let repository: CaptureRepository
+    private let repository: any CaptureDraftFinalizing
     private let destinations: any QuickCaptureDestinationPersisting
     private let hasUsableToken: @Sendable () async -> Bool
     private let onEnqueued: @Sendable (String) async -> Void
 
     init(
-        repository: CaptureRepository,
+        repository: any CaptureDraftFinalizing,
         destinations: any QuickCaptureDestinationPersisting,
         hasUsableToken: @escaping @Sendable () async -> Bool,
         onEnqueued: @escaping @Sendable (String) async -> Void = { _ in }

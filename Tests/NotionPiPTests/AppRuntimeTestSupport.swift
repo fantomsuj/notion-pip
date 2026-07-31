@@ -11,7 +11,7 @@ func makeRuntime(
     pasteboard: any PasteboardReading = RuntimePasteboard(value: nil),
     shortcutRegistrar: any GlobalShortcutRegistering = RuntimeShortcutRegistrar(),
     pageURLInputPresenter: RuntimePageURLInputPresenter = RuntimePageURLInputPresenter(),
-    pageRepository: (any PinnedPagePersisting)? = nil,
+    pageRepository: (any PageWorkingSetPersisting)? = nil,
     client: any NotionWorkspaceClient = RuntimeNotionClient(),
     destinationSearchDebounceDuration: Duration = .milliseconds(300),
     initialServiceHealth: ServiceHealthState = .healthy,
@@ -216,7 +216,7 @@ enum RuntimeTestWaitError: Error {
     case timedOut(String)
 }
 
-actor RuntimePinnedPageRepository: PinnedPagePersisting {
+actor RuntimePinnedPageRepository: PageWorkingSetPersisting {
     private let delaySaves: Bool
     private let failingPageIDs: Set<String>
     private let immediateStoredPage: StoredPageSnapshot?
@@ -250,6 +250,15 @@ actor RuntimePinnedPageRepository: PinnedPagePersisting {
         return page
     }
 
+    func workingSet() async throws -> PageWorkingSetSnapshot {
+        PageWorkingSetSnapshot(
+            activePage: try await currentPinnedPage(),
+            pinnedPages: [],
+            recentPages: [],
+            restorations: []
+        )
+    }
+
     func replaceCurrent(with page: NotionPageReference) async throws -> StoredPageSnapshot {
         pagesSaved.append(page)
         if delaySaves {
@@ -267,6 +276,23 @@ actor RuntimePinnedPageRepository: PinnedPagePersisting {
             displayTitle: page.displayTitle,
             timestamp: .distantPast
         )
+    }
+
+    func recordVisit(_ page: NotionPageReference) async throws -> StoredPageSnapshot {
+        try await replaceCurrent(with: page)
+    }
+
+    func setPinned(
+        _ isPinned: Bool,
+        page: NotionPageReference
+    ) async throws -> StoredPageSnapshot {
+        try await replaceCurrent(with: page)
+    }
+
+    func saveRestoration(
+        _ restoration: DurablePageRestoration
+    ) -> DurablePageRestoration {
+        restoration
     }
 
     func waitUntilRestoreRequested(count: Int = 1) async throws {

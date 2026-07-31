@@ -51,7 +51,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let shortcutStore: GlobalShortcutStore
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
     let pageURLInputPresenter: any PageURLInputPresenting
-    let pageRepository: (any PinnedPagePersisting)?
+    let pageRepository: (any PageWorkingSetPersisting)?
     private let captureRepository: CaptureRepository?
     private let deliveryScheduler: DeliveryScheduler?
     private let connectionController: NotionConnectionController
@@ -73,7 +73,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         shortcutStore: GlobalShortcutStore = GlobalShortcutStore(),
         menuBarIconPreferenceStore: MenuBarIconPreferenceStore = MenuBarIconPreferenceStore(),
         pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
-        pageRepository: (any PinnedPagePersisting)? = nil,
+        pageRepository: (any PageWorkingSetPersisting)? = nil,
         destinationRepository: (any QuickCaptureDestinationPersisting)? = nil,
         captureRepository: CaptureRepository? = nil,
         deliveryScheduler: DeliveryScheduler? = nil,

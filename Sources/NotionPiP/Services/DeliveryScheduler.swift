@@ -16,7 +16,7 @@ actor DeliveryScheduler {
         subsystem: "com.fantomsuj.NotionPiP",
         category: "delivery"
     )
-    private let repository: CaptureRepository
+    private let repository: any CaptureDeliveryScheduling
     private let engine: DeliveryEngine
     private let clock: any CaptureClock
     private let recoveryRetryDelay: TimeInterval
@@ -34,7 +34,7 @@ actor DeliveryScheduler {
     private var hasRetentionFailure = false
 
     init(
-        repository: CaptureRepository,
+        repository: any CaptureDeliveryScheduling,
         engine: DeliveryEngine,
         clock: any CaptureClock = SystemCaptureClock(),
         recoveryRetryDelay: TimeInterval = 5,
