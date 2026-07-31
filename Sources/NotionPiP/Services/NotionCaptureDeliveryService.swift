@@ -22,14 +22,14 @@ private struct CaptureDeliveryJournal: Codable, Equatable, Sendable {
 }
 
 actor NotionCaptureDeliveryService: CaptureDeliveryTransport {
-    private let repository: CaptureRepository
+    private let repository: any CaptureDeliveryJournaling
     private let api: any NotionCapturePageAPI
     private let converter: NotionBlockConverter
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
     init(
-        repository: CaptureRepository,
+        repository: any CaptureDeliveryJournaling,
         api: any NotionCapturePageAPI,
         converter: NotionBlockConverter = NotionBlockConverter()
     ) {
