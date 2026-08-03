@@ -94,4 +94,35 @@ final class PiPChromeViewTests: XCTestCase {
 
         XCTAssertEqual(invocationCount, 1)
     }
+
+    func testOfflineModeAutomaticallyOpensDurableQuickCapture() throws {
+        var quickCaptureCount = 0
+        let commandModel = AppCommandModel(
+            quickCapture: { quickCaptureCount += 1 },
+            settings: {},
+            quit: {}
+        )
+        let session = NotionWebSession()
+        session.activate(
+            page: try NotionPageReference(
+                validating: XCTUnwrap(
+                    URL(string: "https://www.notion.so/Offline-0123456789abcdef0123456789abcdef")
+                )
+            )
+        )
+        let webView = try XCTUnwrap(session.webView)
+        session.webView(
+            webView,
+            didFailProvisionalNavigation: nil,
+            withError: NSError(
+                domain: NSURLErrorDomain,
+                code: NSURLErrorNotConnectedToInternet
+            )
+        )
+        let chrome = PiPChromeView(webSession: session, commandModel: commandModel)
+
+        chrome.enterOfflineCaptureMode()
+
+        XCTAssertEqual(quickCaptureCount, 1)
+    }
 }

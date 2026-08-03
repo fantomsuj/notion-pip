@@ -285,6 +285,39 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .loading)
     }
 
+    func testOfflineNavigationFailureEntersOfflineMode() throws {
+        let session = NotionWebSession()
+        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let webView = try XCTUnwrap(session.webView)
+
+        session.webView(
+            webView,
+            didFailProvisionalNavigation: nil,
+            withError: NSError(
+                domain: NSURLErrorDomain,
+                code: NSURLErrorNotConnectedToInternet
+            )
+        )
+
+        XCTAssertEqual(session.state, .offline)
+    }
+
+    func testOfflineClassificationRejectsUnrelatedAndCancelledFailures() {
+        XCTAssertTrue(
+            NotionWebSession.isOfflineNavigationError(
+                NSError(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost)
+            )
+        )
+        XCTAssertFalse(
+            NotionWebSession.isOfflineNavigationError(
+                NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+            )
+        )
+        XCTAssertFalse(
+            NotionWebSession.isOfflineNavigationError(NSError(domain: "Test", code: 1))
+        )
+    }
+
     func testOpenInBrowserUsesTheActivePageURL() throws {
         var openedURLs: [URL] = []
         let session = NotionWebSession(openURL: { openedURLs.append($0) })
