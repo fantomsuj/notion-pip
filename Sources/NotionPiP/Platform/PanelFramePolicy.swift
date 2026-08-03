@@ -37,8 +37,9 @@ enum PanelFramePolicy {
     static let cornerInset: CGFloat = 24
     static let cornerSnapThreshold: CGFloat = 72
 
-    /// Returns a corner-aligned frame when both axes are close enough to make
-    /// the user's intent unambiguous. Frames away from a corner are unchanged.
+    /// Returns a corner-aligned frame when both axes are close to or beyond a
+    /// corner. Oversized dimensions are reduced only enough to fit the display.
+    /// Frames away from a corner are unchanged.
     static func cornerSnapped(
         _ frame: CGRect,
         visibleFrames: [CGRect],
@@ -49,20 +50,29 @@ enum PanelFramePolicy {
             return frame
         }
 
-        let leftX = visibleFrame.minX + inset
-        let rightX = visibleFrame.maxX - frame.width - inset
-        let bottomY = visibleFrame.minY + inset
-        let topY = visibleFrame.maxY - frame.height - inset
-        let targetX = abs(frame.minX - leftX) <= abs(frame.minX - rightX) ? leftX : rightX
-        let targetY = abs(frame.minY - bottomY) <= abs(frame.minY - topY) ? bottomY : topY
+        let nearestAnchor = nearestAnchor(for: frame, in: visibleFrame)
 
-        guard abs(frame.minX - targetX) <= threshold,
-            abs(frame.minY - targetY) <= threshold
+        guard nearestAnchor.horizontalInset <= inset + threshold,
+            nearestAnchor.verticalInset <= inset + threshold
         else {
             return frame
         }
 
-        return CGRect(origin: CGPoint(x: targetX, y: targetY), size: frame.size)
+        let cornerAnchor = PanelFrameAnchor(
+            horizontalEdge: nearestAnchor.horizontalEdge,
+            horizontalInset: inset,
+            verticalEdge: nearestAnchor.verticalEdge,
+            verticalInset: inset
+        )
+        let fittedSize = CGSize(
+            width: min(frame.width, max(visibleFrame.width - inset, 0)),
+            height: min(frame.height, max(visibleFrame.height - inset, 0))
+        )
+        return self.frame(
+            of: fittedSize,
+            anchoredBy: cornerAnchor,
+            in: visibleFrame
+        )
     }
 
     /// Clamps an existing window frame. Prefer `placement` when the input size is

@@ -798,6 +798,63 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.frame, preferredFrame)
     }
 
+    func testCornerAutoFitRestoresPreferredSizeAndAnchorAfterScreenRepositionsFrame() {
+        let smallScreen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let largeScreen = CGRect(x: 0, y: 0, width: 1_600, height: 1_200)
+        let screens = MutableVisibleFrames([smallScreen])
+        let preferredFrame = CGRect(x: 100, y: 100, width: 1_200, height: 900)
+        let panel = FakePanelWindow(frame: preferredFrame)
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: { screens.value },
+            initialPreferredContentSize: preferredFrame.size
+        )
+
+        coordinator.snapPanelToCorner()
+        XCTAssertEqual(panel.frame, CGRect(x: 0, y: 0, width: 976, height: 776))
+
+        screens.value = [largeScreen]
+        panel.move(to: CGRect(x: 0, y: 424, width: 976, height: 776))
+        coordinator.reclampPanelFrame(visibleFrames: screens.value)
+
+        XCTAssertEqual(panel.frame, CGRect(x: 376, y: 276, width: 1_200, height: 900))
+    }
+
+    func testManualResizeAfterCornerAutoFitReplacesPreferredSize() async {
+        let smallScreen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let largeScreen = CGRect(x: 0, y: 0, width: 1_600, height: 1_200)
+        let screens = MutableVisibleFrames([smallScreen])
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 100, y: 100, width: 1_200, height: 900)
+        )
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: { screens.value },
+            initialPreferredContentSize: panel.frame.size
+        )
+        let resizeRecorded = expectation(description: "Manual resize recorded")
+        coordinator.onManualResizeCompletion = { contentSize in
+            XCTAssertEqual(contentSize, CGSize(width: 500, height: 600))
+            resizeRecorded.fulfill()
+        }
+
+        coordinator.snapPanelToCorner()
+        await Task.yield()
+        panel.move(to: CGRect(x: 476, y: 176, width: 500, height: 600))
+        NotificationCenter.default.post(
+            name: NSWindow.didEndLiveResizeNotification,
+            object: panel
+        )
+        await fulfillment(of: [resizeRecorded], timeout: 1)
+
+        screens.value = [largeScreen]
+        coordinator.reclampPanelFrame(visibleFrames: screens.value)
+
+        XCTAssertEqual(panel.frame, CGRect(x: 1_076, y: 576, width: 500, height: 600))
+    }
+
     func testManualMoveToAnotherDisplayUpdatesPreferredDisplayAnchor() {
         let firstScreen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let secondScreen = CGRect(x: 1_000, y: 0, width: 1_000, height: 800)

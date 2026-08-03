@@ -11,13 +11,8 @@ struct StoredPageSnapshot: Equatable, Sendable {
     let timestamp: Date
 }
 
-protocol PinnedPagePersisting: Sendable {
-    func currentPinnedPage() async throws -> StoredPageSnapshot?
-    func replaceCurrent(with page: NotionPageReference) async throws -> StoredPageSnapshot
-}
-
 @ModelActor
-actor PageRepository: PinnedPagePersisting {
+actor PageRepository {
     private static let maximumPins = 7
     private static let maximumRecents = 7
 
@@ -172,16 +167,6 @@ actor PageRepository: PinnedPagePersisting {
         model.updatedAt = restoration.updatedAt
         try saveOrRollback()
         return restoration
-    }
-
-    // Compatibility for the existing runtime while it moves to the working-set API.
-    func replaceCurrent(with page: NotionPageReference) throws -> StoredPageSnapshot {
-        try recordVisit(page)
-    }
-
-    func currentPinnedPage() throws -> StoredPageSnapshot? {
-        try bootstrapActivePageIfNeeded()
-        return validActivePage()
     }
 
     func pin(_ page: NotionPageReference) throws -> StoredPageSnapshot {

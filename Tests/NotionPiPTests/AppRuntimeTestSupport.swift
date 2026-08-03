@@ -237,7 +237,7 @@ actor RuntimePinnedPageRepository: PageWorkingSetPersisting {
         self.immediateStoredPage = immediateStoredPage
     }
 
-    func currentPinnedPage() async throws -> StoredPageSnapshot? {
+    func activePageSnapshot() async throws -> StoredPageSnapshot? {
         restoreRequests += 1
         if let immediateStoredPage {
             restoreReturned = true
@@ -252,14 +252,14 @@ actor RuntimePinnedPageRepository: PageWorkingSetPersisting {
 
     func workingSet() async throws -> PageWorkingSetSnapshot {
         PageWorkingSetSnapshot(
-            activePage: try await currentPinnedPage(),
+            activePage: try await activePageSnapshot(),
             pinnedPages: [],
             recentPages: [],
             restorations: []
         )
     }
 
-    func replaceCurrent(with page: NotionPageReference) async throws -> StoredPageSnapshot {
+    func recordVisit(_ page: NotionPageReference) async throws -> StoredPageSnapshot {
         pagesSaved.append(page)
         if delaySaves {
             await withCheckedContinuation { continuation in
@@ -278,15 +278,11 @@ actor RuntimePinnedPageRepository: PageWorkingSetPersisting {
         )
     }
 
-    func recordVisit(_ page: NotionPageReference) async throws -> StoredPageSnapshot {
-        try await replaceCurrent(with: page)
-    }
-
     func setPinned(
         _ isPinned: Bool,
         page: NotionPageReference
     ) async throws -> StoredPageSnapshot {
-        try await replaceCurrent(with: page)
+        try await recordVisit(page)
     }
 
     func saveRestoration(

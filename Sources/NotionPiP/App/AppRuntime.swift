@@ -78,8 +78,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         captureRepository: CaptureRepository? = nil,
         deliveryScheduler: DeliveryScheduler? = nil,
         credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
-        legacyCacheCleaner: any LegacyNativePageCacheCleaning = NoOpLegacyNativePageCacheCleaner(),
-        legacyCacheDirectory: URL = FileSystemLegacyNativePageCacheCleaner.defaultDirectoryURL,
         notionClientFactory: @escaping (PersonalIntegrationToken) -> any NotionWorkspaceClient = { token in
             NotionAPIClient(token: token)
         },
@@ -108,8 +106,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.deliveryScheduler = deliveryScheduler
         let connectionController = NotionConnectionController(
             credentialVault: credentialVault,
-            legacyCacheCleaner: legacyCacheCleaner,
-            legacyCacheDirectory: legacyCacheDirectory,
             notionClientFactory: notionClientFactory,
             onReconnect: {
                 await deliveryScheduler?.trigger(reconnected: true)

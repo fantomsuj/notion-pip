@@ -128,7 +128,6 @@ private final class AppComposition {
             captureRepository: captureRepository,
             deliveryScheduler: deliveryScheduler,
             credentialVault: credentialVault,
-            legacyCacheCleaner: FileSystemLegacyNativePageCacheCleaner(),
             initialServiceHealth: initialServiceHealth
         )
         actionRelay.reloadSavedPinAction = { [weak runtime] in
