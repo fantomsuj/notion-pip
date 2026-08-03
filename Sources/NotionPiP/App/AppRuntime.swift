@@ -12,6 +12,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var captureRecoveryMessage: String?
     @Published private(set) var serviceHealth: ServiceHealthState
     @Published private(set) var globalShortcut: GlobalShortcut
+    @Published private(set) var quickCaptureShortcut: GlobalShortcut
+    @Published private(set) var quickCapturePrefillsClipboard: Bool
+    @Published private(set) var quickCaptureInsertsAtNotionCursor: Bool
     @Published private(set) var savedMenuBarIconVisibility: Bool
     @Published private(set) var effectiveMenuBarIconVisibility: Bool
     @Published private(set) var isMenuBarIconVisibilityForced: Bool
@@ -49,6 +52,11 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let pinCoordinator: PinCoordinator
     let shortcutRegistrar: any GlobalShortcutRegistering
     let shortcutStore: GlobalShortcutStore
+    let quickCaptureShortcutRegistrar: any GlobalShortcutRegistering
+    let quickCaptureShortcutStore: QuickCaptureShortcutStore
+    let trustedCapturePreferenceStore: TrustedCapturePreferenceStore
+    private let pasteboard: any PasteboardReading
+    var quickCaptureAction: (_ prefill: String?, _ insertAtCursor: Bool) -> Void = { _, _ in }
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
     let pageURLInputPresenter: any PageURLInputPresenting
     let pageRepository: (any PageWorkingSetPersisting)?
@@ -75,6 +83,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         pasteboard: any PasteboardReading = SystemPasteboardReader(),
         shortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar(),
         shortcutStore: GlobalShortcutStore = GlobalShortcutStore(),
+        quickCaptureShortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar(),
+        quickCaptureShortcutStore: QuickCaptureShortcutStore = QuickCaptureShortcutStore(),
+        trustedCapturePreferenceStore: TrustedCapturePreferenceStore = TrustedCapturePreferenceStore(),
         menuBarIconPreferenceStore: MenuBarIconPreferenceStore = MenuBarIconPreferenceStore(),
         pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
         pageRepository: (any PageWorkingSetPersisting)? = nil,
@@ -105,6 +116,10 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         )
         self.shortcutRegistrar = shortcutRegistrar
         self.shortcutStore = shortcutStore
+        self.quickCaptureShortcutRegistrar = quickCaptureShortcutRegistrar
+        self.quickCaptureShortcutStore = quickCaptureShortcutStore
+        self.trustedCapturePreferenceStore = trustedCapturePreferenceStore
+        self.pasteboard = pasteboard
         self.menuBarIconPreferenceStore = menuBarIconPreferenceStore
         self.pageRepository = pageRepository
         self.captureRepository = captureRepository
@@ -125,6 +140,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         )
         serviceHealth = initialServiceHealth
         globalShortcut = shortcutStore.load()
+        quickCaptureShortcut = quickCaptureShortcutStore.load()
+        quickCapturePrefillsClipboard = trustedCapturePreferenceStore.prefillsClipboard
+        quickCaptureInsertsAtNotionCursor = trustedCapturePreferenceStore.insertsAtNotionCursor
         let iconState = Self.menuBarIconState(
             store: menuBarIconPreferenceStore,
             serviceHealth: initialServiceHealth
@@ -145,6 +163,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         started = true
 
         registerGlobalShortcut()
+        registerQuickCaptureShortcut()
         bootstrapTask = Task { [weak self] in
             await self?.bootstrapPersonalTokenConnection()
         }

@@ -60,6 +60,7 @@ declare global {
       restore(draftID: string, expectedRevision: number): Promise<BridgeReply>;
       resolveConflict(action: ConflictAction, operationID: string): Promise<BridgeReply>;
       retryPendingTransition(): Promise<BridgeReply>;
+      prefill(text: string): boolean;
     };
   }
 }
@@ -74,6 +75,7 @@ export class QuickCaptureEditorController {
   private applyingNativeSnapshot = false;
   private transitionLocked = true;
   private pendingLaunchFocus: "title" | "body" | undefined;
+  private pendingPrefill: string | undefined;
   private autosaveRetryAvailable = false;
   private transitionRetryAvailable = false;
   private started = false;
@@ -164,6 +166,7 @@ export class QuickCaptureEditorController {
       (locked) => {
         this.transitionLocked = locked;
         this.refreshMutationControls();
+        this.applyPendingPrefill();
         this.applyPendingLaunchFocus();
       },
       (available) => {
@@ -273,6 +276,12 @@ export class QuickCaptureEditorController {
         revision: this.snapshot.revision ?? 0,
         document: normalizeDocument(this.editor.getJSON()),
       }),
+      prefill: (text) => {
+        if (text.length === 0) return false;
+        this.pendingPrefill = text;
+        this.applyPendingPrefill();
+        return true;
+      },
       applyNativeReply: (reply) => {
         if (!isBridgeReply(reply)) return false;
         this.applyReply(reply);
@@ -336,6 +345,20 @@ export class QuickCaptureEditorController {
   private focusBody(position: "start" | "end"): void {
     this.editor.commands.focus(position, { scrollIntoView: false });
     this.editor.view.focus();
+  }
+
+  private applyPendingPrefill(): void {
+    const text = this.pendingPrefill;
+    if (text === undefined || this.transitionLocked) return;
+    this.pendingPrefill = undefined;
+    if (this.editor.isEmpty) {
+      this.editor.commands.setContent({ type: "doc", content: [{
+        type: "paragraph", content: [{ type: "text", text }],
+      }] });
+      this.focusBody("end");
+    } else {
+      this.editor.chain().focus("end").insertContent(`\n${text}`).run();
+    }
   }
 
   private installSnapshot(next: EditorSnapshot): boolean {

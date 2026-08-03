@@ -95,6 +95,31 @@ final class NotionEditorSelectionTests: XCTestCase {
         XCTAssertEqual(restored, false)
     }
 
+    func testInsertReplacesStoredSelectionAndMovesCursorAfterPrefill() async throws {
+        let webView = try await makeLoadedWebView()
+        _ = try await webView.callAsyncJavaScript(
+            """
+            const text = document.getElementById('editor').firstChild;
+            document.getElementById('editor').focus();
+            window.getSelection().setBaseAndExtent(text, 3, text, 7);
+            return true;
+            """, arguments: [:], in: nil, contentWorld: .page
+        )
+        let value = try await webView.evaluateJavaScript(NotionEditorSelectionEvaluation.capture.script)
+        let snapshot = try XCTUnwrap(NotionEditorSelectionSnapshot(javaScriptValue: value))
+
+        let inserted = try await webView.evaluateJavaScript(
+            NotionEditorSelectionEvaluation.insert("CAPTURE", at: snapshot).script
+        ) as? Bool
+        let result = try await webView.callAsyncJavaScript(
+            "return document.getElementById('editor').textContent",
+            arguments: [:], in: nil, contentWorld: .page
+        ) as? String
+
+        XCTAssertEqual(inserted, true)
+        XCTAssertEqual(result, "abcCAPTUREhij")
+    }
+
     private func makeLoadedWebView() async throws -> WKWebView {
         let webView = WKWebView()
         let navigationFinished = expectation(description: "HTML loaded")

@@ -156,6 +156,7 @@ private final class AppComposition {
             runtime?.activate(page: page, source: .notionWebSession)
         }
         let quickCaptureReleaseRelay = QuickCaptureReleaseRelay()
+        let quickCapturePrefillRelay = QuickCapturePrefillRelay()
         webSession.onRestorationCaptured = { restoration in
             guard let pageRepository else { return }
             Task {
@@ -178,9 +179,12 @@ private final class AppComposition {
         }
         let quickCapturePresenter = LazyAppWindowPresenter(
             makePresenter: {
-                AppWindowFactory.makeQuickCapture(
+                let presenter = AppWindowFactory.makeQuickCapture(
                     repository: captureRepository,
                     lifecycle: captureLifecycle,
+                    onSessionCreated: { session in
+                        quickCapturePrefillRelay.bind(session)
+                    },
                     onNeedsConfiguration: { _ in
                         actionRelay.showSettings()
                     },
@@ -191,6 +195,7 @@ private final class AppComposition {
                     guard let page = runtime?.activePage else { return }
                     NSWorkspace.shared.open(page.canonicalURL)
                 }
+                return presenter
             },
             performanceSignposter: AppPerformanceSignposter.shared,
             firstPresentationOperation: .firstQuickCapturePresentation
@@ -209,6 +214,18 @@ private final class AppComposition {
         )
 
         actionRelay.quickCapturePresenter = quickCapturePresenter
+        actionRelay.quickCapturePrefillAction = { text in
+            quickCapturePrefillRelay.prefill(text)
+        }
+        runtime.quickCaptureAction = { [weak webSession] prefill, insertAtCursor in
+            guard insertAtCursor, let prefill, let webSession else {
+                actionRelay.showQuickCapture(prefill: prefill)
+                return
+            }
+            webSession.insertAtSavedEditorCursor(prefill) { inserted in
+                if !inserted { actionRelay.showQuickCapture(prefill: prefill) }
+            }
+        }
         actionRelay.settingsWindowPresenter = settingsWindowPresenter
         runtime.bind(settingsWindowPresenter: settingsWindowPresenter)
         panelSizeController.onManagePanelSizes = {
@@ -229,6 +246,24 @@ private final class AppComposition {
         )?
     {
         quickCapturePresenter.terminationParticipant
+    }
+}
+
+@MainActor
+private final class QuickCapturePrefillRelay {
+    weak var session: CaptureEditorSession?
+    private var pending: String?
+
+    func bind(_ session: CaptureEditorSession) {
+        self.session = session
+        if let pending { self.pending = nil; prefill(pending) }
+    }
+
+    func prefill(_ text: String) {
+        guard let session else { pending = text; return }
+        Task { @MainActor in
+            if !(await session.prefill(text)) { self.pending = text }
+        }
     }
 }
 

@@ -90,6 +90,7 @@ struct NotionEditorSelectionSnapshot: Equatable {
 enum NotionEditorSelectionEvaluation: Equatable {
     case capture
     case restore(NotionEditorSelectionSnapshot)
+    case insert(String, at: NotionEditorSelectionSnapshot)
 
     var script: String {
         switch self {
@@ -97,6 +98,8 @@ enum NotionEditorSelectionEvaluation: Equatable {
             Self.captureScript
         case let .restore(snapshot):
             Self.restoreScript(for: snapshot)
+        case let .insert(text, snapshot):
+            Self.insertScript(text: text, snapshot: snapshot)
         }
     }
 
@@ -223,6 +226,60 @@ enum NotionEditorSelectionEvaluation: Equatable {
               );
               delete editable.__notionPiPSelectionToken;
               return true;
+            })();
+            """#
+    }
+
+    private static func insertScript(
+        text: String,
+        snapshot: NotionEditorSelectionSnapshot
+    ) -> String {
+        let payload: [String: Any] = ["snapshot": snapshot.javaScriptValue, "text": text]
+        guard JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload),
+              let value = String(data: data, encoding: .utf8)
+        else { return "false" }
+
+        return #"""
+            (() => {
+              const payload = \#(value);
+              const snapshot = payload.snapshot;
+              const resolve = (root, path) => {
+                let node = root;
+                for (const index of path) {
+                  if (!node?.childNodes || index < 0 || index >= node.childNodes.length) return null;
+                  node = node.childNodes[index];
+                }
+                return node;
+              };
+              const editable = resolve(document.documentElement, snapshot.editablePath);
+              if (!(editable instanceof Element) || !editable.isConnected ||
+                  !editable.isContentEditable ||
+                  editable.__notionPiPSelectionToken !== snapshot.token) return false;
+              const anchor = resolve(editable, snapshot.anchorPath);
+              const focus = resolve(editable, snapshot.focusPath);
+              if (!anchor || !focus) return false;
+              try {
+                editable.focus({ preventScroll: true });
+                const selection = window.getSelection();
+                selection.setBaseAndExtent(anchor, snapshot.anchorOffset, focus, snapshot.focusOffset);
+                const range = selection.getRangeAt(0);
+                range.deleteContents();
+                const inserted = document.createTextNode(payload.text);
+                range.insertNode(inserted);
+                range.setStartAfter(inserted);
+                range.collapse(true);
+                selection.removeAllRanges();
+                selection.addRange(range);
+                editable.dispatchEvent(new InputEvent('input', {
+                  bubbles: true, inputType: 'insertText', data: payload.text,
+                }));
+                delete editable.__notionPiPSelectionToken;
+                return true;
+              } catch (_) {
+                delete editable.__notionPiPSelectionToken;
+                return false;
+              }
             })();
             """#
     }
