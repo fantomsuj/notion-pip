@@ -164,6 +164,7 @@ enum NotionWebSessionState: Equatable {
     case loading
     case active
     case suspended
+    case offline
     case failed(String)
 }
 
@@ -1042,7 +1043,7 @@ extension NotionWebSession: WKNavigationDelegate {
         }
         revealTopControls()
         invalidateEditorSelection()
-        publishNavigationState(.failed(error.localizedDescription))
+        publishNavigationState(navigationFailureState(for: error))
         if !panelIsVisible {
             suspendWebViewIfNeeded()
         }
@@ -1059,7 +1060,7 @@ extension NotionWebSession: WKNavigationDelegate {
         }
         revealTopControls()
         invalidateEditorSelection()
-        publishNavigationState(.failed(error.localizedDescription))
+        publishNavigationState(navigationFailureState(for: error))
         if !panelIsVisible {
             suspendWebViewIfNeeded()
         }
@@ -1068,6 +1069,26 @@ extension NotionWebSession: WKNavigationDelegate {
     private func isCancellation(_ error: Error) -> Bool {
         let error = error as NSError
         return error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled
+    }
+
+    private func navigationFailureState(for error: Error) -> NotionWebSessionState {
+        Self.isOfflineNavigationError(error) ? .offline : .failed(error.localizedDescription)
+    }
+
+    static func isOfflineNavigationError(_ error: Error) -> Bool {
+        let error = error as NSError
+        guard error.domain == NSURLErrorDomain else { return false }
+        return [
+            NSURLErrorTimedOut,
+            NSURLErrorCannotFindHost,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorDNSLookupFailed,
+            NSURLErrorNotConnectedToInternet,
+            NSURLErrorInternationalRoamingOff,
+            NSURLErrorCallIsActive,
+            NSURLErrorDataNotAllowed,
+        ].contains(error.code)
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

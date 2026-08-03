@@ -82,6 +82,15 @@ struct PiPChromeView: View {
         onStash()
     }
 
+    func enterOfflineCaptureMode() {
+        guard webSession.state == .offline,
+              commandModel.command(for: Self.primaryActionID)?.isEnabled == true
+        else {
+            return
+        }
+        commandModel.perform(Self.primaryActionID)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -168,7 +177,23 @@ struct PiPChromeView: View {
                 Divider()
             }
 
-            if case .failed = webSession.state {
+            if webSession.state == .offline {
+                HStack(spacing: DesignTokens.Spacing.control) {
+                    Label("You're offline. Quick Capture saves notes on this Mac and sends them when Notion reconnects.", systemImage: "wifi.slash")
+                        .font(.caption)
+                    Spacer()
+                    Button("Write Offline Note") {
+                        commandModel.perform(Self.primaryActionID)
+                    }
+                    .disabled(!(commandModel.command(for: Self.primaryActionID)?.isEnabled ?? false))
+                    .accessibilityLabel("Write an offline note")
+                }
+                .padding(.horizontal, DesignTokens.Spacing.control)
+                .padding(.vertical, DesignTokens.Spacing.compact)
+                .accessibilityElement(children: .contain)
+
+                Divider()
+            } else if case .failed = webSession.state {
                 HStack(spacing: DesignTokens.Spacing.control) {
                     Label("Notion couldn't load this page.", systemImage: "exclamationmark.triangle")
                         .font(.caption)
@@ -214,6 +239,10 @@ struct PiPChromeView: View {
         )
         .onDisappear {
             topControlsHover.cancel()
+        }
+        .onAppear(perform: enterOfflineCaptureMode)
+        .onChange(of: webSession.state) {
+            enterOfflineCaptureMode()
         }
     }
 }
