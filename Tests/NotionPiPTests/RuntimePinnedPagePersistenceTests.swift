@@ -65,6 +65,57 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertTrue(panel.replacedPages.isEmpty)
     }
 
+    func testHoldingShortcutPeeksAtStashedPanelUntilRelease() async throws {
+        let panel = RuntimePanelCoordinator()
+        let shortcut = RuntimeShortcutRegistrar()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(
+            panel: panel,
+            shortcutRegistrar: shortcut,
+            pageRepository: repository,
+            shortcutHoldDuration: .zero
+        )
+        let storedPage = try makeStoredPage(id: firstPageID, title: "Restored")
+        runtime.start()
+        try await repository.waitUntilRestoreRequested()
+        await repository.finishRestore(with: storedPage)
+        await waitUntilRuntimeCondition { runtime.activePage?.pageID == firstPageID }
+        shortcut.handler?()
+        XCTAssertTrue(panel.isStashed)
+
+        shortcut.eventHandler?(.pressed)
+        await waitUntilRuntimeCondition { panel.isVisible }
+
+        shortcut.eventHandler?(.released)
+        XCTAssertTrue(panel.isStashed)
+        XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
+    }
+
+    func testHoldingShortcutPreservesAlreadyVisiblePanelOnRelease() async throws {
+        let panel = RuntimePanelCoordinator()
+        let shortcut = RuntimeShortcutRegistrar()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(
+            panel: panel,
+            shortcutRegistrar: shortcut,
+            pageRepository: repository,
+            shortcutHoldDuration: .zero
+        )
+        runtime.start()
+        try await repository.waitUntilRestoreRequested()
+        await repository.finishRestore(
+            with: try makeStoredPage(id: firstPageID, title: "Restored")
+        )
+        await waitUntilRuntimeCondition { runtime.activePage?.pageID == firstPageID }
+
+        shortcut.eventHandler?(.pressed)
+        await waitUntilRuntimeCondition { runtime.shortcutHoldTriggered }
+        shortcut.eventHandler?(.released)
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertFalse(panel.isStashed)
+    }
+
     func testStartWithNoSavedPageLeavesPanelHidden() async throws {
         let panel = RuntimePanelCoordinator()
         let repository = RuntimePinnedPageRepository()

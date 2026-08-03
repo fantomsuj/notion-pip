@@ -64,6 +64,10 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     var persistPinnedPageTask: Task<Void, Never>?
     var persistenceGeneration = 0
     var pageSelectionGeneration = 0
+    let shortcutHoldDuration: Duration
+    var shortcutHoldTask: Task<Void, Never>?
+    var shortcutHoldTriggered = false
+    var shortcutPeekRestoredPanel = false
     private var started = false
 
     init(
@@ -82,6 +86,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             NotionAPIClient(token: token)
         },
         destinationSearchDebounceDuration: Duration = .milliseconds(300),
+        shortcutHoldDuration: Duration = .milliseconds(300),
         initialServiceHealth: ServiceHealthState = .healthy
     ) {
         let inputState = PageURLInputState()
@@ -104,6 +109,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.pageRepository = pageRepository
         self.captureRepository = captureRepository
         self.deliveryScheduler = deliveryScheduler
+        self.shortcutHoldDuration = shortcutHoldDuration
         let connectionController = NotionConnectionController(
             credentialVault: credentialVault,
             notionClientFactory: notionClientFactory,

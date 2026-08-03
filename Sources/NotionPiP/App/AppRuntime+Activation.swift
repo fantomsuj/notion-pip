@@ -5,8 +5,8 @@ extension AppRuntime {
     func applyGlobalShortcut(_ shortcut: GlobalShortcut) -> Bool {
         guard shortcut.isValid else { return false }
         do {
-            try shortcutRegistrar.register(shortcut: shortcut) { [weak self] in
-                self?.handleGlobalShortcut()
+            try shortcutRegistrar.register(shortcut: shortcut) { [weak self] event in
+                self?.handleGlobalShortcut(event)
             }
             publishGlobalShortcut(shortcut)
             shortcutStore.save(shortcut)
@@ -123,7 +123,41 @@ extension AppRuntime {
         }
     }
 
-    private func handleGlobalShortcut() {
+    private func handleGlobalShortcut(_ event: GlobalShortcutEvent) {
+        switch event {
+        case .pressed:
+            guard shortcutHoldTask == nil else { return }
+            shortcutHoldTriggered = false
+            shortcutPeekRestoredPanel = false
+            shortcutHoldTask = Task { [weak self, shortcutHoldDuration] in
+                do {
+                    try await Task.sleep(for: shortcutHoldDuration)
+                } catch {
+                    return
+                }
+                guard let self else { return }
+                shortcutHoldTriggered = true
+                if pinCoordinator.presentationState == .stashed {
+                    shortcutPeekRestoredPanel = pinCoordinator.stashOrRestoreCurrentPage()
+                }
+            }
+        case .released:
+            guard let holdTask = shortcutHoldTask else { return }
+            shortcutHoldTask = nil
+            if shortcutHoldTriggered {
+                shortcutHoldTriggered = false
+                if shortcutPeekRestoredPanel {
+                    shortcutPeekRestoredPanel = false
+                    _ = pinCoordinator.stashOrRestoreCurrentPage()
+                }
+            } else {
+                holdTask.cancel()
+                handleGlobalShortcutTap()
+            }
+        }
+    }
+
+    private func handleGlobalShortcutTap() {
         guard pinCoordinator.stashOrRestoreCurrentPage() else {
             pageURLInputPresenter.presentAndFocus()
             return
