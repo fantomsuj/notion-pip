@@ -14,6 +14,7 @@ func makeRuntime(
     pageRepository: (any PageWorkingSetPersisting)? = nil,
     client: any NotionWorkspaceClient = RuntimeNotionClient(),
     destinationSearchDebounceDuration: Duration = .milliseconds(300),
+    shortcutHoldDuration: Duration = .milliseconds(300),
     initialServiceHealth: ServiceHealthState = .healthy,
     menuBarIconPreferenceStore: MenuBarIconPreferenceStore? = nil
 ) -> AppRuntime {
@@ -35,6 +36,7 @@ func makeRuntime(
         credentialVault: vault,
         notionClientFactory: { _ in client },
         destinationSearchDebounceDuration: destinationSearchDebounceDuration,
+        shortcutHoldDuration: shortcutHoldDuration,
         initialServiceHealth: initialServiceHealth
     )
 }
@@ -164,6 +166,7 @@ final class RuntimePasteboard: PasteboardReading {
 @MainActor
 final class RuntimeShortcutRegistrar: GlobalShortcutRegistering {
     var handler: (@MainActor () -> Void)?
+    var eventHandler: (@MainActor (GlobalShortcutEvent) -> Void)?
     private var failuresRemaining: Int
 
     init(failuresRemaining: Int = 0) {
@@ -179,6 +182,21 @@ final class RuntimeShortcutRegistrar: GlobalShortcutRegistering {
             throw RuntimeShortcutRegistrationError.failed
         }
         self.handler = handler
+    }
+
+    func register(
+        shortcut: GlobalShortcut,
+        eventHandler: @escaping @MainActor (GlobalShortcutEvent) -> Void
+    ) throws {
+        if failuresRemaining > 0 {
+            failuresRemaining -= 1
+            throw RuntimeShortcutRegistrationError.failed
+        }
+        self.eventHandler = eventHandler
+        handler = {
+            eventHandler(.pressed)
+            eventHandler(.released)
+        }
     }
 
     func unregister() {}

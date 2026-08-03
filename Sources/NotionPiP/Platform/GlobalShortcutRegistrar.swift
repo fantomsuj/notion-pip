@@ -5,50 +5,94 @@ enum GlobalShortcutRegistrationError: Error, Equatable {
     case hotKey(OSStatus)
 }
 
+enum GlobalShortcutEvent: Equatable, Sendable {
+    case pressed
+    case released
+}
+
 @MainActor
 protocol GlobalShortcutRegistering: AnyObject {
     func register(shortcut: GlobalShortcut, handler: @escaping @MainActor () -> Void) throws
+    func register(
+        shortcut: GlobalShortcut,
+        eventHandler: @escaping @MainActor (GlobalShortcutEvent) -> Void
+    ) throws
     func unregister()
+}
+
+extension GlobalShortcutRegistering {
+    func register(
+        shortcut: GlobalShortcut,
+        eventHandler: @escaping @MainActor (GlobalShortcutEvent) -> Void
+    ) throws {
+        try register(shortcut: shortcut) {
+            eventHandler(.pressed)
+            eventHandler(.released)
+        }
+    }
 }
 
 @MainActor
 protocol GlobalShortcutRegistrationEngine: AnyObject {
     func install(shortcut: GlobalShortcut, handler: @escaping @MainActor () -> Void) throws
+    func install(
+        shortcut: GlobalShortcut,
+        handler: @escaping @MainActor (GlobalShortcutEvent) -> Void
+    ) throws
     func uninstall()
+}
+
+extension GlobalShortcutRegistrationEngine {
+    func install(
+        shortcut: GlobalShortcut,
+        handler: @escaping @MainActor (GlobalShortcutEvent) -> Void
+    ) throws {
+        try install(shortcut: shortcut) { handler(.pressed) }
+    }
 }
 
 @MainActor
 final class CarbonGlobalShortcutRegistrar: GlobalShortcutRegistering {
     private let engine: any GlobalShortcutRegistrationEngine
     private var registeredShortcut: GlobalShortcut?
-    private var handler: (@MainActor () -> Void)?
+    private var eventHandler: (@MainActor (GlobalShortcutEvent) -> Void)?
 
     init(engine: any GlobalShortcutRegistrationEngine = CarbonEventHotKeyEngine()) {
         self.engine = engine
     }
 
     func register(shortcut: GlobalShortcut, handler: @escaping @MainActor () -> Void) throws {
+        try register(shortcut: shortcut) { event in
+            guard event == .pressed else { return }
+            handler()
+        }
+    }
+
+    func register(
+        shortcut: GlobalShortcut,
+        eventHandler: @escaping @MainActor (GlobalShortcutEvent) -> Void
+    ) throws {
         guard shortcut.isValid else {
             throw GlobalShortcutRegistrationError.hotKey(OSStatus(paramErr))
         }
         if registeredShortcut == shortcut {
-            self.handler = handler
+            self.eventHandler = eventHandler
             return
         }
 
         let previousShortcut = registeredShortcut
-        let previousHandler = self.handler
+        let previousHandler = self.eventHandler
         unregister()
 
         do {
-            try engine.install(shortcut: shortcut, handler: handler)
+            self.eventHandler = eventHandler
+            try installEngine(shortcut: shortcut)
             registeredShortcut = shortcut
-            self.handler = handler
         } catch {
             if let previousShortcut, let previousHandler {
-                try? engine.install(shortcut: previousShortcut, handler: previousHandler)
+                self.eventHandler = previousHandler
+                try? installEngine(shortcut: previousShortcut)
                 registeredShortcut = previousShortcut
-                self.handler = previousHandler
             }
             throw error
         }
@@ -58,7 +102,13 @@ final class CarbonGlobalShortcutRegistrar: GlobalShortcutRegistering {
         guard registeredShortcut != nil else { return }
         engine.uninstall()
         registeredShortcut = nil
-        handler = nil
+        eventHandler = nil
+    }
+
+    private func installEngine(shortcut: GlobalShortcut) throws {
+        try engine.install(shortcut: shortcut) { [weak self] event in
+            self?.eventHandler?(event)
+        }
     }
 }
 
@@ -66,24 +116,36 @@ final class CarbonGlobalShortcutRegistrar: GlobalShortcutRegistering {
 private final class CarbonEventHotKeyEngine: GlobalShortcutRegistrationEngine {
     private var eventHandlerReference: EventHandlerRef?
     private var hotKeyReference: EventHotKeyRef?
-    private var handler: (@MainActor () -> Void)?
+    private var eventHandler: (@MainActor (GlobalShortcutEvent) -> Void)?
 
     func install(shortcut: GlobalShortcut, handler: @escaping @MainActor () -> Void) throws {
-        self.handler = handler
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
-        let eventHandlerStatus = InstallEventHandler(
-            GetApplicationEventTarget(),
-            Self.hotKeyEventHandler,
-            1,
-            &eventType,
-            Unmanaged.passUnretained(self).toOpaque(),
-            &eventHandlerReference
-        )
+        try install(shortcut: shortcut) { event in
+            guard event == .pressed else { return }
+            handler()
+        }
+    }
+
+    func install(
+        shortcut: GlobalShortcut,
+        handler: @escaping @MainActor (GlobalShortcutEvent) -> Void
+    ) throws {
+        eventHandler = handler
+        var eventTypes = [
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased)),
+        ]
+        let eventHandlerStatus = eventTypes.withUnsafeBufferPointer { eventTypes in
+            InstallEventHandler(
+                GetApplicationEventTarget(),
+                Self.hotKeyEventHandler,
+                UInt32(eventTypes.count),
+                eventTypes.baseAddress,
+                Unmanaged.passUnretained(self).toOpaque(),
+                &eventHandlerReference
+            )
+        }
         guard eventHandlerStatus == noErr else {
-            self.handler = nil
+            eventHandler = nil
             throw GlobalShortcutRegistrationError.eventHandler(eventHandlerStatus)
         }
 
@@ -111,18 +173,24 @@ private final class CarbonEventHotKeyEngine: GlobalShortcutRegistrationEngine {
         }
         hotKeyReference = nil
         eventHandlerReference = nil
-        handler = nil
+        eventHandler = nil
     }
 
-    private func invokeHandler() {
-        handler?()
+    private func invokeHandler(for event: GlobalShortcutEvent) {
+        eventHandler?(event)
     }
 
-    private static let hotKeyEventHandler: EventHandlerUPP = { _, _, userData in
-        guard let userData else { return OSStatus(eventNotHandledErr) }
+    private static let hotKeyEventHandler: EventHandlerUPP = { _, eventReference, userData in
+        guard let eventReference, let userData else { return OSStatus(eventNotHandledErr) }
         let engine = Unmanaged<CarbonEventHotKeyEngine>.fromOpaque(userData).takeUnretainedValue()
+        let event: GlobalShortcutEvent
+        switch GetEventKind(eventReference) {
+        case UInt32(kEventHotKeyPressed): event = .pressed
+        case UInt32(kEventHotKeyReleased): event = .released
+        default: return OSStatus(eventNotHandledErr)
+        }
         Task { @MainActor in
-            engine.invokeHandler()
+            engine.invokeHandler(for: event)
         }
         return noErr
     }
