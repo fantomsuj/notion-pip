@@ -255,6 +255,16 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         )
     }
 
+    func prefill(_ text: String) async -> Bool {
+        guard !text.isEmpty else { return false }
+        do {
+            return try await webView.callAsyncJavaScript(
+                "return window.NotionPiPBridge.prefill(text)",
+                arguments: ["text": text], in: nil, contentWorld: .page
+            ) as? Bool == true
+        } catch { return false }
+    }
+
     func prepareForTermination() async -> Bool {
         if let terminationPersistenceTask {
             return await terminationPersistenceTask.value

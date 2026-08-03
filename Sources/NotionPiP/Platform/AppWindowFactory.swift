@@ -6,6 +6,7 @@ enum AppWindowFactory {
     static func makeQuickCapture(
         repository: CaptureRepository?,
         lifecycle: QuickCaptureLifecycleCoordinator? = nil,
+        onSessionCreated: @escaping @MainActor (CaptureEditorSession) -> Void = { _ in },
         onNeedsConfiguration: @escaping @MainActor (String) -> Void = { _ in },
         onSuccessfulClose: @escaping @MainActor () -> Void = {},
         openInNotion: @escaping () -> Void
@@ -18,6 +19,7 @@ enum AppWindowFactory {
                 openInNotion: openInNotion
             )
             session = editorSession
+            onSessionCreated(editorSession)
             content = AnyView(
                 QuickCaptureView(session: editorSession)
                     .padding(DesignTokens.Spacing.container)

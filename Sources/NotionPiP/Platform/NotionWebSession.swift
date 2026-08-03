@@ -217,6 +217,35 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         snapshot: NotionEditorSelectionSnapshot
     )?
 
+    func rememberCurrentEditorCursor(completion: @escaping @MainActor (Bool) -> Void = { _ in }) {
+        guard let webView, let pageID = activePage?.pageID,
+              loadedPageID == pageID, Self.isTrustedSelectionContext(webView, pageID: pageID)
+        else { completion(false); return }
+        selectionEvaluator(webView, .capture) { [weak self] result in
+            guard let self, case let .success(value) = result,
+                  let snapshot = NotionEditorSelectionSnapshot(javaScriptValue: value)
+            else { completion(false); return }
+            self.savedEditorSelection = (pageID, snapshot)
+            completion(true)
+        }
+    }
+
+    func insertAtSavedEditorCursor(
+        _ text: String,
+        completion: @escaping @MainActor (Bool) -> Void
+    ) {
+        guard !text.isEmpty, let webView, let pageID = activePage?.pageID,
+              loadedPageID == pageID, savedEditorSelection?.pageID == pageID,
+              let snapshot = savedEditorSelection?.snapshot,
+              Self.isTrustedSelectionContext(webView, pageID: pageID)
+        else { completion(false); return }
+        selectionEvaluator(webView, .insert(text, at: snapshot)) { [weak self] result in
+            let inserted = (try? result.get() as? Bool) == true
+            if inserted { self?.savedEditorSelection = nil }
+            completion(inserted)
+        }
+    }
+
     var shouldHostWebView: Bool {
         panelIsVisible
             && state != .suspended

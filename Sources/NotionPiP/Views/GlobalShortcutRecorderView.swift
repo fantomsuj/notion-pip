@@ -54,6 +54,49 @@ struct GlobalShortcutRecorderView: View {
     }
 }
 
+struct QuickCaptureShortcutRecorderView: View {
+    @ObservedObject var runtime: AppRuntime
+
+    var body: some View {
+        ShortcutRecorder(
+            shortcut: runtime.quickCaptureShortcut,
+            apply: runtime.applyQuickCaptureShortcut,
+            reset: runtime.resetQuickCaptureShortcut
+        )
+    }
+}
+
+private struct ShortcutRecorder: View {
+    let shortcut: GlobalShortcut
+    let apply: (GlobalShortcut) -> Bool
+    let reset: () -> Void
+    @State private var isRecording = false
+    @State private var feedback: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.control) {
+            HStack {
+                Text(shortcut.displayString).font(.system(.body, design: .monospaced))
+                Button(isRecording ? "Press a shortcut…" : "Record Shortcut") {
+                    isRecording.toggle(); feedback = nil
+                }
+                Button("Reset") { reset(); isRecording = false; feedback = nil }
+            }
+            if isRecording {
+                ShortcutKeyCaptureView { result in
+                    switch result {
+                    case let .success(value):
+                        if apply(value) { feedback = "Shortcut updated to \(value.displayString)."; isRecording = false }
+                        else { feedback = "Choose a shortcut distinct from Show/Hide that macOS can register." }
+                    case let .failure(message): feedback = message
+                    }
+                }.frame(width: 1, height: 1)
+            }
+            if let feedback { Text(feedback).font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+}
+
 private enum ShortcutCaptureResult {
     case success(GlobalShortcut)
     case failure(String)

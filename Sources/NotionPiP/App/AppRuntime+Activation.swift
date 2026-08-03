@@ -3,7 +3,7 @@ import Foundation
 extension AppRuntime {
     @discardableResult
     func applyGlobalShortcut(_ shortcut: GlobalShortcut) -> Bool {
-        guard shortcut.isValid else { return false }
+        guard shortcut.isValid, shortcut != quickCaptureShortcut else { return false }
         do {
             try shortcutRegistrar.register(shortcut: shortcut) { [weak self] in
                 self?.handleGlobalShortcut()
@@ -21,6 +21,41 @@ extension AppRuntime {
 
     func resetGlobalShortcut() {
         _ = applyGlobalShortcut(.default)
+    }
+
+    @discardableResult
+    func applyQuickCaptureShortcut(_ shortcut: GlobalShortcut) -> Bool {
+        guard shortcut.isValid, shortcut != globalShortcut else { return false }
+        do {
+            try quickCaptureShortcutRegistrar.register(shortcut: shortcut) { [weak self] in
+                self?.handleQuickCaptureShortcut()
+            }
+            quickCaptureShortcut = shortcut
+            quickCaptureShortcutStore.save(shortcut)
+            return true
+        } catch {
+            logger.error("Quick Capture shortcut registration failed")
+            return false
+        }
+    }
+
+    func resetQuickCaptureShortcut() { _ = applyQuickCaptureShortcut(.defaultQuickCapture) }
+
+    func setQuickCapturePrefillsClipboard(_ enabled: Bool) {
+        trustedCapturePreferenceStore.setPrefillsClipboard(enabled)
+        quickCapturePrefillsClipboard = enabled
+    }
+
+    func setQuickCaptureInsertsAtNotionCursor(_ enabled: Bool) {
+        trustedCapturePreferenceStore.setInsertsAtNotionCursor(enabled)
+        quickCaptureInsertsAtNotionCursor = enabled
+    }
+
+    func registerQuickCaptureShortcut() { _ = applyQuickCaptureShortcut(quickCaptureShortcut) }
+
+    private func handleQuickCaptureShortcut() {
+        let prefill = quickCapturePrefillsClipboard ? pasteboard.readString() : nil
+        quickCaptureAction(prefill, quickCaptureInsertsAtNotionCursor)
     }
 
     func setMenuBarIconVisibility(_ isVisible: Bool) {

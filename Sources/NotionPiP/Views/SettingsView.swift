@@ -38,6 +38,22 @@ struct SettingsView: View {
                     GlobalShortcutRecorderView(runtime: runtime)
                 }
 
+                Section("Trusted Quick Capture") {
+                    QuickCaptureShortcutRecorderView(runtime: runtime)
+                    Text("This shortcut is separate from panel Show/Hide.")
+                        .font(.caption).foregroundStyle(DesignTokens.Colors.secondaryText)
+                    Toggle("Pre-fill Quick Capture from the clipboard", isOn: Binding(
+                        get: { runtime.quickCapturePrefillsClipboard },
+                        set: runtime.setQuickCapturePrefillsClipboard
+                    ))
+                    Toggle("Insert at the saved Notion cursor when possible", isOn: Binding(
+                        get: { runtime.quickCaptureInsertsAtNotionCursor },
+                        set: runtime.setQuickCaptureInsertsAtNotionCursor
+                    ))
+                    Text("Clipboard content is read only when you invoke Quick Capture. If the saved cursor is no longer valid, the content opens in Quick Capture instead.")
+                        .font(.caption).foregroundStyle(DesignTokens.Colors.secondaryText)
+                }
+
                 Section("Menu Bar") {
                     Toggle(
                         "Show Notion PiP in the menu bar",
