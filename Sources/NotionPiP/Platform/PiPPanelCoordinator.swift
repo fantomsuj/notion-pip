@@ -630,15 +630,27 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     }
 
     func snapPanelToCorner() {
+        let visibleFrames = visibleFramesProvider()
+        let originalFrame = panel.frame
         let snappedFrame = PanelFramePolicy.cornerSnapped(
-            panel.frame,
-            visibleFrames: visibleFramesProvider()
+            originalFrame,
+            visibleFrames: visibleFrames
         )
-        guard snappedFrame != panel.frame else { return }
-        preservedFrameAnchor = nil
-        preferredVisibleFrame = PanelFramePolicy.targetVisibleFrame(
-            for: snappedFrame,
-            from: visibleFramesProvider()
+        guard snappedFrame != originalFrame else { return }
+        guard let visibleFrame = PanelFramePolicy.targetVisibleFrame(
+            for: originalFrame,
+            from: visibleFrames
+        ) else { return }
+        let nearestAnchor = PanelFramePolicy.nearestAnchor(
+            for: originalFrame,
+            in: visibleFrame
+        )
+        preferredVisibleFrame = visibleFrame
+        preservedFrameAnchor = PanelFrameAnchor(
+            horizontalEdge: nearestAnchor.horizontalEdge,
+            horizontalInset: PanelFramePolicy.cornerInset,
+            verticalEdge: nearestAnchor.verticalEdge,
+            verticalInset: PanelFramePolicy.cornerInset
         )
         setPanelFrame(snappedFrame, display: panel.isVisible, animate: true)
     }
@@ -683,7 +695,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         orderOut(nil)
     }
 
-    func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
+    override func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
         guard animate else {
             setFrame(frame, display: display)
             return

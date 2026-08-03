@@ -34,6 +34,65 @@ final class PanelFramePolicyTests: XCTestCase {
         )
     }
 
+    func testCornerSnapRecoversWindowPushedCompletelyBeyondTopRightCorner() {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let frame = CGRect(x: 1_100, y: 850, width: 400, height: 300)
+
+        XCTAssertEqual(
+            PanelFramePolicy.cornerSnapped(frame, visibleFrames: [screen]),
+            CGRect(x: 576, y: 476, width: 400, height: 300)
+        )
+    }
+
+    func testCornerSnapFitsOversizedWindowAtEveryCorner() {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let cases: [(frame: CGRect, expected: CGRect)] = [
+            (
+                CGRect(x: -300, y: -200, width: 1_200, height: 900),
+                CGRect(x: 24, y: 24, width: 976, height: 776)
+            ),
+            (
+                CGRect(x: 100, y: -200, width: 1_200, height: 900),
+                CGRect(x: 0, y: 24, width: 976, height: 776)
+            ),
+            (
+                CGRect(x: -300, y: 100, width: 1_200, height: 900),
+                CGRect(x: 24, y: 0, width: 976, height: 776)
+            ),
+            (
+                CGRect(x: 100, y: 100, width: 1_200, height: 900),
+                CGRect(x: 0, y: 0, width: 976, height: 776)
+            ),
+        ]
+
+        for testCase in cases {
+            XCTAssertEqual(
+                PanelFramePolicy.cornerSnapped(testCase.frame, visibleFrames: [screen]),
+                testCase.expected
+            )
+        }
+    }
+
+    func testCornerSnapShrinksOnlyOverflowingWidth() {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let frame = CGRect(x: 100, y: 276, width: 1_200, height: 500)
+
+        XCTAssertEqual(
+            PanelFramePolicy.cornerSnapped(frame, visibleFrames: [screen]),
+            CGRect(x: 0, y: 276, width: 976, height: 500)
+        )
+    }
+
+    func testCornerSnapShrinksOnlyOverflowingHeight() {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let frame = CGRect(x: 576, y: 100, width: 400, height: 900)
+
+        XCTAssertEqual(
+            PanelFramePolicy.cornerSnapped(frame, visibleFrames: [screen]),
+            CGRect(x: 576, y: 0, width: 400, height: 776)
+        )
+    }
+
     func testOffscreenFrameIsClampedInsideAvailableScreen() {
         let restoredFrame = CGRect(x: 1_800, y: 1_200, width: 320, height: 240)
         let visibleFrame = CGRect(x: 0, y: 0, width: 1_000, height: 800)

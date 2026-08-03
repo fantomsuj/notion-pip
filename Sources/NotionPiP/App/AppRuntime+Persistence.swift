@@ -41,7 +41,7 @@ extension AppRuntime {
                 guard !Task.isCancelled else { return }
                 self?.restorePinnedPage(
                     page,
-                    restoration: workingSet?.restoration(for: page.pageID),
+                    restoration: workingSet.restoration(for: page.pageID),
                     expectedGeneration: expectedGeneration
                 )
             } catch {
