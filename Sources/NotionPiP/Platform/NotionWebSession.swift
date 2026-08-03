@@ -172,17 +172,17 @@ enum NotionWebSessionState: Equatable {
 final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     NotionEditorActivityHandling, NotionScrollHandling
 {
-    static let warmRetentionInterval: TimeInterval = 60
+    static let warmRetentionInterval = NotionWebLifecycleController.defaultWarmRetentionInterval
 
     @Published private(set) var webView: WKWebView?
-    @Published private(set) var state: NotionWebSessionState = .unloaded
+    var state: NotionWebSessionState { lifecycleController.state }
     @Published private(set) var isTypingInPage = false
     private(set) var activePage: NotionPageReference?
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
     private let openURL: @MainActor (URL) -> Void
     private let loadRequest: NotionWebRequestLoader
     private let webViewFactory: NotionWebViewFactory
-    private let scheduleEviction: NotionWebEvictionScheduler
+    private let lifecycleController: NotionWebLifecycleController
     private let pauseMedia: @MainActor (WKWebView) -> Void
     private let stopLoading: @MainActor (WKWebView) -> Void
     private let interactionStateReader: @MainActor (WKWebView) -> Any?
@@ -198,10 +198,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var scrollHandler: WeakNotionScrollMessageHandler?
     private var urlObservation: NSKeyValueObservation?
     private var webViewGeneration: UInt = 0
-    private var evictionCancellable: AnyCancellable?
+    private var lifecycleObservation: AnyCancellable?
     private var memoryPressureSource: DispatchSourceMemoryPressure?
-    @Published private var panelIsVisible = true
-    private var stateBeforeSuspension: NotionWebSessionState = .unloaded
+    private var panelIsVisible: Bool { lifecycleController.isVisible }
     private var loadedPageID: String?
     private var savedURL: URL?
     private var savedURLPageID: String?
@@ -218,9 +217,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     )?
 
     var shouldHostWebView: Bool {
-        panelIsVisible
-            && state != .suspended
-            && webView != nil
+        lifecycleController.shouldHostWebView(hasWebView: webView != nil)
     }
 
     init(
@@ -302,7 +299,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.openURL = openURL
         self.loadRequest = loadRequest
         self.webViewFactory = webViewFactory
-        self.scheduleEviction = scheduleEviction
+        self.lifecycleController = NotionWebLifecycleController(scheduleEviction: scheduleEviction)
         self.pauseMedia = pauseMedia
         self.stopLoading = stopLoading
         self.interactionStateReader = interactionStateReader
@@ -315,6 +312,12 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.invalidateURLObservation = invalidateURLObservation
         self.removeActivityBridge = removeActivityBridge
         super.init()
+        lifecycleObservation = lifecycleController.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        lifecycleController.onEvictionRequested = { [weak self] in
+            self?.evictWarmWebView(afterLifecycleDecision: true)
+        }
         if let webView {
             configure(webView)
         }
@@ -417,11 +420,17 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         let retainedWebView = webView
         let retainedPageID = loadedPageID
         selectionCaptureGeneration &+= 1
-        panelIsVisible = true
-        if state == .suspended {
-            resumeSuspendedWebView()
-        } else if webView == nil, let activePage {
+        let resumeCommand = lifecycleController.panelDidShow(
+            hasWebView: webView != nil,
+            hasActivePage: activePage != nil
+        )
+        if resumeCommand == .loadActivePage, let activePage {
             restoreOrLoad(page: activePage)
+        } else if let activePage,
+                  webView != nil,
+                  loadedPageID != activePage.pageID
+        {
+            load(activePage.canonicalURL, pageID: activePage.pageID)
         }
         if wasHidden,
            let retainedWebView,
@@ -436,7 +445,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func panelDidHide() {
-        panelIsVisible = false
+        lifecycleController.panelDidHide()
         captureSelectionAndSuspendIfNeeded()
     }
 
@@ -450,7 +459,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         savedURLPageID = pageID
         loadedPageID = pageID
         self.isAttemptingDurableRestoration = isDurableRestoration
-        state = .loading
+        lifecycleController.setState(.loading)
         loadRequest(ensureWebView(), URLRequest(url: url))
     }
 
@@ -466,7 +475,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             return
         }
         if let webView {
-            state = .loading
+            lifecycleController.setState(.loading)
             webView.reload()
         } else {
             restoreOrLoad(page: activePage)
@@ -485,6 +494,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         let isTyping = activity == .typingStarted
         guard isTypingInPage != isTyping else { return }
         isTypingInPage = isTyping
+        lifecycleController.setEvictionProtected(isTyping)
     }
 
     func handleScrollSnapshot(_ snapshot: NotionScrollSnapshot) {
@@ -522,33 +532,24 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func handleMemoryPressure() {
-        guard state == .suspended,
-              !isTypingInPage,
-              !panelIsVisible
-        else {
-            return
+        if lifecycleController.requestEvictionIfEligible() {
+            interactionStates.removeAll()
         }
-        evictWarmWebView()
-        interactionStates.removeAll()
     }
 
     func evictWarmWebView() {
-        guard state == .suspended,
-              !isTypingInPage,
-              !panelIsVisible,
-              let webView
-        else {
-            return
-        }
+        _ = lifecycleController.requestEvictionIfEligible()
+    }
 
-        evictionCancellable?.cancel()
-        evictionCancellable = nil
+    private func evictWarmWebView(afterLifecycleDecision: Bool) {
+        guard afterLifecycleDecision, let webView else { return }
+
         if let activePage {
             captureAndTearDown(webView, page: activePage)
         } else {
             _ = retire(webView)
         }
-        state = .unloaded
+        lifecycleController.didEvictWebView()
     }
 
     @discardableResult
@@ -557,8 +558,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             return false
         }
 
-        evictionCancellable?.cancel()
-        evictionCancellable = nil
+        lifecycleController.cancelWarmRetention()
         editorActivityHandler?.delegate = nil
         editorActivityHandler = nil
         scrollHandler?.delegate = nil
@@ -632,21 +632,17 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     private func suspendWebViewIfNeeded() {
-        guard let webView, state != .suspended else {
+        guard let webView,
+              lifecycleController.suspend(hasWebView: true)
+        else {
             revealTopControls()
             return
         }
 
-        stateBeforeSuspension = state
         revealTopControls()
         endEditing(webView)
         pauseMedia(webView)
         webView.removeFromSuperview()
-        state = .suspended
-        evictionCancellable?.cancel()
-        evictionCancellable = scheduleEviction(Self.warmRetentionInterval) { [weak self] in
-            self?.evictWarmWebView()
-        }
     }
 
     private func restoreSelectionAfterAttachment(in webView: WKWebView, pageID: String?) {
@@ -685,22 +681,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         return page.pageID == pageID
     }
 
-    private func resumeSuspendedWebView() {
-        evictionCancellable?.cancel()
-        evictionCancellable = nil
-        guard let activePage else {
-            state = webView == nil ? .unloaded : stateBeforeSuspension
-            return
-        }
-        if webView == nil {
-            restoreOrLoad(page: activePage)
-        } else if loadedPageID != activePage.pageID {
-            load(activePage.canonicalURL, pageID: activePage.pageID)
-        } else {
-            state = stateBeforeSuspension == .suspended ? .active : stateBeforeSuspension
-        }
-    }
-
     private func restoreOrLoad(page: NotionPageReference) {
         invalidateEditorSelection()
         let webView = ensureWebView()
@@ -710,7 +690,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             interactionStateWriter(webView, interactionState)
             interactionStates.removeValue(forKey: page.pageID)
             loadedPageID = page.pageID
-            state = .loading
+            lifecycleController.setState(.loading)
         } else {
             let durableRestoration = durableRestorations[page.pageID]
             pendingScrollRestoration = durableRestoration
@@ -754,11 +734,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     private func publishNavigationState(_ navigationState: NotionWebSessionState) {
-        if state == .suspended {
-            stateBeforeSuspension = navigationState
-        } else {
-            state = navigationState
-        }
+        lifecycleController.publishNavigationState(navigationState)
     }
 
     private func installMemoryPressureSource() {
@@ -1114,7 +1090,7 @@ extension NotionWebSession: WKNavigationDelegate {
         guard retire(webView) else { return }
 
         guard panelIsVisible, let page else {
-            state = .unloaded
+            lifecycleController.setState(.unloaded)
             return
         }
         load(page.canonicalURL, pageID: page.pageID)
