@@ -1077,7 +1077,9 @@ extension NotionWebSession: WKNavigationDelegate {
     }
 
     private func navigationFailureState(for error: Error) -> NotionWebSessionState {
-        Self.isOfflineNavigationError(error) ? .offline : .failed(error.localizedDescription)
+        Self.isOfflineNavigationError(error)
+            ? .offline
+            : .failed("Notion couldn't load this page.")
     }
 
     static func isOfflineNavigationError(_ error: Error) -> Bool {

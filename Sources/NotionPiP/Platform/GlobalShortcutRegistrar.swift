@@ -130,7 +130,7 @@ private final class CarbonEventHotKeyEngine: GlobalShortcutRegistrationEngine {
         handler: @escaping @MainActor (GlobalShortcutEvent) -> Void
     ) throws {
         eventHandler = handler
-        var eventTypes = [
+        let eventTypes = [
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased)),
         ]
@@ -138,7 +138,7 @@ private final class CarbonEventHotKeyEngine: GlobalShortcutRegistrationEngine {
             InstallEventHandler(
                 GetApplicationEventTarget(),
                 Self.hotKeyEventHandler,
-                UInt32(eventTypes.count),
+                eventTypes.count,
                 eventTypes.baseAddress,
                 Unmanaged.passUnretained(self).toOpaque(),
                 &eventHandlerReference

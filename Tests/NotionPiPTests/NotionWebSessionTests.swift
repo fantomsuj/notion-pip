@@ -266,7 +266,7 @@ final class NotionWebSessionTests: XCTestCase {
             didFailProvisionalNavigation: nil,
             withError: NSError(domain: "Test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Offline"])
         )
-        XCTAssertEqual(session.state, .failed("Offline"))
+        XCTAssertEqual(session.state, .failed("Notion couldn't load this page."))
     }
 
     func testCancelledNavigationDoesNotReplaceLoadingStateWithFailure() throws {
@@ -386,6 +386,8 @@ final class NotionWebSessionTests: XCTestCase {
                     captureCompletion = completion
                 case .restore:
                     completion(.success(true))
+                case .insert:
+                    completion(.success(false))
                 }
             },
             scheduleAfterAttachment: { $0() },
@@ -477,6 +479,8 @@ final class NotionWebSessionTests: XCTestCase {
                         completion(result)
                     case .restore:
                         completion(.success(true))
+                    case .insert:
+                        completion(.success(false))
                     }
                 },
                 scheduleAfterAttachment: { $0() },
@@ -1185,7 +1189,7 @@ final class NotionWebSessionTests: XCTestCase {
         )
         XCTAssertEqual(session.state, .suspended)
         session.panelDidShow()
-        XCTAssertEqual(session.state, .failed("Offline"))
+        XCTAssertEqual(session.state, .failed("Notion couldn't load this page."))
 
         session.panelDidHide()
         navigationDelegate.webView?(webView, didStartProvisionalNavigation: nil)
@@ -1675,6 +1679,8 @@ private final class SelectionEvaluationRecorder {
             }
         case .restore:
             completion(.success(true))
+        case .insert:
+            completion(.success(false))
         }
     }
 }

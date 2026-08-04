@@ -12,9 +12,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var captureRecoveryMessage: String?
     @Published private(set) var serviceHealth: ServiceHealthState
     @Published private(set) var globalShortcut: GlobalShortcut
-    @Published private(set) var quickCaptureShortcut: GlobalShortcut
-    @Published private(set) var quickCapturePrefillsClipboard: Bool
-    @Published private(set) var quickCaptureInsertsAtNotionCursor: Bool
+    @Published var quickCaptureShortcut: GlobalShortcut
+    @Published var quickCapturePrefillsClipboard: Bool
+    @Published var quickCaptureInsertsAtNotionCursor: Bool
     @Published private(set) var savedMenuBarIconVisibility: Bool
     @Published private(set) var effectiveMenuBarIconVisibility: Bool
     @Published private(set) var isMenuBarIconVisibilityForced: Bool
@@ -55,7 +55,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let quickCaptureShortcutRegistrar: any GlobalShortcutRegistering
     let quickCaptureShortcutStore: QuickCaptureShortcutStore
     let trustedCapturePreferenceStore: TrustedCapturePreferenceStore
-    private let pasteboard: any PasteboardReading
+    let pasteboard: any PasteboardReading
     var quickCaptureAction: (_ prefill: String?, _ insertAtCursor: Bool) -> Void = { _, _ in }
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
     let pageURLInputPresenter: any PageURLInputPresenting
