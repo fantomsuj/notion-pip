@@ -12,6 +12,17 @@ Keep the [course glossary](GLOSSARY.md) nearby and use the
 [architecture map](ARCHITECTURE_MAP.md) when you want to follow a journey past
 the first owning subsystem.
 
+> **Source-authority callout:** the root [README](../../README.md#what-it-feels-like)
+> says, “Create a fresh Notion page from the `+` button; it becomes the new
+> pinned page automatically.” That sentence is inconsistent with this committed
+> source snapshot. Here the toolbar `+` invokes **Quick Capture** in
+> [`PiPChromeView.swift`](../../Sources/NotionPiP/Views/PiPChromeView.swift).
+> Activating a new page records its visit so it appears in **Recent**; the pin
+> control on each [`PageSwitcherView`](../../Sources/NotionPiP/Views/PageSwitcherView.swift)
+> row explicitly promotes it to a pinned favorite or removes that favorite.
+> This lecture follows committed source behavior rather than the inconsistent
+> README sentence.
+
 ## Learning objectives
 
 By the end of this lecture, you can:
@@ -110,7 +121,7 @@ layer. Later lectures unpack each path.
 | Process presence | No Dock icon; menu-bar access is on by default and can be hidden | [`AppDelegate.swift`](../../Sources/NotionPiP/App/AppDelegate.swift), [`StatusItemController.swift`](../../Sources/NotionPiP/Platform/StatusItemController.swift) |
 | Floating notebook | An editable Notion page in a floating, all-Spaces panel | [`WindowRolePolicy.swift`](../../Sources/NotionPiP/Platform/WindowRolePolicy.swift), [`PiPChromeView.swift`](../../Sources/NotionPiP/Views/PiPChromeView.swift) |
 | Page entry | A validated Notion page URL can be entered; an allowlisted external handoff can activate a page | [`AppRuntime+Activation.swift`](../../Sources/NotionPiP/App/AppRuntime+Activation.swift), [handoff protocol](../HANDOFF_PROTOCOL.md) |
-| Page switcher | Up to seven favorites and seven nonfavorite recent pages, with local subsequence search and keyboard selection | [`PageWorkingSetPolicy.swift`](../../Sources/NotionPiP/Domain/PageWorkingSetPolicy.swift), [`PageSwitcherMatcher.swift`](../../Sources/NotionPiP/Domain/PageSwitcherMatcher.swift) |
+| Page switcher | Up to seven favorites and seven nonfavorite recent pages, with local subsequence search, keyboard selection, and an explicit pin/unpin control | [`PageWorkingSetPolicy.swift`](../../Sources/NotionPiP/Domain/PageWorkingSetPolicy.swift), [`PageSwitcherView.swift`](../../Sources/NotionPiP/Views/PageSwitcherView.swift) |
 | Edge stash | The full panel gives way to a slim handle on the nearest edge; restoring returns the retained panel | [`PiPPanelCoordinator.swift`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift), [`PanelStashPolicy.swift`](../../Sources/NotionPiP/Platform/PanelStashPolicy.swift) |
 | Panel size | Built-in and custom presets resize the retained panel without intentionally reloading Notion | [`PanelSizeController.swift`](../../Sources/NotionPiP/App/PanelSizeController.swift), [`PanelSizeSettingsView.swift`](../../Sources/NotionPiP/Views/PanelSizeSettingsView.swift) |
 | Quick Capture | The `+` control or capture command opens a focused local editor whose draft is saved before delivery | [`AppCommandModel.swift`](../../Sources/NotionPiP/App/AppCommandModel.swift), [`QuickCaptureView.swift`](../../Sources/NotionPiP/Views/QuickCaptureView.swift) |
@@ -135,8 +146,9 @@ full-screen Spaces, keyboard focus, and display changes are manual checks.
 2. If no page is available, tapping the default panel shortcut, `Command-Shift-P`,
    opens and focuses page URL entry. A typed URL must be a supported HTTPS
    Notion page URL with a page ID.
-3. A valid page is activated, presented in the floating panel, and recorded in
-   the page working set.
+3. A valid page is activated, presented in the floating panel, and recorded as
+   a visit in the page working set. A newly activated page appears under
+   **Recent**; activation alone does not make it a pinned favorite.
 4. The retained `WKWebView` loads the actual Notion page. Authentication happens
    inside that view using the user's Notion account.
 5. The user edits normally while the panel floats across Spaces. Hovering the
@@ -153,11 +165,17 @@ untrusted metadata; URL validation, not the source label, grants entry.
 2. The switcher shows pinned favorites and unpinned recents. Search is local and
    uses case- and diacritic-insensitive subsequence matching, so characters may
    have gaps but retain their order.
-3. Choosing the already-active row dismisses the popover without navigation.
+3. Hover or keyboard-select a row to reveal its pin control. The outline pin
+   promotes a recent page to a favorite; the filled pin removes that favorite
+   and returns it to recents. This changes favorite membership without
+   activating a different page. Seven favorites is the maximum; an eighth
+   attempt reports “Unpin a page first.”
+4. Choosing the already-active row dismisses the popover without navigation.
    Choosing another row activates its saved page reference and restoration.
-4. The one live WebKit view preserves the outgoing page's in-process
+5. The one live WebKit view preserves the outgoing page's in-process
    interaction state when possible, then restores or loads the chosen page.
-5. The selection is recorded so the latest active page can be restored later.
+6. The selection is recorded as a visit so the latest active page can be
+   restored later; it does not silently promote the page to a favorite.
 
 ### Journey 3: stash, peek, resize, and return
 
@@ -179,17 +197,25 @@ overlay behavior is part of the product, not an `NSPanel` defect.
 
 ### Journey 4: capture a thought and optionally deliver it
 
-1. The `+` button, **Quick Capture** command, or default capture shortcut,
-   `Command-Shift-N`, opens the Quick Capture editor. This is separate from the
-   panel show/hide shortcut.
-2. The editor saves changes locally. An acknowledgement means local persistence
+1. The toolbar `+` and the app's **Quick Capture** command open the Quick
+   Capture editor directly.
+2. The default global capture shortcut, `Command-Shift-N`, is a separate trusted
+   route. If clipboard prefill is enabled, the runtime reads text from the
+   clipboard at invocation. If insertion at the saved Notion cursor is also
+   enabled and a nonempty prefill plus live WebKit session are available, it
+   first attempts direct insertion into that saved cursor. A successful insert
+   does not open Quick Capture; a missing or stale cursor, failed insertion, or
+   unavailable live session falls back to the editor with the text prefilled.
+   With insertion disabled—or without clipboard text—the shortcut opens the
+   editor, using a clipboard prefill when one was read.
+3. The editor saves changes locally. An acknowledgement means local persistence
    accepted the draft; it does not mean Notion has received it.
-3. Closing an empty capture discards it. Closing a nonempty capture first saves
+4. Closing an empty capture discards it. Closing a nonempty capture first saves
    a fresh snapshot.
-4. If a default destination and usable personal token exist, the saved draft is
+5. If a default destination and usable personal token exist, the saved draft is
    placed in a durable delivery outbox and background delivery is triggered.
    The destination may create a child page or a data-source entry.
-5. If either setting is missing, the close flow keeps the work and directs the
+6. If either setting is missing, the close flow keeps the work and directs the
    user to configuration rather than pretending delivery succeeded. Offline
    work likewise remains local for later delivery.
 
@@ -216,13 +242,15 @@ usually moves inward.
 | User action | Immediate surface | Result-owning path | Durable or external effect |
 |---|---|---|---|
 | Launch the app | App lifecycle | `AppDelegate` selects accessory policy; startup/runtime restores services and the saved working set | Saved page and preferences may be read |
-| Enter a Notion URL | Settings or Pin Page | URL input → `AppRuntime` → pin coordinator → panel coordinator → `NotionWebSession` | Valid activation is recorded by `PageRepository` |
+| Enter a Notion URL | Settings or Pin Page | URL input → `AppRuntime` → pin coordinator → panel coordinator → `NotionWebSession` | Valid activation is recorded as a visit; a new page appears in recents |
 | Open `notion-pip://pin` | Launch Services handoff | `AppDelegate` → runtime → strict external-route parser → normal activation path | Same page recording as typed input; untrusted routes are rejected |
 | Edit the visible page | Embedded Notion UI | `PiPChromeView` hosts the retained `NotionWebSession` view | Notion owns remote page editing through its web session |
 | Switch pages | Page-switcher popover | `PageSwitcherController`/matcher → runtime activation → WebKit session | Active/recent order and durable restoration are saved |
+| Pin or unpin a favorite | Pin control or accessibility action on a switcher row | `PageSwitcherView` → `PageSwitcherController.setPinned` → page repository | The row moves between pinned favorites and recents; the active page need not change |
 | Stash or restore | Panel control, shortcut, status menu, or handle | Runtime/pin coordinator → `PiPPanelCoordinator` → stash policy and handle controller | Presentation geometry/preferences remain local |
 | Apply a size | PiP/status menu or Settings | `PanelSizeController` → panel coordinator | Presets and last explicit working size use local preferences |
-| Press `+` or Quick Capture | PiP command or shortcut | App command → capture presenter → local editor session → capture repository | A nonempty configured capture enters the outbox, then API delivery |
+| Press toolbar `+` or choose the app command | PiP control or app command | App command → capture presenter → local editor session → capture repository | A nonempty configured capture enters the outbox, then API delivery |
+| Press the global capture shortcut | Registered shortcut | Runtime reads trusted settings and optional clipboard text → saved-cursor WebKit insertion attempt → capture presenter fallback | Successful insertion edits the live page directly; fallback creates a local draft that may later enter the outbox |
 | Connect a token | Settings secure field | Runtime/connection controller → credential vault | Device-only Keychain item; never WebKit cookies or page URLs |
 | Hide the menu-bar icon | Settings toggle | Runtime preference → `StatusItemController` observation | Preference persists; failure of the panel shortcut temporarily forces a safe icon fallback |
 | Open page in browser | Notion mark in top controls | `NotionWebSession` asks macOS to open the canonical URL, then stashes the panel | Launch Services behavior is manual; the saved PiP page remains available |
@@ -254,7 +282,8 @@ credential storage merely because it contains the initiating button.
 | “An all-Spaces panel is an `NSPanel` bug.” | The panel and stash handle deliberately join all Spaces as floating auxiliary UI. | Compare [`WindowRolePolicy.swift`](../../Sources/NotionPiP/Platform/WindowRolePolicy.swift) with the [manual matrix](../MANUAL_TEST_MATRIX.md). |
 | “Every pinned page has its own live browser.” | One `WKWebView` is reused; saved pages have snapshots and restoration, not permanent browser instances. | Distinguish live interaction state from durable URL/scroll state. |
 | “Switching back must reproduce every detail after relaunch.” | Rich WebKit state is process-local; cross-launch restoration is URL plus best-effort scroll. | Confirm whether the process relaunched or the view was evicted. |
-| “The `+` button immediately pins a blank live page.” | In the committed UI the `+` button opens Quick Capture. A configured nonempty capture is durably queued for a chosen Notion destination. | Check the Quick Capture status, destination, token, and outbox. |
+| “The `+` button immediately pins a blank live page.” | The README sentence making that claim is inconsistent with this snapshot. In committed UI, `+` opens Quick Capture; favorites are managed by the page-switcher pin control. | Use the source-authority callout, then check Quick Capture status or the switcher row. |
+| “`Command-Shift-N` always opens Quick Capture.” | The toolbar/app command does; the global shortcut may instead insert clipboard text at a saved live-Notion cursor when both trusted options are enabled, falling back to Quick Capture if insertion cannot complete. | Check both Trusted Quick Capture settings and whether a usable saved cursor and clipboard value exist. |
 | “Saved means delivered to Notion.” | Editor acknowledgement means locally saved. Delivery is a separate, retryable stage. | Inspect the service/outbox status rather than assuming remote success. |
 | “Notion sign-in supplies the API token.” | Browser cookies and the optional personal API token are separate credentials. | Sign in inside the live view; configure the token only in Settings if using API-backed capture. |
 | “Hiding the menu-bar icon can strand the app.” | The edge handle and registered shortcut remain access paths; shortcut failure forces the icon visible. | Read the explanatory Settings message and retry shortcut registration. |
@@ -268,13 +297,16 @@ credential storage merely because it contains the initiating button.
   thought into their current Notion page. Introduce the open-notebook metaphor.
 - **5–11 min — Foundation:** contrast accessory, panel, WebKit view, and Space.
   Draw the three-state model: live browser, durable page, presentation.
-- **11–19 min — Demo:** show one live page, hover controls, page switching, and
-  selecting the active row. Narrate that only one live `WKWebView` exists.
+- **11–19 min — Demo:** show one live page, hover controls, activate a recent
+  page, use its pin/unpin control, and select the active row. Narrate that
+  activation records a visit while the pin control manages favorites, and that
+  only one live `WKWebView` exists.
 - **19–25 min — Demo:** stash to the edge, restore from the handle, apply a size,
   and point out the missing Dock icon plus optional menu-bar presence.
-- **25–32 min — Demo:** open Quick Capture with `+`, type a note, and distinguish
-  local save from delivery. Show token/destination Settings without exposing a
-  real token.
+- **25–32 min — Demo:** open Quick Capture with `+`, then contrast the global
+  shortcut's optional clipboard/saved-cursor route. Type a note and distinguish
+  local save from delivery. Show trusted-capture and token/destination Settings
+  without exposing private content or a real token.
 - **32–37 min — Map:** use the user-action table to trace one action across UI,
   runtime, platform, and persistence/service ownership.
 - **37–42 min — Knowledge check:** let learners answer before revealing the
@@ -308,9 +340,11 @@ Try to answer before expanding the supplied answers below.
 2. Does switching among seven favorites create seven live `WKWebView` objects?
 3. What survives a relaunch when rich WebKit interaction state does not?
 4. Name three ways to restore a stashed panel.
-5. What does “Saved” in Quick Capture prove, and what does it not prove?
-6. When is the personal Notion token required, and where is it stored?
-7. Which product claims in this lecture still need manual verification?
+5. How does activating a page differ from pinning it as a favorite?
+6. How can `Command-Shift-N` behave differently from toolbar `+`?
+7. What does “Saved” in Quick Capture prove, and what does it not prove?
+8. When is the personal Notion token required, and where is it stored?
+9. Which product claims in this lecture still need manual verification?
 
 ### Answers
 
@@ -323,11 +357,19 @@ Try to answer before expanding the supplied answers below.
 4. Click the edge handle, choose **Show Notion PiP** from the menu-bar item, or
    tap the panel show/hide shortcut. A held shortcut can also provide a
    temporary peek while stashed.
-5. It proves the editor change reached local persistence. It does not prove
+5. Activation displays the page and records its visit, placing a new page in
+   recents. Pinning is a separate page-switcher row action that promotes a
+   recent page to a favorite; unpinning removes it from favorites.
+6. Toolbar `+` opens Quick Capture directly. The global shortcut may read
+   clipboard text when prefill is enabled and, when saved-cursor insertion is
+   also enabled, first try to insert it into the live Notion page. Success skips
+   Quick Capture; failure or unavailable prerequisites opens the editor,
+   retaining the prefill when one was read.
+7. It proves the editor change reached local persistence. It does not prove
    enqueueing, network delivery, or Notion acceptance.
-6. It is required for API-backed destination search and Quick Capture delivery,
+8. It is required for API-backed destination search and Quick Capture delivery,
    not for the live embedded Notion page. It is stored device-only in Keychain.
-7. Real Dock/accessory presence, Spaces and full-screen behavior, Mission
+9. Real Dock/accessory presence, Spaces and full-screen behavior, Mission
    Control/window cycling, focus, multi-display geometry, and Launch Services
    opening require the manual matrix; real Notion delivery also needs account,
    permission, destination, and network integration.
@@ -342,9 +384,9 @@ Work from the source links; running the app is optional.
 switch to a recent research page, stash the panel, restore it from the handle,
 apply the Wide preset, and switch back.
 
-**Scenario B:** You press `Command-Shift-N`, write a nonempty note while
-offline, see it save locally, and close the capture. A destination and usable
-token were configured earlier.
+**Scenario B:** With both Trusted Quick Capture options disabled, you press
+`Command-Shift-N`, write a nonempty note while offline, see it save locally,
+and close the capture. A destination and usable token were configured earlier.
 
 For each scenario, write:
 
@@ -371,15 +413,19 @@ and visible/stashed state plus geometry are presentation concerns. Manually
 verify that the same editable session returns across the active Spaces without
 a visible reload and that resizing preserves selection.
 
-**Scenario B:** the global capture shortcut reaches the runtime capture action,
-the Quick Capture presenter and local editor collect input, and the capture
-repository owns the acknowledged local draft. On close, the lifecycle
-coordinator saves a fresh snapshot and enqueues it for the configured
-destination; delivery remains retryable until the network returns. The draft
-and outbox record are durable, while the capture window's visibility is
-presentation state. Manually verify the global shortcut/focus behavior and,
-with a safe test workspace, that the queued item eventually reaches the chosen
-Notion destination exactly as the service status reports.
+**Scenario B:** the global capture shortcut reaches the runtime capture action.
+Because clipboard prefill and saved-cursor insertion are explicitly disabled in
+this scenario, it opens the Quick Capture presenter without attempting direct
+Notion insertion. The local editor collects input and the capture repository
+owns the acknowledged local draft. On close, the lifecycle coordinator saves a
+fresh snapshot and enqueues it for the configured destination; delivery remains
+retryable until the network returns. The draft and outbox record are durable,
+while the capture window's visibility is presentation state. If the trusted
+options were enabled instead, the runtime could read clipboard text and first
+attempt saved-cursor insertion, falling back to the prefilled editor. Manually
+verify the global shortcut/focus behavior and, with a safe test workspace, that
+the queued item eventually reaches the chosen Notion destination exactly as the
+service status reports.
 
 If your answer assigns Keychain storage to a SwiftUI view, gives each page its
 own WebKit view, or treats “Saved” as remote delivery, revisit the
