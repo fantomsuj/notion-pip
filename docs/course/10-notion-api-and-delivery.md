@@ -26,7 +26,8 @@ By the end of this lecture, you can:
    and `dataSource`—from the two page-creation destinations supported by the
    current personal-token transport.
 4. Describe how editor JSON becomes Notion blocks, including 2,000-character
-   rich-text chunks, 100-block batches, and visible unsupported-content markers.
+   rich-text chunks, 100-block batches, visible fallbacks for unsupported
+   block-level nodes, and diagnostics for omitted unsupported inline children.
 5. Trace close, enqueue, claim, delivery, journaling, and completion across
    actors and durable state.
 6. Predict the resulting state for 401, 409, 429, 5xx, network, malformed, and
@@ -189,7 +190,7 @@ High-value tests mirror those boundaries:
   covers headers, parent-specific bodies, bounded responses, cancellation, and
   error decoding.
 - [`NotionBlockConverterTests.swift`](../../Tests/NotionPiPTests/NotionBlockConverterTests.swift)
-  covers supported nodes, chunks, batches, and recovery markers.
+  covers supported nodes, chunks, batches, and block-level recovery markers.
 - [`QuickCaptureLifecycleTests.swift`](../../Tests/NotionPiPTests/QuickCaptureLifecycleTests.swift),
   [`NotionCaptureDeliveryServiceTests.swift`](../../Tests/NotionPiPTests/NotionCaptureDeliveryServiceTests.swift),
   [`DeliveryEngineTests.swift`](../../Tests/NotionPiPTests/DeliveryEngineTests.swift),
@@ -369,17 +370,22 @@ be `doc`. It converts:
 | blockquote | `quote` |
 | code block | `code`, default language `plain text` |
 | horizontal rule | `divider` |
-| unsupported or malformed child | visible paragraph recovery marker and entry in `unsupportedNodes` |
+| unsupported or malformed block-level node | visible paragraph recovery marker and entry in `unsupportedNodes` |
+| unsupported inline child in a supported rich-text block | entry in `unsupportedNodes`; omitted from remote rich text |
 
 Text marks become Notion annotations for bold, italic, strike, underline, and
 code. Only `http` and `https` links with a host survive as links. Rich text is
 split at 2,000 Swift `Character` values, and top-level blocks are grouped into
 batches of at most 100.
 
-Unsupported content is not silently dropped from the local record. The remote
-page receives `[Unsupported content preserved in Notion PiP]`, while the
-original editor document remains durable for export and recovery. A malformed
-root stops delivery with a safe local-document error.
+Unsupported handling depends on level. An unsupported block-level node produces
+a remote paragraph containing `[Unsupported content preserved in Notion PiP]`
+and is added to the conversion's local `unsupportedNodes` diagnostics. An
+unsupported inline child encountered inside a supported rich-text block is
+added to `unsupportedNodes` but omitted from the remote rich text; it does not
+produce the paragraph marker. In both cases, the original editor document in
+the capture record remains durable for export and recovery. A malformed root
+stops delivery with a safe local-document error.
 
 ### 4. Journaling page creation
 
@@ -473,8 +479,10 @@ startup retention pass.
    delay. A server-directed delay is honored as supplied.
 9. **“401 is just another scheduled retry.”** It has no `nextAttemptAt`, pauses
    the drain, and waits for a validated reconnect to make unauthorized work due.
-10. **“Unsupported editor nodes disappear.”** They remain in the local editor
-    JSON and produce a visible recovery marker remotely.
+10. **“Every unsupported editor node produces a visible marker.”** Only an
+    unsupported block-level node produces the fallback paragraph. Unsupported
+    inline children are recorded in local conversion diagnostics and omitted
+    from remote rich text; the original editor JSON still remains local.
 11. **“Connection validation proves destination access forever.”** It validates
     the token at one moment. Page permissions, workspace access, network state,
     and schemas can change before delivery.
@@ -583,11 +591,13 @@ Answer before expanding the supplied answer.
    must not be described as a request-size limit.
 
 8. Why retain the original editor JSON when conversion finds an unsupported
-   node?
+   node, and what differs between block-level and inline unsupported content?
 
-   **Answer:** the local record remains the recovery source. The remote marker
-   makes loss visible without destroying content that a later converter or
-   export path may recover.
+   **Answer:** the local record remains the recovery source. An unsupported
+   block-level node creates a visible remote fallback paragraph; an unsupported
+   inline child is recorded in `unsupportedNodes` diagnostics and omitted from
+   remote rich text. Retaining the source lets a later converter or export path
+   recover content from either case.
 
 ## Hands-on exercise
 
@@ -665,7 +675,8 @@ the local invariant is understood.
   and loaded afresh by the personal-token capture API.
 - `NotionAPIClient` owns request formation and response/error decoding;
   `DeliveryEngine` owns durable retry and attention policy.
-- The converter retains the local source, marks unsupported content visibly,
+- The converter leaves the local source intact, emits visible fallbacks for
+  unsupported block-level nodes, records and omits unsupported inline children,
   splits rich text at 2,000 characters, and batches blocks by 100.
 - The current transport creates child pages and data-source pages. Managed and
   manual behavior remains modeled and tested but unavailable in that transport.
