@@ -95,11 +95,13 @@ CaptureRepository                        @ModelActor durable draft rows
 
 `QuickCaptureView` does not own document structure. It embeds the session's
 `WKWebView` and, when `session.conflict` exists, adds native recovery controls.
-`CaptureEditorSession` does not synthesize rich-text DOM. It validates bridge
-requests, calls `CaptureRepository`, publishes native status/conflict state,
-and returns typed replies. `QuickCaptureEditorController` owns the Tiptap
-instance, DOM events, local snapshot revision, status text, and web-side
-serialization gates.
+`CaptureEditorSession` does not synthesize rich-text DOM. Before it receives a
+request, `WeakScriptMessageHandler` derives WebKit frame/origin context and
+`CaptureBridgeProtocol` validates and decodes the trusted, exact envelope. The
+session receives that typed request, canonicalizes request content, coordinates
+`CaptureRepository`, publishes native status/conflict state, and returns typed
+replies. `QuickCaptureEditorController` owns the Tiptap instance, DOM events,
+local snapshot revision, status text, and web-side serialization gates.
 
 The live Tiptap document is fast, mutable UI state. The SwiftData draft is the
 durable authority. The bridge revision connects them: a request proposes
@@ -278,6 +280,7 @@ sequenceDiagram
     participant C as QuickCaptureEditorController
     participant D as DebouncedChangePublisher
     participant B as BridgeClient + captureBridge
+    participant H as WeakScriptMessageHandler + CaptureBridgeProtocol
     participant S as CaptureEditorSession
     participant R as CaptureRepository
 
@@ -287,11 +290,14 @@ sequenceDiagram
     Note over D: reset 300 ms timer; keep latest pending change
     D->>D: serialize snapshot only when delivery reaches flush
     D->>B: changed(id, snapshot, expectedRevision N)
-    B->>S: WKScriptMessageWithReply
-    S->>S: main-frame/origin/path/shape validation
+    B->>H: WKScriptMessageWithReply
+    H->>H: main-frame/origin/path/envelope validation + decode
+    H->>S: typed CaptureBridgeRequest
+    S->>S: canonicalize request content; coordinate persistence
     S->>R: saveDraft(mutation, expectedRevision: N)
     R-->>S: durable snapshot, revision N+1
-    S-->>B: changed reply, revision N+1
+    S-->>H: typed changed reply, revision N+1
+    H-->>B: encoded reply object
     B->>B: validate shape + correlation ID
     B-->>C: typed acknowledgement
     C->>C: revision = max(current, N+1); show Saved
@@ -309,14 +315,19 @@ Step by step:
    latest title/document rather than one JSON copy per keystroke.
 4. Deliveries are chained. A second flush waits for the first acknowledgement,
    then reads the now-authoritative revision before creating its request.
-5. Native validation converts the document to sorted-key canonical JSON. The
-   session calls `CaptureRepository.saveDraft` with `expectedRevision`.
-6. The repository either commits and increments the revision or returns a
+5. `WeakScriptMessageHandler` converts the WebKit body to JSON data and builds
+   frame/origin context. `CaptureBridgeProtocol.decode` enforces the message
+   cap, main-frame requirement, exact local-file origin and source path,
+   version, correlation ID, type, and exact envelope before returning a typed
+   request.
+6. `CaptureEditorSession` canonicalizes the request's ProseMirror content and
+   coordinates `CaptureRepository.saveDraft` with `expectedRevision`.
+7. The repository either commits and increments the revision or returns a
    typed failure. Native code never acknowledges a successful change before
    the repository save returns.
-7. `BridgeClient` allows at most five seconds, validates the complete reply,
+8. `BridgeClient` allows at most five seconds, validates the complete reply,
    and requires its correlation ID to equal the request ID.
-8. The controller applies the committed revision and reports Saved. A negative
+9. The controller applies the committed revision and reports Saved. A negative
    acknowledgement reports the native message and enters the appropriate retry
    or conflict path.
 
@@ -543,8 +554,10 @@ main-frame, origin, exact-document, and protocol checks.
 
 ### Answers
 
-1. `QuickCaptureEditorController` owns Tiptap; the main-actor
-   `CaptureEditorSession` validates the request and calls `CaptureRepository`.
+1. `QuickCaptureEditorController` owns Tiptap;
+   `WeakScriptMessageHandler`/`CaptureBridgeProtocol` own native trust-context
+   validation and decoding; the main-actor `CaptureEditorSession` canonicalizes
+   request content and coordinates `CaptureRepository`.
 2. After native `saveDraft` succeeds and a valid correlated success reply is
    received. The DOM change and debounce timer are not durable milestones.
 3. Earlier delivery may advance the authoritative revision while this change

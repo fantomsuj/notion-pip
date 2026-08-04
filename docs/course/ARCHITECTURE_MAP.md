@@ -209,18 +209,21 @@ Course destination: Lecture 3 and Lecture 9 in the
 ```mermaid
 flowchart TD
     A["AppDelegate.applicationShouldTerminate"] --> B["AppStartup termination handler"]
-    B --> C["LazyAppWindowPresenter.terminationParticipant"]
-    C --> D["AppWindowPresenter.prepareForTermination"]
+    B --> C{"capture termination participant exists?"}
+    C -->|yes| D["AppWindowPresenter.prepareForTermination"]
+    C -->|no| H["capture result = true"]
     D -->|visible Quick Capture| E["CaptureEditorSession.prepareForTermination"]
+    D -->|window not visible| H
     E --> F["window.NotionPiPBridge.snapshot"]
     F --> G["CaptureRepository.saveDraft"]
-    G -->|success| H["capture allows termination"]
-    G -->|failure| I["capture vetoes termination and shows failure"]
-    B --> J["AppRuntime.prepareForTermination"]
+    G -->|success| H
+    G -->|failure| I["capture result = false; show failure"]
+    H --> J["AppRuntime.prepareForTermination"]
+    I --> J
     J --> K["await ordered PageRepository persistence tasks"]
-    H --> L["NSApplication.reply true"]
-    K --> L
-    I --> M["NSApplication.reply false"]
+    K --> L{"return capture result?"}
+    L -->|true| M["NSApplication.reply true"]
+    L -->|false| N["NSApplication.reply false"]
 ```
 
 **Prose fallback.** [`AppDelegate`](../../Sources/NotionPiP/App/AppDelegate.swift)
@@ -229,14 +232,18 @@ Quick Capture presenter exists and its window is visible,
 `AppWindowPresenter.prepareForTermination` calls
 [`CaptureEditorSession.prepareForTermination`](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift).
 The session reads the current JavaScript snapshot and persists it with the same
-revision-aware rules used by autosave. Success permits termination; failure
-publishes “Could not save the latest draft before quitting” and vetoes the
-quit. The runtime then awaits the tail of its ordered pinned-page persistence
-chain before `AppDelegate` replies to AppKit. Ordinary editor autosave still
-requires an explicit bridge acknowledgement; termination is a final fresh
-snapshot, not an assumption that the debounce already fired. If Quick Capture
-was never created, is no longer visible after a successful close, or local
-capture persistence was unavailable, that window contributes no veto.
+revision-aware rules used by autosave. Capture preservation returns a Boolean:
+success permits termination, while failure publishes “Could not save the
+latest draft before quitting” and records a veto. `AppStartup` stores that
+Boolean, then **always** awaits `AppRuntime.prepareForTermination`, including
+the capture-failure path, so the ordered pinned-page persistence chain drains
+before any reply. Only after that wait does the handler return the stored
+Boolean and `AppDelegate` reply true or false to AppKit. Ordinary editor
+autosave still requires an explicit bridge acknowledgement; termination is a
+final fresh snapshot, not an assumption that the debounce already fired. If
+Quick Capture was never created, is no longer visible after a successful close,
+or local capture persistence was unavailable, that window contributes `true`
+rather than a veto, but runtime page persistence is still awaited.
 
 ## Flow 6 — settings propagation and observable state
 

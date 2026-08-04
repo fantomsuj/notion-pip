@@ -206,11 +206,11 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Elapsed target:** 43:00–48:00 (5 minutes; cumulative 48).
 
-**Visible content:** Tiptap editor → TypeScript protocol/client → WebKit script message → Swift protocol/session → capture repository. Mark `editor.js` as generated.
+**Visible content:** Tiptap editor → TypeScript protocol/client → WebKit script message → `WeakScriptMessageHandler` + `CaptureBridgeProtocol` validation/decode → `CaptureEditorSession` coordination → capture repository. Mark `editor.js` as generated.
 
-**Spoken narrative:** The editor runs local HTML, CSS, and JavaScript in a nonpersistent WebKit store. TypeScript owns rich-text interaction and canonical editor snapshots. `CaptureBridgeProtocol` defines the payload contract; `WeakScriptMessageHandler` avoids a WebKit ownership cycle; `CaptureEditorSession` validates requests and coordinates persistence. A bridge change is a cross-language contract change and must update both implementations and both test suites.
+**Spoken narrative:** The editor runs local HTML, CSS, and JavaScript in a nonpersistent WebKit store. TypeScript owns rich-text interaction and canonical editor snapshots. `WeakScriptMessageHandler` derives the WebKit main-frame, origin, and source-path context while avoiding an ownership cycle; `CaptureBridgeProtocol` validates that context and the exact envelope, then decodes a typed request. `CaptureEditorSession` canonicalizes its content and coordinates persistence. A bridge change is a cross-language contract change and must update both implementations and both test suites.
 
-**Source links:** [Lecture 9](09-quick-capture-editor-bridge.md), [editor controller](../../Web/QuickCaptureEditor/quick-capture-editor-controller.ts), [CaptureBridgeProtocol.swift](../../Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift), [CaptureEditorSession.swift](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift).
+**Source links:** [Lecture 9](09-quick-capture-editor-bridge.md), [editor controller](../../Web/QuickCaptureEditor/quick-capture-editor-controller.ts), [WeakScriptMessageHandler.swift](../../Sources/NotionPiP/Platform/WeakScriptMessageHandler.swift), [CaptureBridgeProtocol.swift](../../Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift), [CaptureEditorSession.swift](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift).
 
 **Diagram cue:** Use the editor half of Architecture Map Flow 4 and label every serialization boundary.
 
