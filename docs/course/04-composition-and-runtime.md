@@ -197,17 +197,27 @@ The committed initializer can be reconstructed in these phases:
 6. Bind the relay's reload action to the now-existing runtime.
 7. If capture, destination, and scheduler dependencies all exist, create
    `QuickCaptureLifecycleCoordinator`; otherwise leave capture lifecycle `nil`.
-8. Bind WebKit page-resolution/restoration callbacks, working-set snapshot
-   eviction, and page-switcher selection to weak runtime/session references or
-   actor calls.
-9. Create the prefill and release relays, then create
-   `LazyAppWindowPresenter`. Its factory closure captures everything needed to
-   make Quick Capture later; it does not invoke `AppWindowFactory` yet.
-10. Create the retained Settings presenter and status-item controller.
-11. Complete late bindings: presenters into the action relay, prefill behavior,
+8. Bind `webSession.onPageResolved` to activate resolved pages through the
+   weakly captured runtime.
+9. Create `QuickCaptureReleaseRelay`, followed by
+   `QuickCapturePrefillRelay`.
+10. Bind `webSession.onRestorationCaptured` to save through the optional page
+    repository.
+11. Bind `pageSwitcherController.onWorkingSetChanged` to evict obsolete WebKit
+    interaction snapshots through a weak session reference.
+12. Bind `pageSwitcherRelay.handler` to activate a selected page through the
+    weakly captured runtime.
+13. Construct `LazyAppWindowPresenter`. Its factory closure captures everything
+    needed to make Quick Capture later; it does not invoke `AppWindowFactory`
+    yet.
+14. Assign that lazy presenter to `quickCaptureReleaseRelay.presenter`,
+    completing the weak release back edge omitted by the factory closure.
+15. Create the retained Settings presenter, followed by the status-item
+    controller.
+16. Complete late bindings: presenters into the action relay, prefill behavior,
     the runtime's Quick Capture action, Settings into the runtime, and the panel
     size controller's “manage” command.
-12. Store strong references on `AppComposition` to the runtime, lazy capture
+17. Store strong references on `AppComposition` to the runtime, lazy capture
     presenter, release relay, Settings presenter, status item, and size
     controller. `main()` then keeps the composition alive across
     `NSApplication.run()`.
@@ -302,13 +312,23 @@ before their final handler is assigned:
 | `AppCommandActionRelay` | `AppCommandModel` is needed while constructing panel UI, before runtime and presenters exist | Runtime reload action plus weak Quick Capture and Settings presenters | Centralizes `NSApp.terminate(nil)` and optional prefill dispatch |
 | `PageSwitcherSelectionRelay` | Panel chrome needs a selection callback before runtime exists | Weak runtime activation closure | Keeps panel/view code from locating the runtime globally |
 | `PageURLInputSubmissionRelay` | `AppRuntime.init` creates the default input presenter before `self` is fully initialized | Weak `self.validatePageURL()` closure at the end of initialization | Private to the runtime implementation |
-| `QuickCapturePrefillRelay` | A capture shortcut may carry text while the editor session is created lazily | Weak session binding from `AppWindowFactory` | Buffers one pending prefill and retries if the session is not ready |
+| `QuickCapturePrefillRelay` | A capture shortcut may carry text before the editor session is created lazily | Weak session binding from `AppWindowFactory` | Stores one pending value when no session exists; `bind(_:)` immediately attempts that value once, and a failed `session.prefill` restores it to `pending` without scheduling another attempt |
 | `QuickCaptureReleaseRelay` | The inner presenter close callback needs to schedule release on its lazy wrapper | Weak lazy presenter assigned after wrapper construction | Avoids a strong wrapper → factory closure → wrapper cycle |
 
 The weak references are lifetime decisions, not decoration. `AppComposition`
 strongly owns the long-lived graph. Back edges generally do not keep their
 owners alive. A relay also does less than a service locator: it cannot answer
 “give me any service”; it forwards one named intent.
+
+There are two distinct prefill buffers. The native
+`QuickCapturePrefillRelay` re-attempts its stored value only when `bind(_:)` is
+called; it has no timer, scheduler, or session-readiness observer. Once
+`CaptureEditorSession.prefill` successfully calls the JavaScript bridge, the
+TypeScript
+[`QuickCaptureEditorController`](../../Web/QuickCaptureEditor/quick-capture-editor-controller.ts)
+stores that text in its own `pendingPrefill` while an editor transition is
+locked and applies it when the transition lock changes to unlocked. Do not
+attribute the editor's lock-driven delivery to the native relay.
 
 ### `AppRuntime` is a facade and coordinator
 
@@ -390,7 +410,10 @@ local editor WebKit resources. Composition therefore creates a
 2. calls `AppWindowFactory.makeQuickCapture`;
 3. creates a real editor session when capture persistence is available, or an
    explanatory unavailable view when it is not;
-4. binds the prefill relay to a newly created session; and
+4. binds the native prefill relay to a newly created session, which initiates
+   one attempt for any value buffered before the session existed; the
+   TypeScript editor separately holds an accepted prefill until its transition
+   lock opens; and
 5. presents and retains that concrete presenter.
 
 Subsequent `show()` calls reuse it. After a successful close, the release relay
@@ -443,7 +466,7 @@ surfaces the missing capability while preserving independent UI routes.
 | Persistence and delivery graph | Event-loop lifetime when created | Repository/model actors plus service actors or `Sendable` ports | Runtime, switcher, capture lifecycle | Actor calls throw; runtime/controllers publish scoped messages or health issues; the graph is absent if container creation fails |
 | `AppRuntime` | Event-loop lifetime through composition | `@MainActor` | Delegate, Settings, status item, commands, startup | Reports health, rejects stale async results, preserves presentation when a durable save fails, and exposes retry paths |
 | `NotionWebSession` and `PiPPanelCoordinator` | Event-loop lifetime through graph references | `@MainActor` | Pin coordinator, panel chrome, WebKit callbacks | Validation and presentation paths stay available independently of persistence; real WebKit/window failures need integration evidence |
-| Command and callback relays | Event-loop lifetime when retained or captured; back references are weak where appropriate | `@MainActor` | Command model, panel chrome, runtime, lazy presenter | Default no-op or optional destination prevents use-before-bind crashes; prefill relay temporarily buffers text |
+| Command and callback relays | Event-loop lifetime when retained or captured; back references are weak where appropriate | `@MainActor` | Command model, panel chrome, runtime, lazy presenter | Default no-op or optional destination prevents use-before-bind crashes; the native prefill relay stores one value until the next session bind but does not schedule readiness retries |
 | Connection and destination controllers | Owned for the runtime lifetime | `@MainActor`; await `Sendable` clients/repositories | Runtime facade and Settings views | Publish user-facing failures, cancel tasks, and use generations to reject stale results |
 | `PanelSizeController` | Event-loop lifetime through composition, panel, status item, and Settings | `@MainActor`; weak `PanelSizing` target | Panel chrome, status menu, Settings | Keeps validation messages; failed storage or invalid size does not replace valid preferences |
 | Settings presenter/window | Eagerly created and retained for composition lifetime | `@MainActor` | Command relay and runtime fallback/recovery paths | Repeated show forwards to the same presenter; window remains reachable even in degraded persistence |
