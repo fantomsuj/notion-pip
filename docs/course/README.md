@@ -113,6 +113,12 @@ history, and a sorted union of tracked and non-ignored untracked paths in local
 `.context/course-source-snapshot.txt` and `.context/course-source-files.txt`
 evidence files. Those evidence files are intentionally not committed.
 
+The final Task 13 Swift and web verification runs against the recorded dirty
+working tree, including the pre-existing product and test edits shown by
+`git status --short`; it is not evidence from a pristine checkout or from an
+isolated course-only commit. Lecture-specific baseline notes remain the
+authority when a current linked file differs from the source taught there.
+
 The checked-out source is the primary authority. Existing project documentation
 adds product and operational context; historical specifications and plans
 explain rationale only when the current implementation still reflects the

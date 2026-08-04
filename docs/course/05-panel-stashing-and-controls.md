@@ -7,11 +7,14 @@ kept beside the current task. This lecture follows that product idea through
 AppKit window roles, pure screen-geometry policies, the retained panel and edge
 handle, global shortcuts, the menu-bar fallback, and saved size presets.
 
-> **Source-state note:** This lecture documents committed `HEAD`
-> `29d5fa80e0ac70080d52e22388a6c4881d3d0484`. The working tree contained
-> uncommitted stash/handle entrance-animation work during course production.
-> That work is not presented as repository behavior here. Committed `HEAD`
-> does include the existing 0.18-second corner-snap frame animation in
+> **Source-state note:** This lecture uses
+> `29d5fa80e0ac70080d52e22388a6c4881d3d0484` as its starting product baseline.
+> During course production, the working tree also contained uncommitted
+> stash/handle animation work in `PiPPanelCoordinator.swift` and
+> `PiPStashHandleController.swift`, plus global-shortcut implementation and test
+> edits in `GlobalShortcutRegistrar.swift` and `GlobalShortcutTests.swift`.
+> Those edits are not presented as baseline behavior here. The baseline does
+> include the existing 0.18-second corner-snap frame animation in
 > `KeyCapablePiPPanel`; committed stashing itself presents the handle and orders
 > the panel out without an entrance/exit animation.
 

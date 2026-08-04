@@ -30,13 +30,11 @@ The syllabus allocations are the presenter clock:
 | 12 | 90 min |
 
 That is 885 minutes, or 14 hours 45 minutes, of instruction before breaks.
-There is one known source discrepancy: [Lecture 9](09-quick-capture-editor-bridge.md)
-labels itself and its embedded pacing as 75 minutes, while the
-[syllabus](README.md#course-navigation) allocates 90. All schedules here use
-**90 minutes**: deliver the lecture's 75-minute plan unchanged, then spend 10
-minutes comparing TypeScript, native protocol, and real-WebKit evidence and 5
-minutes on questions or recovery. Do not silently stretch its individual
-segments.
+[Lecture 9](09-quick-capture-editor-bridge.md), the
+[syllabus](README.md#course-navigation), and every schedule here allocate
+**90 minutes**. Its embedded pacing accounts for the full allocation, including
+the evidence comparison and exercise debrief; do not add an unbudgeted
+supplement.
 
 The words **optional cut** mean material to assign as reading when a session
 runs late. Never cut the takeaway, hard concept, privacy warning, debrief, or
@@ -140,9 +138,11 @@ before the next meeting.
 | 5 — Editor and delivery | 3 h 15 | Sessions 1–4; TypeScript/HTTP overview | [L9](09-quick-capture-editor-bridge.md) 90 min → break 15 min → [L10](10-notion-api-and-delivery.md) 90 min | Delay a bridge acknowledgement; then trace a 201-block delivery journal | Diagnose a lost New-note acknowledgement; prove reliability with fakes |
 | 6 — UI and maintenance | 3 h | Sessions 1–5; XCTest concepts | [L11](11-views-settings-and-state.md) 75 min → break 15 min → [L12](12-testing-debugging-and-change-workflow.md) 90 min | Find four hosting roots; then choose evidence for three failures | Design a persisted setting; run the domain/UI/cross-language investigations |
 
-Open each meeting with a five-minute retrieval question from the prior
-lecture, inside the first lecture's allocation. End with the paired lecture's
-debrief and assign its exercise rather than adding unbudgeted discussion.
+For Sessions 2–6, open with a five-minute retrieval question from the prior
+lecture, inside the first lecture's allocation. Session 1 has no prior lecture;
+open it with Lecture 1's product hook instead. End each session with the paired
+lecture's debrief and assign its exercise rather than adding unbudgeted
+discussion.
 
 ## Twelve standalone sessions
 
@@ -160,7 +160,7 @@ is not included in that duration.
 | [Lecture 6](06-webkit-notion-session.md) | 75 min | Lecture 5 | Warm hide, switch, renderer recovery | State-lifetime classification | 15 min after |
 | [Lecture 7](07-domain-modeling-and-policies.md) | 75 min | Lecture 4; value semantics | Canonical URL and policy test | Trusted handoff design | 15 min after |
 | [Lecture 8](08-persistence-and-restoration.md) | 75 min | Lecture 7; actor basics | Migration/reopen and atomic enqueue tests | Field placement and transaction audit | 15 min after |
-| [Lecture 9](09-quick-capture-editor-bridge.md) | 90 min normalized | Lecture 8; TypeScript basics | Delayed native reply and exact retry | Lost-ack diagnosis | 15 min after |
+| [Lecture 9](09-quick-capture-editor-bridge.md) | 90 min | Lecture 8; TypeScript basics | Delayed native reply and exact retry | Lost-ack diagnosis | 15 min after |
 | [Lecture 10](10-notion-api-and-delivery.md) | 90 min | Lectures 8–9; HTTP basics | Close → outbox → journaled delivery | Reliability proof with fakes | 15 min after |
 | [Lecture 11](11-views-settings-and-state.md) | 75 min | Lectures 4–10 | Hosting roots and settings trace | Add a persisted setting safely | 15 min after |
 | [Lecture 12](12-testing-debugging-and-change-workflow.md) | 90 min | All prior lectures | Focused test → bundle/manual ladder | Three bounded investigations | 15 min after |
@@ -203,7 +203,7 @@ warm-up.
 |---|---|---|
 | 08:30–09:45 | Lecture 8 (75 min) | Migration/transaction tests; field placement |
 | 09:45–10:00 | Break | Open TypeScript/native protocol tabs |
-| 10:00–11:30 | Lecture 9 (90 min normalized) | Bridge acknowledgement; lost-ack exercise; evidence comparison |
+| 10:00–11:30 | Lecture 9 (90 min) | Bridge acknowledgement; lost-ack exercise; evidence comparison |
 | 11:30–13:00 | Lecture 10 (90 min) | Journaled delivery; fake-transport reliability exercise |
 | 13:00–13:45 | Lunch | Clear any remote demo data privately |
 | 13:45–15:00 | Lecture 11 (75 min) | Hosting/state traces; new-setting exercise |
@@ -349,17 +349,17 @@ full pacing, answers, and code context.
 | Transition | “The local editor depends on these revisioned commits, but it speaks across a language boundary.” |
 | Optional cut | Skip settings-storage detail; retain schemas, repositories, transaction, and degraded startup. |
 
-### Lecture 9 — Quick Capture Editor Bridge (90 minutes normalized)
+### Lecture 9 — Quick Capture Editor Bridge (90 minutes)
 
 | Cue | Presenter plan |
 |---|---|
 | Hook | Ask, “At what exact event may the editor truthfully change ‘Saving…’ to ‘Saved’?” |
 | Takeaway | A versioned, exact, bounded bridge makes a native persistence acknowledgement—not JavaScript dispatch—the durability boundary. |
 | Hard concept | Correlation IDs, expected revisions, serialized autosaves, transition gates, stale conflicts, and exact retry must agree in two languages. |
-| Diagram cue | Use the edit → debounce → native save → acknowledgement sequence, then architecture [Flows 4 and 5](ARCHITECTURE_MAP.md#flow-4--capture-delivery-from-editor-to-notion). |
+| Diagram cue | Use the edit → debounce → native save → acknowledgement sequence, then architecture [Flow 4](ARCHITECTURE_MAP.md#flow-4--capture-delivery-from-editor-to-notion) for editor-to-delivery and [Flow 5](ARCHITECTURE_MAP.md#flow-5--terminationautosave-coordination) for quit-time preservation. |
 | Code-tour entry | Compare [`protocol.ts`](../../Web/QuickCaptureEditor/protocol.ts) with [`CaptureBridgeProtocol.swift`](../../Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift), then open [`CaptureEditorSession.swift`](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift). |
-| Demo steps | 1. Delay a native reply. 2. Queue two edits and predict revision 2. 3. Compare original and retry byte-for-byte. 4. Use the extra 10 minutes to compare Node, native protocol, and real-WebKit evidence. |
-| Audience question | “If native saved revision 1 but the reply was lost, what identity and payload may the retry change?” |
+| Demo steps | 1. Start from stored revision 1 and delay the first native reply. 2. Queue two edits: request 1 carries expected revision 1 and returns revision 2; only after that acknowledgement does request 2 carry expected revision 2 and return revision 3. 3. Compare an ambiguous request and its retry byte-for-byte. 4. Use the final 15 minutes to compare Node, native protocol, and real-WebKit evidence. |
+| Audience question | “If native committed revision 2 but that reply was lost, what identity and payload may the retry change?” |
 | Misconception to surface | A local file URL/CSP alone is not trust, and generated `editor.js` is not the authoring source. |
 | Debrief | Have learners label the authority before dispatch, after commit, after acknowledgement, and during stale conflict. |
 | Transition | “Local acknowledgement creates durable work; Lecture 10 decides how that work reaches Notion.” |

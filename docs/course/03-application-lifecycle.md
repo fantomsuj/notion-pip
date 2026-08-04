@@ -146,7 +146,7 @@ under `App` as one owner:
 | Source | Lifecycle responsibility | Evidence to pair with it |
 |---|---|---|
 | [`NotionPiPApp.swift`](../../Sources/NotionPiP/App/NotionPiPApp.swift) | `@main` entry, composition lifetime, startup binding, and concrete termination closure | [`RuntimeTerminationTests.swift`](../../Tests/NotionPiPTests/RuntimeTerminationTests.swift) |
-| [`AppDelegate.swift`](../../Sources/NotionPiP/App/AppDelegate.swift) | Accessory policy, launch completion, buffered URL delivery, and deferred termination reply | [`RuntimePinnedPagePersistenceTests.swift`](../../Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift) |
+| [`AppDelegate.swift`](../../Sources/NotionPiP/App/AppDelegate.swift) | Accessory policy, launch completion, buffered URL delivery, and deferred termination reply | [`PinCoordinatorTests.swift`](../../Tests/NotionPiPTests/PinCoordinatorTests.swift) for delegate buffering; [`RuntimePinnedPagePersistenceTests.swift`](../../Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift) for startup race policy |
 | [`AppRuntime.swift`](../../Sources/NotionPiP/App/AppRuntime.swift) | Idempotent `start()`, shortcut registration, asynchronous bootstrap, recovery, and observable UI-facing state | [`RuntimeActivationAndMenuBarTests.swift`](../../Tests/NotionPiPTests/RuntimeActivationAndMenuBarTests.swift) |
 | [`AppRuntime+Activation.swift`](../../Sources/NotionPiP/App/AppRuntime+Activation.swift) | External URL routing into the same validated page-activation path as other entry routes | [`ExternalURLRouteTests.swift`](../../Tests/NotionPiPTests/ExternalURLRouteTests.swift) |
 | [`AppRuntime+Persistence.swift`](../../Sources/NotionPiP/App/AppRuntime+Persistence.swift) | Restored-page task, ordered visit-save chain, generations, cancellation, and termination wait | [`RuntimePinnedPagePersistenceTests.swift`](../../Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift) |
@@ -291,13 +291,14 @@ outside the delegate and is constrained by
 [`ExternalURLRoute`](../../Sources/NotionPiP/Domain/ExternalURLRoute.swift).
 Buffering preserves delivery; it does not make an untrusted URL valid.
 
-The regression
+Two regressions prove different boundaries. `PinCoordinatorTests`
+[`testAppDelegateBuffersOpenURLsUntilBindingAndDrainsOnlyOnce`](../../Tests/NotionPiPTests/PinCoordinatorTests.swift)
+proves the delegate's opaque URL buffer and one-time drain directly. Separately,
 [`testBufferedOpenURLWinsOverDelayedRestoreDuringStartup`](../../Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift)
-delivers a route before `AppStartup.start`. When startup later binds the
-runtime, that route activates and persists. The generation/cancellation checks
-prevent a delayed stored-page result from replacing it. This proves the
-application-level race policy without claiming that the test exercised real
-Launch Services.
+passes an early route through `AppStartup`: the route activates and persists,
+while runtime generation/cancellation checks reject a delayed stored-page
+result. The second test proves application-level restore ordering; neither test
+claims to exercise real Launch Services.
 
 ### The cold-launch interval measures a specific milestone
 

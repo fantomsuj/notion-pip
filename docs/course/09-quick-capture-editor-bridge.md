@@ -1,8 +1,8 @@
 # Lecture 9 — Quick Capture Editor and Native Bridge
 
-> **Estimated duration:** 75 minutes (10 minutes foundation, 20 minutes
-> repository tour, 15 minutes runtime trace, 15 minutes deep dive, 5 minutes
-> knowledge check, and 10 minutes exercise)
+> **Estimated duration:** 90 minutes (10 minutes foundation, 20 minutes
+> repository tour, 15 minutes runtime trace, 20 minutes deep dive, 10 minutes
+> knowledge check, and 15 minutes exercise)
 
 Quick Capture is a hybrid editor: a Swift-owned window embeds a local WebKit
 document, Tiptap owns the live ProseMirror state, and a deliberately small
@@ -502,10 +502,11 @@ store.
   purpose.
 - **40–52 minutes:** walk one edit through the sequence diagram and pause at
   the exact moment durability becomes true.
-- **52–62 minutes:** trace lost stash acknowledgement and stale revision through
+- **52–67 minutes:** trace lost stash acknowledgement and stale revision through
   the two transition gates.
-- **62–67 minutes:** run the knowledge check.
-- **67–75 minutes:** complete the reconciliation exercise.
+- **67–75 minutes:** run the knowledge check.
+- **75–90 minutes:** complete and debrief the reconciliation exercise, then
+  compare Node, native protocol, and real-WebKit evidence.
 
 ### Live teaching cues
 

@@ -255,9 +255,10 @@ sequence.
    seven-pin/seven-recent union. It saves explicitly and rolls back on failure;
    restoration pruning may perform a save when it deletes invalid or stale
    rows, followed by the method's final save call.
-3. Pinning upserts a `PinnedPageModel`, refuses an eighth valid pin before
-   mutation, preserves recent metadata, and returns value snapshots sorted by
-   policy. Unpinning deletes the pin and allows the page back into recents.
+3. `setPinned` upserts or deletes a `PinnedPageModel`, refuses an eighth valid
+   pin before mutation, preserves recent metadata, and returns one
+   `StoredPageSnapshot` for the affected page. The sorted pinned/recent
+   collections come from the later `workingSet()` read, not from `setPinned`.
 4. `NotionWebSession.onRestorationCaptured` sends a validated
    `DurablePageRestoration` to `saveRestoration`. The repository upserts by
    canonical page ID and saves URL, absolute scroll, progress, and update time.

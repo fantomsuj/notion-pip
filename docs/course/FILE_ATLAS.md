@@ -2,10 +2,9 @@
 
 This atlas maps every repository-owned path visible in the sorted union of
 `git ls-files` and `git ls-files --others --exclude-standard`. The refreshed
-inventory contains **260 current paths** once this atlas itself is included.
-Every current path appears in exactly one table row. Two future course outputs
-are marked **planned** and are not counted in that inventory; Task 13 refreshes
-the atlas after they exist.
+inventory contains **262 current paths**, all tracked, including this atlas and
+the completed presenter and condensed-talk artifacts. There are no nonignored
+untracked paths. Every current path appears in exactly one table row.
 
 Roles and symbols describe committed baseline
 `e86d3daea299cc0073d42c217ddc2e4d2470ad94`. Pre-existing uncommitted product
@@ -124,7 +123,7 @@ is a checked-in generated runtime resource and therefore has its own row.
 |---|---|---|---|---|---|
 | [`Sources/NotionPiP/Platform/AppKitCommandMenuFactory.swift`](../../Sources/NotionPiP/Platform/AppKitCommandMenuFactory.swift) | Projects shared commands into AppKit menus | `AppKitCommandMenuFactory` | main/status menus | [L11](11-views-settings-and-state.md) | Tests: AppCommandTests |
 | [`Sources/NotionPiP/Platform/AppMainMenuFactory.swift`](../../Sources/NotionPiP/Platform/AppMainMenuFactory.swift) | Builds the process main menu | `AppMainMenuFactory` | NotionPiPApp | [L3](03-application-lifecycle.md) | Tests: AppMainMenuTests |
-| [`Sources/NotionPiP/Platform/AppWindowFactory.swift`](../../Sources/NotionPiP/Platform/AppWindowFactory.swift) | Constructs settings, capture, and switcher windows | `AppWindowFactory` | composition/runtime | [L11](11-views-settings-and-state.md) | Tests: AppWindowPresenterTests |
+| [`Sources/NotionPiP/Platform/AppWindowFactory.swift`](../../Sources/NotionPiP/Platform/AppWindowFactory.swift) | Constructs Settings and Quick Capture windows | `AppWindowFactory` | composition/runtime | [L11](11-views-settings-and-state.md) | Manual factory assembly; presenter behavior: AppWindowPresenterTests |
 | [`Sources/NotionPiP/Platform/AppWindowPresenter.swift`](../../Sources/NotionPiP/Platform/AppWindowPresenter.swift) | Retains lazy app windows and termination work | window protocols and presenters | runtime and AppDelegate | [L3](03-application-lifecycle.md) | Tests: AppWindowPresenterTests |
 | [`Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift`](../../Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift) | Validates and encodes native editor envelopes | bridge request/reply/context/error types | CaptureEditorSession and web editor | [L9](09-quick-capture-editor-bridge.md) | Tests: CaptureBridgeProtocolTests |
 | [`Sources/NotionPiP/Platform/CaptureEditorSession.swift`](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift) | Owns local editor WebView lifecycle and dispatch | `CaptureEditorSession`, resources, navigation policy | QuickCaptureView/window | [L9](09-quick-capture-editor-bridge.md) | Tests: CaptureEditorFlowTests |
@@ -180,7 +179,7 @@ is a checked-in generated runtime resource and therefore has its own row.
 
 | Path | Role | Types / artifacts | Consumer | Lecture | Evidence |
 |---|---|---|---|---|---|
-| [`Sources/NotionPiP/Resources/QuickCapture/composer.css`](../../Sources/NotionPiP/Resources/QuickCapture/composer.css) | Styles the local editor | CSS resource | index.html/editor UI | [L9](09-quick-capture-editor-bridge.md) | Manual |
+| [`Sources/NotionPiP/Resources/QuickCapture/composer.css`](../../Sources/NotionPiP/Resources/QuickCapture/composer.css) | Styles the local editor | CSS resource | index.html/editor UI | [L9](09-quick-capture-editor-bridge.md) | Tests: QuickCaptureDangerContrastTests; manual rendering |
 | [`Sources/NotionPiP/Resources/QuickCapture/editor.js`](../../Sources/NotionPiP/Resources/QuickCapture/editor.js) | Runs the bundled local editor | checked-in generated JavaScript | CaptureEditorSession WKWebView | [L9](09-quick-capture-editor-bridge.md) | Generated |
 | [`Sources/NotionPiP/Resources/QuickCapture/index.html`](../../Sources/NotionPiP/Resources/QuickCapture/index.html) | Defines local editor markup and CSP | HTML resource | CaptureEditorSession WKWebView | [L9](09-quick-capture-editor-bridge.md) | Tests: CaptureEditorResourceTests |
 
@@ -364,5 +363,5 @@ is a checked-in generated runtime resource and therefore has its own row.
 | [`docs/course/GLOSSARY.md`](GLOSSARY.md) | Defines repository vocabulary | course glossary | all course readers | [Course](README.md) | Reference |
 | [`docs/course/README.md`](README.md) | Indexes outcomes, paths, and lectures | course syllabus | learners and presenters | [Course](README.md) | Reference |
 | [`docs/course/FILE_ATLAS.md`](FILE_ATLAS.md) | Catalogs every Git-visible repository file | exhaustive file atlas | maintainers and course readers | [Course](README.md) | Reference |
-| `docs/course/PRESENTER_GUIDE.md` | Planned delivery guidance and timing | planned course guide | presenters | [Course](README.md) | Reference |
-| `docs/course/CONDENSED_TALK.md` | Planned 90-minute condensed talk | planned course talk | presenters and fast-track learners | [Course](README.md) | Reference |
+| [`docs/course/PRESENTER_GUIDE.md`](PRESENTER_GUIDE.md) | Guides full-course schedules, demos, timing, and recovery | completed course guide | presenters | [Course](README.md) | Reference |
+| [`docs/course/CONDENSED_TALK.md`](CONDENSED_TALK.md) | Provides the self-contained 60-, 75-, or 90-minute architecture talk | completed course talk | presenters and fast-track learners | [Course](README.md) | Reference |
