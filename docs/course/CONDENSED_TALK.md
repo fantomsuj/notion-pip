@@ -48,7 +48,7 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Diagram cue:** Keep a small “user action → owning subsystem” strip below the live app: restore → Platform, switch → App/Platform, type → Web/Platform/Persistence.
 
-**Demo:** **Product demo.** Preflight the account and content. Fallback: show the prepared stills and point to [PiPChromeViewTests](../../Tests/NotionPiPTests/PiPChromeViewTests.swift) plus [PiPStashHandleInteractionTests](../../Tests/NotionPiPTests/PiPStashHandleInteractionTests.swift).
+**Demo:** **Product demo.** Preflight the account and content. Fallback: show the prepared stills and use [PiPChromeViewTests](../../Tests/NotionPiPTests/PiPChromeViewTests.swift) plus [PiPStashHandleInteractionTests](../../Tests/NotionPiPTests/PiPStashHandleInteractionTests.swift) for chrome/stashing, [NotionWebSessionTests](../../Tests/NotionPiPTests/NotionWebSessionTests.swift) for page replacement and restoration, and [CaptureWebViewAutosaveTests](../../Tests/NotionPiPTests/CaptureWebViewAutosaveTests.swift) for acknowledged local persistence.
 
 **60-minute cut:** Trim 1 minute by demonstrating only one page switch and one stash/restore cycle.
 
@@ -226,7 +226,7 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Visible content:** Side-by-side excerpts from the 300 ms debounced publisher, `BridgeClient`, `WeakScriptMessageHandler`, `CaptureEditorSession`, and `CaptureRepository`.
 
-**Spoken narrative:** Trace one keystroke: the editor produces a canonical snapshot; a 300 ms debounce coalesces changes; `BridgeClient` sends the expected revision; WebKit forwards the message through the weak handler; Swift decodes and validates it; the session saves through the repository; and the acknowledgement advances the editor only when the revision matches. A lost or mismatched acknowledgement must not silently declare the draft saved. Emphasize the boundary: this acknowledgement proves local persistence, not remote Notion delivery.
+**Spoken narrative:** Trace one keystroke: the editor produces a canonical snapshot; a 300 ms debounce coalesces changes; `BridgeClient` sends a request carrying the expected revision; WebKit forwards the message through the weak handler; Swift decodes it; and `CaptureRepository` enforces the expected revision before saving. Back in the browser, `BridgeClient` validates the reply shape and correlation ID, and a successful reply advances the editor to the maximum of its current revision and the returned authoritative revision. A lost, malformed, uncorrelated, or failed acknowledgement must not silently declare the draft saved. Emphasize the boundary: this acknowledgement proves local persistence, not remote Notion delivery.
 
 **Source links:** [debounced-change-publisher.ts](../../Web/QuickCaptureEditor/bridge/debounced-change-publisher.ts), [bridge-client.ts](../../Web/QuickCaptureEditor/bridge/bridge-client.ts), [WeakScriptMessageHandler.swift](../../Sources/NotionPiP/Platform/WeakScriptMessageHandler.swift), [CaptureEditorSession.swift](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift), [autosave tests](../../Web/QuickCaptureEditor/autosave.test.ts).
 
@@ -234,7 +234,7 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Demo:** **Code-flow demo.** Navigate these prepared symbols rather than editing code. Fallback: use the numbered Architecture Map Flow 4 and the autosave test cases.
 
-**Audience checkpoint 4:** What does a successful autosave acknowledgement prove? **Answer:** The matching revision was durably accepted by local persistence; it does not prove delivery to Notion.
+**Audience checkpoint 4:** What does a successful autosave acknowledgement prove? **Answer:** Native persistence accepted the save under its expected-revision rules and returned an authoritative revision; it does not prove delivery to Notion.
 
 **60-minute cut:** Keep in full.
 
@@ -316,9 +316,9 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Elapsed target:** 69:00–71:00 (2 minutes; cumulative 71).
 
-**Visible content:** One end-to-end trace: “user closes capture” crossing View → App → Platform → Persistence → Services → remote API, with durable state highlighted before network work.
+**Visible content:** One end-to-end close trace: Platform `AppWindowFactory` / `CaptureEditorSession` → Services `QuickCaptureLifecycleCoordinator` → Persistence `CaptureRepository` → Services `DeliveryScheduler` / `DeliveryEngine` → remote API, with durable state highlighted before network work.
 
-**Spoken narrative:** Ask the same three questions at each arrow: who owns the decision, what value crosses the boundary, and what evidence proves it? The architecture becomes manageable when behavior is followed as a flow rather than inferred from folder names. For capture close, durability precedes delivery, and a later observable state update returns to the view.
+**Spoken narrative:** Ask the same three questions at each arrow: who owns the decision, what value crosses the boundary, and what evidence proves it? The architecture becomes manageable when behavior is followed as a flow rather than inferred from folder names. The Platform close handler asks `CaptureEditorSession` for a fresh snapshot, the lifecycle service ensures the draft is saved and enqueued through `CaptureRepository`, and only then does the scheduler trigger the delivery engine and remote API path.
 
 **Source links:** [editor-to-delivery flow](ARCHITECTURE_MAP.md), [file atlas](FILE_ATLAS.md), [advanced bridge change scenario](CHANGE_GUIDE.md).
 
