@@ -16,6 +16,7 @@ extension PageRepository: PageWorkingSetPersisting {}
 
 actor InMemoryPageWorkingSetStore: PageWorkingSetPersisting {
     private var snapshot: PageWorkingSetSnapshot
+    private let policy: PageWorkingSetPolicy
 
     init(
         snapshot: PageWorkingSetSnapshot = PageWorkingSetSnapshot(
@@ -23,9 +24,11 @@ actor InMemoryPageWorkingSetStore: PageWorkingSetPersisting {
             pinnedPages: [],
             recentPages: [],
             restorations: []
-        )
+        ),
+        policy: PageWorkingSetPolicy = .standard
     ) {
         self.snapshot = snapshot
+        self.policy = policy
     }
 
     func workingSet() -> PageWorkingSetSnapshot {
@@ -39,16 +42,7 @@ actor InMemoryPageWorkingSetStore: PageWorkingSetPersisting {
             displayTitle: page.displayTitle,
             timestamp: Date()
         )
-        let pinnedIDs = Set(snapshot.pinnedPages.map(\.pageID))
-        let recents = ([value] + snapshot.recentPages)
-            .deduplicatedPages()
-            .filter { !pinnedIDs.contains($0.pageID) }
-        snapshot = PageWorkingSetSnapshot(
-            activePage: value,
-            pinnedPages: snapshot.pinnedPages,
-            recentPages: Array(recents.prefix(7)),
-            restorations: snapshot.restorations
-        )
+        apply(policy.recordVisit(value, in: snapshot))
         return value
     }
 
@@ -62,29 +56,7 @@ actor InMemoryPageWorkingSetStore: PageWorkingSetPersisting {
             displayTitle: page.displayTitle,
             timestamp: Date()
         )
-        var pins = snapshot.pinnedPages.filter {
-            $0.pageID.caseInsensitiveCompare(page.pageID) != .orderedSame
-        }
-        var recents = snapshot.recentPages.filter {
-            $0.pageID.caseInsensitiveCompare(page.pageID) != .orderedSame
-        }
-        if isPinned {
-            guard snapshot.pinnedPages.contains(where: {
-                $0.pageID.caseInsensitiveCompare(page.pageID) == .orderedSame
-            }) || pins.count < 7 else {
-                throw PageRepositoryError.pinLimitReached(maximum: 7)
-            }
-            pins.insert(value, at: 0)
-        } else {
-            recents.insert(value, at: 0)
-            recents = Array(recents.deduplicatedPages().prefix(7))
-        }
-        snapshot = PageWorkingSetSnapshot(
-            activePage: snapshot.activePage,
-            pinnedPages: pins,
-            recentPages: recents,
-            restorations: snapshot.restorations
-        )
+        apply(try policy.setPinned(isPinned, page: value, in: snapshot))
         return value
     }
 
@@ -107,15 +79,15 @@ actor InMemoryPageWorkingSetStore: PageWorkingSetPersisting {
         )
         return restoration
     }
-}
 
-private extension Array where Element == StoredPageSnapshot {
-    func deduplicatedPages() -> [StoredPageSnapshot] {
-        reduce(into: []) { result, value in
-            guard !result.contains(where: {
-                $0.pageID.caseInsensitiveCompare(value.pageID) == .orderedSame
-            }) else { return }
-            result.append(value)
-        }
+    private func apply(_ mutation: PageWorkingSetMutation) {
+        snapshot = PageWorkingSetSnapshot(
+            activePage: mutation.activePage,
+            pinnedPages: mutation.pinnedPages,
+            recentPages: mutation.recentPages,
+            restorations: snapshot.restorations.filter {
+                mutation.retainedRestorationIDs.contains(policy.canonicalID($0.pageID))
+            }
+        )
     }
 }
