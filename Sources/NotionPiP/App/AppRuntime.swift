@@ -12,9 +12,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var captureRecoveryMessage: String?
     @Published private(set) var serviceHealth: ServiceHealthState
     @Published private(set) var globalShortcut: GlobalShortcut
-    @Published var quickCaptureShortcut: GlobalShortcut
-    @Published var quickCapturePrefillsClipboard: Bool
-    @Published var quickCaptureInsertsAtNotionCursor: Bool
+    @Published private(set) var quickCaptureShortcut: GlobalShortcut
+    @Published private(set) var quickCapturePrefillsClipboard: Bool
+    @Published private(set) var quickCaptureInsertsAtNotionCursor: Bool
     @Published private(set) var savedMenuBarIconVisibility: Bool
     @Published private(set) var effectiveMenuBarIconVisibility: Bool
     @Published private(set) var isMenuBarIconVisibilityForced: Bool
@@ -253,6 +253,18 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
     func publishGlobalShortcut(_ shortcut: GlobalShortcut) {
         globalShortcut = shortcut
+    }
+
+    func publishQuickCaptureShortcut(_ shortcut: GlobalShortcut) {
+        quickCaptureShortcut = shortcut
+    }
+
+    func publishQuickCapturePrefillsClipboard(_ enabled: Bool) {
+        quickCapturePrefillsClipboard = enabled
+    }
+
+    func publishQuickCaptureInsertsAtNotionCursor(_ enabled: Bool) {
+        quickCaptureInsertsAtNotionCursor = enabled
     }
 
     func publishMenuBarIconVisibility(_ isVisible: Bool) {
