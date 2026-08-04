@@ -55,7 +55,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let quickCaptureShortcutRegistrar: any GlobalShortcutRegistering
     let quickCaptureShortcutStore: QuickCaptureShortcutStore
     let trustedCapturePreferenceStore: TrustedCapturePreferenceStore
-    private let pasteboard: any PasteboardReading
+    let pasteboard: any PasteboardReading
     var quickCaptureAction: (_ prefill: String?, _ insertAtCursor: Bool) -> Void = { _, _ in }
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
     let pageURLInputPresenter: any PageURLInputPresenting
@@ -253,6 +253,18 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
     func publishGlobalShortcut(_ shortcut: GlobalShortcut) {
         globalShortcut = shortcut
+    }
+
+    func publishQuickCaptureShortcut(_ shortcut: GlobalShortcut) {
+        quickCaptureShortcut = shortcut
+    }
+
+    func publishQuickCapturePrefillsClipboard(_ enabled: Bool) {
+        quickCapturePrefillsClipboard = enabled
+    }
+
+    func publishQuickCaptureInsertsAtNotionCursor(_ enabled: Bool) {
+        quickCaptureInsertsAtNotionCursor = enabled
     }
 
     func publishMenuBarIconVisibility(_ isVisible: Bool) {

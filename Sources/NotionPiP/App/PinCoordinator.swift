@@ -57,6 +57,10 @@ final class PinCoordinator {
         panelCoordinator.stashOrRestoreCurrentPage()
     }
 
+    func performGlobalShortcutAction() -> Bool {
+        panelCoordinator.performGlobalShortcutAction()
+    }
+
     func page(from urlString: String) -> Result<NotionPageReference, PinInputError> {
         let trimmedURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmedURL), !trimmedURL.isEmpty else {
