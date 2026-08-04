@@ -240,12 +240,19 @@ first, breaks equal timestamps by canonical ID ascending, then keeps the first
 case-insensitive ID occurrence. Pins are truncated to `pinLimit`; recents omit
 all pinned IDs and truncate to `recentLimit`.
 
-`recordVisit` makes the visited page active, preserves normalized pins, inserts
-the visit into recent candidates, and excludes it from recents if already
-pinned. `setPinned` first removes the page from both lists. Pinning appends it
-unless a new pin would exceed the limit; unpinning adds it to recents. Every
-mutation returns the lowercased union of retained pin/recent IDs so persistence
-can prune restoration outside the working set.
+The policy's `recordVisit` makes the visited page active, preserves normalized
+pins, inserts the visit into recent candidates, and excludes it from recents if
+already pinned. `setPinned` first removes the page from both lists. Pinning
+appends it unless a new pin would exceed the limit; unpinning adds it to
+recents. These full mutation methods return the lowercased union of retained
+pin/recent IDs, and `InMemoryPageWorkingSetStore` applies those
+`PageWorkingSetMutation` values to its snapshot.
+
+The durable `PageRepository` takes a narrower path. Its `recordVisit` directly
+upserts `ActivePageModel` and `RecentPageModel`, then uses helpers such as
+`canonicalID`, `pinnedPages`, `recentPages`, and `retainedRestorationIDs` while
+normalizing rows and pruning restorations. It does **not** call
+`PageWorkingSetPolicy.recordVisit` or apply a `PageWorkingSetMutation`.
 
 `DurablePageRestoration` adds another validated value boundary. Its last URL
 must parse as the same page ID, x/y/progress must be finite, and progress must
@@ -385,11 +392,16 @@ flowchart TD
     D --> E["PinCoordinator.externalPages / AppRuntime.activate"]
     E --> F["PiPPanelCoordinator show or replace"]
     E --> G["PageRepository.recordVisit"]
-    G --> H["PageWorkingSetPolicy.recordVisit"]
-    H --> I["PageWorkingSetMutation: active + ≤7 pins + ≤7 recents + retained IDs"]
-    I --> J["Repository transaction and restoration pruning"]
-    J --> K["PageWorkingSetSnapshot"]
-    K --> L["PageSwitcherMatcher.sections"]
+    G --> H["Direct ActivePageModel + RecentPageModel upserts"]
+    H --> I["Narrow policy helpers normalize rows and retained IDs"]
+    I --> J["Recent/restoration pruning + explicit save-or-rollback"]
+    J --> K["Later PageRepository.workingSet read"]
+    K --> L["PageWorkingSetSnapshot"]
+    L --> M["PageSwitcherMatcher.sections"]
+
+    N["InMemoryPageWorkingSetStore.recordVisit"] --> O["PageWorkingSetPolicy.recordVisit"]
+    O --> P["PageWorkingSetMutation"]
+    P --> Q["Apply complete mutation to in-memory snapshot"]
 ```
 
 Step by step:
@@ -404,16 +416,22 @@ Step by step:
    normalizes the host, retains the encoded path, and drops query/fragment.
 4. Only `.success(.pin(page, .chromeExtension))` becomes a candidate for
    runtime activation. Parser success itself performs no UI or persistence.
-5. Runtime/pin coordination presents the page. In parallel, persistence asks
-   `PageWorkingSetPolicy.recordVisit` for a complete mutation.
-6. Policy canonicalizes IDs, orders/deduplicates pages, applies the seven/seven
-   limits, excludes pins from recents, and returns IDs whose restoration may
-   remain.
-7. The repository applies that value to durable models. This transaction is a
-   persistence responsibility, not Domain work.
-8. Later, a `PageWorkingSetSnapshot` crosses back to the switcher. Empty query
-   preserves its Pinned/Recent order; a nonempty query creates deterministic
-   scored Results.
+5. Runtime/pin coordination presents the page. In parallel, durable persistence
+   calls `PageRepository.recordVisit`.
+6. That repository canonicalizes the ID and directly upserts the singleton
+   active row and matching recent row. It does not call
+   `PageWorkingSetPolicy.recordVisit` and does not consume a
+   `PageWorkingSetMutation`.
+7. The repository uses the narrower `pinnedPages`, `recentPages`, and
+   `retainedRestorationIDs` helpers while limiting recents and pruning
+   restoration rows, then explicitly saves or rolls back its model context.
+8. The full-mutation path belongs to the separate in-memory adapter:
+   `InMemoryPageWorkingSetStore.recordVisit` calls the policy's `recordVisit`
+   and applies the returned `PageWorkingSetMutation` to its process-local
+   snapshot.
+9. Later, `PageRepository.workingSet` returns a `PageWorkingSetSnapshot` to the
+   switcher. Empty query preserves its Pinned/Recent order; a nonempty query
+   creates deterministic scored Results.
 
 ### Failure branches worth retaining
 
@@ -447,7 +465,7 @@ integration concerns.
 
 When changing behavior, first decide whether the request is a transformation of
 values or an effect. A new sort tie-breaker belongs in policy. Fetching current
-rows, saving a mutation, opening a URL, or sending HTTP does not.
+rows, persisting normalized rows, opening a URL, or sending HTTP does not.
 
 ### Security boundaries and non-guarantees
 
@@ -529,6 +547,7 @@ duplicating repository transition logic inside passive transport values.
 | “The external source string authenticates the extension.” | It is one allowed metadata value in an untrusted custom-scheme URL, not a signature. | `ExternalURLRoute.parse` |
 | “Query and fragment are part of page identity.” | They are deliberately omitted from the canonical page URL; the encoded path and 32-hex ID are retained. | canonical URL construction |
 | “Pins and recents are two independent lists.” | Policy removes pinned IDs from recents, bounds both, and returns their union for restoration retention. | `PageWorkingSetPolicy` |
+| “Both page-store implementations apply `PageWorkingSetMutation`.” | Only `InMemoryPageWorkingSetStore` applies the full mutation. Durable `PageRepository.recordVisit` directly upserts models and calls narrower policy helpers. | `PageRepository.recordVisit` and `InMemoryPageWorkingSetStore.recordVisit` |
 | “HistoryAssembler drives the current page switcher.” | It is a tested public history policy with no current production source consumer; `PageSwitcherMatcher` drives switcher matching. | source consumer search |
 | “Fuzzy results depend on Set iteration.” | Scoring and all tie-breakers are explicit and deterministic. | `PageSwitcherMatcher.score` and sort |
 | “Changing a size value resizes a window.” | Domain produces validated preferences. A main-actor controller and AppKit coordinator apply it. | `PanelSizeController` from Lecture 5 |
@@ -745,7 +764,8 @@ design—not a reason to trust a string already present in the URL.
   one action, one source, field cardinality, and nested page validation.
 - Page-working-set policy bounds pins and unpinned recents at seven each,
   canonicalizes identity, and returns restoration-retention IDs as a complete
-  mutation.
+  mutation. The in-memory store applies that full mutation; the durable
+  repository directly upserts models and reuses narrower policy helpers.
 - History assembly and page-switcher matching are different policies; only the
   matcher drives the current switcher path.
 - Panel-size values validate user preferences independently of AppKit's
