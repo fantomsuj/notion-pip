@@ -78,6 +78,8 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     private(set) var replacedPages: [NotionPageReference] = []
     private(set) var isVisible = false
     private(set) var isStashed = false
+    private(set) var isExpanded = false
+    private(set) var globalShortcutActionCount = 0
 
     var presentationState: PiPPresentationState {
         guard currentPage != nil else { return .unavailable }
@@ -122,6 +124,20 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         isStashed = currentPage != nil
     }
 
+    func simulateExpandedState() {
+        isExpanded = currentPage != nil && isVisible
+    }
+
+    func performGlobalShortcutAction() -> Bool {
+        globalShortcutActionCount += 1
+        guard currentPage != nil else { return false }
+        if isVisible, isExpanded {
+            isExpanded = false
+            return true
+        }
+        return stashOrRestoreCurrentPage()
+    }
+
     func stashOrRestoreCurrentPage() -> Bool {
         guard currentPage != nil else { return false }
         if isVisible {
@@ -137,6 +153,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         currentPage = nil
         isVisible = false
         isStashed = false
+        isExpanded = false
     }
 }
 

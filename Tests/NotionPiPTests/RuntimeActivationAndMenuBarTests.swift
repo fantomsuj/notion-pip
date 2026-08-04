@@ -85,6 +85,25 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertEqual(presenter.presentAndFocusCount, 0)
     }
 
+    func testShortcutRestoresExpandedPiPToFloatingStateWithoutStashing() throws {
+        let panel = RuntimePanelCoordinator()
+        let shortcut = RuntimeShortcutRegistrar()
+        let runtime = makeRuntime(panel: panel, shortcutRegistrar: shortcut)
+        runtime.activate(
+            page: try makePage(id: firstPageID, title: "Roadmap"),
+            source: .typedURL
+        )
+        panel.simulateExpandedState()
+        runtime.start()
+
+        shortcut.handler?()
+
+        XCTAssertEqual(panel.globalShortcutActionCount, 1)
+        XCTAssertFalse(panel.isExpanded)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertFalse(panel.isStashed)
+    }
+
     func testShortcutRestoresStashedPinnedPanelWithoutRepinning() throws {
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
