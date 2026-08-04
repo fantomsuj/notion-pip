@@ -121,9 +121,9 @@ flowchart TD
     B --> C["PiPPanelCoordinator.stashOrRestoreCurrentPage"]
     C -->|visible| D["PanelStashPolicy.placement"]
     D --> E["PiPStashHandleController.present"]
-    D --> F["KeyCapablePiPPanel.dismissForStash"]
-    F --> G["NotionWebSession.panelDidHide"]
+    E --> G["NotionWebSession.panelDidHide"]
     G --> H["NotionWebLifecycleController.suspend"]
+    G --> F["KeyCapablePiPPanel.orderOut"]
     C -->|stashed| I["PiPPanelCoordinator.showCurrentPage"]
     E -->|handle restore| J["PiPPanelCoordinator.restoreFromStash"]
     I --> K["KeyCapablePiPPanel.present"]
@@ -137,8 +137,8 @@ shortcut all converge on
 through the runtime or `PinCoordinator`. When visible,
 [`PanelStashPolicy`](../../Sources/NotionPiP/Platform/PanelStashPolicy.swift)
 chooses the nearest screen edge, the coordinator saves the logical panel frame,
-presents `PiPStashHandleController`, dismisses the panel toward that edge, and
-notifies `NotionWebSession` that the panel hid. The lifecycle controller
+presents `PiPStashHandleController`, notifies `NotionWebSession` that the panel
+hid, and calls `orderOut` on `KeyCapablePiPPanel`. The lifecycle controller
 suspends the browser and schedules warm eviction; WebKit interaction and
 durable scroll snapshots are captured at their owning boundaries. When
 stashed, the toggle presents the saved page again; clicking the handle directly
