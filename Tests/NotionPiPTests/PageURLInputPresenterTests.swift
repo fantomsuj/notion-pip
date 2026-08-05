@@ -62,6 +62,25 @@ final class PageURLInputPresenterTests: XCTestCase {
         XCTAssertFalse(window.isVisible)
     }
 
+    func testProductionPresenterDefersWindowConstructionUntilPresentation() {
+        let window = InspectablePageURLInputWindow(events: { _ in })
+        var factoryCount = 0
+        let presenter = PageURLInputPresenter(
+            makeWindow: {
+                factoryCount += 1
+                return window
+            },
+            requestFieldFocus: {}
+        )
+
+        presenter.hide()
+        XCTAssertEqual(factoryCount, 0)
+
+        presenter.presentAndFocus()
+        presenter.presentAndFocus()
+        XCTAssertEqual(factoryCount, 1)
+    }
+
     func testValidEntrySubmissionUsesPinCoordinatorAndHidesEntrySurface() throws {
         let panel = FakePanelCoordinator()
         let inputPresenter = FakePageURLInputPresenter()

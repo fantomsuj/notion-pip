@@ -24,16 +24,16 @@ final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandlerWithReply 
                 throw CaptureBridgeProtocolError.malformedMessage
             }
             let data = try JSONSerialization.data(withJSONObject: message.body)
-            let request = try CaptureBridgeProtocol.decode(
-                data,
-                context: BridgeMessageContext(
-                    isMainFrame: message.frameInfo.isMainFrame,
-                    originScheme: message.frameInfo.securityOrigin.protocol,
-                    originHost: message.frameInfo.securityOrigin.host,
-                    sourceURL: message.frameInfo.request.url,
-                    allowedDocumentURL: allowedDocumentURL
-                )
+            let context = BridgeMessageContext(
+                isMainFrame: message.frameInfo.isMainFrame,
+                originScheme: message.frameInfo.securityOrigin.protocol,
+                originHost: message.frameInfo.securityOrigin.host,
+                sourceURL: message.frameInfo.request.url,
+                allowedDocumentURL: allowedDocumentURL
             )
+            let request = try await Task.detached(priority: .userInitiated) {
+                try CaptureBridgeProtocol.decode(data, context: context)
+            }.value
             guard let delegate else {
                 return (nil, "Capture bridge is unavailable")
             }

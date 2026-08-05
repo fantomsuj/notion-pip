@@ -51,7 +51,7 @@ protocol CaptureDeliveryPersisting: Sendable {
 
 /// Queue metadata used to schedule delivery and retention work.
 protocol CaptureDeliveryScheduling: Sendable {
-    func records() async throws -> [CaptureRecordSnapshot]
+    func nextRetryDate() async throws -> Date?
     func resumeUnauthorizedRetries(at now: Date) async throws -> Int
     func applyRetention(
         at now: Date,

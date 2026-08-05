@@ -129,10 +129,7 @@ actor DeliveryScheduler {
     }
 
     private func nextRetryDelay() async throws -> TimeInterval? {
-        let nextAttempt = try await repository.records()
-            .filter { $0.state == .retrying }
-            .compactMap(\.nextAttemptAt)
-            .min()
+        let nextAttempt = try await repository.nextRetryDate()
         return nextAttempt.map { max(0, $0.timeIntervalSince(clock.now())) }
     }
 

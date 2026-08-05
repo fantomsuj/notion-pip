@@ -110,3 +110,22 @@ test("slash menu routes keyboard selection and clears its owned DOM state", () =
   assert.equal(menu.hasAttribute("aria-activedescendant"), false);
   assert.equal(editor.view.dom.getAttribute("aria-expanded"), "false");
 });
+
+test("closing an already closed slash menu performs no DOM replacement", () => {
+  const window = installTestDOM();
+  const menu = window.document.createElement("div");
+  menu.hidden = true;
+  const { editor } = makeEditor(window.document as unknown as Document);
+  const controller = new SlashMenuController(menu as unknown as HTMLElement, null);
+  const replaceChildren = menu.replaceChildren.bind(menu);
+  let replacementCount = 0;
+  menu.replaceChildren = (...nodes: Parameters<typeof menu.replaceChildren>) => {
+    replacementCount += 1;
+    replaceChildren(...nodes);
+  };
+
+  controller.close(editor);
+  controller.close(editor);
+
+  assert.equal(replacementCount, 0);
+});
