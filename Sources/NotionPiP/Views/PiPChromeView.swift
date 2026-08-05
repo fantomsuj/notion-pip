@@ -47,8 +47,8 @@ struct PiPChromeView: View {
             || isFullKeyboardAccessEnabled
     }
 
-    static func topControlsReservedHeight(isVisible: Bool) -> CGFloat {
-        isVisible ? topControlsHeight : 0
+    static func topControlsReservedHeight(isVisible _: Bool) -> CGFloat {
+        0
     }
 
     static func shouldHostNotionWebView(for session: NotionWebSession) -> Bool {
@@ -93,90 +93,6 @@ struct PiPChromeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Spacer()
-
-                Group {
-                    if webSession.state == .loading {
-                        ProgressView()
-                            .controlSize(.small)
-                            .accessibilityLabel("Loading Notion page")
-                    }
-
-                    Button {
-                        commandModel.perform(Self.primaryActionID)
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!(commandModel.command(for: Self.primaryActionID)?.isEnabled ?? false))
-                    .accessibilityLabel(Self.primaryActionAccessibilityLabel)
-                    .help(Self.primaryActionHelp)
-
-                    Button {
-                        presentsPageSwitcher.toggle()
-                    } label: {
-                        Image(systemName: "rectangle.stack")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Self.pageSwitcherAccessibilityLabel)
-                    .help("Resume a pinned or recent Notion page")
-                    .popover(isPresented: $presentsPageSwitcher, arrowEdge: .top) {
-                        PageSwitcherView(
-                            controller: pageSwitcherController,
-                            onDismiss: { presentsPageSwitcher = false },
-                            onSelect: { selection in
-                                presentsPageSwitcher = false
-                                onPageSwitcherSelection(selection)
-                            }
-                        )
-                    }
-
-                    Button(action: repinCurrentPage) {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Self.reloadAccessibilityLabel)
-                    .help(Self.reloadHelp)
-
-                    Button(action: openInNotionAndStash) {
-                        NotionToolbarMark()
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open Notion page in browser")
-
-                    PiPAppCommandMenu(
-                        commandModel: commandModel,
-                        panelSizeController: panelSizeController
-                    )
-
-                    Button(action: onStash) {
-                        Image(systemName: "arrow.down.right.and.arrow.up.left")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Self.stashAccessibilityLabel)
-                    .help(Self.stashHelp)
-                }
-                .opacity(showsTopControls ? 1 : 0)
-                .allowsHitTesting(showsTopControls)
-                .accessibilityHidden(!showsTopControls)
-            }
-            .contentShape(
-                Rectangle().inset(by: -Self.topControlsHoverOutset)
-            )
-            .onHover { isHovering in
-                topControlsHover.setHovering(isHovering)
-            }
-            .padding(.horizontal, DesignTokens.Spacing.control)
-            .frame(
-                height: Self.topControlsReservedHeight(isVisible: showsTopControls)
-            )
-            .clipped()
-
-            if showsTopControls {
-                Divider()
-            }
-
             if webSession.state == .offline {
                 HStack(spacing: DesignTokens.Spacing.control) {
                     Label("You're offline. Quick Capture saves notes on this Mac and sends them when Notion reconnects.", systemImage: "wifi.slash")
@@ -253,14 +169,17 @@ struct PiPChromeView: View {
         }
         .background(DesignTokens.Colors.background)
         .overlay(alignment: .top) {
-            if !showsTopControls {
-                Color.clear
-                    .frame(height: Self.topControlsRevealHeight)
-                    .contentShape(Rectangle())
-                    .onHover { isHovering in
-                        topControlsHover.setHovering(isHovering)
-                    }
-                    .accessibilityHidden(true)
+            ZStack(alignment: .top) {
+                if !showsTopControls {
+                    Color.clear
+                        .frame(height: Self.topControlsRevealHeight)
+                        .contentShape(Rectangle())
+                        .onHover { isHovering in
+                            topControlsHover.setHovering(isHovering)
+                        }
+                        .accessibilityHidden(true)
+                }
+                topControlsOverlay
             }
         }
         .animation(
@@ -274,6 +193,84 @@ struct PiPChromeView: View {
         .onChange(of: webSession.state) {
             enterOfflineCaptureMode()
         }
+    }
+
+    private var topControlsOverlay: some View {
+        HStack {
+            Spacer()
+
+            if webSession.state == .loading {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Loading Notion page")
+            }
+
+            Button {
+                commandModel.perform(Self.primaryActionID)
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.plain)
+            .disabled(!(commandModel.command(for: Self.primaryActionID)?.isEnabled ?? false))
+            .accessibilityLabel(Self.primaryActionAccessibilityLabel)
+            .help(Self.primaryActionHelp)
+
+            Button {
+                presentsPageSwitcher.toggle()
+            } label: {
+                Image(systemName: "rectangle.stack")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Self.pageSwitcherAccessibilityLabel)
+            .help("Resume a pinned or recent Notion page")
+            .popover(isPresented: $presentsPageSwitcher, arrowEdge: .top) {
+                PageSwitcherView(
+                    controller: pageSwitcherController,
+                    onDismiss: { presentsPageSwitcher = false },
+                    onSelect: { selection in
+                        presentsPageSwitcher = false
+                        onPageSwitcherSelection(selection)
+                    }
+                )
+            }
+
+            Button(action: repinCurrentPage) {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Self.reloadAccessibilityLabel)
+            .help(Self.reloadHelp)
+
+            Button(action: openInNotionAndStash) {
+                NotionToolbarMark()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open Notion page in browser")
+
+            PiPAppCommandMenu(
+                commandModel: commandModel,
+                panelSizeController: panelSizeController
+            )
+
+            Button(action: onStash) {
+                Image(systemName: "arrow.down.right.and.arrow.up.left")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Self.stashAccessibilityLabel)
+            .help(Self.stashHelp)
+        }
+        .padding(.horizontal, DesignTokens.Spacing.control)
+        .frame(height: Self.topControlsHeight)
+        .background(DesignTokens.Colors.background)
+        .overlay(alignment: .bottom) { Divider() }
+        .contentShape(Rectangle().inset(by: -Self.topControlsHoverOutset))
+        .onHover { isHovering in
+            topControlsHover.setHovering(isHovering)
+        }
+        .opacity(showsTopControls ? 1 : 0)
+        .offset(y: showsTopControls ? 0 : -Self.topControlsHeight)
+        .allowsHitTesting(showsTopControls)
+        .accessibilityHidden(!showsTopControls)
     }
 }
 

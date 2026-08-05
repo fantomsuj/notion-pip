@@ -38,7 +38,7 @@ struct CaptureOutboxStatusView: View {
                 Text("No captures have been queued yet.")
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
             } else {
-                ForEach(runtime.captureRecords.prefix(10), id: \.id) { record in
+                ForEach(runtime.captureRecords, id: \.id) { record in
                     let presentation = CaptureDeliveryPresentation(state: record.state)
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.compact) {
                         HStack {

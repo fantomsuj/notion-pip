@@ -79,7 +79,8 @@ actor CaptureRepository {
         let canonicalEditor: Data
         let canonicalSource: Data?
         do {
-            canonicalEditor = try CanonicalJSON.canonicalize(mutation.editorDocument)
+            canonicalEditor = try mutation.canonicalEditorDocument?.data
+                ?? CanonicalJSON.canonicalize(mutation.editorDocument)
             canonicalSource = try mutation.sourceDocument.map(CanonicalJSON.canonicalize)
         } catch {
             throw CaptureRepositoryError.invalidJSON
@@ -302,6 +303,27 @@ actor CaptureRepository {
         .map(snapshot)
     }
 
+    func activeDraft() throws -> CaptureDraftSnapshot? {
+        let active = DraftDisposition.active.rawValue
+        var descriptor = FetchDescriptor<CaptureDraftModel>(
+            predicate: #Predicate { $0.dispositionRawValue == active },
+            sortBy: [
+                SortDescriptor(\CaptureDraftModel.updatedAt, order: .reverse),
+                SortDescriptor(\CaptureDraftModel.stableID),
+            ]
+        )
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first.map(snapshot)
+    }
+
+    func canonicalCaptureDocument(_ data: Data) throws -> CanonicalCaptureDocument {
+        do {
+            return try CanonicalCaptureDocument(validating: data)
+        } catch {
+            throw CaptureRepositoryError.invalidJSON
+        }
+    }
+
     func record(id: String) throws -> CaptureRecordSnapshot? {
         try recordModel(id: id).map(snapshot)
     }
@@ -311,6 +333,41 @@ actor CaptureRepository {
             FetchDescriptor(sortBy: [SortDescriptor(\CaptureRecordModel.stableID)])
         )
         .map(snapshot)
+    }
+
+    func nextRetryDate() throws -> Date? {
+        let retrying = DeliveryState.retrying.rawValue
+        var descriptor = FetchDescriptor<CaptureRecordModel>(
+            predicate: #Predicate {
+                $0.stateRawValue == retrying && $0.nextAttemptAt != nil
+            },
+            sortBy: [SortDescriptor(\CaptureRecordModel.nextAttemptAt)]
+        )
+        descriptor.fetchLimit = 1
+        descriptor.propertiesToFetch = [\CaptureRecordModel.nextAttemptAt]
+        return try modelContext.fetch(descriptor).first?.nextAttemptAt
+    }
+
+    func recentRecordSummaries(limit: Int) throws -> [CaptureRecordSummary] {
+        guard limit > 0 else { return [] }
+        var descriptor = FetchDescriptor<CaptureRecordModel>(
+            sortBy: [
+                SortDescriptor(\CaptureRecordModel.updatedAt, order: .reverse),
+                SortDescriptor(\CaptureRecordModel.stableID),
+            ]
+        )
+        descriptor.fetchLimit = limit
+        descriptor.propertiesToFetch = [
+            \CaptureRecordModel.stableID,
+            \CaptureRecordModel.title,
+            \CaptureRecordModel.stateRawValue,
+            \CaptureRecordModel.updatedAt,
+            \CaptureRecordModel.safeErrorCode,
+            \CaptureRecordModel.safeErrorMessage,
+            \CaptureRecordModel.safeErrorStatusCode,
+            \CaptureRecordModel.safeErrorRetryAfter,
+        ]
+        return try modelContext.fetch(descriptor).map(summary)
     }
 
     func claimNext(at now: Date, retryPolicy: RetryPolicy) throws -> CaptureRecordSnapshot? {
@@ -791,6 +848,27 @@ actor CaptureRepository {
             remoteIdentity: model.remoteIdentity,
             safeError: safeError,
             requiresManagedCheck: model.requiresManagedCheck
+        )
+    }
+
+    private func summary(_ model: CaptureRecordModel) throws -> CaptureRecordSummary {
+        guard let state = DeliveryState(rawValue: model.stateRawValue) else {
+            throw CaptureRepositoryError.invalidStoredValue(model.stateRawValue)
+        }
+        let safeError = model.safeErrorCode.map {
+            SafeDeliveryError(
+                code: $0,
+                message: model.safeErrorMessage,
+                statusCode: model.safeErrorStatusCode,
+                retryAfter: model.safeErrorRetryAfter
+            )
+        }
+        return CaptureRecordSummary(
+            id: model.stableID,
+            title: model.title,
+            state: state,
+            updatedAt: model.updatedAt,
+            safeError: safeError
         )
     }
 }

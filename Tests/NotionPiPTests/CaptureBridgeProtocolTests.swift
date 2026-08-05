@@ -22,6 +22,7 @@ final class CaptureBridgeProtocolTests: XCTestCase {
         XCTAssertEqual(id, "request-1")
         XCTAssertEqual(expectedRevision, 4)
         XCTAssertEqual(snapshot.draftID, "draft-1")
+        XCTAssertTrue(snapshot.hasValidatedCanonicalDocument)
         XCTAssertEqual(
             String(decoding: snapshot.document, as: UTF8.self),
             #"{"content":[{"attrs":{"a":1,"z":2},"type":"paragraph"}],"type":"doc"}"#

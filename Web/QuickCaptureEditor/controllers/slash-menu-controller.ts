@@ -79,6 +79,7 @@ export class SlashMenuController {
   }
 
   close(editor: Editor): void {
+    if (!this.isOpen && this.items.length === 0) return;
     this.menu.hidden = true;
     this.menu.replaceChildren();
     this.items = [];

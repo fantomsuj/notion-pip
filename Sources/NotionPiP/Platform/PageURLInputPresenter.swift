@@ -33,28 +33,48 @@ enum PageURLInputWindowFactory {
 
 @MainActor
 final class PageURLInputPresenter: PageURLInputPresenting {
-    private let window: any PageURLInputWindow
+    private let makeWindow: @MainActor () -> any PageURLInputWindow
+    private var window: (any PageURLInputWindow)?
     private let requestFieldFocus: () -> Void
 
     convenience init(state: PageURLInputState, onSubmit: @escaping () -> Void) {
         self.init(
-            window: PageURLInputWindowFactory.makeDefault(state: state, onSubmit: onSubmit),
+            makeWindow: {
+                PageURLInputWindowFactory.makeDefault(state: state, onSubmit: onSubmit)
+            },
             requestFieldFocus: state.requestFocus
         )
     }
 
     init(window: any PageURLInputWindow, requestFieldFocus: @escaping () -> Void) {
+        makeWindow = { window }
         self.window = window
         self.requestFieldFocus = requestFieldFocus
     }
 
+    init(
+        makeWindow: @escaping @MainActor () -> any PageURLInputWindow,
+        requestFieldFocus: @escaping () -> Void
+    ) {
+        self.makeWindow = makeWindow
+        self.requestFieldFocus = requestFieldFocus
+    }
+
     func presentAndFocus() {
+        let window: any PageURLInputWindow
+        if let existing = self.window {
+            window = existing
+        } else {
+            let created = makeWindow()
+            self.window = created
+            window = created
+        }
         window.presentAsKey()
         requestFieldFocus()
     }
 
     func hide() {
-        window.orderOut()
+        window?.orderOut()
     }
 }
 

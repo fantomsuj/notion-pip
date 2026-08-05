@@ -5,6 +5,20 @@ enum PerformanceOperation: String, CaseIterable, Sendable {
     case coldLaunchToReady = "ColdLaunchToReady"
     case firstPiPPresentation = "FirstPiPPresentation"
     case firstQuickCapturePresentation = "FirstQuickCapturePresentation"
+    case quickCaptureReadyToEdit = "QuickCaptureReadyToEdit"
+    case quickCaptureAutosave = "QuickCaptureAutosave"
+    case notionSessionRestoration = "NotionSessionRestoration"
+    case webViewEviction = "WebViewEviction"
+
+    var isFirstOnly: Bool {
+        switch self {
+        case .coldLaunchToReady, .firstPiPPresentation, .firstQuickCapturePresentation:
+            true
+        case .quickCaptureReadyToEdit, .quickCaptureAutosave,
+             .notionSessionRestoration, .webViewEviction:
+            false
+        }
+    }
 }
 
 enum PerformanceOutcome: String, Sendable {
@@ -17,11 +31,31 @@ struct PerformanceIntervalToken: Hashable, Sendable {
     fileprivate let id: UUID
 }
 
+struct PerformanceMetadata: Equatable, Sendable {
+    var documentByteCount: Int?
+    var cacheEntryCount: Int?
+
+    init(documentByteCount: Int? = nil, cacheEntryCount: Int? = nil) {
+        self.documentByteCount = documentByteCount
+        self.cacheEntryCount = cacheEntryCount
+    }
+}
+
 @MainActor
 protocol PerformanceSignposting: AnyObject {
     @discardableResult
     func begin(_ operation: PerformanceOperation) -> PerformanceIntervalToken?
-    func end(_ token: PerformanceIntervalToken?, outcome: PerformanceOutcome)
+    func end(
+        _ token: PerformanceIntervalToken?,
+        outcome: PerformanceOutcome,
+        metadata: PerformanceMetadata
+    )
+}
+
+extension PerformanceSignposting {
+    func end(_ token: PerformanceIntervalToken?, outcome: PerformanceOutcome) {
+        end(token, outcome: outcome, metadata: PerformanceMetadata())
+    }
 }
 
 @MainActor
@@ -41,12 +75,22 @@ final class AppPerformanceSignposter: PerformanceSignposting {
         subsystem: "com.fantomsuj.NotionPiP",
         category: "performance.presentation"
     )
+    private let captureSignposter = OSSignposter(
+        subsystem: "com.fantomsuj.NotionPiP",
+        category: "performance.capture"
+    )
+    private let webViewSignposter = OSSignposter(
+        subsystem: "com.fantomsuj.NotionPiP",
+        category: "performance.webview"
+    )
     private var begunOperations: Set<PerformanceOperation> = []
     private var activeIntervals: [PerformanceIntervalToken: ActiveInterval] = [:]
 
     @discardableResult
     func begin(_ operation: PerformanceOperation) -> PerformanceIntervalToken? {
-        guard begunOperations.insert(operation).inserted else { return nil }
+        if operation.isFirstOnly {
+            guard begunOperations.insert(operation).inserted else { return nil }
+        }
 
         let state: OSSignpostIntervalState
         switch operation {
@@ -56,6 +100,14 @@ final class AppPerformanceSignposter: PerformanceSignposting {
             state = presentationSignposter.beginInterval("FirstPiPPresentation")
         case .firstQuickCapturePresentation:
             state = presentationSignposter.beginInterval("FirstQuickCapturePresentation")
+        case .quickCaptureReadyToEdit:
+            state = captureSignposter.beginInterval("QuickCaptureReadyToEdit")
+        case .quickCaptureAutosave:
+            state = captureSignposter.beginInterval("QuickCaptureAutosave")
+        case .notionSessionRestoration:
+            state = webViewSignposter.beginInterval("NotionSessionRestoration")
+        case .webViewEviction:
+            state = webViewSignposter.beginInterval("WebViewEviction")
         }
 
         let token = PerformanceIntervalToken(id: UUID())
@@ -63,7 +115,11 @@ final class AppPerformanceSignposter: PerformanceSignposting {
         return token
     }
 
-    func end(_ token: PerformanceIntervalToken?, outcome: PerformanceOutcome) {
+    func end(
+        _ token: PerformanceIntervalToken?,
+        outcome: PerformanceOutcome,
+        metadata: PerformanceMetadata
+    ) {
         guard let token, let interval = activeIntervals.removeValue(forKey: token) else {
             return
         }
@@ -86,6 +142,30 @@ final class AppPerformanceSignposter: PerformanceSignposting {
                 "FirstQuickCapturePresentation",
                 interval.state,
                 "outcome=\(outcome.rawValue, privacy: .public)"
+            )
+        case .quickCaptureReadyToEdit:
+            captureSignposter.endInterval(
+                "QuickCaptureReadyToEdit",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public)"
+            )
+        case .quickCaptureAutosave:
+            captureSignposter.endInterval(
+                "QuickCaptureAutosave",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public) document_bytes=\(metadata.documentByteCount ?? 0, privacy: .public)"
+            )
+        case .notionSessionRestoration:
+            webViewSignposter.endInterval(
+                "NotionSessionRestoration",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public)"
+            )
+        case .webViewEviction:
+            webViewSignposter.endInterval(
+                "WebViewEviction",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public) cache_entries=\(metadata.cacheEntryCount ?? 0, privacy: .public)"
             )
         }
     }
