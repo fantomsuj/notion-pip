@@ -14,6 +14,22 @@ final class AppWindowPresenterTests: XCTestCase {
         XCTAssertEqual(windowPresenter.showCount, 2)
         XCTAssertEqual(windowPresenter.hideCount, 0)
     }
+
+    func testSettingsWindowPresenterDefersConstructionUntilFirstShow() {
+        let windowPresenter = FakeAppWindowPresenter()
+        var factoryCount = 0
+        let presenter = SettingsWindowPresenter {
+            factoryCount += 1
+            return windowPresenter
+        }
+
+        XCTAssertEqual(factoryCount, 0)
+        presenter.show()
+        presenter.show()
+
+        XCTAssertEqual(factoryCount, 1)
+        XCTAssertEqual(windowPresenter.showCount, 2)
+    }
     func testLazyPresenterDefersConstructionUntilFirstShowAndReusesPresenter() {
         let window = FakeAppWindow()
         var factoryCount = 0

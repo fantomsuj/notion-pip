@@ -16,6 +16,42 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .unloaded)
     }
 
+    func testInteractionStateCacheCapsEntriesAndRefreshesUpdatedKeys() {
+        var cache = NotionInteractionStateCache(capacity: 2)
+        cache.insert("first-state", forKey: "first")
+        cache.insert("second-state", forKey: "second")
+        cache.insert("first-newer-state", forKey: "first")
+        cache.insert("third-state", forKey: "third")
+
+        XCTAssertNil(cache.takeValue(forKey: "second"))
+        XCTAssertEqual(cache.takeValue(forKey: "first") as? String, "first-newer-state")
+        XCTAssertEqual(cache.takeValue(forKey: "third") as? String, "third-state")
+        XCTAssertEqual(cache.count, 0)
+    }
+
+    func testSessionMeasuresRestorationAndWebViewEvictionWithCacheCount() throws {
+        let signposter = PerformanceSignposterSpy()
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            interactionStateReader: { _ in "saved" },
+            performanceSignposter: signposter
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        session.activate(page: page)
+        let webView = try XCTUnwrap(session.webView)
+
+        session.webView(webView, didFinish: nil)
+        session.panelDidHide()
+        session.handleMemoryPressure()
+
+        XCTAssertEqual(
+            signposter.beginCalls,
+            [.notionSessionRestoration, .webViewEviction]
+        )
+        XCTAssertEqual(signposter.endCalls.map(\.outcome), [.success, .success])
+        XCTAssertEqual(signposter.endCalls.last?.metadata.cacheEntryCount, 1)
+    }
+
     func testSelectingPinnedPageCreatesAndLoadsLiveWebView() throws {
         var requests: [URLRequest] = []
         let session = NotionWebSession(loadRequest: { _, request in requests.append(request) })
@@ -1355,12 +1391,9 @@ final class NotionWebSessionTests: XCTestCase {
         )
     }
 
-    func testHiddenTopControlsReserveNoLayoutHeight() {
+    func testTopControlsNeverChangeWebViewLayoutHeight() {
         XCTAssertEqual(PiPChromeView.topControlsReservedHeight(isVisible: false), 0)
-        XCTAssertEqual(
-            PiPChromeView.topControlsReservedHeight(isVisible: true),
-            PiPChromeView.topControlsHeight
-        )
+        XCTAssertEqual(PiPChromeView.topControlsReservedHeight(isVisible: true), 0)
     }
 
     func testAccessibilityFeaturesKeepTopControlsVisibleWithoutHover() {

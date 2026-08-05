@@ -474,6 +474,33 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(loader.activatedPages, [page])
     }
 
+    func testGlobalShortcutRestoresExpandedPanelWithoutStashingIt() throws {
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            isExpanded: true
+        )
+        let handle = FakeStashHandle()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: handle,
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        XCTAssertTrue(coordinator.performGlobalShortcutAction())
+
+        XCTAssertFalse(panel.isExpanded)
+        XCTAssertEqual(panel.restoreFromExpandedStateCount, 1)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.orderOutCount, 0)
+        XCTAssertFalse(handle.isVisible)
+        XCTAssertEqual(loader.panelHideCount, 0)
+    }
+
     func testRepresentationTransitionsPresentIncomingBeforeRemovingOutgoing() throws {
         var events: [String] = []
         let panel = FakePanelWindow(
@@ -921,15 +948,19 @@ private final class FakePanelWindow: PiPPanelWindow {
     private(set) var orderOutCount = 0
     private(set) var frame: CGRect
     private(set) var isVisible = false
+    private(set) var isExpanded: Bool
+    private(set) var restoreFromExpandedStateCount = 0
     private(set) var setFrames: [CGRect] = []
     var onClose: (@MainActor () -> Void)?
     private let recordEvent: (String) -> Void
 
     init(
         frame: CGRect = .zero,
+        isExpanded: Bool = false,
         recordEvent: @escaping (String) -> Void = { _ in }
     ) {
         self.frame = frame
+        self.isExpanded = isExpanded
         self.recordEvent = recordEvent
     }
 
@@ -943,6 +974,11 @@ private final class FakePanelWindow: PiPPanelWindow {
         recordEvent("panel.orderOut")
         orderOutCount += 1
         isVisible = false
+    }
+
+    func restoreFromExpandedState() {
+        restoreFromExpandedStateCount += 1
+        isExpanded = false
     }
 
     func setFrame(_ frame: CGRect, display: Bool) {

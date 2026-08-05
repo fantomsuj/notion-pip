@@ -65,6 +65,24 @@ declare global {
   }
 }
 
+interface OverlayTransactionChanges {
+  readonly docChanged: boolean;
+  readonly selectionSet: boolean;
+  readonly storedMarksSet: boolean;
+}
+
+export function overlayRefreshTargets(changes: OverlayTransactionChanges): {
+  readonly slashMenu: boolean;
+  readonly formattingToolbar: boolean;
+} {
+  return {
+    slashMenu: changes.docChanged || changes.selectionSet,
+    formattingToolbar: changes.docChanged
+      || changes.selectionSet
+      || changes.storedMarksSet,
+  };
+}
+
 export class QuickCaptureEditorController {
   private snapshot: EditorSnapshot = {
     draftID: "",
@@ -130,9 +148,14 @@ export class QuickCaptureEditorController {
       },
       autofocus: false,
       editable: false,
-      onTransaction: ({ editor }) => {
-        this.slashMenu.refresh(editor, this.transitionLocked);
-        this.formattingToolbar.refresh(editor, this.transitionLocked);
+      onTransaction: ({ editor, transaction }) => {
+        const targets = overlayRefreshTargets(transaction);
+        if (targets.slashMenu) {
+          this.slashMenu.refresh(editor, this.transitionLocked);
+        }
+        if (targets.formattingToolbar) {
+          this.formattingToolbar.refresh(editor, this.transitionLocked);
+        }
       },
       onFocus: ({ editor }) => {
         this.formattingToolbar.refresh(editor, this.transitionLocked);

@@ -13,12 +13,36 @@ struct CaptureEditorSnapshot: Equatable, Sendable {
     let title: String
     let document: Data
     let revision: Int?
+    let canonicalDocument: CanonicalCaptureDocument?
+
+    var hasValidatedCanonicalDocument: Bool { canonicalDocument != nil }
 
     init(draftID: String, title: String, document: Data, revision: Int? = nil) {
         self.draftID = draftID
         self.title = title
         self.document = document
         self.revision = revision
+        canonicalDocument = nil
+    }
+
+    init(
+        draftID: String,
+        title: String,
+        canonicalDocument: CanonicalCaptureDocument,
+        revision: Int? = nil
+    ) {
+        self.draftID = draftID
+        self.title = title
+        document = canonicalDocument.data
+        self.revision = revision
+        self.canonicalDocument = canonicalDocument
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.draftID == rhs.draftID
+            && lhs.title == rhs.title
+            && lhs.document == rhs.document
+            && lhs.revision == rhs.revision
     }
 }
 
@@ -288,15 +312,14 @@ enum CaptureBridgeProtocol {
     }
 
     static func canonicalDocument(_ data: Data) throws -> Data {
-        guard data.count <= maximumMessageBytes,
-              let object = try? JSONSerialization.jsonObject(with: data),
-              let document = object as? [String: Any],
-              document["type"] as? String == "doc",
-              document["content"] is [Any]
-        else {
+        guard data.count <= maximumMessageBytes else {
             throw CaptureBridgeProtocolError.invalidDocument
         }
-        return try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys])
+        do {
+            return try CanonicalCaptureDocument(validating: data).data
+        } catch {
+            throw CaptureBridgeProtocolError.invalidDocument
+        }
     }
 
     private static func snapshot(_ value: Any?) throws -> CaptureEditorSnapshot {
@@ -315,16 +338,26 @@ enum CaptureBridgeProtocol {
         else {
             throw CaptureBridgeProtocolError.malformedMessage
         }
-        let documentData = try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys])
+        let canonicalDocument: CanonicalCaptureDocument
+        do {
+            canonicalDocument = try CanonicalCaptureDocument(validatingJSONObject: document)
+        } catch {
+            throw CaptureBridgeProtocolError.invalidDocument
+        }
+        guard canonicalDocument.data.count <= maximumMessageBytes else {
+            throw CaptureBridgeProtocolError.invalidDocument
+        }
         return CaptureEditorSnapshot(
             draftID: try identifier(dictionary["draftID"]),
             title: title,
-            document: try canonicalDocument(documentData)
+            canonicalDocument: canonicalDocument
         )
     }
 
     private static func snapshotObject(_ snapshot: CaptureEditorSnapshot) throws -> [String: Any] {
-        let document = try JSONSerialization.jsonObject(with: canonicalDocument(snapshot.document))
+        let documentData = try snapshot.canonicalDocument?.data
+            ?? canonicalDocument(snapshot.document)
+        let document = try JSONSerialization.jsonObject(with: documentData)
         var object: [String: Any] = [
             "draftID": snapshot.draftID,
             "title": snapshot.title,

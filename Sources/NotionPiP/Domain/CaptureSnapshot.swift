@@ -1,9 +1,40 @@
 import Foundation
 
+enum CanonicalCaptureDocumentError: Error {
+    case invalidDocument
+}
+
+/// A validated ProseMirror document whose JSON keys are already canonicalized.
+struct CanonicalCaptureDocument: Equatable, Sendable {
+    let data: Data
+
+    /// Wraps bytes already validated and sorted by this process.
+    init(trustingCanonicalData data: Data) {
+        self.data = data
+    }
+
+    init(validating data: Data) throws {
+        let object = try JSONSerialization.jsonObject(with: data)
+        try self.init(validatingJSONObject: object)
+    }
+
+    init(validatingJSONObject object: Any) throws {
+        guard let document = object as? [String: Any],
+              document["type"] as? String == "doc",
+              document["content"] is [Any],
+              JSONSerialization.isValidJSONObject(document)
+        else {
+            throw CanonicalCaptureDocumentError.invalidDocument
+        }
+        data = try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys])
+    }
+}
+
 struct DraftMutation: Equatable, Sendable {
     let id: String
     let title: String
     let editorDocument: Data
+    let canonicalEditorDocument: CanonicalCaptureDocument?
     let sourceDocument: Data?
     let disposition: DraftDisposition
 
@@ -17,8 +48,32 @@ struct DraftMutation: Equatable, Sendable {
         self.id = id
         self.title = title
         self.editorDocument = editorDocument
+        canonicalEditorDocument = nil
         self.sourceDocument = sourceDocument
         self.disposition = disposition
+    }
+
+    init(
+        id: String,
+        title: String,
+        canonicalEditorDocument: CanonicalCaptureDocument,
+        sourceDocument: Data?,
+        disposition: DraftDisposition
+    ) {
+        self.id = id
+        self.title = title
+        editorDocument = canonicalEditorDocument.data
+        self.canonicalEditorDocument = canonicalEditorDocument
+        self.sourceDocument = sourceDocument
+        self.disposition = disposition
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id
+            && lhs.title == rhs.title
+            && lhs.editorDocument == rhs.editorDocument
+            && lhs.sourceDocument == rhs.sourceDocument
+            && lhs.disposition == rhs.disposition
     }
 }
 
@@ -56,6 +111,15 @@ struct CaptureRecordSnapshot: Codable, Equatable, Sendable {
     let remoteIdentity: String?
     let safeError: SafeDeliveryError?
     let requiresManagedCheck: Bool
+}
+
+/// Blob-free delivery metadata used by the capture outbox.
+struct CaptureRecordSummary: Equatable, Sendable {
+    let id: String
+    let title: String
+    let state: DeliveryState
+    let updatedAt: Date
+    let safeError: SafeDeliveryError?
 }
 
 enum CanonicalJSON {

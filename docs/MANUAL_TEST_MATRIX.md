@@ -15,6 +15,7 @@ Use a development build from `dist/NotionPiP.app`. Before each row, pin a Notion
 | Menu-bar icon preference off; global shortcut registration fails | Launch or retry shortcut registration while the shortcut remains unavailable | The icon is temporarily forced visible, Settings explains why while its saved toggle stays off, and a successful retry removes the override |  |  |  |
 | Full-screen app on primary display | Present the PiP from the menu bar and edit the page | PiP joins the full-screen Space as an auxiliary floating overlay and accepts keyboard input |  |  |  |
 | Full-screen app on secondary display | Place pointer on secondary display, present a first-use PiP, and edit the page | PiP opens on the secondary full-screen Space, floats above the app, and becomes key |  |  |  |
+| PiP itself zoomed or in native full screen | Press the configured Show/Hide shortcut (default ⌘⇧P) | PiP returns to its prior floating size and remains visible; pressing the shortcut again stashes it normally |  |  |  |
 | PiP visible | Open Mission Control | PiP is absent from Mission Control while remaining visible as an overlay when Mission Control closes |  |  |  |
 | PiP visible and key; another app has multiple windows | Press Command-` repeatedly | PiP is excluded from the window cycle; returning to it directly still supports editing |  |  |  |
 | PiP stashed; stash handle visible | Open Mission Control, then press Command-` repeatedly | Stash handle is absent from Mission Control and excluded from window cycling |  |  |  |

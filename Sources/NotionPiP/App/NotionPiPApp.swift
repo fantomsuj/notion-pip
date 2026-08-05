@@ -201,12 +201,12 @@ private final class AppComposition {
             firstPresentationOperation: .firstQuickCapturePresentation
         )
         quickCaptureReleaseRelay.presenter = quickCapturePresenter
-        let settingsWindowPresenter = SettingsWindowPresenter(
-            windowPresenter: AppWindowFactory.makeSettings(
+        let settingsWindowPresenter = SettingsWindowPresenter {
+            AppWindowFactory.makeSettings(
                 runtime: runtime,
                 panelSizeController: panelSizeController
             )
-        )
+        }
         let statusItemController = StatusItemController(
             runtime: runtime,
             commandModel: commandModel,

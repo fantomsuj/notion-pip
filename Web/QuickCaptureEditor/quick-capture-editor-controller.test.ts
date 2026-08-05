@@ -3,6 +3,26 @@ import test from "node:test";
 
 import { BRIDGE_VERSION, type BridgeRequest } from "./protocol.ts";
 import { installTestDOM } from "./test-support/dom.ts";
+import { overlayRefreshTargets } from "./quick-capture-editor-controller.ts";
+
+test("overlay refresh targets only controllers affected by a transaction", () => {
+  assert.deepEqual(
+    overlayRefreshTargets({ docChanged: true, selectionSet: false, storedMarksSet: false }),
+    { slashMenu: true, formattingToolbar: true },
+  );
+  assert.deepEqual(
+    overlayRefreshTargets({ docChanged: false, selectionSet: true, storedMarksSet: false }),
+    { slashMenu: true, formattingToolbar: true },
+  );
+  assert.deepEqual(
+    overlayRefreshTargets({ docChanged: false, selectionSet: false, storedMarksSet: true }),
+    { slashMenu: false, formattingToolbar: true },
+  );
+  assert.deepEqual(
+    overlayRefreshTargets({ docChanged: false, selectionSet: false, storedMarksSet: false }),
+    { slashMenu: false, formattingToolbar: false },
+  );
+});
 
 test("quick capture controller installs the native surface and applies ready state", async () => {
   const testWindow = installTestDOM();

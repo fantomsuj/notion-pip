@@ -188,7 +188,7 @@ extension AppRuntime {
     }
 
     private func handleGlobalShortcutTap() {
-        guard pinCoordinator.stashOrRestoreCurrentPage() else {
+        guard pinCoordinator.performGlobalShortcutAction() else {
             pageURLInputPresenter.presentAndFocus()
             return
         }

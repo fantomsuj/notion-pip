@@ -13,7 +13,7 @@ I am happily biased toward writing. Writing is how I build scaffolding for my id
 Pin the Notion page you are living in and keep it close without turning it into another full window. The PiP can stay visible across Spaces, tuck itself neatly onto a screen edge, and return to the same live page when you need it again.
 
 - Create a fresh Notion page from the `+` button; it becomes the new pinned page automatically.
-- Stash the panel against the nearest screen edge and restore it from its slim tab, the optional menu-bar icon, or `Command-Shift-P`.
+- Stash the panel against the nearest screen edge and restore it from its slim tab, the optional menu-bar icon, or `Command-Shift-P`; when the PiP itself is zoomed or full screen, the shortcut first returns it to its prior floating size.
 - Keep working in the real, embedded Notion page—not a screenshot or a simplified native imitation.
 - Hover at the panel’s top edge and open the page switcher to resume one of seven
   pinned favorites or seven recent pages. Search is local and works with partial,

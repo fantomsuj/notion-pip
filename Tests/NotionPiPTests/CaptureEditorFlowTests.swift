@@ -37,6 +37,33 @@ final class CaptureEditorFlowTests: XCTestCase {
         XCTAssertEqual(stored?.title, "Saved")
     }
 
+    func testReadyAndAutosaveMeasureUsableEditorBoundaries() async throws {
+        let repository = try CaptureRepository(inMemory: true, clock: TestCaptureClock(captureFlowReferenceDate))
+        let signposter = PerformanceSignposterSpy()
+        let session = CaptureEditorSession(
+            repository: repository,
+            draftID: { "draft-1" },
+            performanceSignposter: signposter
+        )
+
+        _ = await session.handle(.ready(id: "ready"))
+        let changed = bridgeSnapshot(id: "draft-1", title: "Saved", text: "hello")
+        _ = await session.handle(
+            .changed(
+                id: "change",
+                snapshot: changed,
+                expectedRevision: 1
+            )
+        )
+
+        XCTAssertEqual(
+            signposter.beginCalls,
+            [.quickCaptureReadyToEdit, .quickCaptureAutosave]
+        )
+        XCTAssertEqual(signposter.endCalls.map(\.outcome), [.success, .success])
+        XCTAssertEqual(signposter.endCalls.last?.metadata.documentByteCount, changed.document.count)
+    }
+
     func testLostSaveAcknowledgementReconcilesWithoutCreatingAnotherRevision() async throws {
         let repository = try CaptureRepository(inMemory: true, clock: TestCaptureClock(captureFlowReferenceDate))
         let session = CaptureEditorSession(repository: repository, draftID: { "draft-1" })

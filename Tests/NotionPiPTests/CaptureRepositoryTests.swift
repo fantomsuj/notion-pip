@@ -25,6 +25,26 @@ final class CaptureRepositoryTests: XCTestCase {
         )
     }
 
+    func testSaveDraftAcceptsAnAlreadyCanonicalCaptureDocumentWithoutChangingItsBytes() async throws {
+        let repository = try CaptureRepository(inMemory: true, clock: TestCaptureClock(referenceDate))
+        let canonical = CanonicalCaptureDocument(
+            trustingCanonicalData: Data(#"{"content":[],"type":"doc"}"#.utf8)
+        )
+
+        let snapshot = try await repository.saveDraft(
+            DraftMutation(
+                id: "capture-canonical",
+                title: "Canonical",
+                canonicalEditorDocument: canonical,
+                sourceDocument: nil,
+                disposition: .active
+            ),
+            expectedRevision: 0
+        )
+
+        XCTAssertEqual(snapshot.editorDocument, canonical.data)
+    }
+
     func testSaveRejectsStaleRevisionWithoutChangingStoredDraft() async throws {
         let repository = try CaptureRepository(inMemory: true, clock: TestCaptureClock(referenceDate))
         let first = try await repository.saveDraft(mutation(id: "capture-1", title: "Original"), expectedRevision: 0)
@@ -705,6 +725,82 @@ final class CaptureRepositoryTests: XCTestCase {
         XCTAssertEqual(unauthorizedAfterResume?.state, .retrying)
         XCTAssertEqual(unauthorizedAfterResume?.nextAttemptAt, clock.now())
         XCTAssertNil(otherAfterResume?.nextAttemptAt)
+    }
+
+    func testActiveDraftReturnsTheSingleActiveDraftWithoutLoadingDraftHistory() async throws {
+        let clock = TestCaptureClock(referenceDate)
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        _ = try await repository.saveDraft(mutation(id: "first", title: "First"), expectedRevision: 0)
+        clock.advance(by: 1)
+        let latest = try await repository.saveDraft(
+            mutation(id: "latest", title: "Latest"),
+            expectedRevision: 0
+        )
+
+        let active = try await repository.activeDraft()
+
+        XCTAssertEqual(active, latest)
+    }
+
+    func testNextRetryDateReturnsOnlyTheEarliestScheduledRetry() async throws {
+        let clock = TestCaptureClock(referenceDate)
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        let later = try await enqueueRecord(repository, id: "later")
+        let earlier = try await enqueueRecord(repository, id: "earlier")
+        let delivered = try await enqueueRecord(repository, id: "delivered")
+        _ = try await repository.markRetrying(
+            recordID: later.id,
+            nextAttemptAt: referenceDate.addingTimeInterval(60),
+            requiresManagedCheck: false,
+            safeError: SafeDeliveryError(code: "later", message: nil, statusCode: nil, retryAfter: nil),
+            at: referenceDate
+        )
+        _ = try await repository.markRetrying(
+            recordID: earlier.id,
+            nextAttemptAt: referenceDate.addingTimeInterval(10),
+            requiresManagedCheck: false,
+            safeError: SafeDeliveryError(code: "earlier", message: nil, statusCode: nil, retryAfter: nil),
+            at: referenceDate
+        )
+        _ = try await repository.markDelivered(
+            recordID: delivered.id,
+            receipt: DeliveryReceipt(remoteIdentity: "remote", fingerprint: nil),
+            at: referenceDate
+        )
+
+        let nextRetryDate = try await repository.nextRetryDate()
+
+        XCTAssertEqual(nextRetryDate, referenceDate.addingTimeInterval(10))
+    }
+
+    func testRecentRecordSummariesAreNewestFirstLimitedAndBlobFree() async throws {
+        let clock = TestCaptureClock(referenceDate)
+        let repository = try CaptureRepository(inMemory: true, clock: clock)
+        _ = try await enqueueRecord(repository, id: "oldest")
+        clock.advance(by: 1)
+        _ = try await enqueueRecord(repository, id: "middle")
+        clock.advance(by: 1)
+        let newest = try await enqueueRecord(repository, id: "newest")
+        _ = try await repository.markRetrying(
+            recordID: newest.id,
+            nextAttemptAt: referenceDate.addingTimeInterval(30),
+            requiresManagedCheck: false,
+            safeError: SafeDeliveryError(
+                code: "temporary",
+                message: "Try again",
+                statusCode: 503,
+                retryAfter: 30
+            ),
+            at: clock.now()
+        )
+
+        let summaries: [CaptureRecordSummary] = try await repository.recentRecordSummaries(limit: 2)
+
+        XCTAssertEqual(summaries.map(\.id), ["newest", "middle"])
+        XCTAssertEqual(summaries.first?.title, "newest")
+        XCTAssertEqual(summaries.first?.state, .retrying)
+        XCTAssertEqual(summaries.first?.safeError?.message, "Try again")
+        XCTAssertEqual(summaries.first?.updatedAt, clock.now())
     }
 
     private func mutation(

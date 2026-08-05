@@ -8,7 +8,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var pendingPage: NotionPageReference?
     @Published private(set) var activePage: NotionPageReference?
     @Published private(set) var lastActivationSource: PageActivationSource?
-    @Published private(set) var captureRecords: [CaptureRecordSnapshot] = []
+    @Published private(set) var captureRecords: [CaptureRecordSummary] = []
     @Published private(set) var captureRecoveryMessage: String?
     @Published private(set) var serviceHealth: ServiceHealthState
     @Published private(set) var globalShortcut: GlobalShortcut
@@ -55,7 +55,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let quickCaptureShortcutRegistrar: any GlobalShortcutRegistering
     let quickCaptureShortcutStore: QuickCaptureShortcutStore
     let trustedCapturePreferenceStore: TrustedCapturePreferenceStore
-    private let pasteboard: any PasteboardReading
+    let pasteboard: any PasteboardReading
     var quickCaptureAction: (_ prefill: String?, _ insertAtCursor: Bool) -> Void = { _, _ in }
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
     let pageURLInputPresenter: any PageURLInputPresenting
@@ -170,7 +170,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         Task { [weak self] in
             await self?.destinationController.loadSavedDestination()
             await self?.deliveryScheduler?.trigger()
-            await self?.refreshCaptureRecords()
         }
         restorePinnedPageFromRepository()
     }
@@ -321,8 +320,7 @@ extension AppRuntime {
     func refreshCaptureRecords() async {
         guard let captureRepository else { return }
         do {
-            captureRecords = try await captureRepository.records()
-                .sorted { $0.updatedAt > $1.updatedAt }
+            captureRecords = try await captureRepository.recentRecordSummaries(limit: 10)
             captureRecoveryMessage = nil
         } catch {
             captureRecoveryMessage = "Could not load Quick Capture delivery history."

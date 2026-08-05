@@ -7,6 +7,7 @@ import SwiftUI
 protocol PiPPanelWindow: AnyObject {
     var frame: CGRect { get }
     var isVisible: Bool { get }
+    var isExpanded: Bool { get }
     var onClose: (@MainActor () -> Void)? { get set }
     func present()
     func orderOut()
@@ -14,6 +15,7 @@ protocol PiPPanelWindow: AnyObject {
         toward side: PanelStashSide,
         completion: @escaping @MainActor () -> Void
     )
+    func restoreFromExpandedState()
     func setFrame(_ frame: CGRect, display: Bool)
     func setFrame(_ frame: CGRect, display: Bool, animate: Bool)
 }
@@ -60,6 +62,7 @@ protocol PiPPanelCoordinating: AnyObject {
     func reloadPinnedPage(_ page: NotionPageReference)
     func showCurrentPage() -> Bool
     func stashOrRestoreCurrentPage() -> Bool
+    func performGlobalShortcutAction() -> Bool
     func replace(page: NotionPageReference)
     func replace(page: NotionPageReference, restoration: DurablePageRestoration?)
 }
@@ -71,6 +74,10 @@ extension PiPPanelCoordinating {
 
     func replace(page: NotionPageReference, restoration: DurablePageRestoration?) {
         replace(page: page)
+    }
+
+    func performGlobalShortcutAction() -> Bool {
+        stashOrRestoreCurrentPage()
     }
 }
 
@@ -394,6 +401,16 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         return true
     }
 
+    func performGlobalShortcutAction() -> Bool {
+        guard currentPage != nil else { return false }
+        if panel.isVisible, panel.isExpanded {
+            panel.restoreFromExpandedState()
+            logger.notice("Expanded panel restored to its floating size")
+            return true
+        }
+        return stashOrRestoreCurrentPage()
+    }
+
     func replace(page: NotionPageReference) {
         show(page: page)
     }
@@ -692,6 +709,10 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
 
     var onClose: (@MainActor () -> Void)?
 
+    var isExpanded: Bool {
+        styleMask.contains(.fullScreen) || isZoomed
+    }
+
     override var canBecomeKey: Bool {
         true
     }
@@ -711,6 +732,14 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
 
     func orderOut() {
         orderOut(nil)
+    }
+
+    func restoreFromExpandedState() {
+        if styleMask.contains(.fullScreen) {
+            toggleFullScreen(nil)
+        } else if isZoomed {
+            performZoom(nil)
+        }
     }
 
     override func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
