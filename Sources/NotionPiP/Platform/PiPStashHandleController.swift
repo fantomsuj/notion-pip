@@ -3,6 +3,9 @@ import SwiftUI
 
 @MainActor
 final class PiPStashHandleController: PiPStashHandle {
+    private static let entranceOffset: CGFloat = 12
+    private static let entranceAnimationDuration: TimeInterval = 0.10
+
     private let panel: NSPanel
     private let visibleFramesProvider: @MainActor () -> [CGRect]
     private var currentPlacement: PanelStashPlacement?
@@ -34,12 +37,34 @@ final class PiPStashHandleController: PiPStashHandle {
         onRestore: @escaping @MainActor () -> Void,
         onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void
     ) {
+        let shouldAnimateEntrance = !panel.isVisible
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         currentPlacement = placement
         self.onRestore = onRestore
         self.onPlacementChange = onPlacementChange
         installContent(side: placement.side)
-        panel.setFrame(placement.frame, display: true)
+
+        guard shouldAnimateEntrance else {
+            panel.alphaValue = 1
+            panel.setFrame(placement.frame, display: true)
+            panel.orderFrontRegardless()
+            return
+        }
+
+        let initialFrame = placement.frame.offsetBy(
+            dx: placement.side == .left ? -Self.entranceOffset : Self.entranceOffset,
+            dy: 0
+        )
+        panel.alphaValue = 0
+        panel.setFrame(initialFrame, display: false)
         panel.orderFrontRegardless()
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.entranceAnimationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().setFrame(placement.frame, display: true)
+            panel.animator().alphaValue = 1
+        }
     }
 
     func orderOut() {
