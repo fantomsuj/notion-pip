@@ -13,15 +13,13 @@ struct StoredPageSnapshot: Equatable, Sendable {
 
 @ModelActor
 actor PageRepository {
-    private static let maximumPins = 7
-    private static let maximumRecents = 7
-
     private let logger = Logger(
         subsystem: "com.fantomsuj.NotionPiP",
         category: "page-working-set"
     )
     private var clock: any CaptureClock = SystemCaptureClock()
     private var beforeSave: PageRepositorySaveCheck = {}
+    private let policy = PageWorkingSetPolicy.standard
 
     init(
         container: ModelContainer,
@@ -38,25 +36,25 @@ actor PageRepository {
 
     func workingSet() throws -> PageWorkingSetSnapshot {
         try bootstrapActivePageIfNeeded()
-        let pins = validPinnedPages()
-        let pinnedIDs = Set(pins.map { Self.canonicalID($0.pageID) })
-        let recents = validRecentPages()
-            .filter { !pinnedIDs.contains(Self.canonicalID($0.pageID)) }
-            .prefix(Self.maximumRecents)
-        let workingSetIDs = pinnedIDs.union(recents.map { Self.canonicalID($0.pageID) })
+        let pins = policy.pinnedPages(from: validPinnedPages())
+        let recents = policy.recentPages(from: validRecentPages(), pinnedPages: pins)
+        let workingSetIDs = policy.retainedRestorationIDs(
+            pinnedPages: pins,
+            recentPages: recents
+        )
         let restorations = try pruneAndReadRestorations(retaining: workingSetIDs)
 
         return PageWorkingSetSnapshot(
             activePage: validActivePage(),
             pinnedPages: pins,
-            recentPages: Array(recents),
+            recentPages: recents,
             restorations: restorations
         )
     }
 
     func recordVisit(_ page: NotionPageReference) throws -> StoredPageSnapshot {
         let now = clock.now()
-        let pageID = Self.canonicalID(page.pageID)
+        let pageID = policy.canonicalID(page.pageID)
         let activeModels = try modelContext.fetch(FetchDescriptor<ActivePageModel>())
         let active = activeModels.first(where: { $0.stableID == "active" })
             ?? ActivePageModel(
@@ -84,18 +82,15 @@ actor PageRepository {
     }
 
     func setPinned(_ isPinned: Bool, page: NotionPageReference) throws -> StoredPageSnapshot {
-        let pageID = Self.canonicalID(page.pageID)
+        let pageID = policy.canonicalID(page.pageID)
         let models = try modelContext.fetch(FetchDescriptor<PinnedPageModel>())
-        let matching = models.filter { Self.canonicalID($0.stableID) == pageID }
+        let matching = models.filter { policy.canonicalID($0.stableID) == pageID }
 
         if isPinned {
-            let distinctOtherIDs = Set(
-                models.lazy
-                    .filter { Self.canonicalID($0.stableID) != pageID }
-                    .map { Self.canonicalID($0.stableID) }
-            )
-            guard distinctOtherIDs.count < Self.maximumPins else {
-                throw PageRepositoryError.pinLimitReached(maximum: Self.maximumPins)
+            let currentPins = policy.pinnedPages(from: validPinnedPages())
+            guard policy.contains(currentPins, pageID: pageID)
+                    || currentPins.count < policy.pinLimit else {
+                throw PageRepositoryError.pinLimitReached(maximum: policy.pinLimit)
             }
 
             let now = clock.now()
@@ -141,9 +136,9 @@ actor PageRepository {
     func saveRestoration(
         _ restoration: DurablePageRestoration
     ) throws -> DurablePageRestoration {
-        let pageID = Self.canonicalID(restoration.pageID)
+        let pageID = policy.canonicalID(restoration.pageID)
         let models = try modelContext.fetch(FetchDescriptor<PageRestorationModel>())
-        let matching = models.filter { Self.canonicalID($0.stableID) == pageID }
+        let matching = models.filter { policy.canonicalID($0.stableID) == pageID }
         let model = matching.first
             ?? PageRestorationModel(
                 stableID: pageID,
@@ -182,21 +177,19 @@ actor PageRepository {
     }
 
     func pinnedPages() throws -> [StoredPageSnapshot] {
-        validPinnedPages()
+        policy.pinnedPages(from: validPinnedPages())
     }
 
     func recentPages() throws -> [StoredPageSnapshot] {
-        let pinnedIDs = Set(validPinnedPages().map { Self.canonicalID($0.pageID) })
-        return Array(
-            validRecentPages()
-                .filter { !pinnedIDs.contains(Self.canonicalID($0.pageID)) }
-                .prefix(Self.maximumRecents)
+        policy.recentPages(
+            from: validRecentPages(),
+            pinnedPages: policy.pinnedPages(from: validPinnedPages())
         )
     }
 
     private func bootstrapActivePageIfNeeded() throws {
         guard try modelContext.fetch(FetchDescriptor<ActivePageModel>()).isEmpty,
-              let legacyPin = validPinnedPages().first
+              let legacyPin = policy.pinnedPages(from: validPinnedPages()).first
         else {
             return
         }
@@ -230,15 +223,13 @@ actor PageRepository {
             logger.error("Page read failed category=pins-fetch")
             return []
         }
-        return deduplicated(
-            models.compactMap { model in
-                guard let value = snapshotIfValid(model) else {
-                    logger.error("Skipped page row category=invalid-pin")
-                    return nil
-                }
-                return value
+        return models.compactMap { model in
+            guard let value = snapshotIfValid(model) else {
+                logger.error("Skipped page row category=invalid-pin")
+                return nil
             }
-        )
+            return value
+        }
     }
 
     private func validRecentPages() -> [StoredPageSnapshot] {
@@ -246,25 +237,13 @@ actor PageRepository {
             logger.error("Page read failed category=recents-fetch")
             return []
         }
-        return deduplicated(
-            models.compactMap { model in
-                guard let value = snapshotIfValid(model) else {
-                    logger.error("Skipped page row category=invalid-recent")
-                    return nil
-                }
-                return value
+        return models.compactMap { model in
+            guard let value = snapshotIfValid(model) else {
+                logger.error("Skipped page row category=invalid-recent")
+                return nil
             }
-        )
-    }
-
-    private func deduplicated(_ values: [StoredPageSnapshot]) -> [StoredPageSnapshot] {
-        var seen: Set<String> = []
-        return values
-            .sorted {
-                if $0.timestamp != $1.timestamp { return $0.timestamp > $1.timestamp }
-                return Self.canonicalID($0.pageID) < Self.canonicalID($1.pageID)
-            }
-            .filter { seen.insert(Self.canonicalID($0.pageID)).inserted }
+            return value
+        }
     }
 
     private func upsertRecent(
@@ -272,9 +251,9 @@ actor PageRepository {
         visitedAt: Date,
         refreshTimestamp: Bool
     ) throws -> RecentPageModel {
-        let pageID = Self.canonicalID(page.pageID)
+        let pageID = policy.canonicalID(page.pageID)
         let models = try modelContext.fetch(FetchDescriptor<RecentPageModel>())
-        let matching = models.filter { Self.canonicalID($0.stableID) == pageID }
+        let matching = models.filter { policy.canonicalID($0.stableID) == pageID }
         let model = matching.first
             ?? RecentPageModel(
                 stableID: pageID,
@@ -299,25 +278,24 @@ actor PageRepository {
 
     private func pruneRecentModels() throws {
         let models = try modelContext.fetch(FetchDescriptor<RecentPageModel>())
-        let pinnedIDs = Set(validPinnedPages().map { Self.canonicalID($0.pageID) })
+        let pins = policy.pinnedPages(from: validPinnedPages())
+        let pinnedIDs = policy.retainedRestorationIDs(pinnedPages: pins, recentPages: [])
         let sortedUnpinned = models
-            .filter { !pinnedIDs.contains(Self.canonicalID($0.stableID)) }
+            .filter { !pinnedIDs.contains(policy.canonicalID($0.stableID)) }
             .sorted {
                 if $0.visitedAt != $1.visitedAt { return $0.visitedAt > $1.visitedAt }
-                return Self.canonicalID($0.stableID) < Self.canonicalID($1.stableID)
+                return policy.canonicalID($0.stableID) < policy.canonicalID($1.stableID)
             }
-        for model in sortedUnpinned.dropFirst(Self.maximumRecents) {
+        for model in sortedUnpinned.dropFirst(policy.recentLimit) {
             modelContext.delete(model)
         }
     }
 
     private func pruneRestorationsToCurrentUnion() throws {
-        let pins = Set(validPinnedPages().map { Self.canonicalID($0.pageID) })
-        let recents = validRecentPages()
-            .filter { !pins.contains(Self.canonicalID($0.pageID)) }
-            .prefix(Self.maximumRecents)
+        let pins = policy.pinnedPages(from: validPinnedPages())
+        let recents = policy.recentPages(from: validRecentPages(), pinnedPages: pins)
         _ = try pruneAndReadRestorations(
-            retaining: pins.union(recents.map { Self.canonicalID($0.pageID) })
+            retaining: policy.retainedRestorationIDs(pinnedPages: pins, recentPages: recents)
         )
     }
 
@@ -328,7 +306,7 @@ actor PageRepository {
         var values: [DurablePageRestoration] = []
         var changed = false
         for model in models {
-            let pageID = Self.canonicalID(model.stableID)
+            let pageID = policy.canonicalID(model.stableID)
             guard pageIDs.contains(pageID) else {
                 modelContext.delete(model)
                 changed = true
@@ -347,7 +325,7 @@ actor PageRepository {
         }
         return values.sorted {
             if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
-            return Self.canonicalID($0.pageID) < Self.canonicalID($1.pageID)
+            return policy.canonicalID($0.pageID) < policy.canonicalID($1.pageID)
         }
     }
 
@@ -414,7 +392,7 @@ actor PageRepository {
     ) -> StoredPageSnapshot? {
         guard let url = URL(string: canonicalURL),
               let page = try? NotionPageReference(validating: url),
-              Self.canonicalID(page.pageID) == Self.canonicalID(stableID)
+              policy.canonicalID(page.pageID) == policy.canonicalID(stableID)
         else {
             return nil
         }
@@ -424,10 +402,6 @@ actor PageRepository {
             displayTitle: displayTitle,
             timestamp: timestamp
         )
-    }
-
-    private static func canonicalID(_ pageID: String) -> String {
-        pageID.lowercased()
     }
 
     private func saveOrRollback() throws {

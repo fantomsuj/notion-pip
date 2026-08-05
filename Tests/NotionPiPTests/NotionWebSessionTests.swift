@@ -423,6 +423,7 @@ final class NotionWebSessionTests: XCTestCase {
                 case .restore:
                     completion(.success(true))
                 case .insert:
+                    XCTFail("Unexpected insertion evaluation")
                     completion(.success(false))
                 }
             },
@@ -516,6 +517,7 @@ final class NotionWebSessionTests: XCTestCase {
                     case .restore:
                         completion(.success(true))
                     case .insert:
+                        XCTFail("Unexpected insertion evaluation")
                         completion(.success(false))
                     }
                 },
@@ -1713,6 +1715,7 @@ private final class SelectionEvaluationRecorder {
         case .restore:
             completion(.success(true))
         case .insert:
+            XCTFail("Unexpected insertion evaluation")
             completion(.success(false))
         }
     }

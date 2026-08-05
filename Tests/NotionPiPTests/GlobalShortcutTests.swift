@@ -98,6 +98,17 @@ final class GlobalShortcutTests: XCTestCase {
         XCTAssertEqual(engine.uninstallCount, 1)
     }
 
+    func testCarbonHotKeyEnginesOnlyAcceptTheirOwnEventIdentity() {
+        let panelEngine = CarbonEventHotKeyEngine()
+        let captureEngine = CarbonEventHotKeyEngine()
+
+        XCTAssertNotEqual(panelEngine.registrationID.id, captureEngine.registrationID.id)
+        XCTAssertTrue(panelEngine.accepts(eventHotKeyID: panelEngine.registrationID))
+        XCTAssertFalse(panelEngine.accepts(eventHotKeyID: captureEngine.registrationID))
+        XCTAssertTrue(captureEngine.accepts(eventHotKeyID: captureEngine.registrationID))
+        XCTAssertFalse(captureEngine.accepts(eventHotKeyID: panelEngine.registrationID))
+    }
+
     private func makeRuntime(registrar: ShortcutRegistrarSpy, defaults: UserDefaults) -> AppRuntime {
         AppRuntime(
             panelCoordinator: ShortcutTestPanelCoordinator(),
