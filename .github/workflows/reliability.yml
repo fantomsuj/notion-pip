@@ -28,16 +28,34 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Build and smoke-test the repeated suites
-        run: >-
-          swift test
-          --filter
-          '(PiPChromeViewTests|CaptureWebView.*Tests|NotionEditorSelectionTests|ExternalDropActivatingWebViewTests|PiPPanelGeometryTests)'
+      - name: Build repeated suites
+        run: swift test --filter PiPChromeViewTests
 
       - name: Repeat historically timing-sensitive suites 20 times
         run: |
+          suites=(
+            CaptureEditorFlowTests
+            CaptureEditorResourceTests
+            CaptureWebViewAutosaveTests
+            CaptureWebViewConflictTests
+            CaptureWebViewFocusTests
+            CaptureWebViewLifecycleTests
+            CaptureWebViewNavigationTests
+            CaptureWebViewRecoveryTests
+            CaptureWebViewRichTextTests
+            CaptureWebViewSlashMenuTests
+            CaptureWebViewToolbarTests
+            ExternalDropActivatingWebViewTests
+            NotionEditorSelectionTests
+            NotionWebSessionTests
+            PiPChromeViewTests
+            PiPPanelGeometryTests
+            WebNavigationDestinationTests
+          )
           for iteration in $(seq 1 20); do
             echo "::group::Reliability iteration ${iteration}/20"
-            swift test --skip-build --filter '(PiPChromeViewTests|CaptureWebView.*Tests|NotionEditorSelectionTests|ExternalDropActivatingWebViewTests|PiPPanelGeometryTests)'
+            for suite in "${suites[@]}"; do
+              swift test --skip-build --filter "${suite}"
+            done
             echo "::endgroup::"
           done

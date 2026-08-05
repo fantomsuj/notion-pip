@@ -30,8 +30,38 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Run Swift tests
-        run: swift test
+      - name: Run Swift tests without WebKit process state
+        run: >-
+          swift test
+          --skip
+          '(CaptureEditorFlowTests|CaptureEditorResourceTests|CaptureWebView.*Tests|ExternalDropActivatingWebViewTests|NotionEditorSelectionTests|NotionWebSessionTests|PiPChromeViewTests|PiPPanelGeometryTests|WebNavigationDestinationTests)'
+
+      - name: Run WebKit-dependent suites in isolated processes
+        run: |
+          suites=(
+            CaptureEditorFlowTests
+            CaptureEditorResourceTests
+            CaptureWebViewAutosaveTests
+            CaptureWebViewConflictTests
+            CaptureWebViewFocusTests
+            CaptureWebViewLifecycleTests
+            CaptureWebViewNavigationTests
+            CaptureWebViewRecoveryTests
+            CaptureWebViewRichTextTests
+            CaptureWebViewSlashMenuTests
+            CaptureWebViewToolbarTests
+            ExternalDropActivatingWebViewTests
+            NotionEditorSelectionTests
+            NotionWebSessionTests
+            PiPChromeViewTests
+            PiPPanelGeometryTests
+            WebNavigationDestinationTests
+          )
+          for suite in "${suites[@]}"; do
+            echo "::group::${suite}"
+            swift test --skip-build --filter "${suite}"
+            echo "::endgroup::"
+          done
 
       - name: Build release configuration
         if: github.event_name == 'push'
