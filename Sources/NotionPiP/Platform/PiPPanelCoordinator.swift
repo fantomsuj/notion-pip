@@ -10,6 +10,10 @@ protocol PiPPanelWindow: AnyObject {
     var onClose: (@MainActor () -> Void)? { get set }
     func present()
     func orderOut()
+    func dismissForStash(
+        toward side: PanelStashSide,
+        completion: @escaping @MainActor () -> Void
+    )
     func setFrame(_ frame: CGRect, display: Bool)
     func setFrame(_ frame: CGRect, display: Bool, animate: Bool)
 }
@@ -17,6 +21,16 @@ protocol PiPPanelWindow: AnyObject {
 extension PiPPanelWindow {
     func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
         setFrame(frame, display: display)
+    }
+}
+
+extension PiPPanelWindow {
+    func dismissForStash(
+        toward side: PanelStashSide,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        orderOut()
+        completion()
     }
 }
 
@@ -430,8 +444,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 
         stashedPanelFrame = panel.frame
         presentStashHandle(stashHandle, placement: placement)
-        pageLoader.panelDidHide()
-        panel.orderOut()
+        panel.dismissForStash(toward: placement.side) { [weak self] in
+            self?.pageLoader.panelDidHide()
+        }
         logger.notice("Panel stashed to screen edge")
         return true
     }
@@ -672,6 +687,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 }
 
 final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
+    private static let stashNudge: CGFloat = 16
+    private static let stashAnimationDuration: TimeInterval = 0.12
+
     var onClose: (@MainActor () -> Void)?
 
     override var canBecomeKey: Bool {
@@ -704,6 +722,36 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
             context.duration = 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             animator().setFrame(frame, display: display)
+        }
+    }
+
+    func dismissForStash(
+        toward side: PanelStashSide,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            orderOut()
+            completion()
+            return
+        }
+
+        let originalFrame = frame
+        let horizontalOffset = side == .left ? -Self.stashNudge : Self.stashNudge
+        let targetFrame = originalFrame.offsetBy(dx: horizontalOffset, dy: 0)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.stashAnimationDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().setFrame(targetFrame, display: true)
+            animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.orderOut(nil)
+                self.setFrame(originalFrame, display: false)
+                self.alphaValue = 1
+                completion()
+            }
         }
     }
 }

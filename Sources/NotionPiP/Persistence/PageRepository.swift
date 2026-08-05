@@ -177,7 +177,7 @@ actor PageRepository {
     }
 
     func pinnedPages() throws -> [StoredPageSnapshot] {
-        validPinnedPages()
+        policy.pinnedPages(from: validPinnedPages())
     }
 
     func recentPages() throws -> [StoredPageSnapshot] {
@@ -189,7 +189,7 @@ actor PageRepository {
 
     private func bootstrapActivePageIfNeeded() throws {
         guard try modelContext.fetch(FetchDescriptor<ActivePageModel>()).isEmpty,
-              let legacyPin = validPinnedPages().first
+              let legacyPin = policy.pinnedPages(from: validPinnedPages()).first
         else {
             return
         }

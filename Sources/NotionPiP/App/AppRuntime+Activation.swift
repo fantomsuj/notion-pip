@@ -30,7 +30,7 @@ extension AppRuntime {
             try quickCaptureShortcutRegistrar.register(shortcut: shortcut) { [weak self] in
                 self?.handleQuickCaptureShortcut()
             }
-            quickCaptureShortcut = shortcut
+            publishQuickCaptureShortcut(shortcut)
             quickCaptureShortcutStore.save(shortcut)
             return true
         } catch {
@@ -43,20 +43,15 @@ extension AppRuntime {
 
     func setQuickCapturePrefillsClipboard(_ enabled: Bool) {
         trustedCapturePreferenceStore.setPrefillsClipboard(enabled)
-        quickCapturePrefillsClipboard = enabled
+        publishQuickCapturePrefillsClipboard(enabled)
     }
 
     func setQuickCaptureInsertsAtNotionCursor(_ enabled: Bool) {
         trustedCapturePreferenceStore.setInsertsAtNotionCursor(enabled)
-        quickCaptureInsertsAtNotionCursor = enabled
+        publishQuickCaptureInsertsAtNotionCursor(enabled)
     }
 
     func registerQuickCaptureShortcut() { _ = applyQuickCaptureShortcut(quickCaptureShortcut) }
-
-    private func handleQuickCaptureShortcut() {
-        let prefill = quickCapturePrefillsClipboard ? pasteboard.readString() : nil
-        quickCaptureAction(prefill, quickCaptureInsertsAtNotionCursor)
-    }
 
     func setMenuBarIconVisibility(_ isVisible: Bool) {
         menuBarIconPreferenceStore.save(isVisible)

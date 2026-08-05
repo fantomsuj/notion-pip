@@ -44,11 +44,15 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(DesignTokens.Colors.secondaryText)
                     Toggle("Pre-fill Quick Capture from the clipboard", isOn: Binding(
                         get: { runtime.quickCapturePrefillsClipboard },
-                        set: runtime.setQuickCapturePrefillsClipboard
+                        set: { enabled in
+                            runtime.setQuickCapturePrefillsClipboard(enabled)
+                        }
                     ))
                     Toggle("Insert at the saved Notion cursor when possible", isOn: Binding(
                         get: { runtime.quickCaptureInsertsAtNotionCursor },
-                        set: runtime.setQuickCaptureInsertsAtNotionCursor
+                        set: { enabled in
+                            runtime.setQuickCaptureInsertsAtNotionCursor(enabled)
+                        }
                     ))
                     Text("Clipboard content is read only when you invoke Quick Capture. If the saved cursor is no longer valid, the content opens in Quick Capture instead.")
                         .font(.caption).foregroundStyle(DesignTokens.Colors.secondaryText)

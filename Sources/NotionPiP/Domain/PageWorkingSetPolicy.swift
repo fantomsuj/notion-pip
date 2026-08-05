@@ -1,5 +1,3 @@
-import Foundation
-
 struct PageWorkingSetMutation: Equatable, Sendable {
     let activePage: StoredPageSnapshot?
     let pinnedPages: [StoredPageSnapshot]
@@ -33,7 +31,7 @@ struct PageWorkingSetPolicy: Sendable {
     }
 
     func pinnedPages(from pages: [StoredPageSnapshot]) -> [StoredPageSnapshot] {
-        Array(orderedUnique(pages).prefix(pinLimit))
+        orderedUnique(pages)
     }
 
     func recentPages(
