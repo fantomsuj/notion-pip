@@ -149,6 +149,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         CaptureBridgeReply
     ) async throws -> Void
     private let conflictResolver: any CaptureConflictResolving
+    private let performanceSignposter: (any PerformanceSignposting)?
     private let scriptHandler: WeakScriptMessageHandler
     private let editorDocumentURL: URL
     private let resourceRootURL: URL
@@ -165,6 +166,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     private var terminationPersistenceTask: Task<Bool, Never>?
     private var isDisposed = false
     private var isRecoveringAfterRendererTermination = false
+    private var readyToEditToken: PerformanceIntervalToken?
 
     init(
         repository: CaptureRepository,
@@ -182,7 +184,8 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
             CaptureBridgeReply
         ) async throws -> Void = { _, _ in },
         conflictResolver: any CaptureConflictResolving = WebKitCaptureConflictResolver(),
-        editorResourceRoots: CaptureEditorResourceRoots? = nil
+        editorResourceRoots: CaptureEditorResourceRoots? = nil,
+        performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
         self.repository = repository
         self.draftID = draftID
@@ -194,6 +197,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         self.afterStashTransitionStep = afterStashTransitionStep
         self.afterStateTransitionCommit = afterStateTransitionCommit
         self.conflictResolver = conflictResolver
+        self.performanceSignposter = performanceSignposter
 
         let documentURL = editorResourceRoots.map(Self.editorURL(for:)) ?? Self.bundledEditorURL
         editorDocumentURL = documentURL
@@ -241,7 +245,9 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
               !draftID.isEmpty,
               let title = object["title"] as? String,
               let revision = object["revision"] as? Int,
-              let documentObject = object["document"],
+              let documentObject = object["document"] as? [String: Any],
+              documentObject["type"] as? String == "doc",
+              documentObject["content"] is [Any],
               JSONSerialization.isValidJSONObject(documentObject)
         else {
             throw CaptureConflictResolverError.invalidReply
@@ -250,7 +256,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         return CaptureEditorSnapshot(
             draftID: draftID,
             title: title,
-            document: document,
+            canonicalDocument: CanonicalCaptureDocument(trustingCanonicalData: document),
             revision: revision
         )
     }
@@ -297,24 +303,48 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
                 let snapshot = try await activeOrNewDraft()
                 status = .ready
                 isRecoveringAfterRendererTermination = false
+                performanceSignposter?.end(readyToEditToken, outcome: .success)
+                readyToEditToken = nil
                 return .success(id: id, result: .ready(snapshot))
 
             case let .changed(id, snapshot, expectedRevision):
                 status = .saving
+                let autosaveToken = performanceSignposter?.begin(.quickCaptureAutosave)
+                let autosaveMetadata = PerformanceMetadata(
+                    documentByteCount: snapshot.document.count
+                )
                 do {
+                    let mutation = try await mutation(snapshot, id: snapshot.draftID)
                     let saved = try await repository.saveDraft(
-                        try mutation(snapshot, id: snapshot.draftID),
+                        mutation,
                         expectedRevision: expectedRevision
                     )
                     status = .saved(revision: saved.revision)
                     conflict = nil
+                    performanceSignposter?.end(
+                        autosaveToken,
+                        outcome: .success,
+                        metadata: autosaveMetadata
+                    )
                     return .success(id: id, result: .changed(revision: saved.revision))
                 } catch let error as CaptureRepositoryError {
+                    performanceSignposter?.end(
+                        autosaveToken,
+                        outcome: .failure,
+                        metadata: autosaveMetadata
+                    )
                     return await repositoryFailure(
                         error,
                         id: id,
                         currentWork: snapshot
                     )
+                } catch {
+                    performanceSignposter?.end(
+                        autosaveToken,
+                        outcome: .failure,
+                        metadata: autosaveMetadata
+                    )
+                    throw error
                 }
 
             case let .save(id, snapshot, expectedRevision):
@@ -368,8 +398,16 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
                 )
             }
         } catch let error as CaptureRepositoryError {
+            if case .ready = request {
+                performanceSignposter?.end(readyToEditToken, outcome: .failure)
+                readyToEditToken = nil
+            }
             return await repositoryFailure(error, id: request.id, currentWork: nil)
         } catch {
+            if case .ready = request {
+                performanceSignposter?.end(readyToEditToken, outcome: .failure)
+                readyToEditToken = nil
+            }
             status = .failed("Could not persist this draft.")
             return .failure(
                 id: request.id,
@@ -495,9 +533,10 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         do {
             switch operation {
             case let .stash(snapshot, expectedRevision):
+                let canonicalDocument = try await canonicalDocument(for: snapshot)
                 guard let stored = try await repository.draft(id: snapshot.draftID),
                       stored.title == snapshot.title,
-                      stored.editorDocument == (try CaptureBridgeProtocol.canonicalDocument(snapshot.document))
+                      stored.editorDocument == canonicalDocument.data
                 else { return nil }
                 let next: CaptureEditorSnapshot
                 switch stored.disposition {
@@ -573,8 +612,9 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
 
         case .saveAsNew:
             let newID = draftID()
+            let mutation = try await mutation(snapshot, id: newID)
             let saved = try await repository.saveDraft(
-                try mutation(snapshot, id: newID),
+                mutation,
                 expectedRevision: 0
             )
             let bridge = try bridgeSnapshot(saved)
@@ -647,7 +687,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     }
 
     private func activeOrNewDraft() async throws -> CaptureEditorSnapshot {
-        if let active = try await repository.drafts().first(where: { $0.disposition == .active }) {
+        if let active = try await repository.activeDraft() {
             return try bridgeSnapshot(active)
         }
         if let activeDraftCreationTask {
@@ -687,15 +727,15 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
                 actual: stored.revision
             )
         }
-        let canonicalDocument = try CaptureBridgeProtocol.canonicalDocument(snapshot.document)
-        if stored.title == snapshot.title, stored.editorDocument == canonicalDocument {
+        let canonicalDocument = try await canonicalDocument(for: snapshot)
+        if stored.title == snapshot.title, stored.editorDocument == canonicalDocument.data {
             return stored
         }
         return try await repository.saveDraft(
             DraftMutation(
                 id: snapshot.draftID,
                 title: snapshot.title,
-                editorDocument: canonicalDocument,
+                canonicalEditorDocument: canonicalDocument,
                 sourceDocument: stored.sourceDocument,
                 disposition: stored.disposition
             ),
@@ -706,14 +746,14 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     private func persistTerminationSnapshot(
         _ snapshot: CaptureEditorSnapshot
     ) async throws {
-        let canonicalDocument = try CaptureBridgeProtocol.canonicalDocument(snapshot.document)
+        let canonicalDocument = try await canonicalDocument(for: snapshot)
         guard var stored = try await repository.draft(id: snapshot.draftID) else {
             throw CaptureRepositoryError.draftNotFound(snapshot.draftID)
         }
         guard stored.disposition != .abandoned else {
             throw CaptureRepositoryError.abandonedDraftImmutable
         }
-        if stored.title == snapshot.title, stored.editorDocument == canonicalDocument {
+        if stored.title == snapshot.title, stored.editorDocument == canonicalDocument.data {
             return
         }
 
@@ -728,7 +768,7 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
                 throw CaptureRepositoryError.draftNotFound(snapshot.draftID)
             }
             stored = latest
-            if stored.title == snapshot.title, stored.editorDocument == canonicalDocument {
+            if stored.title == snapshot.title, stored.editorDocument == canonicalDocument.data {
                 return
             }
             _ = try await saveTerminationSnapshot(
@@ -741,14 +781,14 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
 
     private func saveTerminationSnapshot(
         _ snapshot: CaptureEditorSnapshot,
-        canonicalDocument: Data,
+        canonicalDocument: CanonicalCaptureDocument,
         stored: CaptureDraftSnapshot
     ) async throws -> CaptureDraftSnapshot {
         try await repository.saveDraft(
             DraftMutation(
                 id: snapshot.draftID,
                 title: snapshot.title,
-                editorDocument: canonicalDocument,
+                canonicalEditorDocument: canonicalDocument,
                 sourceDocument: stored.sourceDocument,
                 disposition: stored.disposition
             ),
@@ -756,21 +796,33 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         )
     }
 
-    private func mutation(_ snapshot: CaptureEditorSnapshot, id: String) throws -> DraftMutation {
-        DraftMutation(
+    private func mutation(_ snapshot: CaptureEditorSnapshot, id: String) async throws -> DraftMutation {
+        let canonicalDocument = try await canonicalDocument(for: snapshot)
+        return DraftMutation(
             id: id,
             title: snapshot.title,
-            editorDocument: try CaptureBridgeProtocol.canonicalDocument(snapshot.document),
+            canonicalEditorDocument: canonicalDocument,
             sourceDocument: nil,
             disposition: .active
         )
+    }
+
+    private func canonicalDocument(
+        for snapshot: CaptureEditorSnapshot
+    ) async throws -> CanonicalCaptureDocument {
+        if let canonicalDocument = snapshot.canonicalDocument {
+            return canonicalDocument
+        }
+        return try await repository.canonicalCaptureDocument(snapshot.document)
     }
 
     private func bridgeSnapshot(_ snapshot: CaptureDraftSnapshot) throws -> CaptureEditorSnapshot {
         CaptureEditorSnapshot(
             draftID: snapshot.id,
             title: snapshot.title,
-            document: try CaptureBridgeProtocol.canonicalDocument(snapshot.editorDocument),
+            canonicalDocument: try CanonicalCaptureDocument(
+                validating: snapshot.editorDocument
+            ),
             revision: snapshot.revision
         )
     }
@@ -839,10 +891,16 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
 
     private func loadLocalEditor() {
         guard !isDisposed else { return }
+        if readyToEditToken != nil {
+            performanceSignposter?.end(readyToEditToken, outcome: .cancelled)
+        }
+        readyToEditToken = performanceSignposter?.begin(.quickCaptureReadyToEdit)
         guard editorDocumentURL.isFileURL,
               FileManager.default.fileExists(atPath: editorDocumentURL.path)
         else {
             status = .failed("The bundled editor could not be loaded.")
+            performanceSignposter?.end(readyToEditToken, outcome: .failure)
+            readyToEditToken = nil
             return
         }
         webView.loadFileURL(editorDocumentURL, allowingReadAccessTo: resourceRootURL)
@@ -861,6 +919,10 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
     func dispose() {
         guard !isDisposed else { return }
         isDisposed = true
+        if readyToEditToken != nil {
+            performanceSignposter?.end(readyToEditToken, outcome: .cancelled)
+        }
+        readyToEditToken = nil
         terminationPersistenceTask?.cancel()
         activeDraftCreationTask?.cancel()
         for transition in inFlightStateTransitions.values {

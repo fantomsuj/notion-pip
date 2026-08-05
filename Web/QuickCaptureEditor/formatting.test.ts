@@ -16,17 +16,13 @@ test("editor normalization returns a canonical empty ProseMirror document", () =
   });
 });
 
-test("editor normalization recursively orders attributes and removes undefined values", () => {
-  assert.deepEqual(
-    normalizeDocument({
-      content: [{ attrs: { z: 2, ignored: undefined, a: 1 }, type: "paragraph" }],
-      type: "doc",
-    }),
-    {
-      type: "doc",
-      content: [{ type: "paragraph", attrs: { a: 1, z: 2 } }],
-    },
-  );
+test("valid editor documents pass through without a recursive canonicalization copy", () => {
+  const document = {
+    content: [{ attrs: { z: 2, a: 1 }, type: "paragraph" }],
+    type: "doc",
+  };
+
+  assert.equal(normalizeDocument(document), document);
 });
 
 test("formatting state projects all supported active marks into a plain object", () => {
