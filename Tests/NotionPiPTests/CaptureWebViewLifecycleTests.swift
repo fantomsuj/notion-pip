@@ -7,6 +7,34 @@ import WebKit
 
 @MainActor
 final class CaptureWebViewLifecycleTests: XCTestCase {
+    func testDeinitDisposesBridgeFromRetainedWebView() async throws {
+        weak var weakSession: CaptureEditorSession?
+        var session: CaptureEditorSession? = CaptureEditorSession(
+            repository: try CaptureRepository(inMemory: true)
+        )
+        let webView = try XCTUnwrap(session?.webView)
+        weakSession = session
+        try await waitUntil { session?.status == .ready }
+        let bridgeWasInstalled = try await webView.callAsyncJavaScript(
+            "return typeof window.webkit?.messageHandlers?.captureBridge !== 'undefined'",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? Bool
+        XCTAssertEqual(bridgeWasInstalled, true)
+
+        session = nil
+
+        XCTAssertNil(weakSession)
+        let bridgeWasRemoved = try await webView.callAsyncJavaScript(
+            "return typeof window.webkit?.messageHandlers?.captureBridge === 'undefined'",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? Bool
+        XCTAssertEqual(bridgeWasRemoved, true)
+    }
+
     func testDisposeStopsLoadingTearsDownBridgeAndDoesNotRetainSession() async throws {
         weak var weakSession: CaptureEditorSession?
         var session: CaptureEditorSession? = CaptureEditorSession(

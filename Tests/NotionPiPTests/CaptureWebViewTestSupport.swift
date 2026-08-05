@@ -209,7 +209,7 @@ func waitForDraft(
         if let draft = try await repository.draft(id: id), condition(draft) {
             return draft
         }
-        try await waitForNextWebViewPoll()
+        try await Task.sleep(for: .milliseconds(20))
     }
     throw CaptureWebViewIntegrationError.timeout
 }
@@ -225,7 +225,7 @@ func waitUntil(
         guard clock.now < deadline else {
             throw CaptureWebViewIntegrationError.timeout
         }
-        try await waitForNextWebViewPoll()
+        try await Task.sleep(for: .milliseconds(20))
     }
 }
 
@@ -301,27 +301,13 @@ func waitForJavaScriptCondition(
             contentWorld: .page
         ) as? Bool
         if value == true { return }
-        try await waitForNextWebViewPoll()
+        try await Task.sleep(for: .milliseconds(20))
     }
     throw CaptureWebViewIntegrationError.timeout
 }
 
 enum CaptureWebViewIntegrationError: Error {
     case timeout
-}
-
-@MainActor
-private func waitForNextWebViewPoll() async throws {
-    do {
-        try await Task.sleep(for: .milliseconds(20))
-    } catch is CancellationError {
-        throw CancellationError()
-    } catch {
-        // WebKit teardown can transiently fail the clock continuation while a
-        // neighboring integration test releases its renderer. Keep polling the
-        // explicit readiness condition; the deadline still bounds the wait.
-        await Task.yield()
-    }
 }
 
 func normalizedDOMText(_ value: String?) -> String? {
