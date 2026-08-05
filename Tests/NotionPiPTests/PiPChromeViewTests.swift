@@ -45,7 +45,6 @@ final class PiPChromeViewTests: XCTestCase {
         let controller = TopControlsHoverController(revealDelay: .milliseconds(30))
 
         controller.setHovering(true)
-        try await Task.sleep(for: .milliseconds(10))
         controller.setHovering(false)
         try await Task.sleep(for: .milliseconds(40))
 
