@@ -58,6 +58,14 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(DesignTokens.Colors.secondaryText)
                 }
 
+                Section("Quick Copy") {
+                    Text(
+                        "Quick Copy uses Accessibility only while its bottom-left control is visibly on. Selected text is inserted at your saved Notion cursor, stays in memory only, and never changes the clipboard."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Colors.secondaryText)
+                }
+
                 Section("Menu Bar") {
                     Toggle(
                         "Show Notion PiP in the menu bar",

@@ -275,7 +275,67 @@ enum NotionEditorSelectionEvaluation: Equatable {
                   bubbles: true, inputType: 'insertText', data: payload.text,
                 }));
                 delete editable.__notionPiPSelectionToken;
-                return true;
+
+                const currentSelection = window.getSelection();
+                const currentActiveElement = document.activeElement;
+                const currentEditable = currentActiveElement instanceof Element
+                  ? currentActiveElement.closest('[contenteditable]')
+                  : null;
+                if (!currentSelection || currentSelection.rangeCount === 0 ||
+                    !currentSelection.anchorNode || !currentSelection.focusNode ||
+                    !(currentEditable instanceof Element) ||
+                    !currentEditable.isConnected || !currentEditable.isContentEditable) {
+                  return false;
+                }
+                const containsNode = (root, node) =>
+                  node === root || root.contains(
+                    node.nodeType === Node.ELEMENT_NODE ? node : node.parentNode
+                  );
+                if (!containsNode(currentEditable, currentSelection.anchorNode) ||
+                    !containsNode(currentEditable, currentSelection.focusNode)) {
+                  return false;
+                }
+                const pathFrom = (root, node) => {
+                  const path = [];
+                  let current = node;
+                  while (current && current !== root) {
+                    const parent = current.parentNode;
+                    if (!parent) return null;
+                    const index = Array.prototype.indexOf.call(parent.childNodes, current);
+                    if (index < 0) return null;
+                    path.push(index);
+                    current = parent;
+                  }
+                  return current === root ? path.reverse() : null;
+                };
+                const nextEditablePath = pathFrom(
+                  document.documentElement,
+                  currentEditable
+                );
+                const nextAnchorPath = pathFrom(
+                  currentEditable,
+                  currentSelection.anchorNode
+                );
+                const nextFocusPath = pathFrom(
+                  currentEditable,
+                  currentSelection.focusNode
+                );
+                if (!nextEditablePath || !nextAnchorPath || !nextFocusPath) return false;
+                const nextToken = globalThis.crypto?.randomUUID?.() ??
+                  `notion-pip-${Date.now()}-${Math.random()}`;
+                Object.defineProperty(currentEditable, '__notionPiPSelectionToken', {
+                  configurable: true,
+                  value: nextToken,
+                });
+                return {
+                  version: 1,
+                  token: nextToken,
+                  editablePath: nextEditablePath,
+                  anchorPath: nextAnchorPath,
+                  anchorOffset: currentSelection.anchorOffset,
+                  focusPath: nextFocusPath,
+                  focusOffset: currentSelection.focusOffset,
+                };
               } catch (_) {
                 delete editable.__notionPiPSelectionToken;
                 return false;
