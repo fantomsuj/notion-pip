@@ -817,6 +817,68 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertFalse(session.isTypingInPage)
     }
 
+    func testCurrentWebViewPublishesCaretGeometryAndRejectsStaleGeneration() throws {
+        let session = NotionWebSession(loadRequest: { _, _ in })
+        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let webView = try XCTUnwrap(session.webView)
+        let currentGeometry = NotionEditorCaretGeometry(
+            left: 20,
+            top: 30,
+            bottom: 50,
+            viewportWidth: 800,
+            viewportHeight: 600
+        )
+
+        session.handleEditorCaretUpdate(.visible(currentGeometry), from: webView)
+        session.handleEditorCaretUpdate(.hidden, from: webView, generation: 0)
+
+        XCTAssertEqual(session.editorCaretGeometry, currentGeometry)
+    }
+
+    func testRetiredWebViewCannotPublishCaretGeometry() throws {
+        let session = NotionWebSession(loadRequest: { _, _ in })
+        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let retiredWebView = try XCTUnwrap(session.webView)
+        session.webViewWebContentProcessDidTerminate(retiredWebView)
+
+        session.handleEditorCaretUpdate(
+            .visible(
+                NotionEditorCaretGeometry(
+                    left: 20,
+                    top: 30,
+                    bottom: 50,
+                    viewportWidth: 800,
+                    viewportHeight: 600
+                )
+            ),
+            from: retiredWebView
+        )
+
+        XCTAssertNil(session.editorCaretGeometry)
+    }
+
+    func testInteractionInvalidationClearsCaretGeometry() throws {
+        let session = NotionWebSession(loadRequest: { _, _ in })
+        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let webView = try XCTUnwrap(session.webView)
+        session.handleEditorCaretUpdate(
+            .visible(
+                NotionEditorCaretGeometry(
+                    left: 20,
+                    top: 30,
+                    bottom: 50,
+                    viewportWidth: 800,
+                    viewportHeight: 600
+                )
+            ),
+            from: webView
+        )
+
+        session.webView(webView, didStartProvisionalNavigation: nil)
+
+        XCTAssertNil(session.editorCaretGeometry)
+    }
+
     func testRendererTeardownRemovesBridgeAndObservationExactlyOnce() throws {
         var bridgeRemovalCount = 0
         var observationInvalidationCount = 0

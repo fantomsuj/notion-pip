@@ -90,6 +90,15 @@ private protocol NotionScrollHandling: AnyObject {
 }
 
 @MainActor
+private protocol NotionEditorCaretHandling: AnyObject {
+    func handleEditorCaretUpdate(
+        _ update: NotionEditorCaretUpdate,
+        from webView: WKWebView?,
+        generation: UInt
+    )
+}
+
+@MainActor
 private final class WeakNotionEditorActivityMessageHandler: NSObject, WKScriptMessageHandler {
     weak var delegate: (any NotionEditorActivityHandling)?
     let generation: UInt
@@ -136,6 +145,35 @@ private final class WeakNotionScrollMessageHandler: NSObject, WKScriptMessageHan
             return
         }
         delegate?.handleScrollSnapshot(snapshot)
+    }
+}
+
+@MainActor
+private final class WeakNotionEditorCaretMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var delegate: (any NotionEditorCaretHandling)?
+    let generation: UInt
+
+    init(generation: UInt) {
+        self.generation = generation
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard let update = NotionEditorCaretBridge.update(
+            from: message.body,
+            isMainFrame: message.frameInfo.isMainFrame,
+            scheme: message.frameInfo.securityOrigin.protocol,
+            host: message.frameInfo.securityOrigin.host
+        ) else {
+            return
+        }
+        delegate?.handleEditorCaretUpdate(
+            update,
+            from: message.webView,
+            generation: generation
+        )
     }
 }
 
@@ -213,13 +251,14 @@ struct NotionInteractionStateCache {
 
 @MainActor
 final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
-    NotionEditorActivityHandling, NotionScrollHandling
+    NotionEditorActivityHandling, NotionScrollHandling, NotionEditorCaretHandling
 {
     static let warmRetentionInterval = NotionWebLifecycleController.defaultWarmRetentionInterval
 
     @Published private(set) var webView: WKWebView?
     var state: NotionWebSessionState { lifecycleController.state }
     @Published private(set) var isTypingInPage = false
+    @Published private(set) var editorCaretGeometry: NotionEditorCaretGeometry?
     private(set) var activePage: NotionPageReference?
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
     private let openURL: @MainActor (URL) -> Void
@@ -240,6 +279,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let performanceSignposter: (any PerformanceSignposting)?
     private var editorActivityHandler: WeakNotionEditorActivityMessageHandler?
     private var scrollHandler: WeakNotionScrollMessageHandler?
+    private var editorCaretHandler: WeakNotionEditorCaretMessageHandler?
     private var urlObservation: NSKeyValueObservation?
     private var webViewGeneration: UInt = 0
     private var lifecycleObservation: AnyCancellable?
@@ -366,6 +406,10 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
                 forName: NotionScrollBridge.handlerName,
                 contentWorld: .page
             )
+            $0.removeScriptMessageHandler(
+                forName: NotionEditorCaretBridge.handlerName,
+                contentWorld: .page
+            )
             $0.removeAllUserScripts()
         },
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
@@ -407,13 +451,17 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         activityHandler.delegate = self
         let scrollHandler = WeakNotionScrollMessageHandler()
         scrollHandler.delegate = self
+        let caretHandler = WeakNotionEditorCaretMessageHandler(generation: generation)
+        caretHandler.delegate = self
         editorActivityHandler = activityHandler
         self.scrollHandler = scrollHandler
+        editorCaretHandler = caretHandler
         self.webView = webView
         Self.installBridges(
             in: webView.configuration.userContentController,
             activityHandler: activityHandler,
-            scrollHandler: scrollHandler
+            scrollHandler: scrollHandler,
+            caretHandler: caretHandler
         )
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -578,6 +626,31 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         latestScrollSnapshots[loadedPageID] = snapshot
     }
 
+    func handleEditorCaretUpdate(
+        _ update: NotionEditorCaretUpdate,
+        from webView: WKWebView?
+    ) {
+        handleEditorCaretUpdate(update, from: webView, generation: webViewGeneration)
+    }
+
+    func handleEditorCaretUpdate(
+        _ update: NotionEditorCaretUpdate,
+        from webView: WKWebView?,
+        generation: UInt
+    ) {
+        guard let webView, isCurrent(webView, generation: generation) else {
+            return
+        }
+        switch update {
+        case let .visible(geometry):
+            if editorCaretGeometry != geometry {
+                editorCaretGeometry = geometry
+            }
+        case .hidden:
+            clearEditorCaretGeometry()
+        }
+    }
+
     func evictInteractionSnapshots(retaining pageIDs: Set<String>) {
         let retained = Set(pageIDs.map { $0.lowercased() })
         interactionStates.retain(keys: retained)
@@ -643,6 +716,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         editorActivityHandler = nil
         scrollHandler?.delegate = nil
         scrollHandler = nil
+        editorCaretHandler?.delegate = nil
+        editorCaretHandler = nil
         webViewGeneration &+= 1
         self.webView = nil
         loadedPageID = nil
@@ -702,6 +777,13 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private func invalidateEditorSelection() {
         selectionCaptureGeneration &+= 1
         savedEditorSelection = nil
+        clearEditorCaretGeometry()
+    }
+
+    private func clearEditorCaretGeometry() {
+        if editorCaretGeometry != nil {
+            editorCaretGeometry = nil
+        }
     }
 
     private func invalidateEditorSelectionAndSuspendIfHidden() {
@@ -844,7 +926,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private static func installBridges(
         in userContentController: WKUserContentController,
         activityHandler: WeakNotionEditorActivityMessageHandler,
-        scrollHandler: WeakNotionScrollMessageHandler
+        scrollHandler: WeakNotionScrollMessageHandler,
+        caretHandler: WeakNotionEditorCaretMessageHandler
     ) {
         userContentController.addUserScript(
             WKUserScript(
@@ -869,6 +952,18 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             scrollHandler,
             contentWorld: .page,
             name: NotionScrollBridge.handlerName
+        )
+        userContentController.addUserScript(
+            WKUserScript(
+                source: NotionEditorCaretBridge.script,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
+        userContentController.add(
+            caretHandler,
+            contentWorld: .page,
+            name: NotionEditorCaretBridge.handlerName
         )
     }
 
