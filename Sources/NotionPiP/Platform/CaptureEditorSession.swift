@@ -221,6 +221,10 @@ final class CaptureEditorSession: NSObject, ObservableObject, CaptureScriptMessa
         loadLocalEditor()
     }
 
+    isolated deinit {
+        dispose()
+    }
+
     func handleScriptMessage(_ request: CaptureBridgeRequest) async -> CaptureBridgeReply {
         await handle(request)
     }

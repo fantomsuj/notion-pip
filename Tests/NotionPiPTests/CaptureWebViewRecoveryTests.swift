@@ -28,7 +28,11 @@ final class CaptureWebViewRecoveryTests: XCTestCase {
                 }
             }
         )
+        defer { session.dispose() }
         try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return window.NotionPiPBridge?.snapshot().draftID === 'renderer-recovery-draft'"
+        }
         XCTAssertEqual(readyRequestCount, 1)
 
         session.webViewWebContentProcessDidTerminate(session.webView)
@@ -36,6 +40,9 @@ final class CaptureWebViewRecoveryTests: XCTestCase {
 
         XCTAssertEqual(session.status, .loading)
         try await waitUntil { session.status == .ready }
+        try await waitForJavaScriptCondition(in: session.webView) {
+            "return window.NotionPiPBridge?.snapshot().draftID === 'renderer-recovery-draft'"
+        }
         let snapshot = try await session.latestSnapshot()
 
         XCTAssertEqual(readyRequestCount, 2)
@@ -53,6 +60,7 @@ final class CaptureWebViewRecoveryTests: XCTestCase {
             repository: repository,
             draftID: { "monotonic-draft" }
         )
+        defer { session.dispose() }
         try await waitUntil { session.status == .ready }
         _ = try await editEditor(
             title: "Newer live title",
@@ -105,6 +113,7 @@ final class CaptureWebViewRecoveryTests: XCTestCase {
 
         let reopened = try CaptureRepository(storeURL: storeURL)
         let relaunched = CaptureEditorSession(repository: reopened, draftID: { "unused" })
+        defer { relaunched.dispose() }
         try await waitUntil { relaunched.status == .ready }
         let expectedRevision = stashedRevision
         let restoreValue = try await relaunched.webView.callAsyncJavaScript(

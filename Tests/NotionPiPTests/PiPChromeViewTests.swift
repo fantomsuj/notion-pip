@@ -26,13 +26,19 @@ final class PiPChromeViewTests: XCTestCase {
         XCTAssertEqual(stashCount, 1)
     }
 
-    func testTopControlsAppearOnlyAfterPointerRemainsAtTopEdge() async throws {
-        let controller = TopControlsHoverController(revealDelay: .milliseconds(30))
+    func testTopControlsAppearOnlyAfterPointerRemainsAtTopEdge() {
+        let scheduler = TestTopControlsHoverScheduler()
+        let controller = TopControlsHoverController(
+            revealDelay: .milliseconds(250),
+            scheduler: scheduler.schedule
+        )
 
         controller.setHovering(true)
 
         XCTAssertFalse(controller.isHovering)
-        try await Task.sleep(for: .milliseconds(40))
+        scheduler.advance(by: .milliseconds(249))
+        XCTAssertFalse(controller.isHovering)
+        scheduler.advance(by: .milliseconds(1))
         XCTAssertTrue(controller.isHovering)
     }
 
@@ -41,44 +47,53 @@ final class PiPChromeViewTests: XCTestCase {
         XCTAssertEqual(PiPChromeView.topControlsRevealHeight, 8)
     }
 
-    func testTopControlsDoNotAppearWhenPointerLeavesBeforeRevealDelay() async throws {
-        let controller = TopControlsHoverController(revealDelay: .milliseconds(30))
+    func testTopControlsDoNotAppearWhenPointerLeavesBeforeRevealDelay() {
+        let scheduler = TestTopControlsHoverScheduler()
+        let controller = TopControlsHoverController(
+            revealDelay: .milliseconds(250),
+            scheduler: scheduler.schedule
+        )
 
         controller.setHovering(true)
-        try await Task.sleep(for: .milliseconds(10))
+        scheduler.advance(by: .milliseconds(249))
         controller.setHovering(false)
-        try await Task.sleep(for: .milliseconds(40))
+        scheduler.advance(by: .milliseconds(1))
 
         XCTAssertFalse(controller.isHovering)
     }
 
-    func testTopControlsDismissShortlyAfterPointerLeaves() async throws {
+    func testTopControlsDismissShortlyAfterPointerLeaves() {
+        let scheduler = TestTopControlsHoverScheduler()
         let controller = TopControlsHoverController(
-            revealDelay: .milliseconds(10),
-            dismissalDelay: .milliseconds(10)
+            revealDelay: .milliseconds(250),
+            dismissalDelay: .milliseconds(500),
+            scheduler: scheduler.schedule
         )
 
         controller.setHovering(true)
-        try await Task.sleep(for: .milliseconds(20))
+        scheduler.advance(by: .milliseconds(250))
         controller.setHovering(false)
 
-        try await Task.sleep(for: .milliseconds(30))
-
+        scheduler.advance(by: .milliseconds(499))
+        XCTAssertTrue(controller.isHovering)
+        scheduler.advance(by: .milliseconds(1))
         XCTAssertFalse(controller.isHovering)
     }
 
-    func testTopControlsStayVisibleWhenPointerReentersBeforeDismissal() async throws {
+    func testTopControlsStayVisibleWhenPointerReentersBeforeDismissal() {
+        let scheduler = TestTopControlsHoverScheduler()
         let controller = TopControlsHoverController(
-            revealDelay: .milliseconds(10),
-            dismissalDelay: .milliseconds(30)
+            revealDelay: .milliseconds(250),
+            dismissalDelay: .milliseconds(500),
+            scheduler: scheduler.schedule
         )
 
         controller.setHovering(true)
-        try await Task.sleep(for: .milliseconds(20))
+        scheduler.advance(by: .milliseconds(250))
         controller.setHovering(false)
-        try await Task.sleep(for: .milliseconds(10))
+        scheduler.advance(by: .milliseconds(499))
         controller.setHovering(true)
-        try await Task.sleep(for: .milliseconds(40))
+        scheduler.advance(by: .milliseconds(1))
 
         XCTAssertTrue(controller.isHovering)
     }
@@ -124,5 +139,48 @@ final class PiPChromeViewTests: XCTestCase {
         chrome.enterOfflineCaptureMode()
 
         XCTAssertEqual(quickCaptureCount, 1)
+    }
+}
+
+@MainActor
+private final class TestTopControlsHoverScheduler {
+    private final class CancellationState {
+        var isCancelled = false
+    }
+
+    private struct ScheduledOperation {
+        let deadline: Duration
+        let cancellationState: CancellationState
+        let operation: @MainActor () -> Void
+    }
+
+    private var elapsed: Duration = .zero
+    private var scheduledOperations: [ScheduledOperation] = []
+
+    func schedule(
+        after delay: Duration,
+        operation: @escaping @MainActor () -> Void
+    ) -> TopControlsHoverCancellation {
+        let cancellationState = CancellationState()
+        scheduledOperations.append(
+            ScheduledOperation(
+                deadline: elapsed + delay,
+                cancellationState: cancellationState,
+                operation: operation
+            )
+        )
+        return { cancellationState.isCancelled = true }
+    }
+
+    func advance(by duration: Duration) {
+        elapsed += duration
+        let ready = scheduledOperations
+            .filter { $0.deadline <= elapsed }
+            .sorted { $0.deadline < $1.deadline }
+        scheduledOperations.removeAll { $0.deadline <= elapsed }
+
+        for scheduled in ready where !scheduled.cancellationState.isCancelled {
+            scheduled.operation()
+        }
     }
 }
