@@ -53,11 +53,6 @@ extension AppRuntime {
 
     func registerQuickCaptureShortcut() { _ = applyQuickCaptureShortcut(quickCaptureShortcut) }
 
-    private func handleQuickCaptureShortcut() {
-        let prefill = quickCapturePrefillsClipboard ? pasteboard.readString() : nil
-        quickCaptureAction(prefill, quickCaptureInsertsAtNotionCursor)
-    }
-
     func setMenuBarIconVisibility(_ isVisible: Bool) {
         menuBarIconPreferenceStore.save(isVisible)
         publishMenuBarIconVisibility(isVisible)

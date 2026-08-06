@@ -266,6 +266,11 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         quickCaptureInsertsAtNotionCursor = enabled
     }
 
+    func handleQuickCaptureShortcut() {
+        let prefill = quickCapturePrefillsClipboard ? pasteboard.readString() : nil
+        quickCaptureAction(prefill, quickCaptureInsertsAtNotionCursor)
+    }
+
     func publishMenuBarIconVisibility(_ isVisible: Bool) {
         savedMenuBarIconVisibility = isVisible
         updateEffectiveMenuBarIconVisibility()

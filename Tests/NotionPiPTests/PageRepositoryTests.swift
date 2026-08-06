@@ -140,6 +140,74 @@ final class PageRepositoryTests: XCTestCase {
         XCTAssertTrue(workingSet.recentPages.isEmpty)
     }
 
+    func testBootstrapActivePageUsesNewestLegacyPin() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let older = try page(number: 1)
+        let newer = try page(number: 0)
+        context.insert(
+            PinnedPageModel(
+                stableID: newer.pageID,
+                canonicalURL: newer.canonicalURL.absoluteString,
+                displayTitle: "Newer",
+                pinnedAt: Date(timeIntervalSince1970: 2_000)
+            )
+        )
+        context.insert(
+            PinnedPageModel(
+                stableID: older.pageID,
+                canonicalURL: older.canonicalURL.absoluteString,
+                displayTitle: "Older",
+                pinnedAt: Date(timeIntervalSince1970: 1_000)
+            )
+        )
+        try context.save()
+
+        let repository = PageRepository(container: container)
+        let workingSet = try await repository.workingSet()
+        let pins = try await repository.pinnedPages()
+
+        XCTAssertEqual(workingSet.activePage?.pageID, newer.pageID)
+        XCTAssertEqual(pins.map(\.pageID), [newer.pageID, older.pageID])
+    }
+
+    func testWorkingSetReadDoesNotDeleteOverflowLegacyPinsOrRestorations() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let pages = try (0..<8).map(page(number:))
+        for (index, page) in pages.enumerated() {
+            let timestamp = Date(timeIntervalSince1970: TimeInterval(index + 1))
+            context.insert(
+                PinnedPageModel(
+                    stableID: page.pageID,
+                    canonicalURL: page.canonicalURL.absoluteString,
+                    displayTitle: page.displayTitle,
+                    pinnedAt: timestamp
+                )
+            )
+            context.insert(
+                PageRestorationModel(
+                    stableID: page.pageID,
+                    lastURL: page.canonicalURL.absoluteString,
+                    scrollX: 0,
+                    scrollY: Double(index),
+                    scrollProgress: 0.5,
+                    updatedAt: timestamp
+                )
+            )
+        }
+        try context.save()
+
+        let workingSet = try await PageRepository(container: container).workingSet()
+        let persistedRestorations = try ModelContext(container).fetch(
+            FetchDescriptor<PageRestorationModel>()
+        )
+
+        XCTAssertEqual(workingSet.pinnedPages.count, 8)
+        XCTAssertEqual(workingSet.restorations.count, 8)
+        XCTAssertEqual(persistedRestorations.count, 8)
+    }
+
     func testCaptureRepositoryAcceptsSharedContainer() throws {
         let repository = CaptureRepository(container: try makeContainer())
 

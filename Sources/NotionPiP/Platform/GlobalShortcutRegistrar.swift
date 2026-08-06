@@ -113,10 +113,25 @@ final class CarbonGlobalShortcutRegistrar: GlobalShortcutRegistering {
 }
 
 @MainActor
-private final class CarbonEventHotKeyEngine: GlobalShortcutRegistrationEngine {
+final class CarbonEventHotKeyEngine: GlobalShortcutRegistrationEngine {
+    private static let signature: OSType = 0x4E50_4950
+    private static var nextRegistrationID: UInt32 = 1
+
+    let registrationID: EventHotKeyID
     private var eventHandlerReference: EventHandlerRef?
     private var hotKeyReference: EventHotKeyRef?
     private var eventHandler: (@MainActor (GlobalShortcutEvent) -> Void)?
+
+    init() {
+        registrationID = EventHotKeyID(
+            signature: Self.signature,
+            id: Self.nextRegistrationID
+        )
+        Self.nextRegistrationID &+= 1
+        if Self.nextRegistrationID == 0 {
+            Self.nextRegistrationID = 1
+        }
+    }
 
     func install(shortcut: GlobalShortcut, handler: @escaping @MainActor () -> Void) throws {
         try install(shortcut: shortcut) { event in
@@ -149,11 +164,10 @@ private final class CarbonEventHotKeyEngine: GlobalShortcutRegistrationEngine {
             throw GlobalShortcutRegistrationError.eventHandler(eventHandlerStatus)
         }
 
-        let hotKeyID = EventHotKeyID(signature: 0x4E50_4950, id: 1)
         let hotKeyStatus = RegisterEventHotKey(
             shortcut.keyCode,
             shortcut.modifiers,
-            hotKeyID,
+            registrationID,
             GetApplicationEventTarget(),
             0,
             &hotKeyReference
@@ -180,9 +194,27 @@ private final class CarbonEventHotKeyEngine: GlobalShortcutRegistrationEngine {
         eventHandler?(event)
     }
 
+    func accepts(eventHotKeyID: EventHotKeyID) -> Bool {
+        eventHotKeyID.signature == registrationID.signature
+            && eventHotKeyID.id == registrationID.id
+    }
+
     private static let hotKeyEventHandler: EventHandlerUPP = { _, eventReference, userData in
         guard let eventReference, let userData else { return OSStatus(eventNotHandledErr) }
         let engine = Unmanaged<CarbonEventHotKeyEngine>.fromOpaque(userData).takeUnretainedValue()
+        var eventHotKeyID = EventHotKeyID()
+        let identityStatus = GetEventParameter(
+            eventReference,
+            EventParamName(kEventParamDirectObject),
+            EventParamType(typeEventHotKeyID),
+            nil,
+            MemoryLayout<EventHotKeyID>.size,
+            nil,
+            &eventHotKeyID
+        )
+        guard identityStatus == noErr, engine.accepts(eventHotKeyID: eventHotKeyID) else {
+            return OSStatus(eventNotHandledErr)
+        }
         let event: GlobalShortcutEvent
         switch GetEventKind(eventReference) {
         case UInt32(kEventHotKeyPressed): event = .pressed
