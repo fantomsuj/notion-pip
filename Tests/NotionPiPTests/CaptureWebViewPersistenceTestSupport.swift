@@ -127,7 +127,7 @@ func stashRealWebKitDraft(at storeURL: URL) async throws -> Int {
         }
         XCTAssertEqual(stored.title, "Real WebKit")
         stashedRevision = stored.revision
-        liveSession.tearDownBridge()
+        liveSession.dispose()
         session = nil
     }
     XCTAssertNil(releasedSession)

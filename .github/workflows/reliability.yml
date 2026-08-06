@@ -1,0 +1,61 @@
+name: Nightly reliability
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "37 9 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-reliability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repeated-swift-tests:
+    name: Repeated AppKit and WebKit tests
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Build repeated suites
+        run: swift test --filter PiPChromeViewTests
+
+      - name: Repeat historically timing-sensitive suites 20 times
+        run: |
+          suites=(
+            CaptureEditorFlowTests
+            CaptureEditorResourceTests
+            CaptureWebViewAutosaveTests
+            CaptureWebViewConflictTests
+            CaptureWebViewFocusTests
+            CaptureWebViewLifecycleTests
+            CaptureWebViewNavigationTests
+            CaptureWebViewRecoveryTests
+            CaptureWebViewRichTextTests
+            CaptureWebViewSlashMenuTests
+            CaptureWebViewToolbarTests
+            ExternalDropActivatingWebViewTests
+            NotionEditorSelectionTests
+            NotionWebSessionTests
+            PiPChromeViewTests
+            PiPPanelGeometryTests
+            WebNavigationDestinationTests
+          )
+          for iteration in $(seq 1 20); do
+            echo "::group::Reliability iteration ${iteration}/20"
+            for suite in "${suites[@]}"; do
+              swift test --skip-build --filter "${suite}"
+            done
+            echo "::endgroup::"
+          done
