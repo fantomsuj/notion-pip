@@ -120,6 +120,34 @@ final class PanelFramePolicyTests: XCTestCase {
         XCTAssertEqual(PanelFramePolicy.clamped(restoredFrame, visibleFrames: []), restoredFrame)
     }
 
+    func testRestoredContentSizeUsesFallbackForDisplayFillingPersistence() {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+
+        let restored = PanelFramePolicy.restoredContentSize(
+            savedWorkingContentSize: CGSize(width: 1_000, height: 768),
+            restoredFrame: visibleFrame,
+            visibleFrames: [visibleFrame],
+            fallbackContentSize: CGSize(width: 520, height: 680),
+            frameForContentRect: frameWithTitleBar
+        )
+
+        XCTAssertEqual(restored, CGSize(width: 520, height: 680))
+    }
+
+    func testRestoredContentSizePrefersFloatingSizeOverDisplayFillingFrame() {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+
+        let restored = PanelFramePolicy.restoredContentSize(
+            savedWorkingContentSize: CGSize(width: 520, height: 680),
+            restoredFrame: visibleFrame,
+            visibleFrames: [visibleFrame],
+            fallbackContentSize: CGSize(width: 400, height: 500),
+            frameForContentRect: frameWithTitleBar
+        )
+
+        XCTAssertEqual(restored, CGSize(width: 520, height: 680))
+    }
+
     func testInitialFrameUsesSecondaryDisplayContainingPointer() {
         let screens = [
             ScreenGeometry(

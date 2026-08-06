@@ -60,6 +60,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
     let pageURLInputPresenter: any PageURLInputPresenting
     let pageRepository: (any PageWorkingSetPersisting)?
+    let automaticSettingsPresentationAllowed: @MainActor () -> Bool
     private let captureRepository: CaptureRepository?
     private let deliveryScheduler: DeliveryScheduler?
     private let connectionController: NotionConnectionController
@@ -98,7 +99,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         },
         destinationSearchDebounceDuration: Duration = .milliseconds(300),
         shortcutHoldDuration: Duration = .milliseconds(300),
-        initialServiceHealth: ServiceHealthState = .healthy
+        initialServiceHealth: ServiceHealthState = .healthy,
+        automaticSettingsPresentationAllowed: @escaping @MainActor () -> Bool = { true }
     ) {
         let inputState = PageURLInputState()
         let submissionRelay = PageURLInputSubmissionRelay()
@@ -122,6 +124,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.pasteboard = pasteboard
         self.menuBarIconPreferenceStore = menuBarIconPreferenceStore
         self.pageRepository = pageRepository
+        self.automaticSettingsPresentationAllowed = automaticSettingsPresentationAllowed
         self.captureRepository = captureRepository
         self.deliveryScheduler = deliveryScheduler
         self.shortcutHoldDuration = shortcutHoldDuration

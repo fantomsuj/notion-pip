@@ -74,6 +74,7 @@ extension AppRuntime {
     private func showSettingsIfRestoreStillEmpty(expectedGeneration: Int) {
         guard expectedGeneration == pageSelectionGeneration,
               activePage == nil,
+              automaticSettingsPresentationAllowed(),
               !Task.isCancelled
         else {
             return

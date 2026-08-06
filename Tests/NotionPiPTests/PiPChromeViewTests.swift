@@ -115,6 +115,7 @@ final class PiPChromeViewTests: XCTestCase {
         let commandModel = AppCommandModel(
             quickCapture: { quickCaptureCount += 1 },
             settings: {},
+            gettingStarted: {},
             quit: {}
         )
         let session = NotionWebSession()

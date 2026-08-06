@@ -164,33 +164,33 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         let savedWorkingContentSize = panelSizeController?
             .preferences.lastExplicitWorkingContentSize?.cgSize
         var initialPreferredContentSize: CGSize?
-        if didRestoreAutosavedFrame, let savedWorkingContentSize {
+        if didRestoreAutosavedFrame {
+            let fallbackScreenSize = PanelFramePolicy.targetVisibleFrame(
+                for: panel.frame,
+                from: visibleFrames
+            )?.size ?? NSScreen.main?.visibleFrame.size
+                ?? CGSize(width: 1_440, height: 900)
+            let fallbackContentSize = panelSizeController?
+                .preferences.defaultPreset.contentSize(
+                    forScreenSize: fallbackScreenSize
+                ).cgSize ?? policy.initialContentSize
+            let restoredContentSize = PanelFramePolicy.restoredContentSize(
+                savedWorkingContentSize: savedWorkingContentSize,
+                restoredFrame: panel.frame,
+                visibleFrames: visibleFrames,
+                fallbackContentSize: fallbackContentSize,
+                frameForContentRect: frameForContentRect,
+                contentRectForFrameRect: contentRectForFrameRect
+            )
             let placement = PanelFramePolicy.placement(
-                preferredContentSize: savedWorkingContentSize,
+                preferredContentSize: restoredContentSize,
                 anchoredTo: panel.frame,
                 visibleFrames: visibleFrames,
                 minimumContentSize: policy.minimumContentSize,
                 frameForContentRect: frameForContentRect
             )
             panel.setFrame(placement.frame, display: false)
-            initialPreferredContentSize = savedWorkingContentSize
-        } else if didRestoreAutosavedFrame {
-            let minimumFrameSize = PanelFramePolicy.frameSize(
-                forContentSize: policy.minimumContentSize,
-                frameForContentRect: frameForContentRect
-            )
-            panel.setFrame(
-                PanelFramePolicy.clamped(
-                    panel.frame,
-                    visibleFrames: visibleFrames,
-                    minimumSize: minimumFrameSize
-                ),
-                display: false
-            )
-            initialPreferredContentSize = PanelFramePolicy.contentSize(
-                forFrame: panel.frame,
-                contentRectForFrameRect: contentRectForFrameRect
-            )
+            initialPreferredContentSize = restoredContentSize
         }
         let initialFrameProvider: (@MainActor () -> CGRect?)?
         if didRestoreAutosavedFrame {
@@ -612,6 +612,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     }
 
     private func recordManualResizeCompletion() {
+        guard !panel.isExpanded else {
+            logger.debug("Skipped expanded panel resize completion")
+            return
+        }
         let contentSize = currentPanelContentSize
         preferredWorkingContentSize = contentSize
         preservedFrameAnchor = nil

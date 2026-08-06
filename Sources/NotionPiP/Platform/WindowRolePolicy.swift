@@ -2,6 +2,7 @@ import AppKit
 
 @MainActor
 enum WindowRole {
+    case onboarding
     case quickCapture
     case settings
     case pinPage
@@ -10,6 +11,15 @@ enum WindowRole {
 
     var policy: WindowRolePolicy {
         switch self {
+        case .onboarding:
+            WindowRolePolicy(
+                kind: .keyWindow,
+                styleMask: [.titled, .closable, .resizable],
+                level: .normal,
+                collectionBehavior: [.moveToActiveSpace, .fullScreenAuxiliary],
+                initialContentSize: CGSize(width: 760, height: 520),
+                minimumContentSize: CGSize(width: 680, height: 480)
+            )
         case .quickCapture:
             WindowRolePolicy(
                 kind: .keyWindow,
