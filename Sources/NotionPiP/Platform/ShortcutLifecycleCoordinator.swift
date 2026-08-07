@@ -1,6 +1,11 @@
 import AppKit
 import Foundation
 
+enum ShortcutRecoveryTrigger: Equatable, Sendable {
+    case lifecycleEvent
+    case retry
+}
+
 @MainActor
 protocol ShortcutRecoveryCancellation: AnyObject {
     func cancel()
@@ -52,9 +57,10 @@ final class ShortcutLifecycleCoordinator {
     private let notificationNames: [Notification.Name]
     private let scheduler: any ShortcutRecoveryScheduling
     private let coalescingDelay: Duration
-    private let onRecovery: @MainActor () -> Void
+    private let onRecovery: @MainActor (ShortcutRecoveryTrigger) -> Void
     private var observers: [NSObjectProtocol] = []
     private var pendingRecovery: (any ShortcutRecoveryCancellation)?
+    private var pendingTrigger: ShortcutRecoveryTrigger?
     private var generation: UInt = 0
     private var isStarted = false
 
@@ -67,7 +73,7 @@ final class ShortcutLifecycleCoordinator {
         ],
         scheduler: any ShortcutRecoveryScheduling = TaskShortcutRecoveryScheduler(),
         coalescingDelay: Duration = .milliseconds(250),
-        onRecovery: @escaping @MainActor () -> Void
+        onRecovery: @escaping @MainActor (ShortcutRecoveryTrigger) -> Void
     ) {
         self.notificationCenter = notificationCenter
         self.notificationNames = notificationNames
@@ -86,7 +92,7 @@ final class ShortcutLifecycleCoordinator {
                 queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.scheduleRecovery()
+                    self?.scheduleRecovery(trigger: .lifecycleEvent)
                 }
             }
         }
@@ -94,13 +100,14 @@ final class ShortcutLifecycleCoordinator {
 
     func requestRetry() {
         guard isStarted else { return }
-        scheduleRecovery()
+        scheduleRecovery(trigger: .retry)
     }
 
     func invalidatePendingRecovery() {
         generation &+= 1
         pendingRecovery?.cancel()
         pendingRecovery = nil
+        pendingTrigger = nil
     }
 
     func stop() {
@@ -119,17 +126,21 @@ final class ShortcutLifecycleCoordinator {
         pendingRecovery?.cancel()
     }
 
-    private func scheduleRecovery() {
+    private func scheduleRecovery(trigger: ShortcutRecoveryTrigger) {
         generation &+= 1
         let scheduledGeneration = generation
+        let scheduledTrigger: ShortcutRecoveryTrigger =
+            pendingTrigger == .lifecycleEvent ? .lifecycleEvent : trigger
         pendingRecovery?.cancel()
+        pendingTrigger = scheduledTrigger
         pendingRecovery = scheduler.schedule(after: coalescingDelay) { [weak self] in
             guard let self,
                   self.isStarted,
                   self.generation == scheduledGeneration
             else { return }
             self.pendingRecovery = nil
-            self.onRecovery()
+            self.pendingTrigger = nil
+            self.onRecovery(scheduledTrigger)
         }
     }
 }

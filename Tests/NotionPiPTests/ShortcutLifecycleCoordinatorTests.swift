@@ -89,7 +89,7 @@ private final class ShortcutLifecycleHarness {
             .testSessionDidBecomeActive,
         ],
         scheduler: scheduler,
-        onRecovery: { [weak self] in self?.recoveries += 1 }
+        onRecovery: { [weak self] _ in self?.recoveries += 1 }
     )
 
     func post(_ name: Notification.Name) {

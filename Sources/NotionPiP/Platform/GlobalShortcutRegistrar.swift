@@ -107,8 +107,12 @@ final class CarbonGlobalShortcutRegistrar: GlobalShortcutRegistering {
         } catch {
             if let previousShortcut, let previousHandler {
                 self.eventHandler = previousHandler
-                try? installEngine(shortcut: previousShortcut)
-                registeredShortcut = previousShortcut
+                do {
+                    try installEngine(shortcut: previousShortcut)
+                    registeredShortcut = previousShortcut
+                } catch {
+                    registeredShortcut = nil
+                }
             }
             throw GlobalShortcutRegistrationFailure(error)
         }
@@ -123,15 +127,20 @@ final class CarbonGlobalShortcutRegistrar: GlobalShortcutRegistering {
             registeredShortcut = shortcut
         } catch {
             self.eventHandler = eventHandler
-            try? installEngine(shortcut: shortcut)
-            registeredShortcut = shortcut
+            do {
+                try installEngine(shortcut: shortcut)
+                registeredShortcut = shortcut
+            } catch {
+                registeredShortcut = nil
+            }
             throw GlobalShortcutRegistrationFailure(error)
         }
     }
 
     func unregister() {
-        guard registeredShortcut != nil else { return }
-        engine.uninstall()
+        if registeredShortcut != nil {
+            engine.uninstall()
+        }
         registeredShortcut = nil
         eventHandler = nil
     }
