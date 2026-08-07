@@ -36,6 +36,20 @@ struct SettingsView: View {
 
                 Section("Global Shortcut") {
                     GlobalShortcutRecorderView(runtime: runtime)
+                    Toggle(
+                        "Press and hold to peek",
+                        isOn: Binding(
+                            get: { runtime.holdToPeekEnabled },
+                            set: { runtime.setHoldToPeekEnabled($0) }
+                        )
+                    )
+                    Text(
+                        runtime.holdToPeekEnabled
+                            ? "Release after a peek to return focus to the app you were using."
+                            : "Show or hide the panel as soon as the shortcut is pressed."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Colors.secondaryText)
                 }
 
                 Section("Trusted Quick Capture") {

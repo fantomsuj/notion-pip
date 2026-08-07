@@ -23,6 +23,13 @@ extension AppRuntime {
         _ = applyGlobalShortcut(.default)
     }
 
+    func setHoldToPeekEnabled(_ enabled: Bool) {
+        guard enabled != holdToPeekEnabled else { return }
+        cancelShortcutHold()
+        holdToPeekPreferenceStore.save(enabled)
+        publishHoldToPeekEnabled(enabled)
+    }
+
     @discardableResult
     func applyQuickCaptureShortcut(_ shortcut: GlobalShortcut) -> Bool {
         guard shortcut.isValid, shortcut != globalShortcut else { return false }
@@ -156,6 +163,10 @@ extension AppRuntime {
     private func handleGlobalShortcut(_ event: GlobalShortcutEvent) {
         switch event {
         case .pressed:
+            guard holdToPeekEnabled else {
+                handleGlobalShortcutTap()
+                return
+            }
             guard shortcutHoldTask == nil else { return }
             shortcutHoldTriggered = false
             shortcutPeekRestoredPanel = false
@@ -168,10 +179,15 @@ extension AppRuntime {
                 guard let self else { return }
                 shortcutHoldTriggered = true
                 if pinCoordinator.presentationState == .stashed {
+                    peekFocusRestorer.beginPeek()
                     shortcutPeekRestoredPanel = pinCoordinator.stashOrRestoreCurrentPage()
+                    if !shortcutPeekRestoredPanel {
+                        peekFocusRestorer.cancelPeek()
+                    }
                 }
             }
         case .released:
+            guard holdToPeekEnabled else { return }
             guard let holdTask = shortcutHoldTask else { return }
             shortcutHoldTask = nil
             if shortcutHoldTriggered {
@@ -179,11 +195,25 @@ extension AppRuntime {
                 if shortcutPeekRestoredPanel {
                     shortcutPeekRestoredPanel = false
                     _ = pinCoordinator.stashOrRestoreCurrentPage()
+                    peekFocusRestorer.finishPeek()
                 }
             } else {
                 holdTask.cancel()
                 handleGlobalShortcutTap()
             }
+        }
+    }
+
+    private func cancelShortcutHold() {
+        shortcutHoldTask?.cancel()
+        shortcutHoldTask = nil
+        shortcutHoldTriggered = false
+        if shortcutPeekRestoredPanel {
+            shortcutPeekRestoredPanel = false
+            _ = pinCoordinator.stashOrRestoreCurrentPage()
+            peekFocusRestorer.finishPeek()
+        } else {
+            peekFocusRestorer.cancelPeek()
         }
     }
 

@@ -15,6 +15,8 @@ func makeRuntime(
     client: any NotionWorkspaceClient = RuntimeNotionClient(),
     destinationSearchDebounceDuration: Duration = .milliseconds(300),
     shortcutHoldDuration: Duration = .milliseconds(300),
+    holdToPeekPreferenceStore: HoldToPeekPreferenceStore? = nil,
+    peekFocusRestorer: any PeekFocusRestoring = PeekFocusRestorer(),
     initialServiceHealth: ServiceHealthState = .healthy,
     menuBarIconPreferenceStore: MenuBarIconPreferenceStore? = nil,
     automaticSettingsPresentationAllowed: @escaping @MainActor () -> Bool = { true }
@@ -27,11 +29,18 @@ func makeRuntime(
             suiteName: "AppRuntimeTests.\(UUID().uuidString)"
         )!
     )
+    let holdPreferenceStore = holdToPeekPreferenceStore ?? HoldToPeekPreferenceStore(
+        defaults: UserDefaults(
+            suiteName: "AppRuntimeHoldPreferenceTests.\(UUID().uuidString)"
+        )!
+    )
     return AppRuntime(
         panelCoordinator: panel,
         pasteboard: pasteboard,
         shortcutRegistrar: shortcutRegistrar,
         menuBarIconPreferenceStore: preferenceStore,
+        holdToPeekPreferenceStore: holdPreferenceStore,
+        peekFocusRestorer: peekFocusRestorer,
         pageURLInputPresenter: pageURLInputPresenter,
         pageRepository: pageRepository,
         credentialVault: vault,

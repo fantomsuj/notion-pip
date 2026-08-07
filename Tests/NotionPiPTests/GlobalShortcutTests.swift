@@ -44,6 +44,17 @@ final class GlobalShortcutTests: XCTestCase {
         XCTAssertEqual(store.load(), .default)
     }
 
+    func testHoldToPeekDefaultsOnAndPersistsOptOut() throws {
+        let defaults = try makeDefaults()
+        let store = HoldToPeekPreferenceStore(defaults: defaults)
+
+        XCTAssertTrue(store.load())
+
+        store.save(false)
+
+        XCTAssertFalse(store.load())
+    }
+
     func testApplyingShortcutPersistsAndRegistersTheNewValueImmediately() throws {
         let defaults = try makeDefaults()
         let registrar = ShortcutRegistrarSpy()

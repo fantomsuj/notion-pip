@@ -95,6 +95,25 @@ final class QuickCaptureShortcutStore {
     }
 }
 
+struct HoldToPeekPreferenceStore {
+    static let key = "holdToPeekEnabled"
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func load() -> Bool {
+        guard defaults.object(forKey: Self.key) != nil else { return true }
+        return defaults.bool(forKey: Self.key)
+    }
+
+    func save(_ isEnabled: Bool) {
+        defaults.set(isEnabled, forKey: Self.key)
+    }
+}
+
 final class TrustedCapturePreferenceStore {
     static let prefillKey = "quickCapturePrefillsClipboard"
     static let insertAtCursorKey = "quickCaptureInsertsAtNotionCursor"
