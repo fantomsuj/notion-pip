@@ -17,6 +17,9 @@ enum NotionPiPApp {
             applicationDidFinishLaunching: {
                 composition.onboardingCoordinator.showIfNeeded()
             },
+            quickCopyTerminationAction: {
+                composition.quickCopyController.prepareForTermination()
+            },
             terminationParticipantProvider: {
                 composition.quickCaptureTerminationParticipant
             }
@@ -35,6 +38,7 @@ enum AppStartup {
         coldLaunchToken: PerformanceIntervalToken? = nil,
         performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
         applicationDidFinishLaunching: @escaping @MainActor () -> Void = {},
+        quickCopyTerminationAction: @escaping @MainActor () -> Void = {},
         terminationParticipantProvider:
             @escaping @MainActor () -> (
                 any ApplicationTerminationParticipating
@@ -47,6 +51,7 @@ enum AppStartup {
         )
         appDelegate.bind(applicationDidFinishLaunching: applicationDidFinishLaunching)
         appDelegate.bind {
+            quickCopyTerminationAction()
             let shouldTerminate =
                 await terminationParticipantProvider()?
                 .prepareForTermination() ?? true
@@ -66,6 +71,7 @@ private final class AppComposition {
     private let settingsWindowPresenter: SettingsWindowPresenter
     private let statusItemController: StatusItemController
     private let panelSizeController: PanelSizeController
+    let quickCopyController: QuickCopyController
 
     init() {
         let actionRelay = AppCommandActionRelay()
@@ -121,10 +127,15 @@ private final class AppComposition {
         )
         let pageSwitcherController = PageSwitcherController(store: pageRepository)
         let pageSwitcherRelay = PageSwitcherSelectionRelay()
+        let quickCopyController = QuickCopyController(
+            monitor: AccessibilitySelectionMonitor(),
+            target: webSession
+        )
         let panelCoordinator = PiPPanelCoordinator(
             webSession: webSession,
             pageSwitcherController: pageSwitcherController,
             commandModel: commandModel,
+            quickCopyController: quickCopyController,
             onReloadSavedPin: { actionRelay.reloadSavedPin() },
             panelSizeController: panelSizeController,
             onPageSwitcherSelection: pageSwitcherRelay.perform
@@ -267,6 +278,7 @@ private final class AppComposition {
         self.settingsWindowPresenter = settingsWindowPresenter
         self.statusItemController = statusItemController
         self.panelSizeController = panelSizeController
+        self.quickCopyController = quickCopyController
     }
 
     var quickCaptureTerminationParticipant:

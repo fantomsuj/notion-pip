@@ -140,12 +140,17 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         webSession: NotionWebSession = NotionWebSession(),
         pageSwitcherController: PageSwitcherController = PageSwitcherController(),
         commandModel: AppCommandModel = .noOp,
+        quickCopyController: QuickCopyController? = nil,
         onReloadSavedPin: @escaping () -> Void = {},
         panelSizeController: PanelSizeController? = nil,
         onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in },
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
         let stashHandle = PiPStashHandleController()
+        let quickCopyController = quickCopyController ?? QuickCopyController(
+            monitor: AccessibilitySelectionMonitor(),
+            target: webSession
+        )
         let visibleFrames = NSScreen.screens.map(\.visibleFrame)
         let policy = WindowRole.pictureInPicture.policy
         guard let panel = WindowRole.pictureInPicture.makeWindow() as? KeyCapablePiPPanel else {
@@ -237,6 +242,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
                 pageSwitcherController: pageSwitcherController,
                 commandModel: commandModel,
                 panelSizeController: panelSizeController,
+                quickCopyController: quickCopyController,
                 onReloadSavedPin: onReloadSavedPin,
                 onStash: { [weak self] in
                     _ = self?.stashOrRestoreCurrentPage()

@@ -4,6 +4,33 @@ import XCTest
 
 @MainActor
 final class RuntimeTerminationTests: XCTestCase {
+    func testTerminationStopsQuickCopyBeforeWaitingForOtherWork() async {
+        let runtime = makeRuntime(panel: RuntimePanelCoordinator())
+        let participant = RuntimeTerminationParticipant()
+        var quickCopyStopCount = 0
+        var terminationReplies: [Bool] = []
+        let appDelegate = AppDelegate { _, shouldTerminate in
+            terminationReplies.append(shouldTerminate)
+        }
+        AppStartup.start(
+            runtime: runtime,
+            appDelegate: appDelegate,
+            quickCopyTerminationAction: { quickCopyStopCount += 1 },
+            terminationParticipantProvider: { participant }
+        )
+
+        XCTAssertEqual(
+            appDelegate.applicationShouldTerminate(NSApplication.shared),
+            .terminateLater
+        )
+        try? await participant.waitUntilCallCount(1)
+
+        XCTAssertEqual(quickCopyStopCount, 1)
+        XCTAssertTrue(terminationReplies.isEmpty)
+        participant.finish(with: true)
+        await waitUntilRuntimeCondition { terminationReplies == [true] }
+    }
+
     func testTerminationWaitsForPendingAndNewerPageSavesBeforeReplying() async throws {
         let repository = RuntimePinnedPageRepository(delaySaves: true)
         let runtime = makeRuntime(
