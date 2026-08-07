@@ -8,13 +8,13 @@ import XCTest
 final class PiPPanelGeometryTests: XCTestCase {
     func testHorizontalFrameSurvivesRealPanelStashRestore() throws {
         try assertRealPanelStashRestore(
-            frame: CGRect(x: 656, y: 356, width: 760, height: 520)
+            requestedSize: CGSize(width: 760, height: 520)
         )
     }
 
     func testVerticalFrameSurvivesRealPanelStashRestore() throws {
         try assertRealPanelStashRestore(
-            frame: CGRect(x: 936, y: 156, width: 480, height: 720)
+            requestedSize: CGSize(width: 480, height: 720)
         )
     }
 
@@ -80,8 +80,19 @@ final class PiPPanelGeometryTests: XCTestCase {
         }
     }
 
-    private func assertRealPanelStashRestore(frame: CGRect) throws {
+    private func assertRealPanelStashRestore(requestedSize: CGSize) throws {
         _ = NSApplication.shared
+        let visibleFrame = try XCTUnwrap(NSScreen.main?.visibleFrame)
+        let effectiveSize = CGSize(
+            width: min(requestedSize.width, visibleFrame.width),
+            height: min(requestedSize.height, visibleFrame.height)
+        )
+        let frame = CGRect(
+            x: visibleFrame.maxX - effectiveSize.width,
+            y: visibleFrame.minY,
+            width: effectiveSize.width,
+            height: effectiveSize.height
+        )
         let panel = KeyCapablePiPPanel(
             contentRect: frame,
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
@@ -94,9 +105,7 @@ final class PiPPanelGeometryTests: XCTestCase {
             panel: panel,
             pageLoader: GeometryTestPageLoader(),
             stashHandle: handle,
-            visibleFramesProvider: {
-                [CGRect(x: 0, y: 0, width: 1_440, height: 900)]
-            }
+            visibleFramesProvider: { [visibleFrame] }
         )
         defer { panel.orderOut(nil) }
         coordinator.show(
@@ -109,17 +118,17 @@ final class PiPPanelGeometryTests: XCTestCase {
             )
         )
         panel.setFrame(frame, display: false)
+        let retainedFrame = panel.frame
 
         XCTAssertTrue(
-            coordinator.stash(
-                visibleFrames: [CGRect(x: 0, y: 0, width: 1_440, height: 900)]
-            )
+            coordinator.stash(visibleFrames: [visibleFrame])
         )
         handle.restore()
         drainMainRunLoop()
 
         XCTAssertTrue(panel.isVisible)
-        XCTAssertEqual(panel.frame, frame)
+        XCTAssertEqual(panel.frame, retainedFrame)
+        XCTAssertEqual(panel.frame.size, effectiveSize)
     }
 }
 
