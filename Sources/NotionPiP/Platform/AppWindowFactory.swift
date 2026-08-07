@@ -117,6 +117,7 @@ enum AppWindowFactory {
     static func makeSettings(
         runtime: AppRuntime,
         panelSizeController: PanelSizeController,
+        launchAtLoginService: LaunchAtLoginService,
         closeRequestHandler: @escaping @MainActor () -> Void
     ) -> AppWindowPresenter {
         AppWindowPresenter(
@@ -126,7 +127,8 @@ enum AppWindowFactory {
                 content: AnyView(
                     SettingsView(
                         runtime: runtime,
-                        panelSizeController: panelSizeController
+                        panelSizeController: panelSizeController,
+                        launchAtLoginService: launchAtLoginService
                     )
                 )
             ),

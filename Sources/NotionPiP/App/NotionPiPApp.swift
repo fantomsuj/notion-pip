@@ -71,6 +71,7 @@ private final class AppComposition {
     private let settingsWindowPresenter: SettingsWindowPresenter
     private let statusItemController: StatusItemController
     private let panelSizeController: PanelSizeController
+    private let launchAtLoginService: LaunchAtLoginService
     let quickCopyController: QuickCopyController
 
     init() {
@@ -119,6 +120,7 @@ private final class AppComposition {
         }
 
         let panelSizeController = PanelSizeController()
+        let launchAtLoginService = LaunchAtLoginService()
         let commandModel = AppCommandModel(
             quickCapture: { actionRelay.showQuickCapture() },
             settings: { actionRelay.showSettings() },
@@ -229,6 +231,7 @@ private final class AppComposition {
             AppWindowFactory.makeSettings(
                 runtime: runtime,
                 panelSizeController: panelSizeController,
+                launchAtLoginService: launchAtLoginService,
                 closeRequestHandler: closeHandler
             )
         }
@@ -282,6 +285,7 @@ private final class AppComposition {
         self.settingsWindowPresenter = settingsWindowPresenter
         self.statusItemController = statusItemController
         self.panelSizeController = panelSizeController
+        self.launchAtLoginService = launchAtLoginService
         self.quickCopyController = quickCopyController
     }
 
