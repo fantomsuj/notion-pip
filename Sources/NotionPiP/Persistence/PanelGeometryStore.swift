@@ -33,3 +33,19 @@ final class PanelGeometryStore: PanelGeometryPersisting {
         defaults.set(try encoder.encode(geometry), forKey: Self.key)
     }
 }
+
+final class TransientPanelGeometryStore: PanelGeometryPersisting {
+    private var geometry: PanelGeometry?
+
+    init(geometry: PanelGeometry? = nil) {
+        self.geometry = geometry
+    }
+
+    func load() -> PanelGeometry? {
+        geometry
+    }
+
+    func save(_ geometry: PanelGeometry) throws {
+        self.geometry = geometry
+    }
+}

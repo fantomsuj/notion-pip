@@ -5,6 +5,7 @@ enum PanelGeometryPolicy {
         frame: CGRect,
         visibleFrames: [CGRect],
         desiredContentSize: CGSize? = nil,
+        anchor: PanelFrameAnchor? = nil,
         contentRectForFrameRect: (CGRect) -> CGRect
     ) -> PanelGeometry? {
         guard let visibleFrame = PanelFramePolicy.targetVisibleFrame(
@@ -27,7 +28,8 @@ enum PanelGeometryPolicy {
             desiredContentSize: validatedContentSize,
             frame: frame,
             visibleFrame: visibleFrame,
-            anchor: PanelFramePolicy.nearestAnchor(for: frame, in: visibleFrame)
+            anchor: anchor
+                ?? PanelFramePolicy.nearestAnchor(for: frame, in: visibleFrame)
         )
     }
 

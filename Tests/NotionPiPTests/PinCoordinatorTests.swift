@@ -230,6 +230,94 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.currentPage, page)
     }
 
+    func testStashRestorePreservesCommittedHorizontalFrameWhenLegacySizeConflicts() throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let horizontalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
+        let panel = FakePanelWindow(frame: horizontalFrame)
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [visibleFrame] },
+            initialPreferredContentSize: CGSize(width: 480, height: 720)
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+        handle.restore()
+
+        XCTAssertEqual(panel.frame, horizontalFrame)
+    }
+
+    func testStashRestorePreservesExactVerticalFrame() throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let verticalFrame = CGRect(x: 936, y: 156, width: 480, height: 720)
+        let panel = FakePanelWindow(frame: verticalFrame)
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [visibleFrame] }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+        handle.restore()
+
+        XCTAssertEqual(panel.frame, verticalFrame)
+    }
+
+    func testApplyingHorizontalThenStashingRestoresAppliedFrame() throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 936, y: 156, width: 480, height: 720)
+        )
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [visibleFrame] }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        XCTAssertTrue(
+            coordinator.applyPanelContentSize(CGSize(width: 760, height: 520))
+        )
+        let appliedFrame = panel.frame
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+        handle.restore()
+
+        XCTAssertEqual(panel.frame, appliedFrame)
+        XCTAssertEqual(panel.frame.size, CGSize(width: 760, height: 520))
+    }
+
+    func testGeometrySaveFailureDoesNotBlockRestoreAndReportsValidationFailure() throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let originalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
+        let panel = FakePanelWindow(frame: originalFrame)
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [visibleFrame] },
+            geometryStore: FailingPanelGeometryStore()
+        )
+        var failureCount = 0
+        coordinator.onGeometryPersistenceFailure = { failureCount += 1 }
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+        handle.restore()
+
+        XCTAssertEqual(failureCount, 1)
+        XCTAssertEqual(panel.frame, originalFrame)
+        XCTAssertTrue(panel.isVisible)
+    }
+
     func testShowingCurrentPageDismissesStashHandle() throws {
         let panel = FakePanelWindow(frame: CGRect(x: 80, y: 220, width: 400, height: 360))
         let handle = FakeStashHandle()
@@ -428,7 +516,7 @@ final class PinCoordinatorTests: XCTestCase {
             handle.placements.last,
             PanelStashPlacement(
                 side: .right,
-                frame: CGRect(x: 964, y: 262, width: 36, height: 96)
+                frame: CGRect(x: 964, y: 252, width: 36, height: 96)
             )
         )
     }
@@ -965,6 +1053,18 @@ private final class MutableVisibleFrames {
 
     init(_ value: [CGRect]) {
         self.value = value
+    }
+}
+
+private struct FailingPanelGeometryStore: PanelGeometryPersisting {
+    struct SaveError: Error {}
+
+    func load() -> PanelGeometry? {
+        nil
+    }
+
+    func save(_ geometry: PanelGeometry) throws {
+        throw SaveError()
     }
 }
 

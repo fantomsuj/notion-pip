@@ -107,6 +107,20 @@ final class PanelSizeControllerTests: XCTestCase {
 
         XCTAssertEqual(manageCount, 1)
     }
+
+    func testGeometryPersistenceFailureShowsNonblockingValidationMessage() {
+        let target = PanelSizingSpy()
+        let controller = PanelSizeController(store: PanelSizeStoreSpy())
+        controller.bind(to: target)
+
+        target.failGeometrySave()
+
+        XCTAssertEqual(
+            controller.validationMessage,
+            "Panel geometry could not be saved."
+        )
+        XCTAssertTrue(controller.canApply)
+    }
 }
 
 private final class PanelSizeStoreSpy: PanelSizePreferencesPersisting {
@@ -133,6 +147,7 @@ private final class PanelSizingSpy: PanelSizing {
     var sizingScreenSize: CGSize
     var onManualResizeCompletion: (@MainActor (CGSize) -> Void)?
     var onPinnedPageAvailabilityChange: (@MainActor () -> Void)?
+    var onGeometryPersistenceFailure: (@MainActor () -> Void)?
     private let effectiveAppliedSize: CGSize?
     private(set) var appliedSizes: [CGSize] = []
 
@@ -157,5 +172,9 @@ private final class PanelSizingSpy: PanelSizing {
 
     func completeManualResize() {
         onManualResizeCompletion?(currentPanelContentSize)
+    }
+
+    func failGeometrySave() {
+        onGeometryPersistenceFailure?()
     }
 }

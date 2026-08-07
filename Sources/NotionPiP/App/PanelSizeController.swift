@@ -9,6 +9,7 @@ protocol PanelSizing: AnyObject {
     var sizingScreenSize: CGSize { get }
     var onManualResizeCompletion: (@MainActor (CGSize) -> Void)? { get set }
     var onPinnedPageAvailabilityChange: (@MainActor () -> Void)? { get set }
+    var onGeometryPersistenceFailure: (@MainActor () -> Void)? { get set }
 
     @discardableResult
     func applyPanelContentSize(_ contentSize: CGSize) -> Bool
@@ -54,6 +55,9 @@ final class PanelSizeController: ObservableObject {
         }
         sizingTarget.onPinnedPageAvailabilityChange = { [weak self] in
             self?.refreshPanelState()
+        }
+        sizingTarget.onGeometryPersistenceFailure = { [weak self] in
+            self?.validationMessage = "Panel geometry could not be saved."
         }
         refreshPanelState()
     }
