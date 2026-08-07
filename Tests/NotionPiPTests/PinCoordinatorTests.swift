@@ -397,7 +397,7 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.presentationState, .visible)
     }
 
-    func testScreenChangeRepositionsVisibleStashHandleWithoutChangingPanelFrame() throws {
+    func testScreenChangePreservesStashEdgeAndRelativeVerticalIntent() throws {
         let originalFrame = CGRect(x: 1_600, y: 800, width: 400, height: 360)
         let panel = FakePanelWindow(frame: originalFrame)
         let handle = FakeStashHandle()
@@ -418,8 +418,10 @@ final class PinCoordinatorTests: XCTestCase {
         )
 
         XCTAssertEqual(panel.frame, originalFrame)
-        XCTAssertEqual(handle.placements.last?.side, .right)
-        XCTAssertEqual(handle.placements.last?.frame, CGRect(x: 964, y: 604, width: 36, height: 96))
+        XCTAssertEqual(handle.placements.last?.side, .left)
+        XCTAssertEqual(handle.placements.last?.frame.minX, 0)
+        XCTAssertEqual(handle.placements.last?.frame.minY ?? 0, 572.081_300_813, accuracy: 0.001)
+        XCTAssertEqual(handle.placements.last?.frame.size, CGSize(width: 36, height: 96))
         XCTAssertTrue(handle.isVisible)
     }
 
@@ -481,7 +483,7 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertTrue(panel.isVisible)
     }
 
-    func testScreenChangePreservesMovedStashHandlePlacement() throws {
+    func testScreenChangePreservesMovedHandleRelativeVerticalIntent() throws {
         let panel = FakePanelWindow(frame: CGRect(x: 620, y: 100, width: 300, height: 400))
         let handle = FakeStashHandle()
         let coordinator = PiPPanelCoordinator(
@@ -506,13 +508,9 @@ final class PinCoordinatorTests: XCTestCase {
             visibleFrames: [CGRect(x: 0, y: 0, width: 1_200, height: 900)]
         )
 
-        XCTAssertEqual(
-            handle.placements.last,
-            PanelStashPlacement(
-                side: .left,
-                frame: CGRect(x: 0, y: 100, width: 36, height: 96)
-            )
-        )
+        XCTAssertEqual(handle.placements.last?.side, .left)
+        XCTAssertEqual(handle.placements.last?.frame.minX, 0)
+        XCTAssertEqual(handle.placements.last?.frame.minY ?? 0, 114.204_545_455, accuracy: 0.001)
     }
 
     func testNewStashAfterRestoreUsesMainPanelPlacementInsteadOfPreviousMove() throws {
@@ -699,6 +697,149 @@ final class PinCoordinatorTests: XCTestCase {
         coordinator.reclampPanelFrame(visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 700)])
 
         XCTAssertEqual(panel.frame, CGRect(x: 400, y: 0, width: 600, height: 700))
+    }
+
+    func testTopologyObserverRepositionsVisiblePanelAndIgnoresStaleDeliveryWithoutReloading() throws {
+        let original = displayTopology(revision: 1)
+        let geometry = try secondaryGeometry(in: original)
+        let observer = FakeDisplayTopologyObserver(currentTopology: original)
+        let panel = FakePanelWindow(frame: geometry.frame)
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            displayTopologyObserver: observer,
+            displayTopologyProvider: { observer.currentTopology },
+            initialGeometry: geometry
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        coordinator.show(page: page)
+        let lifecycleEvents = loader.lifecycleEvents
+
+        observer.emit(
+            DisplayTopology(
+                revision: 2,
+                displays: [primaryDisplay(width: 500, height: 400)]
+            )
+        )
+        XCTAssertEqual(panel.frame, CGRect(x: 0, y: 0, width: 500, height: 375))
+
+        observer.emit(displayTopology(revision: 3))
+        XCTAssertEqual(panel.frame, geometry.frame)
+        let appliedFrameCount = panel.setFrames.count
+
+        observer.emit(
+            DisplayTopology(
+                revision: 2,
+                displays: [primaryDisplay(width: 800, height: 600)]
+            )
+        )
+
+        XCTAssertEqual(panel.setFrames.count, appliedFrameCount)
+        XCTAssertEqual(loader.lifecycleEvents, lifecycleEvents)
+        XCTAssertTrue(loader.reloadedPages.isEmpty)
+        XCTAssertEqual(coordinator.currentPage, page)
+    }
+
+    func testTopologyObserverMovesOnlyExistingHandleWhileStashed() throws {
+        let original = displayTopology(revision: 1)
+        let geometry = try secondaryGeometry(in: original)
+        let observer = FakeDisplayTopologyObserver(currentTopology: original)
+        let panel = FakePanelWindow(frame: geometry.frame)
+        let handle = FakeStashHandle()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: handle,
+            displayTopologyObserver: observer,
+            displayTopologyProvider: { observer.currentTopology },
+            initialGeometry: geometry
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.stashOrRestoreCurrentPage())
+        let panelFrame = panel.frame
+        let panelPresentCount = panel.presentCount
+        let lifecycleEvents = loader.lifecycleEvents
+        let panelHideCount = loader.panelHideCount
+
+        observer.emit(
+            DisplayTopology(
+                revision: 2,
+                displays: [primaryDisplay(width: 1_000, height: 800)]
+            )
+        )
+
+        XCTAssertEqual(panel.frame, panelFrame)
+        XCTAssertEqual(panel.presentCount, panelPresentCount)
+        XCTAssertTrue(handle.isVisible)
+        XCTAssertEqual(handle.placements.count, 2)
+        XCTAssertEqual(handle.placements.last?.frame.maxX, 1_000)
+        XCTAssertEqual(loader.lifecycleEvents, lifecycleEvents)
+        XCTAssertEqual(loader.panelHideCount, panelHideCount)
+    }
+
+    func testTopologyObserverRepositionsHiddenPanelWithoutPresentingIt() throws {
+        let original = displayTopology(revision: 1)
+        let geometry = try secondaryGeometry(in: original)
+        let observer = FakeDisplayTopologyObserver(currentTopology: original)
+        let panel = FakePanelWindow(frame: geometry.frame)
+        let handle = FakeStashHandle()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: handle,
+            displayTopologyObserver: observer,
+            displayTopologyProvider: { observer.currentTopology },
+            initialGeometry: geometry
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        panel.orderOut()
+        let panelPresentCount = panel.presentCount
+        let lifecycleEvents = loader.lifecycleEvents
+
+        observer.emit(
+            DisplayTopology(
+                revision: 2,
+                displays: [primaryDisplay(width: 1_000, height: 800)]
+            )
+        )
+
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(panel.presentCount, panelPresentCount)
+        XCTAssertEqual(panel.setFrameDisplays.last, false)
+        XCTAssertFalse(handle.isVisible)
+        XCTAssertEqual(loader.lifecycleEvents, lifecycleEvents)
+    }
+
+    func testTopologyObserverLeavesExpandedPanelFrameToAppKit() throws {
+        let original = displayTopology(revision: 1)
+        let geometry = try secondaryGeometry(in: original)
+        let observer = FakeDisplayTopologyObserver(currentTopology: original)
+        let panel = FakePanelWindow(frame: geometry.frame, isExpanded: true)
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            displayTopologyObserver: observer,
+            displayTopologyProvider: { observer.currentTopology },
+            initialGeometry: geometry
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let appliedFrameCount = panel.setFrames.count
+        let lifecycleEvents = loader.lifecycleEvents
+
+        observer.emit(
+            DisplayTopology(
+                revision: 2,
+                displays: [primaryDisplay(width: 1_000, height: 800)]
+            )
+        )
+
+        XCTAssertEqual(panel.setFrames.count, appliedFrameCount)
+        XCTAssertTrue(panel.isExpanded)
+        XCTAssertEqual(loader.lifecycleEvents, lifecycleEvents)
     }
 
     func testPanelCoordinatorDefersContextualPlacementUntilFirstPresentationAndRunsItOnce() throws {
@@ -1075,6 +1216,51 @@ final class PinCoordinatorTests: XCTestCase {
             validating: XCTUnwrap(URL(string: "https://www.notion.so/\(title)-\(id)"))
         )
     }
+
+    private func secondaryGeometry(in topology: DisplayTopology) throws -> PanelGeometry {
+        let secondary = try XCTUnwrap(topology.displays.last)
+        return try PanelGeometry(
+            desiredContentSize: PanelContentSize(width: 680, height: 720),
+            frame: CGRect(x: 2_656, y: 311, width: 680, height: 720),
+            visibleFrame: secondary.visibleFrame,
+            anchor: PanelFrameAnchor(
+                horizontalEdge: .right,
+                horizontalInset: 24,
+                verticalEdge: .top,
+                verticalInset: 24
+            ),
+            displayAffinity: secondary.affinity(in: topology)
+        )
+    }
+
+    private func displayTopology(revision: UInt64) -> DisplayTopology {
+        DisplayTopology(
+            revision: revision,
+            displays: [
+                primaryDisplay(),
+                DisplayDescriptor(
+                    identifier: 22,
+                    frame: CGRect(x: 1_440, y: 0, width: 1_920, height: 1_080),
+                    visibleFrame: CGRect(x: 1_440, y: 0, width: 1_920, height: 1_055),
+                    backingScaleFactor: 1,
+                    isPrimary: false
+                ),
+            ]
+        )
+    }
+
+    private func primaryDisplay(
+        width: CGFloat = 1_440,
+        height: CGFloat = 900
+    ) -> DisplayDescriptor {
+        DisplayDescriptor(
+            identifier: 11,
+            frame: CGRect(x: 0, y: 0, width: width, height: height),
+            visibleFrame: CGRect(x: 0, y: 0, width: width, height: height - 25),
+            backingScaleFactor: 2,
+            isPrimary: true
+        )
+    }
 }
 
 @MainActor
@@ -1107,6 +1293,7 @@ private final class FakePanelWindow: PiPPanelWindow {
     private(set) var isExpanded: Bool
     private(set) var restoreFromExpandedStateCount = 0
     private(set) var setFrames: [CGRect] = []
+    private(set) var setFrameDisplays: [Bool] = []
     var onClose: (@MainActor () -> Void)?
     private let recordEvent: (String) -> Void
     private let defersStashDismissal: Bool
@@ -1144,6 +1331,7 @@ private final class FakePanelWindow: PiPPanelWindow {
     func setFrame(_ frame: CGRect, display: Bool) {
         self.frame = frame
         setFrames.append(frame)
+        setFrameDisplays.append(display)
     }
 
     func move(to frame: CGRect) {
@@ -1175,6 +1363,29 @@ private final class FakePanelWindow: PiPPanelWindow {
 
     func cancelPendingStashDismissal() {
         pendingStashCompletion = nil
+    }
+}
+
+@MainActor
+private final class FakeDisplayTopologyObserver: DisplayTopologyObserving {
+    private(set) var currentTopology: DisplayTopology
+    private var handler: (@MainActor (DisplayTopology) -> Void)?
+
+    init(currentTopology: DisplayTopology) {
+        self.currentTopology = currentTopology
+    }
+
+    func start(_ handler: @escaping @MainActor (DisplayTopology) -> Void) {
+        self.handler = handler
+    }
+
+    func stop() {
+        handler = nil
+    }
+
+    func emit(_ topology: DisplayTopology) {
+        currentTopology = topology
+        handler?(topology)
     }
 }
 
