@@ -206,6 +206,9 @@ final class DeliverySchedulerTests: XCTestCase {
             recordID: record.id,
             repository: repository
         )
+        try await waitUntil {
+            !(await scheduler.healthSnapshot().hasDeliveryFailure)
+        }
         let recoveredHealth = await scheduler.healthSnapshot()
         XCTAssertFalse(recoveredHealth.hasDeliveryFailure)
     }

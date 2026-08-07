@@ -2,20 +2,22 @@ import CoreGraphics
 import Foundation
 
 struct PanelGeometry: Codable, Equatable, Sendable {
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     let version: Int
     let desiredContentSize: PanelContentSize
     let frame: CGRect
     let visibleFrame: CGRect
     let anchor: PanelFrameAnchor
+    let displayAffinity: DisplayAffinity?
 
     init(
         version: Int = Self.currentVersion,
         desiredContentSize: PanelContentSize,
         frame: CGRect,
         visibleFrame: CGRect,
-        anchor: PanelFrameAnchor
+        anchor: PanelFrameAnchor,
+        displayAffinity: DisplayAffinity? = nil
     ) throws {
         guard version == Self.currentVersion else {
             throw PanelGeometryError.unsupportedVersion(version)
@@ -32,6 +34,7 @@ struct PanelGeometry: Codable, Equatable, Sendable {
         self.frame = frame
         self.visibleFrame = visibleFrame
         self.anchor = anchor
+        self.displayAffinity = displayAffinity
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -40,19 +43,28 @@ struct PanelGeometry: Codable, Equatable, Sendable {
         case frame
         case visibleFrame
         case anchor
+        case displayAffinity
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedVersion = try container.decode(Int.self, forKey: .version)
+        guard decodedVersion == 1 || decodedVersion == Self.currentVersion else {
+            throw PanelGeometryError.unsupportedVersion(decodedVersion)
+        }
         try self.init(
-            version: container.decode(Int.self, forKey: .version),
+            version: Self.currentVersion,
             desiredContentSize: container.decode(
                 PanelContentSize.self,
                 forKey: .desiredContentSize
             ),
             frame: container.decode(CGRect.self, forKey: .frame),
             visibleFrame: container.decode(CGRect.self, forKey: .visibleFrame),
-            anchor: container.decode(PanelFrameAnchor.self, forKey: .anchor)
+            anchor: container.decode(PanelFrameAnchor.self, forKey: .anchor),
+            displayAffinity: try container.decodeIfPresent(
+                DisplayAffinity.self,
+                forKey: .displayAffinity
+            )
         )
     }
 

@@ -30,7 +30,57 @@ final class PanelGeometryStoreTests: XCTestCase {
         XCTAssertNil(store.load())
     }
 
-    private func makeGeometry() throws -> PanelGeometry {
+    func testRoundTripPersistsDisplayAffinity() throws {
+        let defaults = try makeDefaults()
+        let store = PanelGeometryStore(defaults: defaults)
+        let geometry = try makeGeometry(
+            displayAffinity: DisplayAffinity(
+                identifier: 22,
+                visibleSize: CGSize(width: 1_920, height: 1_055),
+                backingScaleFactor: 2,
+                isPrimary: false,
+                placement: .right
+            )
+        )
+
+        try store.save(geometry)
+
+        XCTAssertEqual(store.load(), geometry)
+    }
+
+    func testVersionOneGeometryMigratesWithoutDisplayAffinity() throws {
+        struct LegacyGeometry: Codable {
+            let version: Int
+            let desiredContentSize: PanelContentSize
+            let frame: CGRect
+            let visibleFrame: CGRect
+            let anchor: PanelFrameAnchor
+        }
+        let payload = LegacyGeometry(
+            version: 1,
+            desiredContentSize: try PanelContentSize(width: 760, height: 520),
+            frame: CGRect(x: 656, y: 356, width: 760, height: 520),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900),
+            anchor: PanelFrameAnchor(
+                horizontalEdge: .right,
+                horizontalInset: 24,
+                verticalEdge: .top,
+                verticalInset: 24
+            )
+        )
+        let defaults = try makeDefaults()
+        defaults.set(try JSONEncoder().encode(payload), forKey: PanelGeometryStore.key)
+        let store = PanelGeometryStore(defaults: defaults)
+
+        let migrated = try XCTUnwrap(store.load())
+
+        XCTAssertEqual(migrated.version, PanelGeometry.currentVersion)
+        XCTAssertNil(migrated.displayAffinity)
+    }
+
+    private func makeGeometry(
+        displayAffinity: DisplayAffinity? = nil
+    ) throws -> PanelGeometry {
         try PanelGeometry(
             desiredContentSize: PanelContentSize(width: 760, height: 520),
             frame: CGRect(x: 656, y: 356, width: 760, height: 520),
@@ -40,7 +90,8 @@ final class PanelGeometryStoreTests: XCTestCase {
                 horizontalInset: 24,
                 verticalEdge: .top,
                 verticalInset: 24
-            )
+            ),
+            displayAffinity: displayAffinity
         )
     }
 
