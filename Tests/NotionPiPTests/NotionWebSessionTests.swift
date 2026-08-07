@@ -913,6 +913,8 @@ final class NotionWebSessionTests: XCTestCase {
         session.webViewWebContentProcessDidTerminate(webView)
         session.webViewWebContentProcessDidTerminate(webView)
         session.webViewWebContentProcessDidTerminate(webView)
+        session.webView(webView, didStartProvisionalNavigation: nil)
+        session.webView(webView, didFinish: nil)
 
         XCTAssertEqual(loadedURLs, [page.canonicalURL, page.canonicalURL])
         XCTAssertTrue(session.webView === webView)

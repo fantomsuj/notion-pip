@@ -13,169 +13,6 @@ typealias NotionWebAttachmentScheduler = @MainActor (
     @escaping @MainActor () -> Void
 ) -> Void
 typealias NotionWebURLObservationInvalidator = @MainActor (NSKeyValueObservation) -> Void
-typealias NotionWebActivityBridgeRemover = @MainActor (WKUserContentController) -> Void
-
-enum NotionEditorActivity: String, Equatable {
-    case typingStarted
-    case editingEnded
-}
-
-enum NotionEditorActivityBridge {
-    static let handlerName = "notionPiPChromeActivity"
-
-    static func activity(
-        from body: Any,
-        isMainFrame: Bool,
-        scheme: String,
-        host: String
-    ) -> NotionEditorActivity? {
-        guard isMainFrame,
-              scheme.lowercased() == "https",
-              ["app.notion.com", "notion.so", "www.notion.so"].contains(host.lowercased()),
-              let rawActivity = body as? String
-        else {
-            return nil
-        }
-
-        return NotionEditorActivity(rawValue: rawActivity)
-    }
-}
-
-struct NotionScrollSnapshot: Equatable, Sendable {
-    let x: Double
-    let y: Double
-    let progress: Double
-}
-
-enum NotionScrollBridge {
-    static let handlerName = "notionPiPScroll"
-
-    static func snapshot(
-        from body: Any,
-        isMainFrame: Bool,
-        scheme: String,
-        host: String
-    ) -> NotionScrollSnapshot? {
-        guard isMainFrame,
-              scheme.lowercased() == "https",
-              ["app.notion.com", "notion.so", "www.notion.so"].contains(host.lowercased()),
-              let values = body as? [String: Any],
-              Set(values.keys) == ["x", "y", "progress"],
-              let x = (values["x"] as? NSNumber)?.doubleValue,
-              let y = (values["y"] as? NSNumber)?.doubleValue,
-              let progress = (values["progress"] as? NSNumber)?.doubleValue,
-              x.isFinite,
-              y.isFinite,
-              progress.isFinite,
-              (0 ... 1).contains(progress)
-        else {
-            return nil
-        }
-        return NotionScrollSnapshot(x: x, y: y, progress: progress)
-    }
-}
-
-@MainActor
-private protocol NotionEditorActivityHandling: AnyObject {
-    func handleEditorActivity(
-        _ activity: NotionEditorActivity,
-        from webView: WKWebView?,
-        generation: UInt
-    )
-}
-
-@MainActor
-private protocol NotionScrollHandling: AnyObject {
-    func handleScrollSnapshot(_ snapshot: NotionScrollSnapshot)
-}
-
-@MainActor
-private protocol NotionEditorCaretHandling: AnyObject {
-    func handleEditorCaretUpdate(
-        _ update: NotionEditorCaretUpdate,
-        from webView: WKWebView?,
-        generation: UInt
-    )
-}
-
-@MainActor
-private final class WeakNotionEditorActivityMessageHandler: NSObject, WKScriptMessageHandler {
-    weak var delegate: (any NotionEditorActivityHandling)?
-    let generation: UInt
-
-    init(generation: UInt) {
-        self.generation = generation
-    }
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        guard let activity = NotionEditorActivityBridge.activity(
-            from: message.body,
-            isMainFrame: message.frameInfo.isMainFrame,
-            scheme: message.frameInfo.securityOrigin.protocol,
-            host: message.frameInfo.securityOrigin.host
-        ) else {
-            return
-        }
-
-        delegate?.handleEditorActivity(
-            activity,
-            from: message.webView,
-            generation: generation
-        )
-    }
-}
-
-@MainActor
-private final class WeakNotionScrollMessageHandler: NSObject, WKScriptMessageHandler {
-    weak var delegate: (any NotionScrollHandling)?
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        guard let snapshot = NotionScrollBridge.snapshot(
-            from: message.body,
-            isMainFrame: message.frameInfo.isMainFrame,
-            scheme: message.frameInfo.securityOrigin.protocol,
-            host: message.frameInfo.securityOrigin.host
-        ) else {
-            return
-        }
-        delegate?.handleScrollSnapshot(snapshot)
-    }
-}
-
-@MainActor
-private final class WeakNotionEditorCaretMessageHandler: NSObject, WKScriptMessageHandler {
-    weak var delegate: (any NotionEditorCaretHandling)?
-    let generation: UInt
-
-    init(generation: UInt) {
-        self.generation = generation
-    }
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        guard let update = NotionEditorCaretBridge.update(
-            from: message.body,
-            isMainFrame: message.frameInfo.isMainFrame,
-            scheme: message.frameInfo.securityOrigin.protocol,
-            host: message.frameInfo.securityOrigin.host
-        ) else {
-            return
-        }
-        delegate?.handleEditorCaretUpdate(
-            update,
-            from: message.webView,
-            generation: generation
-        )
-    }
-}
 
 @MainActor
 protocol NotionPageLoading: AnyObject {
@@ -206,53 +43,9 @@ enum NotionWebSessionState: Equatable {
     case failed(String)
 }
 
-struct NotionInteractionStateCache {
-    private let capacity: Int
-    private var values: [String: Any] = [:]
-    private var recency: [String] = []
-
-    init(capacity: Int) {
-        self.capacity = max(0, capacity)
-    }
-
-    var count: Int { values.count }
-
-    mutating func insert(_ value: Any, forKey key: String) {
-        guard capacity > 0 else { return }
-        values[key] = value
-        recency.removeAll { $0 == key }
-        recency.append(key)
-        while recency.count > capacity {
-            let evicted = recency.removeFirst()
-            values.removeValue(forKey: evicted)
-        }
-    }
-
-    mutating func takeValue(forKey key: String) -> Any? {
-        recency.removeAll { $0 == key }
-        return values.removeValue(forKey: key)
-    }
-
-    mutating func removeValue(forKey key: String) {
-        recency.removeAll { $0 == key }
-        values.removeValue(forKey: key)
-    }
-
-    mutating func retain(keys: Set<String>) {
-        recency.removeAll { !keys.contains($0.lowercased()) }
-        values = values.filter { keys.contains($0.key.lowercased()) }
-    }
-
-    mutating func removeAll() {
-        values.removeAll()
-        recency.removeAll()
-    }
-}
-
 @MainActor
 final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
-    NotionEditorActivityHandling, NotionScrollHandling, NotionEditorCaretHandling,
-    QuickCopyInsertionTarget
+    NotionWebScriptMessageHandling, QuickCopyInsertionTarget
 {
     private enum WebContentRecoveryState: Equatable {
         case ready
@@ -272,6 +65,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let loadRequest: NotionWebRequestLoader
     private let webViewFactory: NotionWebViewFactory
     private let lifecycleController: NotionWebLifecycleController
+    private let navigationDecisionPolicy = NotionWebNavigationPolicy()
+    private let pageStateRestoration = NotionPageStateRestorationCoordinator()
     private let pauseMedia: @MainActor (WKWebView) -> Void
     private let stopLoading: @MainActor (WKWebView) -> Void
     private let interactionStateReader: @MainActor (WKWebView) -> Any?
@@ -282,24 +77,13 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let scheduleAfterAttachment: NotionWebAttachmentScheduler
     private let focusWebView: @MainActor (WKWebView) -> Void
     private let invalidateURLObservation: NotionWebURLObservationInvalidator
-    private let removeActivityBridge: NotionWebActivityBridgeRemover
+    private let scriptMessageCoordinator: NotionWebScriptMessageCoordinator
     private let performanceSignposter: (any PerformanceSignposting)?
-    private var editorActivityHandler: WeakNotionEditorActivityMessageHandler?
-    private var scrollHandler: WeakNotionScrollMessageHandler?
-    private var editorCaretHandler: WeakNotionEditorCaretMessageHandler?
     private var urlObservation: NSKeyValueObservation?
-    private var webViewGeneration: UInt = 0
     private var lifecycleObservation: AnyCancellable?
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     private var panelIsVisible: Bool { lifecycleController.isVisible }
     private var loadedPageID: String?
-    private var savedURL: URL?
-    private var savedURLPageID: String?
-    private var interactionStates = NotionInteractionStateCache(capacity: 14)
-    private var durableRestorations: [String: DurablePageRestoration] = [:]
-    private var latestScrollSnapshots: [String: NotionScrollSnapshot] = [:]
-    private var pendingScrollRestoration: DurablePageRestoration?
-    private var isAttemptingDurableRestoration = false
     private var webContentRecoveryState = WebContentRecoveryState.ready
     private var restorationToken: PerformanceIntervalToken?
     var onRestorationCaptured: (@MainActor (DurablePageRestoration) -> Void)?
@@ -453,9 +237,12 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.scheduleAfterAttachment = scheduleAfterAttachment
         self.focusWebView = focusWebView
         self.invalidateURLObservation = invalidateURLObservation
-        self.removeActivityBridge = removeActivityBridge
+        self.scriptMessageCoordinator = NotionWebScriptMessageCoordinator(
+            removeBridges: removeActivityBridge
+        )
         self.performanceSignposter = performanceSignposter
         super.init()
+        scriptMessageCoordinator.delegate = self
         lifecycleObservation = lifecycleController.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -469,23 +256,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     private func configure(_ webView: WKWebView) {
-        webViewGeneration &+= 1
-        let generation = webViewGeneration
-        let activityHandler = WeakNotionEditorActivityMessageHandler(generation: generation)
-        activityHandler.delegate = self
-        let scrollHandler = WeakNotionScrollMessageHandler()
-        scrollHandler.delegate = self
-        let caretHandler = WeakNotionEditorCaretMessageHandler(generation: generation)
-        caretHandler.delegate = self
-        editorActivityHandler = activityHandler
-        self.scrollHandler = scrollHandler
-        editorCaretHandler = caretHandler
         self.webView = webView
-        Self.installBridges(
-            in: webView.configuration.userContentController,
-            activityHandler: activityHandler,
-            scrollHandler: scrollHandler,
-            caretHandler: caretHandler
+        let generation = scriptMessageCoordinator.install(
+            in: webView.configuration.userContentController
         )
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -502,14 +275,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     private func refreshDOMBridges(afterTerminationOf webView: WKWebView) {
         guard isCurrent(webView) else { return }
-        editorActivityHandler?.delegate = nil
-        scrollHandler?.delegate = nil
-        editorCaretHandler?.delegate = nil
         if let urlObservation {
             invalidateURLObservation(urlObservation)
             self.urlObservation = nil
         }
-        removeActivityBridge(webView.configuration.userContentController)
+        scriptMessageCoordinator.remove(from: webView.configuration.userContentController)
         configure(webView)
     }
 
@@ -538,9 +308,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         if let outgoingPage = activePage, let webView {
             invalidateEditorSelection()
             if outgoingPage.pageID == page.pageID {
-                interactionStates.removeValue(forKey: page.pageID)
-                durableRestorations.removeValue(forKey: page.pageID)
-                latestScrollSnapshots.removeValue(forKey: page.pageID)
+                pageStateRestoration.discardCachedState(for: page.pageID)
                 _ = retire(webView)
             } else {
                 captureAndTearDown(webView, page: outgoingPage)
@@ -549,11 +317,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         activePage = page
         webContentRecoveryState = .ready
         revealTopControls()
-        if let restoration, restoration.pageID == page.pageID {
-            durableRestorations[page.pageID] = restoration
-        }
-        savedURL = restoration?.lastURL ?? page.canonicalURL
-        savedURLPageID = page.pageID
+        pageStateRestoration.prepareActivation(of: page, restoration: restoration)
         guard panelIsVisible, state != .suspended else {
             if !panelIsVisible, webView != nil {
                 suspendWebViewIfNeeded()
@@ -568,13 +332,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         activePage = page
         webContentRecoveryState = .ready
         revealTopControls()
-        interactionStates.removeValue(forKey: page.pageID)
-        durableRestorations.removeValue(forKey: page.pageID)
-        latestScrollSnapshots.removeValue(forKey: page.pageID)
-        pendingScrollRestoration = nil
-        isAttemptingDurableRestoration = false
-        savedURL = page.canonicalURL
-        savedURLPageID = page.pageID
+        pageStateRestoration.prepareReload(of: page)
         load(page.canonicalURL, pageID: page.pageID)
     }
 
@@ -619,10 +377,12 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     ) {
         invalidateEditorSelection()
         webContentRecoveryState = .ready
-        savedURL = url
-        savedURLPageID = pageID
+        pageStateRestoration.recordLoad(
+            url: url,
+            pageID: pageID,
+            isDurableRestoration: isDurableRestoration
+        )
         loadedPageID = pageID
-        self.isAttemptingDurableRestoration = isDurableRestoration
         lifecycleController.setState(.loading)
         loadRequest(ensureWebView(), URLRequest(url: url))
     }
@@ -663,15 +423,29 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func handleScrollSnapshot(_ snapshot: NotionScrollSnapshot) {
-        guard let loadedPageID else { return }
-        latestScrollSnapshots[loadedPageID] = snapshot
+        pageStateRestoration.recordScroll(snapshot, pageID: loadedPageID)
+    }
+
+    func handleScrollSnapshot(
+        _ snapshot: NotionScrollSnapshot,
+        from webView: WKWebView?,
+        generation: UInt
+    ) {
+        guard let webView, isCurrent(webView, generation: generation) else {
+            return
+        }
+        handleScrollSnapshot(snapshot)
     }
 
     func handleEditorCaretUpdate(
         _ update: NotionEditorCaretUpdate,
         from webView: WKWebView?
     ) {
-        handleEditorCaretUpdate(update, from: webView, generation: webViewGeneration)
+        handleEditorCaretUpdate(
+            update,
+            from: webView,
+            generation: scriptMessageCoordinator.generation
+        )
     }
 
     func handleEditorCaretUpdate(
@@ -693,15 +467,18 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func evictInteractionSnapshots(retaining pageIDs: Set<String>) {
-        let retained = Set(pageIDs.map { $0.lowercased() })
-        interactionStates.retain(keys: retained)
+        pageStateRestoration.evictInteractionStates(retaining: pageIDs)
     }
 
     func handleEditorActivity(
         _ activity: NotionEditorActivity,
         from webView: WKWebView?
     ) {
-        handleEditorActivity(activity, from: webView, generation: webViewGeneration)
+        handleEditorActivity(
+            activity,
+            from: webView,
+            generation: scriptMessageCoordinator.generation
+        )
     }
 
     func handleEditorActivity(
@@ -721,7 +498,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     func handleMemoryPressure() {
         if lifecycleController.requestEvictionIfEligible() {
-            interactionStates.removeAll()
+            pageStateRestoration.removeAllInteractionStates()
         }
     }
 
@@ -742,7 +519,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         performanceSignposter?.end(
             evictionToken,
             outcome: .success,
-            metadata: PerformanceMetadata(cacheEntryCount: interactionStates.count)
+            metadata: PerformanceMetadata(
+                cacheEntryCount: pageStateRestoration.interactionStateCount
+            )
         )
     }
 
@@ -753,20 +532,13 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
 
         lifecycleController.cancelWarmRetention()
-        editorActivityHandler?.delegate = nil
-        editorActivityHandler = nil
-        scrollHandler?.delegate = nil
-        scrollHandler = nil
-        editorCaretHandler?.delegate = nil
-        editorCaretHandler = nil
-        webViewGeneration &+= 1
         self.webView = nil
         loadedPageID = nil
         if let urlObservation {
             invalidateURLObservation(urlObservation)
             self.urlObservation = nil
         }
-        removeActivityBridge(webView.configuration.userContentController)
+        scriptMessageCoordinator.remove(from: webView.configuration.userContentController)
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         stopLoading(webView)
@@ -778,7 +550,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         guard self.webView === webView else {
             return false
         }
-        return generation == nil || generation == webViewGeneration
+        return generation == nil || generation == scriptMessageCoordinator.generation
     }
 
     private func captureSelectionAndSuspendIfNeeded() {
@@ -892,24 +664,16 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
         restorationToken = performanceSignposter?.begin(.notionSessionRestoration)
         let webView = ensureWebView()
-        if let interactionState = interactionStates.takeValue(forKey: page.pageID) {
-            isAttemptingDurableRestoration = false
-            pendingScrollRestoration = nil
+        switch pageStateRestoration.restorationPlan(for: page) {
+        case let .interactionState(interactionState):
             interactionStateWriter(webView, interactionState)
             loadedPageID = page.pageID
             lifecycleController.setState(.loading)
-        } else {
-            let durableRestoration = durableRestorations[page.pageID]
-            pendingScrollRestoration = durableRestoration
-            let restorationURL = durableRestoration?.lastURL
-                ?? ((savedURLPageID == nil || savedURLPageID == page.pageID)
-                    ? savedURL ?? page.canonicalURL
-                    : page.canonicalURL)
+        case let .load(restorationURL, isDurableRestoration):
             load(
                 restorationURL,
                 pageID: page.pageID,
-                isDurableRestoration: durableRestoration != nil
-                    && restorationURL != page.canonicalURL
+                isDurableRestoration: isDurableRestoration
             )
         }
     }
@@ -924,21 +688,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             return
         }
         endEditing(webView)
-        if let state = interactionStateReader(webView) {
-            interactionStates.insert(state, forKey: page.pageID)
-        }
-        let trustedURL = webView.url ?? savedURL ?? page.canonicalURL
-        let scroll = latestScrollSnapshots[page.pageID]
-            ?? NotionScrollSnapshot(x: 0, y: 0, progress: 0)
-        if let restoration = try? DurablePageRestoration(
-            pageID: page.pageID,
-            validatingLastURL: trustedURL,
-            scrollX: scroll.x,
-            scrollY: scroll.y,
-            scrollProgress: scroll.progress,
-            updatedAt: Date()
+        if let restoration = pageStateRestoration.capture(
+            page: page,
+            currentURL: webView.url,
+            interactionState: interactionStateReader(webView)
         ) {
-            durableRestorations[page.pageID] = restoration
             onRestorationCaptured?(restoration)
         }
         _ = retire(webView)
@@ -968,136 +722,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         configuration.preferences.inactiveSchedulingPolicy = .suspend
         return ExternalDropActivatingWebView(frame: .zero, configuration: configuration)
     }
-
-    private static func installBridges(
-        in userContentController: WKUserContentController,
-        activityHandler: WeakNotionEditorActivityMessageHandler,
-        scrollHandler: WeakNotionScrollMessageHandler,
-        caretHandler: WeakNotionEditorCaretMessageHandler
-    ) {
-        userContentController.addUserScript(
-            WKUserScript(
-                source: editorActivityScript,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
-        userContentController.add(
-            activityHandler,
-            contentWorld: .page,
-            name: NotionEditorActivityBridge.handlerName
-        )
-        userContentController.addUserScript(
-            WKUserScript(
-                source: scrollScript,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
-        userContentController.add(
-            scrollHandler,
-            contentWorld: .page,
-            name: NotionScrollBridge.handlerName
-        )
-        userContentController.addUserScript(
-            WKUserScript(
-                source: NotionEditorCaretBridge.script,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
-        userContentController.add(
-            caretHandler,
-            contentWorld: .page,
-            name: NotionEditorCaretBridge.handlerName
-        )
-    }
-
-    private static let editorActivityScript = #"""
-        (() => {
-          if (window.__notionPiPChromeActivityInstalled) return;
-          window.__notionPiPChromeActivityInstalled = true;
-
-          var isTyping = false;
-
-          const editableElement = (node) => {
-            const element = node instanceof Element ? node : node?.parentElement;
-            if (!element) return null;
-
-            const textControl = element.closest('input, textarea');
-            if (textControl && !textControl.disabled && !textControl.readOnly) {
-              return textControl;
-            }
-
-            const editable = element.closest('[contenteditable]');
-            if (!editable || editable.getAttribute('contenteditable') === 'false') {
-              return null;
-            }
-            return editable;
-          };
-
-          const postActivity = (activity) => {
-            window.webkit?.messageHandlers?.notionPiPChromeActivity?.postMessage(activity);
-          };
-
-          const publishTypingStarted = () => {
-            isTyping = true;
-            postActivity('typingStarted');
-          };
-
-          const publishEditingEnded = () => {
-            if (!isTyping) return;
-            isTyping = false;
-            postActivity('editingEnded');
-          };
-
-          document.addEventListener('beforeinput', (event) => {
-            if (editableElement(event.target)) publishTypingStarted();
-          }, true);
-
-          document.addEventListener('pointermove', publishEditingEnded, {
-            capture: true,
-            passive: true,
-          });
-
-          document.addEventListener('focusout', (event) => {
-            if (!editableElement(event.target)) return;
-            window.setTimeout(() => {
-              if (!editableElement(document.activeElement)) publishEditingEnded();
-            }, 0);
-          }, true);
-
-          document.addEventListener('keydown', (event) => {
-            if (event.key === 'Tab' || event.key === 'Escape') publishEditingEnded();
-          }, true);
-        })();
-        """#
-
-    private static let scrollScript = #"""
-        (() => {
-          if (window.__notionPiPScrollInstalled) return;
-          window.__notionPiPScrollInstalled = true;
-          let timer = null;
-
-          const publish = () => {
-            timer = null;
-            const root = document.scrollingElement || document.documentElement;
-            const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
-            const y = window.scrollY;
-            window.webkit?.messageHandlers?.notionPiPScroll?.postMessage({
-              x: window.scrollX,
-              y,
-              progress: maximum > 0 ? Math.min(1, Math.max(0, y / maximum)) : 0,
-            });
-          };
-
-          window.addEventListener('scroll', () => {
-            if (timer !== null) window.clearTimeout(timer);
-            timer = window.setTimeout(publish, 120);
-          }, { passive: true });
-          window.addEventListener('pagehide', publish, { capture: true });
-        })();
-        """#
 
     private static func restoreScroll(
         in webView: WKWebView,
@@ -1148,25 +772,23 @@ extension NotionWebSession: WKNavigationDelegate {
         for url: URL?,
         targetFrameIsPresent: Bool
     ) -> WKNavigationActionPolicy {
-        guard targetFrameIsPresent else {
+        switch navigationDecisionPolicy.actionDecision(
+            for: url,
+            targetFrameIsPresent: targetFrameIsPresent
+        ) {
+        case .allow:
             return .allow
-        }
-
-        switch WebNavigationDestination.classify(url) {
-        case .trustedNotion:
-            return .allow
-        case .externalWeb:
-            if let url {
-                openURL(url)
-            }
+        case .cancel:
             return .cancel
-        case .unsupported:
+        case let .openExternally(url):
+            openURL(url)
             return .cancel
         }
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         guard isCurrent(webView) else { return }
+        if case .failed = webContentRecoveryState { return }
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(.loading)
@@ -1186,7 +808,7 @@ extension NotionWebSession: WKNavigationDelegate {
         case .ready:
             break
         }
-        isAttemptingDurableRestoration = false
+        pageStateRestoration.navigationDidFinish()
         invalidateEditorSelection()
         publishNavigationState(.active)
         if restorationToken != nil {
@@ -1199,22 +821,30 @@ extension NotionWebSession: WKNavigationDelegate {
         adoptResolvedPage(
             at: webView.url,
             from: webView,
-            generation: webViewGeneration
+            generation: scriptMessageCoordinator.generation
         )
-        if let restoration = pendingScrollRestoration,
-           restoration.pageID == loadedPageID {
-            pendingScrollRestoration = nil
+        if let restoration = pageStateRestoration.takePendingScrollRestoration(
+            for: loadedPageID
+        ) {
             scrollRestorer(webView, restoration)
         }
     }
 
     func adoptResolvedPage(at url: URL?) {
         guard let webView else { return }
-        adoptResolvedPage(at: url, from: webView, generation: webViewGeneration)
+        adoptResolvedPage(
+            at: url,
+            from: webView,
+            generation: scriptMessageCoordinator.generation
+        )
     }
 
     func adoptResolvedPage(at url: URL?, from webView: WKWebView) {
-        adoptResolvedPage(at: url, from: webView, generation: webViewGeneration)
+        adoptResolvedPage(
+            at: url,
+            from: webView,
+            generation: scriptMessageCoordinator.generation
+        )
     }
 
     private func adoptResolvedPage(
@@ -1236,15 +866,14 @@ extension NotionWebSession: WKNavigationDelegate {
         invalidateEditorSelection()
         activePage = resolvedPage
         loadedPageID = resolvedPage.pageID
-        savedURL = url
-        savedURLPageID = resolvedPage.pageID
+        pageStateRestoration.recordResolvedPage(resolvedPage, at: url)
         if case .attempting = webContentRecoveryState {
             // A trusted Notion redirect can resolve the recovery navigation to a
             // different document before didFinish. Follow the adopted document so
             // completion cannot leave recovery stuck, but discard the old page's
             // scroll fallback and keep the same single-attempt budget.
             webContentRecoveryState = .attempting(pageID: resolvedPage.pageID)
-            pendingScrollRestoration = nil
+            pageStateRestoration.discardPendingScrollRestoration()
         }
         onPageResolved?(resolvedPage)
     }
@@ -1306,30 +935,22 @@ extension NotionWebSession: WKNavigationDelegate {
     }
 
     private func isCancellation(_ error: Error) -> Bool {
-        let error = error as NSError
-        return error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled
+        navigationDecisionPolicy.failureDecision(for: error) == .cancelled
     }
 
     private func navigationFailureState(for error: Error) -> NotionWebSessionState {
-        Self.isOfflineNavigationError(error)
-            ? .offline
-            : .failed("Notion couldn't load this page.")
+        switch navigationDecisionPolicy.failureDecision(for: error) {
+        case .cancelled:
+            return .loading
+        case .offline:
+            return .offline
+        case let .failed(message):
+            return .failed(message)
+        }
     }
 
     static func isOfflineNavigationError(_ error: Error) -> Bool {
-        let error = error as NSError
-        guard error.domain == NSURLErrorDomain else { return false }
-        return [
-            NSURLErrorTimedOut,
-            NSURLErrorCannotFindHost,
-            NSURLErrorCannotConnectToHost,
-            NSURLErrorNetworkConnectionLost,
-            NSURLErrorDNSLookupFailed,
-            NSURLErrorNotConnectedToInternet,
-            NSURLErrorInternationalRoamingOff,
-            NSURLErrorCallIsActive,
-            NSURLErrorDataNotAllowed,
-        ].contains(error.code)
+        NotionWebNavigationPolicy().failureDecision(for: error) == .offline
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -1343,29 +964,20 @@ extension NotionWebSession: WKNavigationDelegate {
         revealTopControls()
         invalidateEditorSelection()
         refreshDOMBridges(afterTerminationOf: webView)
-        guard let page = activePage else {
-            pendingScrollRestoration = nil
-            isAttemptingDurableRestoration = false
+        let page = activePage
+        pageStateRestoration.rendererDidTerminate(
+            page: page,
+            loadedPageID: loadedPageID
+        )
+        guard let page else {
             publishNavigationState(.failed("Notion couldn't reload after its web content stopped."))
             return
         }
 
-        savedURL = page.canonicalURL
-        savedURLPageID = page.pageID
-
-        // WebKit cannot provide unsaved DOM edits or an opaque interactionState after
-        // its renderer exits. A numeric scroll snapshot is durable enough to retry, but
-        // only when it was captured from the same selected document.
-        interactionStates.removeValue(forKey: page.pageID)
-        durableRestorations.removeValue(forKey: page.pageID)
-        pendingScrollRestoration = terminationScrollRestoration(for: page)
-        latestScrollSnapshots.removeValue(forKey: page.pageID)
-        isAttemptingDurableRestoration = false
-
         switch webContentRecoveryState {
         case .attempting(pageID: page.pageID), .failed(pageID: page.pageID):
             webContentRecoveryState = .failed(pageID: page.pageID)
-            pendingScrollRestoration = nil
+            pageStateRestoration.discardPendingScrollRestoration()
             publishNavigationState(.failed("Notion couldn't reload after its web content stopped."))
             return
         case .ready, .attempting, .failed:
@@ -1377,36 +989,20 @@ extension NotionWebSession: WKNavigationDelegate {
         loadRequest(webView, URLRequest(url: page.canonicalURL))
     }
 
-    private func terminationScrollRestoration(
-        for page: NotionPageReference
-    ) -> DurablePageRestoration? {
-        guard loadedPageID == page.pageID,
-              let scroll = latestScrollSnapshots[page.pageID]
-        else {
-            return nil
-        }
-        return try? DurablePageRestoration(
-            pageID: page.pageID,
-            validatingLastURL: page.canonicalURL,
-            scrollX: scroll.x,
-            scrollY: scroll.y,
-            scrollProgress: scroll.progress,
-            updatedAt: Date()
-        )
-    }
-
     private func markWebContentRecoveryFailedIfNeeded() {
         guard case let .attempting(pageID) = webContentRecoveryState else { return }
         webContentRecoveryState = .failed(pageID: pageID)
-        pendingScrollRestoration = nil
+        pageStateRestoration.discardPendingScrollRestoration()
     }
 
     private func fallBackFromFailedDurableRestoration() -> Bool {
-        guard isAttemptingDurableRestoration, let activePage else { return false }
-        isAttemptingDurableRestoration = false
-        pendingScrollRestoration = nil
-        durableRestorations.removeValue(forKey: activePage.pageID)
-        load(activePage.canonicalURL, pageID: activePage.pageID)
+        guard let activePage,
+              let canonicalURL = pageStateRestoration
+                .canonicalFallbackAfterFailedDurableRestoration(for: activePage)
+        else {
+            return false
+        }
+        load(canonicalURL, pageID: activePage.pageID)
         return true
     }
 }
@@ -1427,14 +1023,12 @@ extension NotionWebSession: WKUIDelegate {
         in webView: WKWebView
     ) -> WKWebView? {
         guard isCurrent(webView) else { return nil }
-        switch WebNavigationDestination.classify(request.url) {
-        case .trustedNotion:
+        switch navigationDecisionPolicy.newWindowDecision(for: request) {
+        case let .loadInExistingWebView(request):
             loadRequest(webView, request)
-        case .externalWeb:
-            if let url = request.url {
-                openURL(url)
-            }
-        case .unsupported:
+        case let .openExternally(url):
+            openURL(url)
+        case .ignore:
             break
         }
         return nil
