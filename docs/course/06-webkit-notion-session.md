@@ -34,18 +34,10 @@ Read [Lecture 5](05-panel-stashing-and-controls.md) for the panel side of
 restoration, and manual-verification boundary. The canonical cross-layer view
 is [Flow 2 in the architecture map](ARCHITECTURE_MAP.md#flow-2--page-activation-and-webkit-navigation).
 
-This lecture was checked against committed source at starting commit
-`55f00ca7c45f4829d96ba2920b0b024b38beb019`. The working tree also contained
-unstaged edits to
+This lecture is maintained against the current implementations in
 [`NotionWebSession.swift`](../../Sources/NotionPiP/Platform/NotionWebSession.swift)
 and
 [`NotionWebSessionTests.swift`](../../Tests/NotionPiPTests/NotionWebSessionTests.swift).
-Those edits are **not** architectural evidence here. To inspect the same
-baseline after opening a working-tree link, use:
-
-```sh
-git show 55f00ca7c45f4829d96ba2920b0b024b38beb019:Sources/NotionPiP/Platform/NotionWebSession.swift
-```
 
 Prerequisite concepts are deliberately light: a browser view loads URLs, a
 delegate receives navigation events, and an object can outlive the SwiftUI view
@@ -63,8 +55,9 @@ short time. Under memory pressure or after the warm period, the desk can be
 removed and reconstructed later from safer records.
 
 “One live `WKWebView`” therefore means **one at a time**, not one immortal
-object. A warm hide/show keeps the same instance. A page switch, warm eviction,
-or WebKit renderer termination can retire it and create a replacement. The
+object. A warm hide/show keeps the same instance. A page switch or warm eviction
+can retire it and create a replacement. WebKit renderer recovery keeps the same
+view object when WebKit permits and refreshes its document-bound bridges. The
 session never keeps one browser instance per pinned page.
 
 ### WebKit, AppKit, and SwiftUI roles
@@ -127,8 +120,8 @@ stateDiagram-v2
     suspended --> offline: show retained offline result
     suspended --> failed: show retained failure result
     suspended --> unloaded: warm or memory-pressure eviction
-    active --> loading: visible renderer termination; canonical reload
-    suspended --> unloaded: hidden renderer termination
+    active --> loading: renderer termination; canonical reload
+    suspended --> suspended: hidden renderer termination; canonical reload
 ```
 
 While suspended, navigation callbacks update a saved “state before suspension”
@@ -251,10 +244,17 @@ small helper methods while retaining ownership and failure behavior.
    removes opaque interaction snapshots, leaving durable fallback.
 3. Showing an active page after eviction creates a replacement and restores
    opaque state when still retained, otherwise it loads the saved safe URL.
-4. Renderer termination is stricter: WebKit cannot return unsaved DOM edits,
-   so the session discards interaction, selection, scroll, and pending
-   restoration for that page and reloads only its canonical URL when visible.
-   When hidden, recovery waits until the next show.
+4. Renderer termination is stricter: WebKit cannot return unsaved DOM edits or
+   trustworthy opaque interaction state. The session invalidates DOM-bound
+   bridges and selection, discards opaque restoration, and keeps only a numeric
+   scroll fallback captured for the same selected page.
+5. The session keeps the same `WKWebView`, advances its callback generation,
+   and reloads only the current validated canonical URL once. This attempt also
+   runs while stashed, while lifecycle publication remains suspended.
+6. A successful finish activates the recovered document. A validated redirect
+   can adopt a different Notion page, but it discards the old page's scroll
+   fallback. A failed reload or repeated termination stops automatic reloads
+   and leaves a native retry action.
 
 ## Deep dive
 
@@ -294,8 +294,9 @@ document; it is not a general bridge into the hosted Notion site.
 
 ## Common misconceptions and failure modes
 
-- **“One live view means the same instance forever.”** No. A warm hide/show
-  keeps it; page replacement, eviction, and renderer termination can retire it.
+- **“One live view means the same instance forever.”** No. A warm hide/show and
+  renderer recovery keep it when possible; page replacement and eviction can
+  still retire it.
 - **“Suspended means navigation stopped producing callbacks.”** No. Outcomes
   are recorded behind the suspended presentation state and become visible on
   resume.
@@ -424,8 +425,10 @@ matching committed test. Do not edit source.
   failure.
 - A retired view fails the identity/generation guard and cannot mutate the
   replacement session.
-- Visible renderer loss retires the broken view, clears stale per-page state,
-  and loads the canonical page in a replacement; hidden recovery is deferred.
+- Renderer loss refreshes document-bound callbacks on the same view, clears
+  stale opaque and selection state, and makes one canonical reload with only a
+  same-page numeric scroll fallback. Hidden recovery remains suspended, and a
+  repeated termination exposes the native retry state instead of looping.
 - Matching tests should come from
   [`NotionWebSessionTests.swift`](../../Tests/NotionPiPTests/NotionWebSessionTests.swift),
   [`WebNavigationDestinationTests.swift`](../../Tests/NotionPiPTests/WebNavigationDestinationTests.swift),

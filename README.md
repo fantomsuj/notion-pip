@@ -41,7 +41,10 @@ navigation history when WebKit can restore it. Across launches—or after memory
 pressure discards that opaque state—the app restores the last validated Notion
 URL and makes a best-effort, two-second attempt to restore scroll position. If
 that fallback cannot load, it returns to the page’s canonical URL and natural
-scroll position.
+scroll position. If WebKit's live content process exits, the app keeps the
+surviving view, invalidates DOM-bound state, and makes one canonical reload with
+a same-page scroll fallback. A repeated termination or failed reload stops the
+automatic cycle and presents a native retry action.
 
 ## Why I love building with Notion
 

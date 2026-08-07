@@ -172,14 +172,36 @@ final class NotionPageStateRestorationCoordinator {
         savedURLPageID = page.pageID
     }
 
-    func rendererDidTerminate(page: NotionPageReference?) {
+    func rendererDidTerminate(
+        page: NotionPageReference?,
+        loadedPageID: String? = nil,
+        now: Date = Date()
+    ) {
         if let page {
+            let scroll = loadedPageID == page.pageID
+                ? latestScrollSnapshots[page.pageID]
+                : nil
             savedURL = page.canonicalURL
             savedURLPageID = page.pageID
             discardCachedState(for: page.pageID)
+            if let scroll {
+                pendingScrollRestoration = try? DurablePageRestoration(
+                    pageID: page.pageID,
+                    validatingLastURL: page.canonicalURL,
+                    scrollX: scroll.x,
+                    scrollY: scroll.y,
+                    scrollProgress: scroll.progress,
+                    updatedAt: now
+                )
+            }
+        } else {
+            pendingScrollRestoration = nil
         }
-        pendingScrollRestoration = nil
         isAttemptingDurableRestoration = false
+    }
+
+    func discardPendingScrollRestoration() {
+        pendingScrollRestoration = nil
     }
 
     func discardCachedState(for pageID: String) {
