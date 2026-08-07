@@ -58,6 +58,17 @@ final class OnboardingCoordinatorTests: XCTestCase {
         XCTAssertEqual(harness.presenter.showCount, 1)
     }
 
+    func testCompletingRequestsFirstPageHandoff() throws {
+        let harness = try makeHarness()
+        harness.coordinator.showIfNeeded()
+
+        harness.complete?()
+
+        XCTAssertEqual(harness.presenter.hideCount, 1)
+        XCTAssertEqual(harness.firstPageHandoff.performCount, 1)
+        XCTAssertFalse(harness.store.shouldPresent(version: OnboardingCoordinator.currentVersion))
+    }
+
     func testOpeningSettingsCompletesOnboardingAndHandsOffToSettings() throws {
         let harness = try makeHarness()
         harness.coordinator.showIfNeeded()
@@ -66,6 +77,7 @@ final class OnboardingCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(harness.presenter.hideCount, 1)
         XCTAssertEqual(harness.settings.showCount, 1)
+        XCTAssertEqual(harness.firstPageHandoff.performCount, 0)
         XCTAssertFalse(harness.store.shouldPresent(version: OnboardingCoordinator.currentVersion))
     }
 
@@ -88,11 +100,13 @@ final class OnboardingCoordinatorTests: XCTestCase {
         }
         let presenter = OnboardingWindowPresenterSpy()
         let settings = OnboardingSettingsPresenterSpy()
+        let firstPageHandoff = OnboardingFirstPageHandoffSpy()
         var complete: (() -> Void)?
         var openSettings: (() -> Void)?
         let coordinator = OnboardingCoordinator(
             preferenceStore: store,
             settingsWindowPresenter: settings,
+            firstPageHandoff: firstPageHandoff.perform,
             makeWindowPresenter: { completion, settingsAction in
                 complete = completion
                 openSettings = settingsAction
@@ -104,6 +118,7 @@ final class OnboardingCoordinatorTests: XCTestCase {
             store: store,
             presenter: presenter,
             settings: settings,
+            firstPageHandoff: firstPageHandoff,
             complete: { complete?() },
             openSettings: { openSettings?() }
         )
@@ -116,6 +131,7 @@ private struct OnboardingHarness {
     let store: OnboardingPreferenceStore
     let presenter: OnboardingWindowPresenterSpy
     let settings: OnboardingSettingsPresenterSpy
+    let firstPageHandoff: OnboardingFirstPageHandoffSpy
     let complete: (() -> Void)?
     let openSettings: (() -> Void)?
 }
@@ -134,4 +150,11 @@ private final class OnboardingSettingsPresenterSpy: SettingsWindowPresenting {
     private(set) var showCount = 0
 
     func show() { showCount += 1 }
+}
+
+@MainActor
+private final class OnboardingFirstPageHandoffSpy {
+    private(set) var performCount = 0
+
+    func perform() { performCount += 1 }
 }

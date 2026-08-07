@@ -9,16 +9,19 @@ final class OnboardingCoordinator {
 
     private let preferenceStore: OnboardingPreferenceStore
     private weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
+    private let firstPageHandoff: @MainActor () -> Void
     private let makeWindowPresenter: WindowPresenterFactory
     private var windowPresenter: (any AppWindowPresenting)?
 
     init(
         preferenceStore: OnboardingPreferenceStore = OnboardingPreferenceStore(),
         settingsWindowPresenter: any SettingsWindowPresenting,
+        firstPageHandoff: @escaping @MainActor () -> Void,
         makeWindowPresenter: @escaping WindowPresenterFactory
     ) {
         self.preferenceStore = preferenceStore
         self.settingsWindowPresenter = settingsWindowPresenter
+        self.firstPageHandoff = firstPageHandoff
         self.makeWindowPresenter = makeWindowPresenter
     }
 
@@ -32,12 +35,17 @@ final class OnboardingCoordinator {
     }
 
     private func complete() {
+        finishCompletion()
+        firstPageHandoff()
+    }
+
+    private func finishCompletion() {
         preferenceStore.markCompleted(version: Self.currentVersion)
         windowPresenter?.hide()
     }
 
     private func openSettings() {
-        complete()
+        finishCompletion()
         settingsWindowPresenter?.show()
     }
 
