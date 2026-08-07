@@ -15,12 +15,15 @@ protocol PiPPanelWindow: AnyObject {
         toward side: PanelStashSide,
         completion: @escaping @MainActor () -> Void
     )
+    func cancelPendingStashDismissal()
     func restoreFromExpandedState()
     func setFrame(_ frame: CGRect, display: Bool)
     func setFrame(_ frame: CGRect, display: Bool, animate: Bool)
 }
 
 extension PiPPanelWindow {
+    func cancelPendingStashDismissal() {}
+
     func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
         setFrame(frame, display: display)
     }
@@ -103,6 +106,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     private var activeStashPlacement: PanelStashPlacement?
     private var didAttemptFirstPresentation = false
     private var committedGeometry: PanelGeometry?
+    private var isStashDismissalActive = false
     private var programmaticFrameChangeGeneration = 0
     private var isApplyingProgrammaticFrame = false
 
@@ -347,6 +351,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     func show(page: NotionPageReference, restoration: DurablePageRestoration?) {
         let hadPinnedPage = currentPage != nil
         let measurement = beginFirstPresentation()
+        cancelPendingStashDismissal()
         prepareInitialFrameIfNeeded()
         if currentPage?.canonicalURL != page.canonicalURL {
             pageLoader.activate(page: page, restoration: restoration)
@@ -368,6 +373,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     func reloadPinnedPage(_ page: NotionPageReference) {
         let hadPinnedPage = currentPage != nil
         let measurement = beginFirstPresentation()
+        cancelPendingStashDismissal()
         prepareInitialFrameIfNeeded()
         restoreCommittedPanelFrame()
         currentPage = page
@@ -385,6 +391,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     func showCurrentPage() -> Bool {
         guard currentPage != nil else { return false }
         let measurement = beginFirstPresentation()
+        cancelPendingStashDismissal()
         prepareInitialFrameIfNeeded()
         restoreCommittedPanelFrame()
         panel.present()
@@ -430,6 +437,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     func applyPanelContentSize(_ contentSize: CGSize) -> Bool {
         guard currentPage != nil else { return false }
 
+        cancelPendingStashDismissal()
         let wasVisible = panel.isVisible
         let visibleFrames = visibleFramesProvider()
         let logicalFrame = committedGeometry?.frame ?? panel.frame
@@ -472,8 +480,11 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             desiredContentSize: committedGeometry?.desiredContentSize.cgSize
         )
         presentStashHandle(stashHandle, placement: placement)
+        isStashDismissalActive = true
         panel.dismissForStash(toward: placement.side) { [weak self] in
-            self?.pageLoader.panelDidHide()
+            guard let self else { return }
+            isStashDismissalActive = false
+            pageLoader.panelDidHide()
         }
         logger.notice("Panel stashed to screen edge")
         return true
@@ -485,6 +496,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             return
         }
         let measurement = beginFirstPresentation()
+        cancelPendingStashDismissal()
         prepareInitialFrameIfNeeded()
         restoreCommittedPanelFrame()
         panel.present()
@@ -536,6 +548,11 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         activeStashPlacement = nil
         guard stashHandle?.isVisible == true else { return }
         stashHandle?.orderOut()
+    }
+
+    private func cancelPendingStashDismissal() {
+        panel.cancelPendingStashDismissal()
+        isStashDismissalActive = false
     }
 
     private func prepareInitialFrameIfNeeded() {
@@ -631,6 +648,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 
     func recordPanelMove() {
         guard !isApplyingProgrammaticFrame,
+            !isStashDismissalActive,
             let visibleFrame = PanelFramePolicy.targetVisibleFrame(
                 for: panel.frame,
                 from: visibleFramesProvider()
@@ -721,8 +739,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 }
 
 final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
-    private static let stashNudge: CGFloat = 16
     private static let stashAnimationDuration: TimeInterval = 0.12
+    private var stashAnimationGeneration = 0
 
     var onClose: (@MainActor () -> Void)?
 
@@ -759,6 +777,11 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         }
     }
 
+    func cancelPendingStashDismissal() {
+        stashAnimationGeneration &+= 1
+        alphaValue = 1
+    }
+
     override func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
         guard animate else {
             setFrame(frame, display: display)
@@ -775,24 +798,26 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         toward side: PanelStashSide,
         completion: @escaping @MainActor () -> Void
     ) {
+        stashAnimationGeneration &+= 1
+        let generation = stashAnimationGeneration
+        let originalFrame = frame
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             orderOut()
             completion()
             return
         }
 
-        let originalFrame = frame
-        let horizontalOffset = side == .left ? -Self.stashNudge : Self.stashNudge
-        let targetFrame = originalFrame.offsetBy(dx: horizontalOffset, dy: 0)
-
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Self.stashAnimationDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            animator().setFrame(targetFrame, display: true)
             animator().alphaValue = 0
         } completionHandler: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard stashAnimationGeneration == generation else {
+                    self.alphaValue = 1
+                    return
+                }
                 self.orderOut(nil)
                 self.setFrame(originalFrame, display: false)
                 self.alphaValue = 1

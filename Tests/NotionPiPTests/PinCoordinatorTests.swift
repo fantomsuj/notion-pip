@@ -230,6 +230,30 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.currentPage, page)
     }
 
+    func testLateStashCompletionCannotHideRestoredPanel() throws {
+        let originalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let panel = FakePanelWindow(
+            frame: originalFrame,
+            defersStashDismissal: true
+        )
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [visibleFrame] }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+        handle.restore()
+        panel.completeStashDismissal()
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.frame, originalFrame)
+    }
+
     func testStashRestorePreservesCommittedHorizontalFrameWhenLegacySizeConflicts() throws {
         let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
         let horizontalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
@@ -1079,14 +1103,18 @@ private final class FakePanelWindow: PiPPanelWindow {
     private(set) var setFrames: [CGRect] = []
     var onClose: (@MainActor () -> Void)?
     private let recordEvent: (String) -> Void
+    private let defersStashDismissal: Bool
+    private var pendingStashCompletion: (@MainActor () -> Void)?
 
     init(
         frame: CGRect = .zero,
         isExpanded: Bool = false,
+        defersStashDismissal: Bool = false,
         recordEvent: @escaping (String) -> Void = { _ in }
     ) {
         self.frame = frame
         self.isExpanded = isExpanded
+        self.defersStashDismissal = defersStashDismissal
         self.recordEvent = recordEvent
     }
 
@@ -1118,6 +1146,29 @@ private final class FakePanelWindow: PiPPanelWindow {
 
     func requestClose() {
         onClose?()
+    }
+
+    func dismissForStash(
+        toward side: PanelStashSide,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        guard defersStashDismissal else {
+            orderOut()
+            completion()
+            return
+        }
+        pendingStashCompletion = completion
+    }
+
+    func completeStashDismissal() {
+        guard let completion = pendingStashCompletion else { return }
+        orderOut()
+        completion()
+        pendingStashCompletion = nil
+    }
+
+    func cancelPendingStashDismissal() {
+        pendingStashCompletion = nil
     }
 }
 

@@ -6,6 +6,18 @@ import XCTest
 
 @MainActor
 final class PiPPanelGeometryTests: XCTestCase {
+    func testHorizontalFrameSurvivesRealPanelStashRestore() throws {
+        try assertRealPanelStashRestore(
+            frame: CGRect(x: 656, y: 356, width: 760, height: 520)
+        )
+    }
+
+    func testVerticalFrameSurvivesRealPanelStashRestore() throws {
+        try assertRealPanelStashRestore(
+            frame: CGRect(x: 936, y: 156, width: 480, height: 720)
+        )
+    }
+
     func testStashingDoesNotResizeRetainedPanel() throws {
         _ = NSApplication.shared
         let autosaveKey = "NSWindow Frame NotionPiPPanel"
@@ -66,5 +78,77 @@ final class PiPPanelGeometryTests: XCTestCase {
         while Date() < deadline {
             RunLoop.main.run(mode: .default, before: deadline)
         }
+    }
+
+    private func assertRealPanelStashRestore(frame: CGRect) throws {
+        _ = NSApplication.shared
+        let panel = KeyCapablePiPPanel(
+            contentRect: frame,
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.alphaValue = 0
+        let handle = GeometryTestStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: GeometryTestPageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_440, height: 900)]
+            }
+        )
+        defer { panel.orderOut(nil) }
+        coordinator.show(
+            page: try NotionPageReference(
+                validating: XCTUnwrap(
+                    URL(
+                        string: "https://www.notion.so/123456781234123412341234567890ab"
+                    )
+                )
+            )
+        )
+        panel.setFrame(frame, display: false)
+
+        XCTAssertTrue(
+            coordinator.stash(
+                visibleFrames: [CGRect(x: 0, y: 0, width: 1_440, height: 900)]
+            )
+        )
+        handle.restore()
+        drainMainRunLoop()
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.frame, frame)
+    }
+}
+
+@MainActor
+private final class GeometryTestPageLoader: NotionPageLoading {
+    func activate(page: NotionPageReference) {}
+    func reloadPinnedPage(_ page: NotionPageReference) {}
+}
+
+@MainActor
+private final class GeometryTestStashHandle: PiPStashHandle {
+    private(set) var isVisible = false
+    private var onRestore: (@MainActor () -> Void)?
+
+    func present(
+        placement: PanelStashPlacement,
+        onRestore: @escaping @MainActor () -> Void,
+        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void
+    ) {
+        isVisible = true
+        self.onRestore = onRestore
+    }
+
+    func orderOut() {
+        isVisible = false
+        onRestore = nil
+    }
+
+    func restore() {
+        onRestore?()
     }
 }
