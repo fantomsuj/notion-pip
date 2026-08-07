@@ -93,17 +93,20 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     private let pageLoader: any NotionPageLoading
     private let stashHandle: (any PiPStashHandle)?
     private let performanceSignposter: (any PerformanceSignposting)?
-    private let visibleFramesProvider: @MainActor () -> [CGRect]
+    private let displayTopologyObserver: (any DisplayTopologyObserving)?
+    private let displayTopologyProvider: @MainActor () -> DisplayTopology
     private let frameForContentRect: @MainActor (CGRect) -> CGRect
     private let contentRectForFrameRect: @MainActor (CGRect) -> CGRect
     private let geometryStore: any PanelGeometryPersisting
     private(set) var currentPage: NotionPageReference?
-    private var screenConfigurationObserver: NSObjectProtocol?
     private var liveResizeObserver: NSObjectProtocol?
     private var moveObserver: NSObjectProtocol?
     private var cornerSnapTask: Task<Void, Never>?
     private var initialFrameProvider: (@MainActor () -> CGRect?)?
     private var activeStashPlacement: PanelStashPlacement?
+    private var activeStashIntent: PanelStashIntent?
+    private var latestTopology: DisplayTopology
+    private var lastAcceptedTopologyRevision: UInt64
     private var didAttemptFirstPresentation = false
     private var committedGeometry: PanelGeometry?
     private var isStashDismissalActive = false
@@ -136,7 +139,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         }
         return PanelFramePolicy.targetVisibleFrame(
             for: panel.frame,
-            from: visibleFramesProvider()
+            from: currentTopology().visibleFrames
         )?.size ?? NSScreen.main?.visibleFrame.size
             ?? CGSize(width: 1_440, height: 900)
     }
@@ -156,7 +159,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             monitor: AccessibilitySelectionMonitor(),
             target: webSession
         )
-        let visibleFrames = NSScreen.screens.map(\.visibleFrame)
+        let displayTopologyObserver = AppKitDisplayTopologyObserver()
+        let initialTopology = displayTopologyObserver.currentTopology
+        let visibleFrames = initialTopology.visibleFrames
         let policy = WindowRole.pictureInPicture.policy
         guard let panel = WindowRole.pictureInPicture.makeWindow() as? KeyCapablePiPPanel else {
             preconditionFailure("PiP role must create KeyCapablePiPPanel")
@@ -207,7 +212,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             initialFrameProvider = nil
         } else {
             initialFrameProvider = {
-                let screens = NSScreen.screens.map {
+                let screens = displayTopologyObserver.currentTopology.displays.map {
                     ScreenGeometry(frame: $0.frame, visibleFrame: $0.visibleFrame)
                 }
                 let targetScreen =
@@ -234,6 +239,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             pageLoader: webSession,
             stashHandle: stashHandle,
             performanceSignposter: performanceSignposter,
+            displayTopologyObserver: displayTopologyObserver,
+            displayTopologyProvider: { displayTopologyObserver.currentTopology },
+            visibleFramesProvider: { displayTopologyObserver.currentTopology.visibleFrames },
             initialFrameProvider: initialFrameProvider,
             initialGeometry: initialGeometry,
             geometryStore: geometryStore,
@@ -265,6 +273,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         pageLoader: any NotionPageLoading,
         stashHandle: (any PiPStashHandle)? = nil,
         performanceSignposter: (any PerformanceSignposting)? = nil,
+        displayTopologyObserver: (any DisplayTopologyObserving)? = nil,
+        displayTopologyProvider: (@MainActor () -> DisplayTopology)? = nil,
         visibleFramesProvider: @escaping @MainActor () -> [CGRect] = {
             NSScreen.screens.map(\.visibleFrame)
         },
@@ -279,7 +289,21 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         self.pageLoader = pageLoader
         self.stashHandle = stashHandle
         self.performanceSignposter = performanceSignposter
-        self.visibleFramesProvider = visibleFramesProvider
+        self.displayTopologyObserver = displayTopologyObserver
+        let initialTopology = displayTopologyProvider?()
+            ?? Self.syntheticTopology(
+                visibleFrames: visibleFramesProvider(),
+                revision: 0
+            )
+        self.displayTopologyProvider = displayTopologyProvider
+            ?? {
+                Self.syntheticTopology(
+                    visibleFrames: visibleFramesProvider(),
+                    revision: 0
+                )
+            }
+        latestTopology = initialTopology
+        lastAcceptedTopologyRevision = initialTopology.revision
         self.initialFrameProvider = initialFrameProvider
         self.geometryStore = geometryStore
         self.frameForContentRect = frameForContentRect
@@ -295,18 +319,12 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             ?? geometryStore.load()
             ?? PanelGeometryPolicy.capture(
                 frame: panel.frame,
-                visibleFrames: visibleFramesProvider(),
+                topology: initialTopology,
                 desiredContentSize: initialDesiredContentSize,
                 contentRectForFrameRect: contentRectForFrameRect
             )
-        screenConfigurationObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.reclampPanelFrame(visibleFrames: NSScreen.screens.map(\.visibleFrame))
-            }
+        displayTopologyObserver?.start { [weak self] topology in
+            self?.applyDisplayTopology(topology)
         }
         liveResizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didEndLiveResizeNotification,
@@ -332,9 +350,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     }
 
     isolated deinit {
-        if let screenConfigurationObserver {
-            NotificationCenter.default.removeObserver(screenConfigurationObserver)
-        }
         if let liveResizeObserver {
             NotificationCenter.default.removeObserver(liveResizeObserver)
         }
@@ -408,7 +423,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         case .unavailable:
             return false
         case .visible:
-            _ = stash(visibleFrames: visibleFramesProvider())
+            _ = stash(topology: currentTopology())
         case .stashed:
             _ = showCurrentPage()
         }
@@ -439,7 +454,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 
         cancelPendingStashDismissal()
         let wasVisible = panel.isVisible
-        let visibleFrames = visibleFramesProvider()
+        let topology = currentTopology()
+        let visibleFrames = topology.visibleFrames
         let logicalFrame = committedGeometry?.frame ?? panel.frame
         let anchor = committedGeometry?.anchor
             ?? PanelFramePolicy.targetVisibleFrame(for: logicalFrame, from: visibleFrames)
@@ -453,7 +469,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             frameForContentRect: frameForContentRect
         )
         setPanelFrame(placement.frame, display: wasVisible)
-        commitCurrentGeometry(desiredContentSize: contentSize)
+        commitCurrentGeometry(desiredContentSize: contentSize, topology: topology)
         dismissStashHandle()
 
         if !wasVisible {
@@ -466,19 +482,33 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 
     @discardableResult
     func stash(visibleFrames: [CGRect]) -> Bool {
+        let revision = max(lastAcceptedTopologyRevision, latestTopology.revision) &+ 1
+        return stash(
+            topology: Self.syntheticTopology(
+                visibleFrames: visibleFrames,
+                revision: revision
+            )
+        )
+    }
+
+    @discardableResult
+    private func stash(topology: DisplayTopology) -> Bool {
         guard currentPage != nil,
             let stashHandle,
             let placement = PanelStashPolicy.placement(
                 for: panel.frame,
-                visibleFrames: visibleFrames
+                visibleFrames: topology.visibleFrames
             )
         else {
             return false
         }
 
+        latestTopology = topology
         commitCurrentGeometry(
-            desiredContentSize: committedGeometry?.desiredContentSize.cgSize
+            desiredContentSize: committedGeometry?.desiredContentSize.cgSize,
+            topology: topology
         )
+        activeStashIntent = PanelStashPolicy.intent(for: placement, topology: topology)
         presentStashHandle(stashHandle, placement: placement)
         isStashDismissalActive = true
         panel.dismissForStash(toward: placement.side) { [weak self] in
@@ -507,45 +537,52 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     }
 
     func reclampPanelFrame(visibleFrames: [CGRect]) {
-        if stashHandle?.isVisible != true {
-            let frame: CGRect
-            if let committedGeometry {
-                frame = PanelGeometryPolicy.resolvedFrame(
-                    for: committedGeometry,
-                    visibleFrames: visibleFrames,
-                    minimumContentSize: WindowRole.pictureInPicture.policy.minimumContentSize,
-                    frameForContentRect: frameForContentRect
-                )
-            } else {
-                frame = PanelFramePolicy.placement(
-                    preferredContentSize: currentPanelContentSize,
-                    anchoredTo: panel.frame,
-                    visibleFrames: visibleFrames,
-                    minimumContentSize: WindowRole.pictureInPicture.policy.minimumContentSize,
-                    frameForContentRect: frameForContentRect
-                ).frame
-            }
-            if frame != panel.frame {
-                setPanelFrame(frame, display: true)
-            }
+        let revision = max(lastAcceptedTopologyRevision, latestTopology.revision) &+ 1
+        applyDisplayTopology(
+            Self.syntheticTopology(
+                visibleFrames: visibleFrames,
+                revision: revision
+            )
+        )
+    }
+
+    func applyDisplayTopology(_ topology: DisplayTopology) {
+        let presentation: PanelTopologyPresentation
+        if panel.isVisible, panel.isExpanded {
+            presentation = .expanded
+        } else if panel.isVisible {
+            presentation = .visible
+        } else if stashHandle?.isVisible == true, let activeStashIntent {
+            presentation = .stashed(activeStashIntent)
+        } else {
+            presentation = .hidden
         }
 
-        guard stashHandle?.isVisible == true else { return }
-        guard !visibleFrames.isEmpty else { return }
-        guard let activeStashPlacement,
-            let placement = PanelStashPolicy.snappedPlacement(
-            for: activeStashPlacement.frame,
-            visibleFrames: visibleFrames
+        guard let decision = PanelTopologyPolicy.resolve(
+            committedGeometry: committedGeometry,
+            currentPanelFrame: panel.frame,
+            presentation: presentation,
+            lastAcceptedRevision: lastAcceptedTopologyRevision,
+            topology: topology,
+            minimumContentSize: WindowRole.pictureInPicture.policy.minimumContentSize,
+            frameForContentRect: frameForContentRect
         ) else {
             return
         }
-        if let stashHandle {
+
+        latestTopology = topology
+        lastAcceptedTopologyRevision = decision.acceptedRevision
+        if let frame = decision.panelFrame, frame != panel.frame {
+            setPanelFrame(frame, display: decision.panelFrameShouldDisplay)
+        }
+        if let placement = decision.stashPlacement, let stashHandle {
             presentStashHandle(stashHandle, placement: placement)
         }
     }
 
     private func dismissStashHandle() {
         activeStashPlacement = nil
+        activeStashIntent = nil
         guard stashHandle?.isVisible == true else { return }
         stashHandle?.orderOut()
     }
@@ -596,7 +633,12 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
                 self?.restoreFromStash()
             },
             onPlacementChange: { [weak self] placement in
-                self?.activeStashPlacement = placement
+                guard let self else { return }
+                activeStashPlacement = placement
+                activeStashIntent = PanelStashPolicy.intent(
+                    for: placement,
+                    topology: currentTopology()
+                )
             }
         )
     }
@@ -605,7 +647,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         guard let committedGeometry else { return }
         let frame = PanelGeometryPolicy.resolvedFrame(
             for: committedGeometry,
-            visibleFrames: visibleFramesProvider(),
+            topology: currentTopology(),
             minimumContentSize: WindowRole.pictureInPicture.policy.minimumContentSize,
             frameForContentRect: frameForContentRect
         )
@@ -616,11 +658,12 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 
     private func commitCurrentGeometry(
         desiredContentSize: CGSize? = nil,
-        anchor: PanelFrameAnchor? = nil
+        anchor: PanelFrameAnchor? = nil,
+        topology: DisplayTopology? = nil
     ) {
         guard let geometry = PanelGeometryPolicy.capture(
             frame: panel.frame,
-            visibleFrames: visibleFramesProvider(),
+            topology: topology ?? currentTopology(),
             desiredContentSize: desiredContentSize,
             anchor: anchor,
             contentRectForFrameRect: contentRectForFrameRect
@@ -651,7 +694,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             !isStashDismissalActive,
             let visibleFrame = PanelFramePolicy.targetVisibleFrame(
                 for: panel.frame,
-                from: visibleFramesProvider()
+                from: currentTopology().visibleFrames
             )
         else {
             return
@@ -694,7 +737,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     }
 
     func snapPanelToCorner() {
-        let visibleFrames = visibleFramesProvider()
+        let visibleFrames = currentTopology().visibleFrames
         let originalFrame = panel.frame
         let snappedFrame = PanelFramePolicy.cornerSnapped(
             originalFrame,
@@ -719,6 +762,32 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         commitCurrentGeometry(
             desiredContentSize: committedGeometry?.desiredContentSize.cgSize,
             anchor: cornerAnchor
+        )
+    }
+
+    private func currentTopology() -> DisplayTopology {
+        let providedTopology = displayTopologyProvider()
+        if providedTopology.revision >= latestTopology.revision {
+            latestTopology = providedTopology
+        }
+        return latestTopology
+    }
+
+    private static func syntheticTopology(
+        visibleFrames: [CGRect],
+        revision: UInt64
+    ) -> DisplayTopology {
+        DisplayTopology(
+            revision: revision,
+            displays: visibleFrames.enumerated().map { index, visibleFrame in
+                DisplayDescriptor(
+                    identifier: nil,
+                    frame: visibleFrame,
+                    visibleFrame: visibleFrame,
+                    backingScaleFactor: 1,
+                    isPrimary: index == 0
+                )
+            }
         )
     }
 

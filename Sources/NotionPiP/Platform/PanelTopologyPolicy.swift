@@ -63,11 +63,13 @@ enum PanelTopologyPolicy {
                     frameForContentRect: frameForContentRect
                 )
             } else {
-                frame = PanelFramePolicy.clamped(
-                    currentPanelFrame,
+                frame = PanelFramePolicy.placement(
+                    preferredContentSize: currentPanelFrame.size,
+                    anchoredTo: currentPanelFrame,
                     visibleFrames: topology.visibleFrames,
-                    minimumSize: minimumContentSize
-                )
+                    minimumContentSize: minimumContentSize,
+                    frameForContentRect: frameForContentRect
+                ).frame
             }
             return PanelTopologyDecision(
                 acceptedRevision: topology.revision,
