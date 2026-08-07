@@ -561,6 +561,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         guard let decision = PanelTopologyPolicy.resolve(
             committedGeometry: committedGeometry,
             currentPanelFrame: panel.frame,
+            fallbackContentSize: currentPanelContentSize,
             presentation: presentation,
             lastAcceptedRevision: lastAcceptedTopologyRevision,
             topology: topology,

@@ -106,6 +106,28 @@ final class PanelTopologyPolicyTests: XCTestCase {
         XCTAssertNil(decision?.stashPlacement)
     }
 
+    func testMissingGeometryUsesProvidedContentSizeForFrameConversion() {
+        let topology = DisplayTopology(revision: 2, displays: [primary()])
+
+        let decision = PanelTopologyPolicy.resolve(
+            committedGeometry: nil,
+            currentPanelFrame: CGRect(x: 700, y: 200, width: 500, height: 630),
+            fallbackContentSize: CGSize(width: 500, height: 600),
+            presentation: .visible,
+            lastAcceptedRevision: 1,
+            topology: topology,
+            minimumContentSize: CGSize(width: 360, height: 420),
+            frameForContentRect: { contentRect in
+                CGRect(
+                    origin: contentRect.origin,
+                    size: CGSize(width: contentRect.width, height: contentRect.height + 30)
+                )
+            }
+        )
+
+        XCTAssertEqual(decision?.panelFrame?.size, CGSize(width: 500, height: 630))
+    }
+
     func testDuplicateAndOutOfOrderRevisionsAreIgnored() throws {
         let geometry = try makeSecondaryGeometry()
 

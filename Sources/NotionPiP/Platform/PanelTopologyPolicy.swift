@@ -18,6 +18,7 @@ enum PanelTopologyPolicy {
     static func resolve(
         committedGeometry: PanelGeometry?,
         currentPanelFrame: CGRect,
+        fallbackContentSize: CGSize? = nil,
         presentation: PanelTopologyPresentation,
         lastAcceptedRevision: UInt64,
         topology: DisplayTopology,
@@ -64,7 +65,7 @@ enum PanelTopologyPolicy {
                 )
             } else {
                 frame = PanelFramePolicy.placement(
-                    preferredContentSize: currentPanelFrame.size,
+                    preferredContentSize: fallbackContentSize ?? currentPanelFrame.size,
                     anchoredTo: currentPanelFrame,
                     visibleFrames: topology.visibleFrames,
                     minimumContentSize: minimumContentSize,
