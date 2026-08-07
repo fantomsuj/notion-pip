@@ -1336,5 +1336,6 @@ private final class FakeShortcutRegistrar: GlobalShortcutRegistering {
         self.handler = handler
     }
 
+    func revalidate() throws {}
     func unregister() {}
 }

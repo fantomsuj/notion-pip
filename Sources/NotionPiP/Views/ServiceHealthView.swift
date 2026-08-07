@@ -42,6 +42,8 @@ private extension ServiceHealthIssue {
             "Pinned page is not being saved"
         case .globalShortcutUnavailable:
             "Global shortcut is unavailable"
+        case .quickCaptureShortcutUnavailable:
+            "Quick Capture shortcut is unavailable"
         }
     }
 
@@ -53,6 +55,8 @@ private extension ServiceHealthIssue {
             "Your current page works for this session. Retry saving it locally."
         case .globalShortcutUnavailable:
             "Use the menu-bar icon for now, or retry shortcut registration."
+        case .quickCaptureShortcutUnavailable:
+            "Quick Capture remains available from the app. Retry shortcut registration."
         }
     }
 
@@ -60,7 +64,9 @@ private extension ServiceHealthIssue {
         switch self {
         case .persistentStoreUnavailable:
             "Quit App"
-        case .pinnedPagePersistenceUnavailable, .globalShortcutUnavailable:
+        case .pinnedPagePersistenceUnavailable,
+             .globalShortcutUnavailable,
+             .quickCaptureShortcutUnavailable:
             "Retry"
         }
     }

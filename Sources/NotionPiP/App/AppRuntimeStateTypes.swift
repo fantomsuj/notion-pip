@@ -1,5 +1,22 @@
 import Foundation
 
+struct ShortcutConfiguration: Equatable, Sendable {
+    let panel: GlobalShortcut
+    let quickCapture: GlobalShortcut
+
+    var isValid: Bool {
+        panel.isValid && quickCapture.isValid && panel != quickCapture
+    }
+
+    func replacingPanel(with shortcut: GlobalShortcut) -> ShortcutConfiguration {
+        ShortcutConfiguration(panel: shortcut, quickCapture: quickCapture)
+    }
+
+    func replacingQuickCapture(with shortcut: GlobalShortcut) -> ShortcutConfiguration {
+        ShortcutConfiguration(panel: panel, quickCapture: shortcut)
+    }
+}
+
 struct ServiceHealthState: Equatable, Sendable {
     static let healthy = ServiceHealthState()
 
@@ -28,6 +45,7 @@ enum ServiceHealthIssue: String, Comparable, Identifiable, Sendable {
     case persistentStoreUnavailable
     case pinnedPagePersistenceUnavailable
     case globalShortcutUnavailable
+    case quickCaptureShortcutUnavailable
 
     var id: String {
         rawValue
