@@ -17,8 +17,9 @@ Pin the Notion page you are living in and keep it close without turning it into 
 - Keep working in the real, embedded Notion page—not a screenshot or a simplified native imitation.
 - Reload the currently displayed Notion page with `Command-R`, including the sign-in page if your session has expired.
 - Hover at the panel’s top edge and open the page switcher to resume one of seven
-  pinned favorites or seven recent pages. Search is local and works with partial,
-  out-of-order-free character matches.
+  pinned favorites or seven recent pages. Give pins optional device-local roles
+  such as “Today” or “Project Brief”; the switcher keeps the Notion title visible
+  and searches both role and title without creating another live web view.
 - Save device-local panel size presets in Settings and apply them from the PiP
   or menu-bar menus without reloading the live Notion page.
 - Use Quick Capture to get a thought into your workspace without losing the thread of what you were doing.
