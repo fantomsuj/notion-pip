@@ -96,6 +96,13 @@ prints `Verified .../dist/NotionPiP.app` with a process ID.
   the app's own settings UI.
 - The locally built app is ad-hoc signed for development. This is expected and
   is different from a Developer ID-signed, notarized distribution build.
+- Launch at Login works only from the staged `dist/NotionPiP.app`, not by
+  running the SwiftPM executable directly. Its toggle reflects the current
+  macOS ServiceManagement registration and may direct the user to System
+  Settings when approval is required.
+- Rebuilding replaces and ad-hoc signs the staged bundle again. macOS may ask
+  for login-item approval again or retain a stale entry after a rebuild, so
+  local results do not replace testing a stable Developer ID-signed beta.
 
 ### Troubleshooting
 
@@ -110,6 +117,10 @@ prints `Verified .../dist/NotionPiP.app` with a process ID.
   on. Do not treat the missing Dock icon as a crash.
 - If verification fails, rerun the failing command or the build script and
   inspect its actual output before editing code.
+- If Launch at Login is unavailable, confirm the process was launched through
+  `dist/NotionPiP.app`. If it requires approval, use the button in Settings and
+  allow Notion PiP under General → Login Items & Extensions; returning to the
+  app refreshes the displayed state.
 - If the script unexpectedly invokes or fails at npm, an existing
   `node_modules` directory triggered the optional editor rebuild. Explain that
   condition before installing Node, replacing dependencies, or moving the

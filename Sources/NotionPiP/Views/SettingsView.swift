@@ -1,8 +1,10 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var runtime: AppRuntime
     @ObservedObject var panelSizeController: PanelSizeController
+    @ObservedObject var launchAtLoginService: LaunchAtLoginService
     @State private var personalToken = ""
 
     var body: some View {
@@ -98,6 +100,42 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Launch at Login") {
+                    Toggle(
+                        "Launch Notion PiP at login",
+                        isOn: Binding(
+                            get: { launchAtLoginService.isRegistered },
+                            set: { launchAtLoginService.setEnabled($0) }
+                        )
+                    )
+
+                    switch launchAtLoginService.state {
+                    case .requiresApproval:
+                        Text(
+                            "Notion PiP is registered, but macOS requires your approval before it can launch at login. Allow it in System Settings → General → Login Items & Extensions."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Colors.secondaryText)
+                        Button("Open Login Items Settings") {
+                            launchAtLoginService.openSystemSettings()
+                        }
+                    case .unavailable:
+                        Text(
+                            "macOS could not find a current login item registration. Turn this setting on to register this app. If registration fails, quit and reopen Notion PiP from its app bundle and try again."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Colors.secondaryText)
+                    case .unregistered, .registered:
+                        EmptyView()
+                    }
+
+                    if let failureMessage = launchAtLoginService.failureMessage {
+                        Label(failureMessage, systemImage: "exclamationmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.Colors.error)
+                    }
+                }
+
                 Section("Personal Notion Access") {
                     switch runtime.connectionState {
                     case .disconnected, .failed:
@@ -159,6 +197,16 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .padding(DesignTokens.Spacing.container)
         .frame(minWidth: 440, minHeight: 420)
+        .onAppear {
+            launchAtLoginService.refresh()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification
+            )
+        ) { _ in
+            launchAtLoginService.refresh()
+        }
         .onDisappear {
             personalToken = ""
         }
