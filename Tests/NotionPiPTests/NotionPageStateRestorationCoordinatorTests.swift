@@ -154,6 +154,31 @@ final class NotionPageStateRestorationCoordinatorTests: XCTestCase {
         XCTAssertFalse(isDurable)
     }
 
+    func testRendererTerminationRetainsOnlySamePageNumericScrollFallback() throws {
+        let coordinator = NotionPageStateRestorationCoordinator()
+        let page = try makePage(id: firstPageID)
+        let timestamp = Date(timeIntervalSince1970: 42)
+        coordinator.recordScroll(
+            NotionScrollSnapshot(x: 8, y: 480, progress: 0.4),
+            pageID: page.pageID
+        )
+
+        coordinator.rendererDidTerminate(
+            page: page,
+            loadedPageID: page.pageID,
+            now: timestamp
+        )
+
+        let restoration = try XCTUnwrap(
+            coordinator.takePendingScrollRestoration(for: page.pageID)
+        )
+        XCTAssertEqual(restoration.lastURL, page.canonicalURL)
+        XCTAssertEqual(restoration.scrollX, 8)
+        XCTAssertEqual(restoration.scrollY, 480)
+        XCTAssertEqual(restoration.scrollProgress, 0.4)
+        XCTAssertEqual(restoration.updatedAt, timestamp)
+    }
+
     func testRendererTerminationWithoutActivePageCancelsPendingDurableFallback() throws {
         let coordinator = NotionPageStateRestorationCoordinator()
         let page = try makePage(id: firstPageID)
