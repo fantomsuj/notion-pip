@@ -13,169 +13,6 @@ typealias NotionWebAttachmentScheduler = @MainActor (
     @escaping @MainActor () -> Void
 ) -> Void
 typealias NotionWebURLObservationInvalidator = @MainActor (NSKeyValueObservation) -> Void
-typealias NotionWebActivityBridgeRemover = @MainActor (WKUserContentController) -> Void
-
-enum NotionEditorActivity: String, Equatable {
-    case typingStarted
-    case editingEnded
-}
-
-enum NotionEditorActivityBridge {
-    static let handlerName = "notionPiPChromeActivity"
-
-    static func activity(
-        from body: Any,
-        isMainFrame: Bool,
-        scheme: String,
-        host: String
-    ) -> NotionEditorActivity? {
-        guard isMainFrame,
-              scheme.lowercased() == "https",
-              ["app.notion.com", "notion.so", "www.notion.so"].contains(host.lowercased()),
-              let rawActivity = body as? String
-        else {
-            return nil
-        }
-
-        return NotionEditorActivity(rawValue: rawActivity)
-    }
-}
-
-struct NotionScrollSnapshot: Equatable, Sendable {
-    let x: Double
-    let y: Double
-    let progress: Double
-}
-
-enum NotionScrollBridge {
-    static let handlerName = "notionPiPScroll"
-
-    static func snapshot(
-        from body: Any,
-        isMainFrame: Bool,
-        scheme: String,
-        host: String
-    ) -> NotionScrollSnapshot? {
-        guard isMainFrame,
-              scheme.lowercased() == "https",
-              ["app.notion.com", "notion.so", "www.notion.so"].contains(host.lowercased()),
-              let values = body as? [String: Any],
-              Set(values.keys) == ["x", "y", "progress"],
-              let x = (values["x"] as? NSNumber)?.doubleValue,
-              let y = (values["y"] as? NSNumber)?.doubleValue,
-              let progress = (values["progress"] as? NSNumber)?.doubleValue,
-              x.isFinite,
-              y.isFinite,
-              progress.isFinite,
-              (0 ... 1).contains(progress)
-        else {
-            return nil
-        }
-        return NotionScrollSnapshot(x: x, y: y, progress: progress)
-    }
-}
-
-@MainActor
-private protocol NotionEditorActivityHandling: AnyObject {
-    func handleEditorActivity(
-        _ activity: NotionEditorActivity,
-        from webView: WKWebView?,
-        generation: UInt
-    )
-}
-
-@MainActor
-private protocol NotionScrollHandling: AnyObject {
-    func handleScrollSnapshot(_ snapshot: NotionScrollSnapshot)
-}
-
-@MainActor
-private protocol NotionEditorCaretHandling: AnyObject {
-    func handleEditorCaretUpdate(
-        _ update: NotionEditorCaretUpdate,
-        from webView: WKWebView?,
-        generation: UInt
-    )
-}
-
-@MainActor
-private final class WeakNotionEditorActivityMessageHandler: NSObject, WKScriptMessageHandler {
-    weak var delegate: (any NotionEditorActivityHandling)?
-    let generation: UInt
-
-    init(generation: UInt) {
-        self.generation = generation
-    }
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        guard let activity = NotionEditorActivityBridge.activity(
-            from: message.body,
-            isMainFrame: message.frameInfo.isMainFrame,
-            scheme: message.frameInfo.securityOrigin.protocol,
-            host: message.frameInfo.securityOrigin.host
-        ) else {
-            return
-        }
-
-        delegate?.handleEditorActivity(
-            activity,
-            from: message.webView,
-            generation: generation
-        )
-    }
-}
-
-@MainActor
-private final class WeakNotionScrollMessageHandler: NSObject, WKScriptMessageHandler {
-    weak var delegate: (any NotionScrollHandling)?
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        guard let snapshot = NotionScrollBridge.snapshot(
-            from: message.body,
-            isMainFrame: message.frameInfo.isMainFrame,
-            scheme: message.frameInfo.securityOrigin.protocol,
-            host: message.frameInfo.securityOrigin.host
-        ) else {
-            return
-        }
-        delegate?.handleScrollSnapshot(snapshot)
-    }
-}
-
-@MainActor
-private final class WeakNotionEditorCaretMessageHandler: NSObject, WKScriptMessageHandler {
-    weak var delegate: (any NotionEditorCaretHandling)?
-    let generation: UInt
-
-    init(generation: UInt) {
-        self.generation = generation
-    }
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        guard let update = NotionEditorCaretBridge.update(
-            from: message.body,
-            isMainFrame: message.frameInfo.isMainFrame,
-            scheme: message.frameInfo.securityOrigin.protocol,
-            host: message.frameInfo.securityOrigin.host
-        ) else {
-            return
-        }
-        delegate?.handleEditorCaretUpdate(
-            update,
-            from: message.webView,
-            generation: generation
-        )
-    }
-}
 
 @MainActor
 protocol NotionPageLoading: AnyObject {
@@ -208,8 +45,7 @@ enum NotionWebSessionState: Equatable {
 
 @MainActor
 final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
-    NotionEditorActivityHandling, NotionScrollHandling, NotionEditorCaretHandling,
-    QuickCopyInsertionTarget
+    NotionWebScriptMessageHandling, QuickCopyInsertionTarget
 {
     static let warmRetentionInterval = NotionWebLifecycleController.defaultWarmRetentionInterval
 
@@ -235,13 +71,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let scheduleAfterAttachment: NotionWebAttachmentScheduler
     private let focusWebView: @MainActor (WKWebView) -> Void
     private let invalidateURLObservation: NotionWebURLObservationInvalidator
-    private let removeActivityBridge: NotionWebActivityBridgeRemover
+    private let scriptMessageCoordinator: NotionWebScriptMessageCoordinator
     private let performanceSignposter: (any PerformanceSignposting)?
-    private var editorActivityHandler: WeakNotionEditorActivityMessageHandler?
-    private var scrollHandler: WeakNotionScrollMessageHandler?
-    private var editorCaretHandler: WeakNotionEditorCaretMessageHandler?
     private var urlObservation: NSKeyValueObservation?
-    private var webViewGeneration: UInt = 0
     private var lifecycleObservation: AnyCancellable?
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     private var panelIsVisible: Bool { lifecycleController.isVisible }
@@ -398,9 +230,12 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.scheduleAfterAttachment = scheduleAfterAttachment
         self.focusWebView = focusWebView
         self.invalidateURLObservation = invalidateURLObservation
-        self.removeActivityBridge = removeActivityBridge
+        self.scriptMessageCoordinator = NotionWebScriptMessageCoordinator(
+            removeBridges: removeActivityBridge
+        )
         self.performanceSignposter = performanceSignposter
         super.init()
+        scriptMessageCoordinator.delegate = self
         lifecycleObservation = lifecycleController.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -414,23 +249,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     private func configure(_ webView: WKWebView) {
-        webViewGeneration &+= 1
-        let generation = webViewGeneration
-        let activityHandler = WeakNotionEditorActivityMessageHandler(generation: generation)
-        activityHandler.delegate = self
-        let scrollHandler = WeakNotionScrollMessageHandler()
-        scrollHandler.delegate = self
-        let caretHandler = WeakNotionEditorCaretMessageHandler(generation: generation)
-        caretHandler.delegate = self
-        editorActivityHandler = activityHandler
-        self.scrollHandler = scrollHandler
-        editorCaretHandler = caretHandler
         self.webView = webView
-        Self.installBridges(
-            in: webView.configuration.userContentController,
-            activityHandler: activityHandler,
-            scrollHandler: scrollHandler,
-            caretHandler: caretHandler
+        let generation = scriptMessageCoordinator.install(
+            in: webView.configuration.userContentController
         )
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -584,11 +405,26 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         pageStateRestoration.recordScroll(snapshot, pageID: loadedPageID)
     }
 
+    func handleScrollSnapshot(
+        _ snapshot: NotionScrollSnapshot,
+        from webView: WKWebView?,
+        generation: UInt
+    ) {
+        guard let webView, isCurrent(webView, generation: generation) else {
+            return
+        }
+        handleScrollSnapshot(snapshot)
+    }
+
     func handleEditorCaretUpdate(
         _ update: NotionEditorCaretUpdate,
         from webView: WKWebView?
     ) {
-        handleEditorCaretUpdate(update, from: webView, generation: webViewGeneration)
+        handleEditorCaretUpdate(
+            update,
+            from: webView,
+            generation: scriptMessageCoordinator.generation
+        )
     }
 
     func handleEditorCaretUpdate(
@@ -617,7 +453,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         _ activity: NotionEditorActivity,
         from webView: WKWebView?
     ) {
-        handleEditorActivity(activity, from: webView, generation: webViewGeneration)
+        handleEditorActivity(
+            activity,
+            from: webView,
+            generation: scriptMessageCoordinator.generation
+        )
     }
 
     func handleEditorActivity(
@@ -671,20 +511,13 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
 
         lifecycleController.cancelWarmRetention()
-        editorActivityHandler?.delegate = nil
-        editorActivityHandler = nil
-        scrollHandler?.delegate = nil
-        scrollHandler = nil
-        editorCaretHandler?.delegate = nil
-        editorCaretHandler = nil
-        webViewGeneration &+= 1
         self.webView = nil
         loadedPageID = nil
         if let urlObservation {
             invalidateURLObservation(urlObservation)
             self.urlObservation = nil
         }
-        removeActivityBridge(webView.configuration.userContentController)
+        scriptMessageCoordinator.remove(from: webView.configuration.userContentController)
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         stopLoading(webView)
@@ -696,7 +529,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         guard self.webView === webView else {
             return false
         }
-        return generation == nil || generation == webViewGeneration
+        return generation == nil || generation == scriptMessageCoordinator.generation
     }
 
     private func captureSelectionAndSuspendIfNeeded() {
@@ -865,136 +698,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         return ExternalDropActivatingWebView(frame: .zero, configuration: configuration)
     }
 
-    private static func installBridges(
-        in userContentController: WKUserContentController,
-        activityHandler: WeakNotionEditorActivityMessageHandler,
-        scrollHandler: WeakNotionScrollMessageHandler,
-        caretHandler: WeakNotionEditorCaretMessageHandler
-    ) {
-        userContentController.addUserScript(
-            WKUserScript(
-                source: editorActivityScript,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
-        userContentController.add(
-            activityHandler,
-            contentWorld: .page,
-            name: NotionEditorActivityBridge.handlerName
-        )
-        userContentController.addUserScript(
-            WKUserScript(
-                source: scrollScript,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
-        userContentController.add(
-            scrollHandler,
-            contentWorld: .page,
-            name: NotionScrollBridge.handlerName
-        )
-        userContentController.addUserScript(
-            WKUserScript(
-                source: NotionEditorCaretBridge.script,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
-        userContentController.add(
-            caretHandler,
-            contentWorld: .page,
-            name: NotionEditorCaretBridge.handlerName
-        )
-    }
-
-    private static let editorActivityScript = #"""
-        (() => {
-          if (window.__notionPiPChromeActivityInstalled) return;
-          window.__notionPiPChromeActivityInstalled = true;
-
-          var isTyping = false;
-
-          const editableElement = (node) => {
-            const element = node instanceof Element ? node : node?.parentElement;
-            if (!element) return null;
-
-            const textControl = element.closest('input, textarea');
-            if (textControl && !textControl.disabled && !textControl.readOnly) {
-              return textControl;
-            }
-
-            const editable = element.closest('[contenteditable]');
-            if (!editable || editable.getAttribute('contenteditable') === 'false') {
-              return null;
-            }
-            return editable;
-          };
-
-          const postActivity = (activity) => {
-            window.webkit?.messageHandlers?.notionPiPChromeActivity?.postMessage(activity);
-          };
-
-          const publishTypingStarted = () => {
-            isTyping = true;
-            postActivity('typingStarted');
-          };
-
-          const publishEditingEnded = () => {
-            if (!isTyping) return;
-            isTyping = false;
-            postActivity('editingEnded');
-          };
-
-          document.addEventListener('beforeinput', (event) => {
-            if (editableElement(event.target)) publishTypingStarted();
-          }, true);
-
-          document.addEventListener('pointermove', publishEditingEnded, {
-            capture: true,
-            passive: true,
-          });
-
-          document.addEventListener('focusout', (event) => {
-            if (!editableElement(event.target)) return;
-            window.setTimeout(() => {
-              if (!editableElement(document.activeElement)) publishEditingEnded();
-            }, 0);
-          }, true);
-
-          document.addEventListener('keydown', (event) => {
-            if (event.key === 'Tab' || event.key === 'Escape') publishEditingEnded();
-          }, true);
-        })();
-        """#
-
-    private static let scrollScript = #"""
-        (() => {
-          if (window.__notionPiPScrollInstalled) return;
-          window.__notionPiPScrollInstalled = true;
-          let timer = null;
-
-          const publish = () => {
-            timer = null;
-            const root = document.scrollingElement || document.documentElement;
-            const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
-            const y = window.scrollY;
-            window.webkit?.messageHandlers?.notionPiPScroll?.postMessage({
-              x: window.scrollX,
-              y,
-              progress: maximum > 0 ? Math.min(1, Math.max(0, y / maximum)) : 0,
-            });
-          };
-
-          window.addEventListener('scroll', () => {
-            if (timer !== null) window.clearTimeout(timer);
-            timer = window.setTimeout(publish, 120);
-          }, { passive: true });
-          window.addEventListener('pagehide', publish, { capture: true });
-        })();
-        """#
-
     private static func restoreScroll(
         in webView: WKWebView,
         restoration: DurablePageRestoration
@@ -1083,7 +786,7 @@ extension NotionWebSession: WKNavigationDelegate {
         adoptResolvedPage(
             at: webView.url,
             from: webView,
-            generation: webViewGeneration
+            generation: scriptMessageCoordinator.generation
         )
         if let restoration = pageStateRestoration.takePendingScrollRestoration(
             for: loadedPageID
@@ -1094,11 +797,19 @@ extension NotionWebSession: WKNavigationDelegate {
 
     func adoptResolvedPage(at url: URL?) {
         guard let webView else { return }
-        adoptResolvedPage(at: url, from: webView, generation: webViewGeneration)
+        adoptResolvedPage(
+            at: url,
+            from: webView,
+            generation: scriptMessageCoordinator.generation
+        )
     }
 
     func adoptResolvedPage(at url: URL?, from webView: WKWebView) {
-        adoptResolvedPage(at: url, from: webView, generation: webViewGeneration)
+        adoptResolvedPage(
+            at: url,
+            from: webView,
+            generation: scriptMessageCoordinator.generation
+        )
     }
 
     private func adoptResolvedPage(
