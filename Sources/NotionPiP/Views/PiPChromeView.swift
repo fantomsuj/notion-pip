@@ -15,6 +15,7 @@ struct PiPChromeView: View {
     static let topControlsHoverOutset: CGFloat = 12
 
     @ObservedObject var webSession: NotionWebSession
+    @ObservedObject var quickCopyController: QuickCopyController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
@@ -60,11 +61,16 @@ struct PiPChromeView: View {
         pageSwitcherController: PageSwitcherController = PageSwitcherController(),
         commandModel: AppCommandModel = .noOp,
         panelSizeController: PanelSizeController? = nil,
+        quickCopyController: QuickCopyController? = nil,
         onReloadSavedPin: @escaping () -> Void = {},
         onStash: @escaping () -> Void = {},
         onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in }
     ) {
         self.webSession = webSession
+        self.quickCopyController = quickCopyController ?? QuickCopyController(
+            monitor: AccessibilitySelectionMonitor(),
+            target: webSession
+        )
         self.pageSwitcherController = pageSwitcherController
         self.commandModel = commandModel
         self.panelSizeController = panelSizeController
@@ -182,6 +188,10 @@ struct PiPChromeView: View {
                 topControlsOverlay
             }
         }
+        .overlay(alignment: .bottomLeading) {
+            QuickCopyButton(controller: quickCopyController)
+                .padding(Self.quickCopyEdgeInsets)
+        }
         .animation(
             reduceMotion ? nil : .easeOut(duration: 0.16),
             value: showsTopControls
@@ -193,6 +203,15 @@ struct PiPChromeView: View {
         .onChange(of: webSession.state) {
             enterOfflineCaptureMode()
         }
+    }
+
+    private static var quickCopyEdgeInsets: EdgeInsets {
+        EdgeInsets(
+            top: QuickCopyButton.edgeInset,
+            leading: QuickCopyButton.edgeInset,
+            bottom: QuickCopyButton.edgeInset,
+            trailing: QuickCopyButton.edgeInset
+        )
     }
 
     private var topControlsOverlay: some View {

@@ -590,6 +590,77 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(recorder.restoreCount, 0)
     }
 
+    func testSavedCursorAdvancesAcrossOrderedInsertions() throws {
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = TrustedURLWebView(url: page.canonicalURL)
+        var evaluations: [NotionEditorSelectionEvaluation] = []
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            selectionEvaluator: { _, evaluation, completion in
+                evaluations.append(evaluation)
+                switch evaluation {
+                case .capture:
+                    completion(.success(self.validSelectionSnapshotValue(token: "initial")))
+                case .restore:
+                    completion(.success(true))
+                case let .insert(text, _):
+                    completion(.success(self.validSelectionSnapshotValue(token: "after-\(text)")))
+                }
+            }
+        )
+        session.activate(page: page)
+        var remembered = false
+        var insertionResults: [Bool] = []
+
+        session.rememberCurrentEditorCursor { remembered = $0 }
+        session.insertAtSavedEditorCursor("alpha") { insertionResults.append($0) }
+        session.insertAtSavedEditorCursor("beta") { insertionResults.append($0) }
+
+        XCTAssertTrue(remembered)
+        XCTAssertEqual(insertionResults, [true, true])
+        XCTAssertEqual(evaluations.count, 3)
+        guard case let .insert(_, firstSnapshot) = evaluations[1],
+              case let .insert(_, secondSnapshot) = evaluations[2]
+        else {
+            return XCTFail("Expected two insertion evaluations")
+        }
+        XCTAssertEqual(firstSnapshot.token, "initial")
+        XCTAssertEqual(secondSnapshot.token, "after-alpha")
+    }
+
+    func testPendingQuickCopyCursorCaptureCannotArmAfterInvalidation() throws {
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = TrustedURLWebView(url: page.canonicalURL)
+        var captureCompletion: NotionEditorSelectionEvaluationCompletion?
+        var results: [Bool] = []
+        var invalidationCount = 0
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            selectionEvaluator: { _, evaluation, completion in
+                switch evaluation {
+                case .capture:
+                    captureCompletion = completion
+                case .restore:
+                    completion(.success(true))
+                case .insert:
+                    completion(.success(self.validSelectionSnapshotValue(token: "advanced")))
+                }
+            }
+        )
+        session.activate(page: page)
+        session.onQuickCopyTargetInvalidated = { invalidationCount += 1 }
+
+        session.rememberCurrentEditorCursor { results.append($0) }
+        session.reloadPinnedPage(page)
+        captureCompletion?(.success(validSelectionSnapshotValue(token: "stale")))
+        session.insertAtSavedEditorCursor("must not insert") { results.append($0) }
+
+        XCTAssertGreaterThan(invalidationCount, 0)
+        XCTAssertEqual(results, [false, false])
+    }
+
     func testNavigationWhileCapturePendingCancelsCaptureAndSuspendsImmediately() throws {
         let page = try makePage(id: firstPageID, title: "Roadmap")
         let webView = WKWebView()
@@ -1724,10 +1795,12 @@ final class NotionWebSessionTests: XCTestCase {
         throw NotionWebSessionTestError.timeout
     }
 
-    private func validSelectionSnapshotValue() -> [String: Any] {
+    private func validSelectionSnapshotValue(
+        token: String = "selection-token"
+    ) -> [String: Any] {
         [
             "version": 1,
-            "token": "selection-token",
+            "token": token,
             "editablePath": [1, 2],
             "anchorPath": [0],
             "anchorOffset": 3,
@@ -1738,6 +1811,24 @@ final class NotionWebSessionTests: XCTestCase {
 }
 
 private final class InteractionStateSentinel {}
+
+private final class TrustedURLWebView: WKWebView {
+    private let trustedURL: URL
+
+    init(url: URL) {
+        trustedURL = url
+        super.init(frame: .zero, configuration: WKWebViewConfiguration())
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var url: URL? {
+        trustedURL
+    }
+}
 
 private enum TestSelectionError: Error {
     case evaluationFailed
