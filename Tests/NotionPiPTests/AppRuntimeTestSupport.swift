@@ -332,6 +332,10 @@ actor RuntimePinnedPageRepository: PageWorkingSetPersisting {
         try await recordVisit(page)
     }
 
+    func setRole(_ role: String?, pageID: String) throws -> StoredPageSnapshot {
+        throw PageRepositoryError.roleRequiresPinnedPage
+    }
+
     func saveRestoration(
         _ restoration: DurablePageRestoration
     ) -> DurablePageRestoration {

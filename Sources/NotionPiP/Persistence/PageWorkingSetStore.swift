@@ -7,6 +7,7 @@ protocol PageWorkingSetPersisting: Sendable {
         _ isPinned: Bool,
         page: NotionPageReference
     ) async throws -> StoredPageSnapshot
+    func setRole(_ role: String?, pageID: String) async throws -> StoredPageSnapshot
     func saveRestoration(
         _ restoration: DurablePageRestoration
     ) async throws -> DurablePageRestoration
@@ -78,6 +79,36 @@ actor InMemoryPageWorkingSetStore: PageWorkingSetPersisting {
             restorations: values
         )
         return restoration
+    }
+
+    func setRole(_ rawRole: String?, pageID: String) throws -> StoredPageSnapshot {
+        guard let index = snapshot.pinnedPages.firstIndex(where: {
+            $0.pageID.caseInsensitiveCompare(pageID) == .orderedSame
+        }) else {
+            throw PageRepositoryError.roleRequiresPinnedPage
+        }
+        let role = try PinnedPageRole.normalized(
+            rawRole,
+            for: pageID,
+            among: snapshot.pinnedPages
+        )
+        let current = snapshot.pinnedPages[index]
+        let updated = StoredPageSnapshot(
+            pageID: current.pageID,
+            canonicalURL: current.canonicalURL,
+            displayTitle: current.displayTitle,
+            role: role,
+            timestamp: current.timestamp
+        )
+        var pinnedPages = snapshot.pinnedPages
+        pinnedPages[index] = updated
+        snapshot = PageWorkingSetSnapshot(
+            activePage: snapshot.activePage,
+            pinnedPages: pinnedPages,
+            recentPages: snapshot.recentPages,
+            restorations: snapshot.restorations
+        )
+        return updated
     }
 
     private func apply(_ mutation: PageWorkingSetMutation) {

@@ -26,12 +26,12 @@ Record full observations in [the complete manual test matrix](MANUAL_TEST_MATRIX
 | 2 | Notion authentication | A tester can sign in inside the embedded Notion view and remains signed in after relaunch without exposing credentials to the app UI or logs. | |
 | 3 | Stash and restore | Repeatedly stashing and restoring preserves the same page, unsaved edits, selection, and live WebView. | |
 | 4 | Recovery paths | With the menu-bar icon hidden, the edge handle and global shortcut remain usable; shortcut-registration failure temporarily restores a discoverable control. | |
-| 5 | Page switching | Switching among pinned and recent pages preserves the active session and does not create extra live WebViews. | |
-| 6 | Relaunch restoration | After quitting and reopening, pins, recents, the last validated URL, panel geometry, best-effort scroll position, and the actual macOS Launch at Login registration are reflected safely. | |
+| 5 | Page switching | Switching among pinned and recent pages, including adding, editing, clearing, and searching local pin roles, preserves the active session and does not create extra live WebViews. | |
+| 6 | Relaunch restoration | After quitting and reopening, pins, local roles, recents, the last validated URL, panel geometry, best-effort scroll position, and the actual macOS Launch at Login registration are reflected safely. | |
 | 7 | Full-screen Spaces | The PiP appears above a full-screen app, accepts keyboard input, and stays out of Mission Control and normal window cycling. | |
 | 8 | Display changes | On a two-display setup, moving, stashing, unplugging, and reconnecting a display never loses the panel, creates a duplicate, or reloads the page. | |
 | 9 | Quick Capture durability | Saving, retrying after failure, resolving a conflict, closing, and terminating the app do not silently lose a draft or create an unintended duplicate. | |
-| 10 | Keyboard and VoiceOver | Pinning, switching, stashing, restoring, choosing panel sizes, and Quick Capture remain reachable and clearly announced without a pointer. | |
+| 10 | Keyboard and VoiceOver | Pinning, switching, editing pin roles, stashing, restoring, choosing panel sizes, and Quick Capture remain reachable and clearly announced without a pointer. | |
 
 ## Tester handoff
 

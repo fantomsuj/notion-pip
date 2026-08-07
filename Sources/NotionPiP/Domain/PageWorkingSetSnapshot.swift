@@ -3,6 +3,9 @@ import Foundation
 enum PageRepositoryError: Error, Equatable, Sendable {
     case pinLimitReached(maximum: Int)
     case invalidRestoration
+    case blankRole
+    case duplicateRole
+    case roleRequiresPinnedPage
 }
 
 struct DurablePageRestoration: Equatable, Sendable {

@@ -26,7 +26,7 @@ final class SchemaMigrationTests: XCTestCase {
             )
             let context = ModelContext(v2Container)
             context.insert(
-                PinnedPageModel(
+                PinnedPageSchemaV3.PinnedPageModel(
                     stableID: pageID,
                     canonicalURL: pageURL.absoluteString,
                     displayTitle: "Legacy",
@@ -42,7 +42,66 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(workingSet.activePage?.pageID, pageID)
         XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [pageID])
         XCTAssertEqual(NotionPiPSchemaV3.versionIdentifier, Schema.Version(3, 0, 0))
-        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 3)
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 4)
+    }
+
+    func testV3PinsMigrateToV4WithNilRolesAndPreservedWorkingSetOrder() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("V3-to-V4.store")
+        let v3Schema = Schema(versionedSchema: NotionPiPSchemaV3.self)
+        let v3Configuration = ModelConfiguration(
+            schema: v3Schema,
+            url: storeURL,
+            cloudKitDatabase: .none
+        )
+        let olderID = "0123456789abcdef0123456789abcdef"
+        let newerID = "fedcba9876543210fedcba9876543210"
+        let recentID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+        do {
+            let v3Container = try ModelContainer(
+                for: v3Schema,
+                configurations: v3Configuration
+            )
+            let context = ModelContext(v3Container)
+            context.insert(
+                PinnedPageSchemaV3.PinnedPageModel(
+                    stableID: olderID,
+                    canonicalURL: "https://www.notion.so/Older-\(olderID)",
+                    displayTitle: "Older",
+                    pinnedAt: Date(timeIntervalSince1970: 1_000)
+                )
+            )
+            context.insert(
+                PinnedPageSchemaV3.PinnedPageModel(
+                    stableID: newerID,
+                    canonicalURL: "https://www.notion.so/Newer-\(newerID)",
+                    displayTitle: "Newer",
+                    pinnedAt: Date(timeIntervalSince1970: 2_000)
+                )
+            )
+            context.insert(
+                RecentPageModel(
+                    stableID: recentID,
+                    canonicalURL: "https://www.notion.so/Recent-\(recentID)",
+                    displayTitle: "Recent",
+                    visitedAt: Date(timeIntervalSince1970: 3_000)
+                )
+            )
+            try context.save()
+        }
+
+        let migratedContainer = try NotionPiPPersistence.makeContainer(storeURL: storeURL)
+        let workingSet = try await PageRepository(container: migratedContainer).workingSet()
+
+        XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [newerID, olderID])
+        XCTAssertEqual(workingSet.pinnedPages.map(\.role), [nil, nil])
+        XCTAssertEqual(workingSet.recentPages.map(\.pageID), [recentID])
+        XCTAssertEqual(NotionPiPSchemaV4.versionIdentifier, Schema.Version(4, 0, 0))
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 4)
     }
 
     func testV1StoreMigratesToV2WithoutLosingExistingDraft() async throws {
@@ -90,7 +149,7 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(migratedDraft?.title, "Preserved")
         XCTAssertNil(migratedDestination)
         XCTAssertEqual(NotionPiPSchemaV2.versionIdentifier, Schema.Version(2, 0, 0))
-        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 3)
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 4)
     }
 
     func testV1SchemaCanReopenAPersistedDraft() async throws {
@@ -120,7 +179,7 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(draft?.title, "Persisted")
         XCTAssertEqual(draft?.revision, 1)
         XCTAssertEqual(NotionPiPSchemaV1.versionIdentifier, Schema.Version(1, 0, 0))
-        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 3)
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 4)
     }
 
     func testDeliveryStateRawValuesAreStable() {

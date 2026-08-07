@@ -66,6 +66,41 @@ final class PageSwitcherMatcherTests: XCTestCase {
         )
     }
 
+    func testRoleMatchRanksAheadOfTitleAndTitleStillMatchesWhenRoleExists() throws {
+        let roleMatch = try item(
+            number: 1,
+            title: "Daily Planner",
+            role: "Today",
+            pinned: true,
+            timestamp: 10
+        )
+        let titleMatch = try item(
+            number: 2,
+            title: "Today Notes",
+            pinned: true,
+            timestamp: 20
+        )
+
+        let roleSections = PageSwitcherMatcher.sections(
+            pinned: [titleMatch, roleMatch],
+            recents: [],
+            activePageID: nil,
+            query: "today"
+        )
+        let titleSections = PageSwitcherMatcher.sections(
+            pinned: [roleMatch],
+            recents: [],
+            activePageID: nil,
+            query: "planner"
+        )
+
+        XCTAssertEqual(
+            roleSections.flatMap(\.items).map(\.page.pageID),
+            [roleMatch.page.pageID, titleMatch.page.pageID]
+        )
+        XCTAssertEqual(titleSections.flatMap(\.items).map(\.page.pageID), [roleMatch.page.pageID])
+    }
+
     func testEqualScoresBreakTiesByPinnedThenTimestampThenStableID() throws {
         let pinnedOlder = try item(number: 3, title: "Plan", pinned: true, timestamp: 10)
         let pinnedNewerHighID = try item(number: 2, title: "Plan", pinned: true, timestamp: 20)
@@ -146,15 +181,122 @@ final class PageSwitcherMatcherTests: XCTestCase {
         XCTAssertEqual(controller.sections.first?.items.count, 7)
     }
 
+    func testControllerEditsAndClearsRoleWithoutChangingPinOrder() async throws {
+        let first = try item(number: 1, title: "First", pinned: true, timestamp: 20)
+        let second = try item(number: 2, title: "Second", pinned: true, timestamp: 10)
+        let store = InMemoryPageWorkingSetStore(
+            snapshot: PageWorkingSetSnapshot(
+                activePage: first.page,
+                pinnedPages: [first.page, second.page],
+                recentPages: [],
+                restorations: []
+            )
+        )
+        let controller = PageSwitcherController(store: store)
+        await controller.load()
+
+        let didEdit = await controller.updateRole(
+            "  Project\nBrief  ",
+            pageID: second.page.pageID
+        )
+        XCTAssertTrue(didEdit)
+        XCTAssertEqual(
+            controller.sections.flatMap(\.items).map(\.page.pageID),
+            [first.page.pageID, second.page.pageID]
+        )
+        XCTAssertEqual(
+            controller.sections.flatMap(\.items).last?.page.role,
+            "Project Brief"
+        )
+
+        let didClear = await controller.updateRole(nil, pageID: second.page.pageID)
+        XCTAssertTrue(didClear)
+        XCTAssertNil(controller.sections.flatMap(\.items).last?.page.role)
+    }
+
+    func testControllerRejectsDuplicateRoleAndKeepsEditorFeedbackSpecific() async throws {
+        let first = try item(
+            number: 1,
+            title: "First",
+            role: "Résumé",
+            pinned: true,
+            timestamp: 20
+        )
+        let second = try item(number: 2, title: "Second", pinned: true, timestamp: 10)
+        let store = InMemoryPageWorkingSetStore(
+            snapshot: PageWorkingSetSnapshot(
+                activePage: first.page,
+                pinnedPages: [first.page, second.page],
+                recentPages: [],
+                restorations: []
+            )
+        )
+        let controller = PageSwitcherController(store: store)
+        await controller.load()
+
+        let didUpdate = await controller.updateRole("resume", pageID: second.page.pageID)
+        XCTAssertFalse(didUpdate)
+        XCTAssertEqual(controller.inlineFeedback, "Each pinned page needs a unique role.")
+        XCTAssertNil(controller.sections.flatMap(\.items).last?.page.role)
+    }
+
+    func testControllerRejectsBlankEditAndExplainsExplicitClearPath() async throws {
+        let pinned = try item(number: 1, title: "First", pinned: true, timestamp: 20)
+        let store = InMemoryPageWorkingSetStore(
+            snapshot: PageWorkingSetSnapshot(
+                activePage: pinned.page,
+                pinnedPages: [pinned.page],
+                recentPages: [],
+                restorations: []
+            )
+        )
+        let controller = PageSwitcherController(store: store)
+        await controller.load()
+
+        let didUpdate = await controller.updateRole(" \n ", pageID: pinned.page.pageID)
+
+        XCTAssertFalse(didUpdate)
+        XCTAssertEqual(controller.inlineFeedback, "Enter a role, or choose Clear.")
+        XCTAssertNil(controller.sections.flatMap(\.items).first?.page.role)
+    }
+
+    func testRoleAccessibilityCopyKeepsRoleAndActualPageTitleAvailable() throws {
+        let item = try item(
+            number: 1,
+            title: "Daily Planner",
+            role: "Today",
+            pinned: true,
+            timestamp: 10
+        )
+
+        XCTAssertEqual(
+            PageSwitcherAccessibility.rowLabel(for: item),
+            "Role Today, Notion page Daily Planner, Pinned"
+        )
+        XCTAssertEqual(
+            PageSwitcherAccessibility.roleActionLabel(for: item),
+            "Edit role Today for Daily Planner"
+        )
+        XCTAssertEqual(
+            PageSwitcherAccessibility.clearRoleLabel(
+                role: item.page.role,
+                pageTitle: item.page.displayTitle
+            ),
+            "Clear role Today from Daily Planner"
+        )
+    }
+
     private func item(
         number: Int,
         title: String,
+        role: String? = nil,
         pinned: Bool,
         timestamp: TimeInterval
     ) throws -> PageSwitcherItem {
         try item(
             id: String(format: "%032x", number),
             title: title,
+            role: role,
             pinned: pinned,
             timestamp: timestamp
         )
@@ -163,6 +305,7 @@ final class PageSwitcherMatcherTests: XCTestCase {
     private func item(
         id: String,
         title: String,
+        role: String? = nil,
         pinned: Bool,
         timestamp: TimeInterval
     ) throws -> PageSwitcherItem {
@@ -174,6 +317,7 @@ final class PageSwitcherMatcherTests: XCTestCase {
                 pageID: page.pageID,
                 canonicalURL: page.canonicalURL,
                 displayTitle: title,
+                role: role,
                 timestamp: Date(timeIntervalSince1970: timestamp)
             ),
             isPinned: pinned,

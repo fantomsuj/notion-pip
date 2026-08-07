@@ -102,6 +102,27 @@ final class PageSwitcherController: ObservableObject {
         }
     }
 
+    @discardableResult
+    func updateRole(_ role: String?, pageID: String) async -> Bool {
+        do {
+            _ = try await store.setRole(role, pageID: pageID)
+            snapshot = try await store.workingSet()
+            inlineFeedback = nil
+            rebuildSections(preservingSelection: true)
+            onWorkingSetChanged?(snapshot)
+            return true
+        } catch PageRepositoryError.blankRole {
+            inlineFeedback = "Enter a role, or choose Clear."
+        } catch PageRepositoryError.duplicateRole {
+            inlineFeedback = "Each pinned page needs a unique role."
+        } catch PageRepositoryError.roleRequiresPinnedPage {
+            inlineFeedback = "Only pinned pages can have roles."
+        } catch {
+            inlineFeedback = "Could not update this role."
+        }
+        return false
+    }
+
     private func selectedItem() -> PageSwitcherItem? {
         guard let selectedPageID else { return nil }
         return sections.flatMap(\.items).first {

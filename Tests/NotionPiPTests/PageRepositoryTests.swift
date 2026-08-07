@@ -82,6 +82,87 @@ final class PageRepositoryTests: XCTestCase {
         XCTAssertTrue(workingSet.recentPages.isEmpty)
     }
 
+    func testRolePersistsLocallyWithoutChangingTitlePinOrderOrRecents() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("PinnedRoles.store")
+        let first = try page(slug: "Daily-Planner", id: firstPageID)
+        let second = try page(slug: "Project-Brief", id: secondPageID)
+        let recent = try page(number: 3)
+
+        do {
+            let repository = PageRepository(
+                container: try NotionPiPPersistence.makeContainer(storeURL: storeURL),
+                clock: AdvancingPageClock(start: Date(timeIntervalSince1970: 1_000))
+            )
+            _ = try await repository.setPinned(true, page: first)
+            _ = try await repository.setPinned(true, page: second)
+            _ = try await repository.recordVisit(recent)
+            _ = try await repository.setRole("  Today\nPlanner  ", pageID: first.pageID)
+        }
+
+        let reopened = PageRepository(
+            container: try NotionPiPPersistence.makeContainer(storeURL: storeURL)
+        )
+        let workingSet = try await reopened.workingSet()
+
+        XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [second.pageID, first.pageID])
+        XCTAssertEqual(workingSet.pinnedPages.map(\.role), [nil, "Today Planner"])
+        XCTAssertEqual(workingSet.pinnedPages.last?.displayTitle, "Daily Planner")
+        XCTAssertEqual(workingSet.recentPages.map(\.pageID), [recent.pageID])
+    }
+
+    func testDuplicateRoleIsRejectedWithoutMutatingPersistedRoles() async throws {
+        let repository = PageRepository(container: try makeContainer())
+        let first = try page(slug: "First", id: firstPageID)
+        let second = try page(slug: "Second", id: secondPageID)
+        _ = try await repository.setPinned(true, page: first)
+        _ = try await repository.setPinned(true, page: second)
+        _ = try await repository.setRole("Café", pageID: first.pageID)
+
+        do {
+            _ = try await repository.setRole("cafe", pageID: second.pageID)
+            XCTFail("Expected duplicate role rejection")
+        } catch {
+            XCTAssertEqual(error as? PageRepositoryError, .duplicateRole)
+        }
+
+        let workingSet = try await repository.workingSet()
+        XCTAssertEqual(workingSet.pinnedPages.compactMap(\.role), ["Café"])
+    }
+
+    func testClearingRolePreservesPinTimestampAndTitle() async throws {
+        let repository = PageRepository(container: try makeContainer())
+        let page = try page(slug: "Daily-Planner", id: firstPageID)
+        let pinned = try await repository.setPinned(true, page: page)
+        _ = try await repository.setRole("Today", pageID: page.pageID)
+
+        let cleared = try await repository.setRole(nil, pageID: page.pageID)
+
+        XCTAssertNil(cleared.role)
+        XCTAssertEqual(cleared.displayTitle, "Daily Planner")
+        XCTAssertEqual(cleared.timestamp, pinned.timestamp)
+    }
+
+    func testRoleCannotBeStoredForAnUnpinnedPage() async throws {
+        let repository = PageRepository(container: try makeContainer())
+        let page = try page(slug: "Recent", id: firstPageID)
+        _ = try await repository.recordVisit(page)
+
+        do {
+            _ = try await repository.setRole("Today", pageID: page.pageID)
+            XCTFail("Expected roles to be limited to pinned pages")
+        } catch {
+            XCTAssertEqual(error as? PageRepositoryError, .roleRequiresPinnedPage)
+        }
+
+        let workingSet = try await repository.workingSet()
+        XCTAssertTrue(workingSet.pinnedPages.isEmpty)
+        XCTAssertEqual(workingSet.recentPages.map(\.pageID), [page.pageID])
+    }
+
     func testRestorationOutsideWorkingSetIsPruned() async throws {
         let repository = try PageRepository(container: makeContainer())
         let retained = try page(number: 0)

@@ -8,7 +8,22 @@ struct StoredPageSnapshot: Equatable, Sendable {
     let pageID: String
     let canonicalURL: URL
     let displayTitle: String?
+    let role: String?
     let timestamp: Date
+
+    init(
+        pageID: String,
+        canonicalURL: URL,
+        displayTitle: String?,
+        role: String? = nil,
+        timestamp: Date
+    ) {
+        self.pageID = pageID
+        self.canonicalURL = canonicalURL
+        self.displayTitle = displayTitle
+        self.role = role
+        self.timestamp = timestamp
+    }
 }
 
 @ModelActor
@@ -131,6 +146,24 @@ actor PageRepository {
             displayTitle: page.displayTitle,
             timestamp: clock.now()
         )
+    }
+
+    func setRole(_ rawRole: String?, pageID: String) throws -> StoredPageSnapshot {
+        let canonicalPageID = policy.canonicalID(pageID)
+        let models = try modelContext.fetch(FetchDescriptor<PinnedPageModel>())
+        guard let model = models.first(where: {
+            policy.canonicalID($0.stableID) == canonicalPageID
+        }) else {
+            throw PageRepositoryError.roleRequiresPinnedPage
+        }
+        let role = try PinnedPageRole.normalized(
+            rawRole,
+            for: canonicalPageID,
+            among: validPinnedPages()
+        )
+        model.role = role
+        try saveOrRollback()
+        return try snapshot(model)
     }
 
     func saveRestoration(
@@ -362,6 +395,7 @@ actor PageRepository {
             stableID: model.stableID,
             canonicalURL: model.canonicalURL,
             displayTitle: model.displayTitle,
+            role: model.role,
             timestamp: model.pinnedAt
         )
     }
@@ -371,6 +405,7 @@ actor PageRepository {
             stableID: model.stableID,
             canonicalURL: model.canonicalURL,
             displayTitle: model.displayTitle,
+            role: nil,
             timestamp: model.visitedAt
         )
     }
@@ -380,6 +415,7 @@ actor PageRepository {
             stableID: model.pageID,
             canonicalURL: model.canonicalURL,
             displayTitle: model.displayTitle,
+            role: nil,
             timestamp: model.updatedAt
         )
     }
@@ -388,6 +424,7 @@ actor PageRepository {
         stableID: String,
         canonicalURL: String,
         displayTitle: String?,
+        role: String?,
         timestamp: Date
     ) -> StoredPageSnapshot? {
         guard let url = URL(string: canonicalURL),
@@ -400,6 +437,7 @@ actor PageRepository {
             pageID: page.pageID,
             canonicalURL: page.canonicalURL,
             displayTitle: displayTitle,
+            role: role,
             timestamp: timestamp
         )
     }

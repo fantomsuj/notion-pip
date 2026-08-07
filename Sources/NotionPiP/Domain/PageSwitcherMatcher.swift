@@ -87,6 +87,10 @@ enum PageSwitcherMatcher {
     }
 
     private static func score(item: PageSwitcherItem, query: String) -> Int? {
+        if let role = item.page.role,
+           let score = subsequenceScore(query: query, candidate: normalize(role)) {
+            return 200_000 + score
+        }
         if let title = item.page.displayTitle,
            let score = subsequenceScore(query: query, candidate: normalize(title)) {
             return 100_000 + score
@@ -135,11 +139,11 @@ enum PageSwitcherMatcher {
     }
 
     private static func normalize(_ value: String) -> String {
-        value
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        PinnedPageRole.comparisonKey(
+            value
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
-            .lowercased()
+        )
     }
 
     private static func isSamePage(_ lhs: String, _ rhs: String?) -> Bool {
