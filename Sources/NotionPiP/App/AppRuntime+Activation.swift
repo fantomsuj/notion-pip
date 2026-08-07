@@ -3,13 +3,15 @@ import Foundation
 extension AppRuntime {
     @discardableResult
     func applyGlobalShortcut(_ shortcut: GlobalShortcut) -> Bool {
-        guard shortcut.isValid, shortcut != quickCaptureShortcut else { return false }
+        let candidate = shortcutConfiguration.replacingPanel(with: shortcut)
+        guard candidate.isValid else { return false }
         do {
             try shortcutRegistrar.register(shortcut: shortcut) { [weak self] event in
                 self?.handleGlobalShortcut(event)
             }
-            publishGlobalShortcut(shortcut)
+            publishShortcutConfiguration(candidate)
             shortcutStore.save(shortcut)
+            shortcutConfigurationDidChange()
             resolveServiceIssue(.globalShortcutUnavailable)
             return true
         } catch {
@@ -32,16 +34,20 @@ extension AppRuntime {
 
     @discardableResult
     func applyQuickCaptureShortcut(_ shortcut: GlobalShortcut) -> Bool {
-        guard shortcut.isValid, shortcut != globalShortcut else { return false }
+        let candidate = shortcutConfiguration.replacingQuickCapture(with: shortcut)
+        guard candidate.isValid else { return false }
         do {
             try quickCaptureShortcutRegistrar.register(shortcut: shortcut) { [weak self] in
                 self?.handleQuickCaptureShortcut()
             }
-            publishQuickCaptureShortcut(shortcut)
+            publishShortcutConfiguration(candidate)
             quickCaptureShortcutStore.save(shortcut)
+            shortcutConfigurationDidChange()
+            resolveServiceIssue(.quickCaptureShortcutUnavailable)
             return true
         } catch {
             logger.error("Quick Capture shortcut registration failed")
+            reportServiceIssue(.quickCaptureShortcutUnavailable)
             return false
         }
     }
@@ -59,6 +65,30 @@ extension AppRuntime {
     }
 
     func registerQuickCaptureShortcut() { _ = applyQuickCaptureShortcut(quickCaptureShortcut) }
+
+    func recoverShortcuts(trigger: ShortcutRecoveryTrigger) {
+        let expectedGeneration = shortcutConfigurationGeneration
+        let panelFailure = revalidationFailure(from: shortcutRegistrar)
+        let quickCaptureFailure = revalidationFailure(
+            from: quickCaptureShortcutRegistrar
+        )
+        guard expectedGeneration == shortcutConfigurationGeneration else { return }
+
+        updateShortcutHealth(
+            issue: .globalShortcutUnavailable,
+            failure: panelFailure
+        )
+        updateShortcutHealth(
+            issue: .quickCaptureShortcutUnavailable,
+            failure: quickCaptureFailure
+        )
+
+        if trigger == .lifecycleEvent,
+           panelFailure == .transient || quickCaptureFailure == .transient
+        {
+            shortcutLifecycleCoordinator?.requestRetry()
+        }
+    }
 
     func setMenuBarIconVisibility(_ isVisible: Bool) {
         menuBarIconPreferenceStore.save(isVisible)
@@ -226,5 +256,34 @@ extension AppRuntime {
 
     private func showValidationFailure(_ message: String) {
         pageURLInputState.showValidationFailure(message)
+    }
+
+    private func shortcutConfigurationDidChange() {
+        shortcutConfigurationGeneration &+= 1
+        shortcutLifecycleCoordinator?.invalidatePendingRecovery()
+    }
+
+    private func revalidationFailure(
+        from registrar: any GlobalShortcutRegistering
+    ) -> GlobalShortcutRegistrationFailure? {
+        do {
+            try registrar.revalidate()
+            return nil
+        } catch let failure as GlobalShortcutRegistrationFailure {
+            return failure
+        } catch {
+            return .transient
+        }
+    }
+
+    private func updateShortcutHealth(
+        issue: ServiceHealthIssue,
+        failure: GlobalShortcutRegistrationFailure?
+    ) {
+        if failure == nil {
+            resolveServiceIssue(issue)
+        } else {
+            reportServiceIssue(issue)
+        }
     }
 }
