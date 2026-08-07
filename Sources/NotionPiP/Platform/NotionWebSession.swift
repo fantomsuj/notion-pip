@@ -266,6 +266,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let loadRequest: NotionWebRequestLoader
     private let webViewFactory: NotionWebViewFactory
     private let lifecycleController: NotionWebLifecycleController
+    private let navigationDecisionPolicy = NotionWebNavigationPolicy()
     private let pauseMedia: @MainActor (WKWebView) -> Void
     private let stopLoading: @MainActor (WKWebView) -> Void
     private let interactionStateReader: @MainActor (WKWebView) -> Any?
@@ -1120,19 +1121,16 @@ extension NotionWebSession: WKNavigationDelegate {
         for url: URL?,
         targetFrameIsPresent: Bool
     ) -> WKNavigationActionPolicy {
-        guard targetFrameIsPresent else {
+        switch navigationDecisionPolicy.actionDecision(
+            for: url,
+            targetFrameIsPresent: targetFrameIsPresent
+        ) {
+        case .allow:
             return .allow
-        }
-
-        switch WebNavigationDestination.classify(url) {
-        case .trustedNotion:
-            return .allow
-        case .externalWeb:
-            if let url {
-                openURL(url)
-            }
+        case .cancel:
             return .cancel
-        case .unsupported:
+        case let .openExternally(url):
+            openURL(url)
             return .cancel
         }
     }
@@ -1259,30 +1257,22 @@ extension NotionWebSession: WKNavigationDelegate {
     }
 
     private func isCancellation(_ error: Error) -> Bool {
-        let error = error as NSError
-        return error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled
+        navigationDecisionPolicy.failureDecision(for: error) == .cancelled
     }
 
     private func navigationFailureState(for error: Error) -> NotionWebSessionState {
-        Self.isOfflineNavigationError(error)
-            ? .offline
-            : .failed("Notion couldn't load this page.")
+        switch navigationDecisionPolicy.failureDecision(for: error) {
+        case .cancelled:
+            return .loading
+        case .offline:
+            return .offline
+        case let .failed(message):
+            return .failed(message)
+        }
     }
 
     static func isOfflineNavigationError(_ error: Error) -> Bool {
-        let error = error as NSError
-        guard error.domain == NSURLErrorDomain else { return false }
-        return [
-            NSURLErrorTimedOut,
-            NSURLErrorCannotFindHost,
-            NSURLErrorCannotConnectToHost,
-            NSURLErrorNetworkConnectionLost,
-            NSURLErrorDNSLookupFailed,
-            NSURLErrorNotConnectedToInternet,
-            NSURLErrorInternationalRoamingOff,
-            NSURLErrorCallIsActive,
-            NSURLErrorDataNotAllowed,
-        ].contains(error.code)
+        NotionWebNavigationPolicy().failureDecision(for: error) == .offline
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -1345,14 +1335,12 @@ extension NotionWebSession: WKUIDelegate {
         in webView: WKWebView
     ) -> WKWebView? {
         guard isCurrent(webView) else { return nil }
-        switch WebNavigationDestination.classify(request.url) {
-        case .trustedNotion:
+        switch navigationDecisionPolicy.newWindowDecision(for: request) {
+        case let .loadInExistingWebView(request):
             loadRequest(webView, request)
-        case .externalWeb:
-            if let url = request.url {
-                openURL(url)
-            }
-        case .unsupported:
+        case let .openExternally(url):
+            openURL(url)
+        case .ignore:
             break
         }
         return nil
