@@ -227,6 +227,7 @@ final class RuntimeShortcutRegistrar: GlobalShortcutRegistering {
         }
     }
 
+    func revalidate() throws {}
     func unregister() {}
 
     private enum RuntimeShortcutRegistrationError: Error {

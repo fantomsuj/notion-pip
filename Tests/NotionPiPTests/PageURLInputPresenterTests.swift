@@ -191,5 +191,6 @@ private final class PresenterTestShortcutRegistrar: GlobalShortcutRegistering {
         self.handler = handler
     }
 
+    func revalidate() throws {}
     func unregister() {}
 }
