@@ -16,7 +16,8 @@ func makeRuntime(
     destinationSearchDebounceDuration: Duration = .milliseconds(300),
     shortcutHoldDuration: Duration = .milliseconds(300),
     initialServiceHealth: ServiceHealthState = .healthy,
-    menuBarIconPreferenceStore: MenuBarIconPreferenceStore? = nil
+    menuBarIconPreferenceStore: MenuBarIconPreferenceStore? = nil,
+    automaticSettingsPresentationAllowed: @escaping @MainActor () -> Bool = { true }
 ) -> AppRuntime {
     let store = RuntimeSecretStore()
     let vault = PersonalTokenCredentialVault(store: store)
@@ -37,7 +38,8 @@ func makeRuntime(
         notionClientFactory: { _ in client },
         destinationSearchDebounceDuration: destinationSearchDebounceDuration,
         shortcutHoldDuration: shortcutHoldDuration,
-        initialServiceHealth: initialServiceHealth
+        initialServiceHealth: initialServiceHealth,
+        automaticSettingsPresentationAllowed: automaticSettingsPresentationAllowed
     )
 }
 

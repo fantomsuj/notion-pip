@@ -4,6 +4,25 @@ import XCTest
 
 @MainActor
 final class WindowRolePolicyTests: XCTestCase {
+    func testOnboardingRoleCreatesRetainedNormalKeyWindow() {
+        let window = WindowRole.onboarding.makeWindow()
+
+        XCTAssertTrue(type(of: window) == KeyCapableAppWindow.self)
+        XCTAssertEqual(window.styleMask, [.titled, .closable, .resizable])
+        XCTAssertEqual(window.level, .normal)
+        XCTAssertEqual(
+            window.collectionBehavior,
+            [.moveToActiveSpace, .fullScreenAuxiliary]
+        )
+        XCTAssertFalse(window.isReleasedWhenClosed)
+        XCTAssertTrue(window.canBecomeKey)
+        XCTAssertEqual(
+            window.contentRect(forFrameRect: window.frame).size,
+            CGSize(width: 760, height: 520)
+        )
+        XCTAssertEqual(window.contentMinSize, CGSize(width: 680, height: 480))
+    }
+
     func testQuickCaptureRoleCreatesRetainedFloatingKeyWindow() {
         let window = WindowRole.quickCapture.makeWindow()
 

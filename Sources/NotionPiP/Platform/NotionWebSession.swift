@@ -251,7 +251,8 @@ struct NotionInteractionStateCache {
 
 @MainActor
 final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
-    NotionEditorActivityHandling, NotionScrollHandling, NotionEditorCaretHandling
+    NotionEditorActivityHandling, NotionScrollHandling, NotionEditorCaretHandling,
+    QuickCopyInsertionTarget
 {
     static let warmRetentionInterval = NotionWebLifecycleController.defaultWarmRetentionInterval
 
@@ -295,6 +296,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var isAttemptingDurableRestoration = false
     private var restorationToken: PerformanceIntervalToken?
     var onRestorationCaptured: (@MainActor (DurablePageRestoration) -> Void)?
+    var onQuickCopyTargetInvalidated: (@MainActor () -> Void)?
     private var selectionCaptureGeneration = 0
     private var savedEditorSelection: (
         pageID: String,
@@ -305,8 +307,14 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         guard let webView, let pageID = activePage?.pageID,
               loadedPageID == pageID, Self.isTrustedSelectionContext(webView, pageID: pageID)
         else { completion(false); return }
-        selectionEvaluator(webView, .capture) { [weak self] result in
-            guard let self, case let .success(value) = result,
+        let generation = selectionCaptureGeneration
+        selectionEvaluator(webView, .capture) { [weak self, weak webView] result in
+            guard let self, let webView,
+                  self.selectionCaptureGeneration == generation,
+                  self.webView === webView,
+                  self.activePage?.pageID == pageID,
+                  self.loadedPageID == pageID,
+                  case let .success(value) = result,
                   let snapshot = NotionEditorSelectionSnapshot(javaScriptValue: value)
             else { completion(false); return }
             self.savedEditorSelection = (pageID, snapshot)
@@ -324,9 +332,18 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
               Self.isTrustedSelectionContext(webView, pageID: pageID)
         else { completion(false); return }
         selectionEvaluator(webView, .insert(text, at: snapshot)) { [weak self] result in
-            let inserted = (try? result.get() as? Bool) == true
-            if inserted { self?.savedEditorSelection = nil }
-            completion(inserted)
+            guard let self,
+                  case let .success(value) = result,
+                  let nextSnapshot = NotionEditorSelectionSnapshot(javaScriptValue: value),
+                  self.activePage?.pageID == pageID,
+                  self.loadedPageID == pageID,
+                  self.webView === webView
+            else {
+                completion(false)
+                return
+            }
+            self.savedEditorSelection = (pageID, nextSnapshot)
+            completion(true)
         }
     }
 
@@ -778,6 +795,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         selectionCaptureGeneration &+= 1
         savedEditorSelection = nil
         clearEditorCaretGeometry()
+        onQuickCopyTargetInvalidated?()
     }
 
     private func clearEditorCaretGeometry() {

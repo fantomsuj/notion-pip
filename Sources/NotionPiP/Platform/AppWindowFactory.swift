@@ -3,6 +3,28 @@ import SwiftUI
 
 @MainActor
 enum AppWindowFactory {
+    static func makeOnboarding(
+        globalShortcut: GlobalShortcut,
+        quickCaptureShortcut: GlobalShortcut,
+        onComplete: @escaping @MainActor () -> Void,
+        onOpenSettings: @escaping @MainActor () -> Void
+    ) -> AppWindowPresenter {
+        let window = makeWindow(
+            role: .onboarding,
+            title: "Welcome to Notion PiP",
+            content: AnyView(
+                OnboardingView(
+                    globalShortcut: globalShortcut,
+                    quickCaptureShortcut: quickCaptureShortcut,
+                    onComplete: onComplete,
+                    onOpenSettings: onOpenSettings
+                )
+            )
+        )
+        window.closeRequestHandler = onComplete
+        return AppWindowPresenter(window: window)
+    }
+
     static func makeQuickCapture(
         repository: CaptureRepository?,
         lifecycle: QuickCaptureLifecycleCoordinator? = nil,

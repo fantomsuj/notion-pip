@@ -882,6 +882,32 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.frame, CGRect(x: 1_076, y: 576, width: 500, height: 600))
     }
 
+    func testExpandedResizeCompletionDoesNotReplacePreferredFloatingSize() async {
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+            isExpanded: true
+        )
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            },
+            initialPreferredContentSize: CGSize(width: 520, height: 680)
+        )
+        var recordedSizes: [CGSize] = []
+        coordinator.onManualResizeCompletion = { recordedSizes.append($0) }
+
+        NotificationCenter.default.post(
+            name: NSWindow.didEndLiveResizeNotification,
+            object: panel
+        )
+        await Task.yield()
+
+        XCTAssertTrue(recordedSizes.isEmpty)
+        XCTAssertEqual(coordinator.currentPanelContentSize, CGSize(width: 1_000, height: 800))
+    }
+
     func testManualMoveToAnotherDisplayUpdatesPreferredDisplayAnchor() {
         let firstScreen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let secondScreen = CGRect(x: 1_000, y: 0, width: 1_000, height: 800)

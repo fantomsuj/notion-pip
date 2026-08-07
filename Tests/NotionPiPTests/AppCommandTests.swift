@@ -12,7 +12,7 @@ final class AppCommandTests: XCTestCase {
             model.groups.map { $0.commands.map(\.id) },
             [
                 [.quickCapture],
-                [.settings],
+                [.settings, .gettingStarted],
                 [.quit],
             ])
         XCTAssertEqual(
@@ -20,10 +20,12 @@ final class AppCommandTests: XCTestCase {
             [
                 "Quick Capture",
                 "Settings…",
+                "Getting Started…",
                 "Quit Notion PiP",
             ])
         XCTAssertEqual(model.command(for: .quickCapture)?.keyEquivalent, "n")
         XCTAssertEqual(model.command(for: .settings)?.keyEquivalent, ",")
+        XCTAssertEqual(model.command(for: .gettingStarted)?.keyEquivalent, "")
         XCTAssertEqual(model.command(for: .quit)?.keyEquivalent, "q")
         XCTAssertTrue(model.commands.allSatisfy(\.isEnabled))
     }
@@ -175,6 +177,7 @@ final class AppCommandTests: XCTestCase {
         AppCommandModel(
             quickCapture: { events(.quickCapture) },
             settings: { events(.settings) },
+            gettingStarted: { events(.gettingStarted) },
             quit: { events(.quit) }
         )
     }

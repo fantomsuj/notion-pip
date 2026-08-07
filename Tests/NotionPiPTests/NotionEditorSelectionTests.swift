@@ -108,16 +108,54 @@ final class NotionEditorSelectionTests: XCTestCase {
         let value = try await webView.evaluateJavaScript(NotionEditorSelectionEvaluation.capture.script)
         let snapshot = try XCTUnwrap(NotionEditorSelectionSnapshot(javaScriptValue: value))
 
-        let inserted = try await webView.evaluateJavaScript(
+        let insertionResult = try await webView.evaluateJavaScript(
             NotionEditorSelectionEvaluation.insert("CAPTURE", at: snapshot).script
-        ) as? Bool
+        )
         let result = try await webView.callAsyncJavaScript(
             "return document.getElementById('editor').textContent",
             arguments: [:], in: nil, contentWorld: .page
         ) as? String
 
-        XCTAssertEqual(inserted, true)
+        XCTAssertNotNil(NotionEditorSelectionSnapshot(javaScriptValue: insertionResult))
         XCTAssertEqual(result, "abcCAPTUREhij")
+    }
+
+    func testInsertReturnsAdvancingSnapshotThatAcceptsNextInsertion() async throws {
+        let webView = try await makeLoadedWebView()
+        _ = try await webView.callAsyncJavaScript(
+            """
+            const text = document.getElementById('editor').firstChild;
+            document.getElementById('editor').focus();
+            window.getSelection().setBaseAndExtent(text, 3, text, 3);
+            return true;
+            """, arguments: [:], in: nil, contentWorld: .page
+        )
+        let value = try await webView.evaluateJavaScript(
+            NotionEditorSelectionEvaluation.capture.script
+        )
+        let firstSnapshot = try XCTUnwrap(
+            NotionEditorSelectionSnapshot(javaScriptValue: value)
+        )
+
+        let firstInsertion = try await webView.evaluateJavaScript(
+            NotionEditorSelectionEvaluation.insert("alpha", at: firstSnapshot).script
+        )
+        let secondSnapshot = try XCTUnwrap(
+            NotionEditorSelectionSnapshot(javaScriptValue: firstInsertion)
+        )
+        let secondInsertion = try await webView.evaluateJavaScript(
+            NotionEditorSelectionEvaluation.insert("beta", at: secondSnapshot).script
+        )
+        let finalSnapshot = NotionEditorSelectionSnapshot(
+            javaScriptValue: secondInsertion
+        )
+        let result = try await webView.callAsyncJavaScript(
+            "return document.getElementById('editor').textContent",
+            arguments: [:], in: nil, contentWorld: .page
+        ) as? String
+
+        XCTAssertNotNil(finalSnapshot)
+        XCTAssertEqual(result, "abcalphabetadefghij")
     }
 
     private func makeLoadedWebView() async throws -> WKWebView {

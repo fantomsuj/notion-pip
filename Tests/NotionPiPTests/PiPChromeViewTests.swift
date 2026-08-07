@@ -3,6 +3,51 @@ import XCTest
 
 @MainActor
 final class PiPChromeViewTests: XCTestCase {
+    func testQuickCopyButtonUsesFixedBottomLeftSizingAndAccessibleCopy() {
+        XCTAssertEqual(QuickCopyButton.controlSize, 30)
+        XCTAssertEqual(QuickCopyButton.edgeInset, 8)
+        XCTAssertEqual(
+            QuickCopyButton.accessibilityLabel,
+            "Turn Quick Copy on or off"
+        )
+        XCTAssertEqual(
+            QuickCopyButton.helpText,
+            "Insert selected text from other apps at the saved Notion cursor"
+        )
+    }
+
+    func testQuickCopyPresentationDistinguishesEverySessionState() {
+        XCTAssertEqual(
+            QuickCopyButtonPresentation(state: .off),
+            QuickCopyButtonPresentation(
+                systemImage: "text.append",
+                statusMessage: nil,
+                appearance: .off,
+                showsProgress: false
+            )
+        )
+        XCTAssertEqual(
+            QuickCopyButtonPresentation(state: .armed).statusMessage,
+            "Quick Copy on"
+        )
+        XCTAssertEqual(
+            QuickCopyButtonPresentation(state: .inserting).showsProgress,
+            true
+        )
+        XCTAssertEqual(
+            QuickCopyButtonPresentation(state: .permissionNeeded).appearance,
+            .permissionNeeded
+        )
+        XCTAssertEqual(
+            QuickCopyButtonPresentation(state: .warning("Unsupported")).appearance,
+            .warning
+        )
+        XCTAssertEqual(
+            QuickCopyButtonPresentation(state: .failed("Stale")).appearance,
+            .failed
+        )
+    }
+
     func testOpenInNotionAndStashOpensActivePageBeforeStashing() throws {
         let page = try NotionPageReference(
             validating: XCTUnwrap(
@@ -115,6 +160,7 @@ final class PiPChromeViewTests: XCTestCase {
         let commandModel = AppCommandModel(
             quickCapture: { quickCaptureCount += 1 },
             settings: {},
+            gettingStarted: {},
             quit: {}
         )
         let session = NotionWebSession()
