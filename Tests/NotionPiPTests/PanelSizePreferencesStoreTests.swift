@@ -30,7 +30,7 @@ final class PanelSizePreferencesStoreTests: XCTestCase {
         XCTAssertEqual(store.load()?.version, PanelSizePreferences.currentVersion)
     }
 
-    func testCorruptedPreferencesFallBackToComfortableDefaults() throws {
+    func testCorruptedPreferencesFallBackToVerticalDefaults() throws {
         let defaults = try makeDefaults()
         defaults.set(Data("not JSON".utf8), forKey: PanelSizePreferencesStore.key)
 
@@ -40,7 +40,7 @@ final class PanelSizePreferencesStoreTests: XCTestCase {
         )
     }
 
-    func testWrongUserDefaultsValueTypeFallsBackToComfortableDefaults() throws {
+    func testWrongUserDefaultsValueTypeFallsBackToVerticalDefaults() throws {
         let defaults = try makeDefaults()
         defaults.set("not data", forKey: PanelSizePreferencesStore.key)
 
@@ -50,7 +50,7 @@ final class PanelSizePreferencesStoreTests: XCTestCase {
         )
     }
 
-    func testUnsupportedStoredVersionFallsBackToComfortableDefaults() throws {
+    func testUnsupportedStoredVersionFallsBackToVerticalDefaults() throws {
         let defaults = try makeDefaults()
         defaults.set(
             Data(
@@ -71,7 +71,7 @@ final class PanelSizePreferencesStoreTests: XCTestCase {
         )
     }
 
-    func testInvalidStoredCustomPresetFallsBackToComfortableDefaults() throws {
+    func testInvalidStoredCustomPresetFallsBackToVerticalDefaults() throws {
         let defaults = try makeDefaults()
         defaults.set(
             Data(

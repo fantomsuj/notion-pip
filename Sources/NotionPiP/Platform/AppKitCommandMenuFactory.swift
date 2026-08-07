@@ -74,7 +74,7 @@ enum AppKitCommandMenuFactory {
 
         submenu.addItem(.separator())
         let reset = NSMenuItem(
-            title: "Reset to Default Size",
+            title: "Reset to Vertical",
             action: nil,
             keyEquivalent: ""
         )

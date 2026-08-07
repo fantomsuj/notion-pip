@@ -5,13 +5,13 @@ struct ScreenGeometry: Equatable {
     let visibleFrame: CGRect
 }
 
-struct PanelFrameAnchor: Equatable {
-    enum HorizontalEdge: Equatable {
+struct PanelFrameAnchor: Codable, Equatable, Sendable {
+    enum HorizontalEdge: Codable, Equatable, Sendable {
         case left
         case right
     }
 
-    enum VerticalEdge: Equatable {
+    enum VerticalEdge: Codable, Equatable, Sendable {
         case bottom
         case top
     }

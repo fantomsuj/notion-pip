@@ -14,7 +14,7 @@ struct PanelSizeMenu: View {
 
             Divider()
 
-            Button("Reset to Default Size") {
+            Button("Reset to Vertical") {
                 controller.resetToDefault()
             }
             .disabled(!controller.canApply)

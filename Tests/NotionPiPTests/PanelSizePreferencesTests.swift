@@ -8,43 +8,69 @@ final class PanelSizePreferencesTests: XCTestCase {
     func testBuiltInPresetsHaveStableOrderNamesAndSizes() {
         XCTAssertEqual(
             BuiltInPanelSizePreset.allCases,
-            [.compact, .comfortable, .wide]
+            [.horizontal, .vertical]
         )
         XCTAssertEqual(
-            BuiltInPanelSizePreset.compact.contentSize(
+            BuiltInPanelSizePreset.horizontal.contentSize(
                 forScreenSize: CGSize(width: 1_440, height: 900)
             ),
-            try PanelContentSize(width: 420, height: 520)
+            try PanelContentSize(width: 760, height: 520)
         )
         XCTAssertEqual(
-            BuiltInPanelSizePreset.wide.contentSize(
+            BuiltInPanelSizePreset.vertical.contentSize(
                 forScreenSize: CGSize(width: 1_440, height: 900)
             ),
-            try PanelContentSize(width: 680, height: 720)
+            try PanelContentSize(width: 480, height: 720)
         )
-        XCTAssertEqual(BuiltInPanelSizePreset.compact.name, "Compact")
-        XCTAssertEqual(BuiltInPanelSizePreset.comfortable.name, "Comfortable")
-        XCTAssertEqual(BuiltInPanelSizePreset.wide.name, "Wide")
+        XCTAssertEqual(BuiltInPanelSizePreset.horizontal.name, "Horizontal")
+        XCTAssertEqual(BuiltInPanelSizePreset.vertical.name, "Vertical")
     }
 
-    func testComfortableSizeUsesAdaptiveClampedScreenFormula() throws {
+    func testLegacyBuiltInIdentifiersDecodeIntoOrientationPresets() throws {
+        let decoder = JSONDecoder()
+
         XCTAssertEqual(
-            BuiltInPanelSizePreset.comfortable.contentSize(
-                forScreenSize: CGSize(width: 1_000, height: 700)
+            try decoder.decode(
+                PanelSizePresetID.self,
+                from: Data("\"builtin:compact\"".utf8)
             ),
-            try PanelContentSize(width: 480, height: 560)
+            .vertical
         )
         XCTAssertEqual(
-            BuiltInPanelSizePreset.comfortable.contentSize(
-                forScreenSize: CGSize(width: 1_440, height: 900)
+            try decoder.decode(
+                PanelSizePresetID.self,
+                from: Data("\"builtin:comfortable\"".utf8)
             ),
-            try PanelContentSize(width: 489.6, height: 630)
+            .vertical
         )
         XCTAssertEqual(
-            BuiltInPanelSizePreset.comfortable.contentSize(
-                forScreenSize: CGSize(width: 2_560, height: 1_440)
+            try decoder.decode(
+                PanelSizePresetID.self,
+                from: Data("\"builtin:wide\"".utf8)
             ),
-            try PanelContentSize(width: 560, height: 720)
+            .horizontal
+        )
+    }
+
+    func testVersionOnePreferencesMigrateWithoutDiscardingWorkingSize() throws {
+        let data = Data(
+            """
+            {
+              "version": 1,
+              "defaultPresetID": "builtin:wide",
+              "customPresets": [],
+              "lastExplicitWorkingContentSize": {"width": 803, "height": 657}
+            }
+            """.utf8
+        )
+
+        let preferences = try JSONDecoder().decode(PanelSizePreferences.self, from: data)
+
+        XCTAssertEqual(preferences.version, PanelSizePreferences.currentVersion)
+        XCTAssertEqual(preferences.defaultPresetID, .horizontal)
+        XCTAssertEqual(
+            preferences.lastExplicitWorkingContentSize,
+            try PanelContentSize(width: 803, height: 657)
         )
     }
 
@@ -153,13 +179,13 @@ final class PanelSizePreferencesTests: XCTestCase {
         }
         XCTAssertThrowsError(
             try preferences.addCustomPreset(
-                name: "COMPACT",
+                name: "HORIZONTAL",
                 contentSize: PanelContentSize(width: 420, height: 520)
             )
         ) {
             XCTAssertEqual(
                 $0 as? PanelSizePreferencesError,
-                .duplicateName("COMPACT")
+                .duplicateName("HORIZONTAL")
             )
         }
     }
@@ -196,16 +222,16 @@ final class PanelSizePreferencesTests: XCTestCase {
             contentSize: PanelContentSize(width: 720, height: 900)
         )
 
-        try preferences.setDefaultPreset(id: .wide)
-        XCTAssertEqual(preferences.defaultPresetID, .wide)
-        XCTAssertEqual(preferences.defaultPreset, .builtIn(.wide))
+        try preferences.setDefaultPreset(id: .horizontal)
+        XCTAssertEqual(preferences.defaultPresetID, .horizontal)
+        XCTAssertEqual(preferences.defaultPreset, .builtIn(.horizontal))
 
         try preferences.setDefaultPreset(id: .custom(custom.id))
         XCTAssertEqual(preferences.defaultPresetID, .custom(custom.id))
         XCTAssertEqual(preferences.defaultPreset, .custom(custom))
     }
 
-    func testDeletingDefaultCustomPresetFallsBackToComfortable() throws {
+    func testDeletingDefaultCustomPresetFallsBackToVertical() throws {
         var preferences = PanelSizePreferences.default
         let custom = try preferences.addCustomPreset(
             name: "Review",
@@ -218,7 +244,7 @@ final class PanelSizePreferencesTests: XCTestCase {
 
         XCTAssertTrue(preferences.deleteCustomPreset(id: custom.id))
 
-        XCTAssertEqual(preferences.defaultPresetID, .comfortable)
+        XCTAssertEqual(preferences.defaultPresetID, .vertical)
         XCTAssertEqual(
             preferences.lastExplicitWorkingContentSize,
             try PanelContentSize(width: 800, height: 1_000)
@@ -237,7 +263,7 @@ final class PanelSizePreferencesTests: XCTestCase {
                 .presetNotFound(.custom(missingID))
             )
         }
-        XCTAssertEqual(preferences.defaultPresetID, .comfortable)
+        XCTAssertEqual(preferences.defaultPresetID, .vertical)
     }
 
     func testPresetIdentifiersUseStableCodableStrings() throws {
@@ -246,8 +272,8 @@ final class PanelSizePreferencesTests: XCTestCase {
         let decoder = JSONDecoder()
 
         XCTAssertEqual(
-            String(data: try encoder.encode(PanelSizePresetID.wide), encoding: .utf8),
-            "\"builtin:wide\""
+            String(data: try encoder.encode(PanelSizePresetID.horizontal), encoding: .utf8),
+            "\"builtin:horizontal\""
         )
         XCTAssertEqual(
             try decoder.decode(

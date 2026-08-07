@@ -65,9 +65,8 @@ enum BuiltInPanelSizePreset:
     Identifiable,
     Sendable
 {
-    case compact
-    case comfortable
-    case wide
+    case horizontal
+    case vertical
 
     var id: PanelSizePresetID {
         .builtIn(self)
@@ -75,45 +74,43 @@ enum BuiltInPanelSizePreset:
 
     var name: String {
         switch self {
-        case .compact:
-            "Compact"
-        case .comfortable:
-            "Comfortable"
-        case .wide:
-            "Wide"
+        case .horizontal:
+            "Horizontal"
+        case .vertical:
+            "Vertical"
         }
     }
 
-    func contentSize(forScreenSize screenSize: CGSize) -> PanelContentSize {
+    func contentSize(forScreenSize _: CGSize) -> PanelContentSize {
         switch self {
-        case .compact:
-            return PanelContentSize(uncheckedWidth: 420, height: 520)
-        case .comfortable:
-            let screenWidth = Double(screenSize.width)
-            let screenHeight = Double(screenSize.height)
-            return PanelContentSize(
-                uncheckedWidth: Self.clamp(
-                    screenWidth.isFinite ? screenWidth * 0.34 : 480,
-                    minimum: 480,
-                    maximum: 560
-                ),
-                height: Self.clamp(
-                    screenHeight.isFinite ? screenHeight * 0.70 : 560,
-                    minimum: 560,
-                    maximum: 720
-                )
-            )
-        case .wide:
-            return PanelContentSize(uncheckedWidth: 680, height: 720)
+        case .horizontal:
+            PanelContentSize(uncheckedWidth: 760, height: 520)
+        case .vertical:
+            PanelContentSize(uncheckedWidth: 480, height: 720)
         }
     }
 
-    private static func clamp(
-        _ value: Double,
-        minimum: Double,
-        maximum: Double
-    ) -> Double {
-        min(max(value, minimum), maximum)
+    init?(persistedRawValue: String) {
+        switch persistedRawValue {
+        case Self.horizontal.rawValue, "wide":
+            self = .horizontal
+        case Self.vertical.rawValue, "compact", "comfortable":
+            self = .vertical
+        default:
+            return nil
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        guard let preset = Self(persistedRawValue: rawValue) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid built-in panel size preset."
+            )
+        }
+        self = preset
     }
 }
 
@@ -121,9 +118,8 @@ enum PanelSizePresetID: Codable, Equatable, Hashable, Sendable {
     case builtIn(BuiltInPanelSizePreset)
     case custom(UUID)
 
-    static let compact = Self.builtIn(.compact)
-    static let comfortable = Self.builtIn(.comfortable)
-    static let wide = Self.builtIn(.wide)
+    static let horizontal = Self.builtIn(.horizontal)
+    static let vertical = Self.builtIn(.vertical)
 
     var rawValue: String {
         switch self {
@@ -142,7 +138,11 @@ enum PanelSizePresetID: Codable, Equatable, Hashable, Sendable {
 
         switch components[0] {
         case "builtin":
-            guard let preset = BuiltInPanelSizePreset(rawValue: String(components[1])) else {
+            guard
+                let preset = BuiltInPanelSizePreset(
+                    persistedRawValue: String(components[1])
+                )
+            else {
                 return nil
             }
             self = .builtIn(preset)
@@ -276,12 +276,12 @@ enum PanelSizePreset: Equatable, Hashable, Identifiable, Sendable {
 }
 
 struct PanelSizePreferences: Codable, Equatable, Sendable {
-    static let currentVersion = 1
+    static let currentVersion = 2
     static let maximumCustomPresetCount = 12
 
     static let `default` = PanelSizePreferences(
         uncheckedVersion: currentVersion,
-        defaultPresetID: .comfortable,
+        defaultPresetID: .vertical,
         customPresets: [],
         lastExplicitWorkingContentSize: nil
     )
@@ -293,7 +293,7 @@ struct PanelSizePreferences: Codable, Equatable, Sendable {
 
     init(
         version: Int = Self.currentVersion,
-        defaultPresetID: PanelSizePresetID = .comfortable,
+        defaultPresetID: PanelSizePresetID = .vertical,
         customPresets: [CustomPanelSizePreset] = [],
         lastExplicitWorkingContentSize: PanelContentSize? = nil
     ) throws {
@@ -314,7 +314,7 @@ struct PanelSizePreferences: Codable, Equatable, Sendable {
     }
 
     var defaultPreset: PanelSizePreset {
-        preset(withID: defaultPresetID) ?? .builtIn(.comfortable)
+        preset(withID: defaultPresetID) ?? .builtIn(.vertical)
     }
 
     func preset(withID id: PanelSizePresetID) -> PanelSizePreset? {
@@ -377,7 +377,7 @@ struct PanelSizePreferences: Codable, Equatable, Sendable {
 
         customPresets.remove(at: index)
         if defaultPresetID == .custom(id) {
-            defaultPresetID = .comfortable
+            defaultPresetID = .vertical
         }
         return true
     }
@@ -414,7 +414,10 @@ struct PanelSizePreferences: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let version = try container.decode(Int.self, forKey: .version)
+        let storedVersion = try container.decode(Int.self, forKey: .version)
+        guard storedVersion == 1 || storedVersion == Self.currentVersion else {
+            throw PanelSizePreferencesError.unsupportedVersion(storedVersion)
+        }
         let defaultPresetID = try container.decode(
             PanelSizePresetID.self,
             forKey: .defaultPresetID
@@ -429,7 +432,7 @@ struct PanelSizePreferences: Codable, Equatable, Sendable {
         )
 
         try self.init(
-            version: version,
+            version: Self.currentVersion,
             defaultPresetID: defaultPresetID,
             customPresets: customPresets,
             lastExplicitWorkingContentSize: lastExplicitWorkingContentSize

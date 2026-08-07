@@ -9,6 +9,7 @@ protocol PanelSizing: AnyObject {
     var sizingScreenSize: CGSize { get }
     var onManualResizeCompletion: (@MainActor (CGSize) -> Void)? { get set }
     var onPinnedPageAvailabilityChange: (@MainActor () -> Void)? { get set }
+    var onGeometryPersistenceFailure: (@MainActor () -> Void)? { get set }
 
     @discardableResult
     func applyPanelContentSize(_ contentSize: CGSize) -> Bool
@@ -42,10 +43,6 @@ final class PanelSizeController: ObservableObject {
         preferences.presets
     }
 
-    var defaultPresetID: PanelSizePresetID {
-        preferences.defaultPresetID
-    }
-
     var canSaveCurrentSize: Bool {
         currentContentSize != nil
             && preferences.customPresets.count < PanelSizePreferences.maximumCustomPresetCount
@@ -59,6 +56,9 @@ final class PanelSizeController: ObservableObject {
         sizingTarget.onPinnedPageAvailabilityChange = { [weak self] in
             self?.refreshPanelState()
         }
+        sizingTarget.onGeometryPersistenceFailure = { [weak self] in
+            self?.validationMessage = "Panel geometry could not be saved."
+        }
         refreshPanelState()
     }
 
@@ -68,11 +68,7 @@ final class PanelSizeController: ObservableObject {
     }
 
     func displayName(for preset: PanelSizePreset) -> String {
-        if preset.id == defaultPresetID {
-            "\(preset.name) — Default"
-        } else {
-            preset.name
-        }
+        preset.name
     }
 
     func resolvedContentSize(for preset: PanelSizePreset) -> PanelContentSize {
@@ -105,18 +101,12 @@ final class PanelSizeController: ObservableObject {
 
     @discardableResult
     func applyDefault() -> Bool {
-        apply(defaultPresetID)
+        apply(.vertical)
     }
 
     @discardableResult
     func resetToDefault() -> Bool {
         applyDefault()
-    }
-
-    func setDefault(_ id: PanelSizePresetID) {
-        updatePreferences { preferences in
-            try preferences.setDefaultPreset(id: id)
-        }
     }
 
     @discardableResult
