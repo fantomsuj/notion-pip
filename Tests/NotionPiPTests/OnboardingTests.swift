@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import NotionPiP
 
@@ -19,6 +20,27 @@ final class OnboardingPreferenceStoreTests: XCTestCase {
 
 @MainActor
 final class OnboardingCoordinatorTests: XCTestCase {
+    func testStartupWaitsUntilApplicationFinishesLaunchingToPresentOnboarding() {
+        let panel = RuntimePanelCoordinator()
+        let runtime = makeRuntime(panel: panel)
+        let appDelegate = AppDelegate()
+        var presentationCount = 0
+
+        AppStartup.start(
+            runtime: runtime,
+            appDelegate: appDelegate,
+            applicationDidFinishLaunching: { presentationCount += 1 }
+        )
+
+        XCTAssertEqual(presentationCount, 0)
+
+        appDelegate.applicationDidFinishLaunching(
+            Notification(name: NSApplication.didFinishLaunchingNotification)
+        )
+
+        XCTAssertEqual(presentationCount, 1)
+    }
+
     func testFirstLaunchPresentsOnboardingUntilItIsCompleted() throws {
         let harness = try makeHarness()
 

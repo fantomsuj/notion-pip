@@ -151,6 +151,26 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertEqual(settings.showCount, 1)
     }
 
+    func testNoSavedPageDoesNotCompeteWithPendingOnboarding() async throws {
+        let settings = RuntimeSettingsWindowPresenter()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            pageRepository: repository,
+            automaticSettingsPresentationAllowed: { false }
+        )
+        runtime.bind(settingsWindowPresenter: settings)
+
+        runtime.start()
+        try await repository.waitUntilRestoreRequested()
+        await repository.finishRestore(with: nil)
+        try await repository.waitUntilRestoreReturned()
+        for _ in 0 ..< 3 { await Task.yield() }
+
+        XCTAssertNil(runtime.activePage)
+        XCTAssertEqual(settings.showCount, 0)
+    }
+
     func testFailedRestorePublishesHealthAndRetryReadsRepositoryAgain() async throws {
         let repository = RuntimePinnedPageRepository()
         let runtime = makeRuntime(

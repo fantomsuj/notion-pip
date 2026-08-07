@@ -14,6 +14,9 @@ enum NotionPiPApp {
             runtime: composition.runtime,
             appDelegate: appDelegate,
             coldLaunchToken: coldLaunchToken,
+            applicationDidFinishLaunching: {
+                composition.onboardingCoordinator.showIfNeeded()
+            },
             quickCopyTerminationAction: {
                 composition.quickCopyController.prepareForTermination()
             },
@@ -34,6 +37,7 @@ enum AppStartup {
         appDelegate: AppDelegate,
         coldLaunchToken: PerformanceIntervalToken? = nil,
         performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
+        applicationDidFinishLaunching: @escaping @MainActor () -> Void = {},
         quickCopyTerminationAction: @escaping @MainActor () -> Void = {},
         terminationParticipantProvider:
             @escaping @MainActor () -> (
@@ -45,6 +49,7 @@ enum AppStartup {
             coldLaunchToken: coldLaunchToken,
             performanceSignposter: performanceSignposter
         )
+        appDelegate.bind(applicationDidFinishLaunching: applicationDidFinishLaunching)
         appDelegate.bind {
             quickCopyTerminationAction()
             let shouldTerminate =
@@ -60,6 +65,7 @@ enum AppStartup {
 @MainActor
 private final class AppComposition {
     let runtime: AppRuntime
+    let onboardingCoordinator: OnboardingCoordinator
     private let quickCapturePresenter: LazyAppWindowPresenter
     private let quickCaptureReleaseRelay: QuickCaptureReleaseRelay
     private let settingsWindowPresenter: SettingsWindowPresenter
@@ -69,6 +75,7 @@ private final class AppComposition {
 
     init() {
         let actionRelay = AppCommandActionRelay()
+        let onboardingPreferenceStore = OnboardingPreferenceStore()
         let webSession = NotionWebSession()
         let credentialVault = PersonalTokenCredentialVault()
         let pageRepository: PageRepository?
@@ -140,7 +147,12 @@ private final class AppComposition {
             captureRepository: captureRepository,
             deliveryScheduler: deliveryScheduler,
             credentialVault: credentialVault,
-            initialServiceHealth: initialServiceHealth
+            initialServiceHealth: initialServiceHealth,
+            automaticSettingsPresentationAllowed: {
+                !onboardingPreferenceStore.shouldPresent(
+                    version: OnboardingCoordinator.currentVersion
+                )
+            }
         )
         actionRelay.reloadSavedPinAction = { [weak runtime] in
             runtime?.reloadSavedPin()
@@ -219,6 +231,18 @@ private final class AppComposition {
                 panelSizeController: panelSizeController
             )
         }
+        let onboardingCoordinator = OnboardingCoordinator(
+            preferenceStore: onboardingPreferenceStore,
+            settingsWindowPresenter: settingsWindowPresenter,
+            makeWindowPresenter: { completion, openSettings in
+                AppWindowFactory.makeOnboarding(
+                    globalShortcut: runtime.globalShortcut,
+                    quickCaptureShortcut: runtime.quickCaptureShortcut,
+                    onComplete: completion,
+                    onOpenSettings: openSettings
+                )
+            }
+        )
         let statusItemController = StatusItemController(
             runtime: runtime,
             commandModel: commandModel,
@@ -239,12 +263,16 @@ private final class AppComposition {
             }
         }
         actionRelay.settingsWindowPresenter = settingsWindowPresenter
+        actionRelay.gettingStartedAction = { [weak onboardingCoordinator] in
+            onboardingCoordinator?.show()
+        }
         runtime.bind(settingsWindowPresenter: settingsWindowPresenter)
         panelSizeController.onManagePanelSizes = {
             actionRelay.showSettings()
         }
 
         self.runtime = runtime
+        self.onboardingCoordinator = onboardingCoordinator
         self.quickCapturePresenter = quickCapturePresenter
         self.quickCaptureReleaseRelay = quickCaptureReleaseRelay
         self.settingsWindowPresenter = settingsWindowPresenter

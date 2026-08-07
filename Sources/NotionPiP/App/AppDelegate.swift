@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminationTask: Task<Void, Never>?
     private var performanceSignposter: (any PerformanceSignposting)?
     private var coldLaunchToken: PerformanceIntervalToken?
+    private var applicationDidFinishLaunchingHandler: (@MainActor () -> Void)?
 
     override init() {
         replyToApplicationShouldTerminate = { application, shouldTerminate in
@@ -58,6 +59,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.performanceSignposter = performanceSignposter
     }
 
+    func bind(applicationDidFinishLaunching handler: @escaping @MainActor () -> Void) {
+        guard applicationDidFinishLaunchingHandler == nil else { return }
+        applicationDidFinishLaunchingHandler = handler
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
     }
@@ -67,6 +73,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         performanceSignposter?.end(coldLaunchToken, outcome: .success)
         coldLaunchToken = nil
         performanceSignposter = nil
+        let handler = applicationDidFinishLaunchingHandler
+        applicationDidFinishLaunchingHandler = nil
+        handler?()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

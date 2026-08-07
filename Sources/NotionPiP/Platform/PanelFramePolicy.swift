@@ -174,6 +174,36 @@ enum PanelFramePolicy {
         contentRectForFrameRect(frame).size
     }
 
+    static func restoredContentSize(
+        savedWorkingContentSize: CGSize?,
+        restoredFrame: CGRect,
+        visibleFrames: [CGRect],
+        fallbackContentSize: CGSize,
+        frameForContentRect: (CGRect) -> CGRect = { $0 },
+        contentRectForFrameRect: (CGRect) -> CGRect = { $0 }
+    ) -> CGSize {
+        if let savedWorkingContentSize {
+            let savedFrame = CGRect(
+                origin: restoredFrame.origin,
+                size: frameSize(
+                    forContentSize: savedWorkingContentSize,
+                    frameForContentRect: frameForContentRect
+                )
+            )
+            if !fillsVisibleFrame(savedFrame, visibleFrames: visibleFrames) {
+                return savedWorkingContentSize
+            }
+        }
+
+        guard fillsVisibleFrame(restoredFrame, visibleFrames: visibleFrames) else {
+            return contentSize(
+                forFrame: restoredFrame,
+                contentRectForFrameRect: contentRectForFrameRect
+            )
+        }
+        return fallbackContentSize
+    }
+
     /// Legacy frame-size entry point retained for existing callers.
     static func initialFrame(
         size: CGSize,
@@ -281,6 +311,18 @@ enum PanelFramePolicy {
                 height: max(frame.height, minimumSize.height)
             )
         )
+    }
+
+    private static func fillsVisibleFrame(
+        _ frame: CGRect,
+        visibleFrames: [CGRect]
+    ) -> Bool {
+        guard let visibleFrame = targetVisibleFrame(for: frame, from: visibleFrames) else {
+            return false
+        }
+        let tolerance: CGFloat = 1
+        return frame.width >= visibleFrame.width - tolerance
+            && frame.height >= visibleFrame.height - tolerance
     }
 
     private static func intersectionArea(of first: CGRect, and second: CGRect) -> CGFloat {
