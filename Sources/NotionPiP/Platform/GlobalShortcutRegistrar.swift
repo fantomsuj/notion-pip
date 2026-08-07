@@ -5,6 +5,21 @@ enum GlobalShortcutRegistrationError: Error, Equatable {
     case hotKey(OSStatus)
 }
 
+enum GlobalShortcutRegistrationFailure: Error, Equatable {
+    case conflict
+    case transient
+
+    init(_ error: Error) {
+        if case let GlobalShortcutRegistrationError.hotKey(status) = error,
+           status == OSStatus(eventHotKeyExistsErr)
+        {
+            self = .conflict
+        } else {
+            self = .transient
+        }
+    }
+}
+
 enum GlobalShortcutEvent: Equatable, Sendable {
     case pressed
     case released
@@ -17,6 +32,7 @@ protocol GlobalShortcutRegistering: AnyObject {
         shortcut: GlobalShortcut,
         eventHandler: @escaping @MainActor (GlobalShortcutEvent) -> Void
     ) throws
+    func revalidate() throws
     func unregister()
 }
 
@@ -94,7 +110,22 @@ final class CarbonGlobalShortcutRegistrar: GlobalShortcutRegistering {
                 try? installEngine(shortcut: previousShortcut)
                 registeredShortcut = previousShortcut
             }
-            throw error
+            throw GlobalShortcutRegistrationFailure(error)
+        }
+    }
+
+    func revalidate() throws {
+        guard let shortcut = registeredShortcut, let eventHandler else { return }
+        unregister()
+        do {
+            self.eventHandler = eventHandler
+            try installEngine(shortcut: shortcut)
+            registeredShortcut = shortcut
+        } catch {
+            self.eventHandler = eventHandler
+            try? installEngine(shortcut: shortcut)
+            registeredShortcut = shortcut
+            throw GlobalShortcutRegistrationFailure(error)
         }
     }
 

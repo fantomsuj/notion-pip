@@ -109,6 +109,51 @@ final class GlobalShortcutTests: XCTestCase {
         XCTAssertEqual(engine.uninstallCount, 1)
     }
 
+    func testRevalidationReinstallsAnUnchangedShortcut() throws {
+        let engine = ShortcutRegistrationEngineSpy()
+        let registrar = CarbonGlobalShortcutRegistrar(engine: engine)
+
+        try registrar.register(shortcut: .default, handler: {})
+        try registrar.revalidate()
+
+        XCTAssertEqual(engine.installedShortcuts, [.default, .default])
+        XCTAssertEqual(engine.uninstallCount, 1)
+    }
+
+    func testRevalidationWithoutARegisteredShortcutDoesNothing() throws {
+        let engine = ShortcutRegistrationEngineSpy()
+        let registrar = CarbonGlobalShortcutRegistrar(engine: engine)
+
+        try registrar.revalidate()
+
+        XCTAssertEqual(engine.installedShortcuts, [])
+        XCTAssertEqual(engine.uninstallCount, 0)
+    }
+
+    func testRegistrarClassifiesExistingCarbonHotKeyAsConflict() {
+        let engine = ShortcutRegistrationEngineSpy()
+        engine.installError = GlobalShortcutRegistrationError.hotKey(
+            OSStatus(eventHotKeyExistsErr)
+        )
+        let registrar = CarbonGlobalShortcutRegistrar(engine: engine)
+
+        XCTAssertThrowsError(try registrar.register(shortcut: .default, handler: {})) { error in
+            XCTAssertEqual(error as? GlobalShortcutRegistrationFailure, .conflict)
+        }
+    }
+
+    func testRegistrarClassifiesOtherCarbonFailureAsTransient() {
+        let engine = ShortcutRegistrationEngineSpy()
+        engine.installError = GlobalShortcutRegistrationError.eventHandler(
+            OSStatus(eventInternalErr)
+        )
+        let registrar = CarbonGlobalShortcutRegistrar(engine: engine)
+
+        XCTAssertThrowsError(try registrar.register(shortcut: .default, handler: {})) { error in
+            XCTAssertEqual(error as? GlobalShortcutRegistrationFailure, .transient)
+        }
+    }
+
     func testCarbonHotKeyEnginesOnlyAcceptTheirOwnEventIdentity() {
         let panelEngine = CarbonEventHotKeyEngine()
         let captureEngine = CarbonEventHotKeyEngine()
@@ -155,6 +200,7 @@ private final class ShortcutRegistrarSpy: GlobalShortcutRegistering {
         registeredShortcuts.append(shortcut)
     }
 
+    func revalidate() throws {}
     func unregister() {}
 }
 
@@ -165,11 +211,15 @@ private enum ShortcutRegistrarSpyError: Error {
 @MainActor
 private final class ShortcutRegistrationEngineSpy: GlobalShortcutRegistrationEngine {
     var failingShortcuts: Set<GlobalShortcut> = []
+    var installError: Error?
     private(set) var installedShortcuts: [GlobalShortcut] = []
     private(set) var uninstallCount = 0
 
     func install(shortcut: GlobalShortcut, handler: @escaping @MainActor () -> Void) throws {
         installedShortcuts.append(shortcut)
+        if let installError {
+            throw installError
+        }
         if failingShortcuts.contains(shortcut) {
             throw ShortcutRegistrarSpyError.registrationFailed
         }
