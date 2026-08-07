@@ -7,7 +7,7 @@ enum NotionPiPSchemaV1: VersionedSchema {
         [
             CaptureDraftModel.self,
             CaptureRecordModel.self,
-            PinnedPageModel.self,
+            PinnedPageSchemaV3.PinnedPageModel.self,
             RecentPageModel.self,
         ]
     }
@@ -20,7 +20,7 @@ enum NotionPiPSchemaV2: VersionedSchema {
         [
             CaptureDraftModel.self,
             CaptureRecordModel.self,
-            PinnedPageModel.self,
+            PinnedPageSchemaV3.PinnedPageModel.self,
             RecentPageModel.self,
             QuickCaptureSettingsModel.self,
         ]
@@ -29,6 +29,22 @@ enum NotionPiPSchemaV2: VersionedSchema {
 
 enum NotionPiPSchemaV3: VersionedSchema {
     static let versionIdentifier = Schema.Version(3, 0, 0)
+
+    static var models: [any PersistentModel.Type] {
+        [
+            CaptureDraftModel.self,
+            CaptureRecordModel.self,
+            PinnedPageSchemaV3.PinnedPageModel.self,
+            RecentPageModel.self,
+            QuickCaptureSettingsModel.self,
+            ActivePageModel.self,
+            PageRestorationModel.self,
+        ]
+    }
+}
+
+enum NotionPiPSchemaV4: VersionedSchema {
+    static let versionIdentifier = Schema.Version(4, 0, 0)
 
     static var models: [any PersistentModel.Type] {
         [
@@ -45,7 +61,12 @@ enum NotionPiPSchemaV3: VersionedSchema {
 
 enum NotionPiPMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [NotionPiPSchemaV1.self, NotionPiPSchemaV2.self, NotionPiPSchemaV3.self]
+        [
+            NotionPiPSchemaV1.self,
+            NotionPiPSchemaV2.self,
+            NotionPiPSchemaV3.self,
+            NotionPiPSchemaV4.self,
+        ]
     }
 
     static var stages: [MigrationStage] {
@@ -57,6 +78,10 @@ enum NotionPiPMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: NotionPiPSchemaV2.self,
                 toVersion: NotionPiPSchemaV3.self
+            ),
+            .lightweight(
+                fromVersion: NotionPiPSchemaV3.self,
+                toVersion: NotionPiPSchemaV4.self
             ),
         ]
     }

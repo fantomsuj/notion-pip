@@ -5,6 +5,8 @@ struct PageSwitcherView: View {
     let onDismiss: () -> Void
     let onSelect: (PageSwitcherSelection) -> Void
     @FocusState private var searchIsFocused: Bool
+    @State private var editingPageID: String?
+    @State private var roleDraft = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,19 +37,33 @@ struct PageSwitcherView: View {
                                     .accessibilityAddTraits(.isHeader)
 
                                 ForEach(section.items) { item in
-                                    PageSwitcherRow(
-                                        item: item,
-                                        isSelected: controller.selectedPageID == item.page.pageID,
-                                        onSelect: { select(item) },
-                                        onTogglePin: {
-                                            Task {
-                                                await controller.setPinned(
-                                                    !item.isPinned,
-                                                    pageID: item.page.pageID
-                                                )
-                                            }
+                                    VStack(spacing: 2) {
+                                        PageSwitcherRow(
+                                            item: item,
+                                            isSelected: controller.selectedPageID == item.page.pageID,
+                                            onSelect: { select(item) },
+                                            onTogglePin: {
+                                                Task {
+                                                    await controller.setPinned(
+                                                        !item.isPinned,
+                                                        pageID: item.page.pageID
+                                                    )
+                                                }
+                                            },
+                                            onEditRole: { beginRoleEditing(item) }
+                                        )
+
+                                        if editingPageID == item.page.pageID {
+                                            PageRoleEditor(
+                                                pageTitle: item.page.displayTitle,
+                                                existingRole: item.page.role,
+                                                draft: $roleDraft,
+                                                onSave: { saveRole(for: item.page.pageID) },
+                                                onClear: { clearRole(for: item.page.pageID) },
+                                                onCancel: cancelRoleEditing
+                                            )
                                         }
-                                    )
+                                    }
                                     .id(item.page.pageID)
                                 }
                             }
@@ -78,18 +94,25 @@ struct PageSwitcherView: View {
             searchIsFocused = true
         }
         .onKeyPress(.downArrow) {
+            guard editingPageID == nil else { return .ignored }
             controller.moveSelection(by: 1)
             return .handled
         }
         .onKeyPress(.upArrow) {
+            guard editingPageID == nil else { return .ignored }
             controller.moveSelection(by: -1)
             return .handled
         }
         .onKeyPress(.return) {
+            guard editingPageID == nil else { return .ignored }
             selectCurrent()
             return .handled
         }
         .onKeyPress(.escape) {
+            if editingPageID != nil {
+                cancelRoleEditing()
+                return .handled
+            }
             onDismiss()
             return .handled
         }
@@ -109,13 +132,46 @@ struct PageSwitcherView: View {
             onSelect(selection)
         }
     }
+
+    private func beginRoleEditing(_ item: PageSwitcherItem) {
+        guard item.isPinned else { return }
+        controller.select(pageID: item.page.pageID)
+        roleDraft = item.page.role ?? ""
+        editingPageID = item.page.pageID
+        searchIsFocused = false
+    }
+
+    private func saveRole(for pageID: String) {
+        Task {
+            guard await controller.updateRole(roleDraft, pageID: pageID) else { return }
+            finishRoleEditing()
+        }
+    }
+
+    private func clearRole(for pageID: String) {
+        Task {
+            guard await controller.updateRole(nil, pageID: pageID) else { return }
+            finishRoleEditing()
+        }
+    }
+
+    private func cancelRoleEditing() {
+        finishRoleEditing()
+    }
+
+    private func finishRoleEditing() {
+        editingPageID = nil
+        roleDraft = ""
+        searchIsFocused = true
+    }
 }
 
-private struct PageSwitcherRow: View {
+struct PageSwitcherRow: View {
     let item: PageSwitcherItem
     let isSelected: Bool
     let onSelect: () -> Void
     let onTogglePin: () -> Void
+    let onEditRole: () -> Void
     @State private var isHovering = false
 
     var body: some View {
@@ -125,10 +181,11 @@ private struct PageSwitcherRow: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(item.page.displayTitle ?? "Untitled Notion page")
+                Text(item.page.role ?? PageSwitcherAccessibility.pageTitle(for: item))
+                    .fontWeight(item.page.role == nil ? .regular : .semibold)
                     .lineLimit(1)
-                Text(item.page.pageID)
-                    .font(.caption2.monospaced())
+                Text(secondaryText)
+                    .font(item.page.role == nil ? .caption2.monospaced() : .caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -136,6 +193,14 @@ private struct PageSwitcherRow: View {
             Spacer(minLength: DesignTokens.Spacing.compact)
 
             if isHovering || isSelected {
+                if item.isPinned {
+                    Button(action: onEditRole) {
+                        Image(systemName: item.page.role == nil ? "tag" : "pencil")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(PageSwitcherAccessibility.roleActionLabel(for: item))
+                }
+
                 Button(action: onTogglePin) {
                     Image(systemName: item.isPinned ? "pin.fill" : "pin")
                 }
@@ -153,19 +218,112 @@ private struct PageSwitcherRow: View {
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabel)
+        .accessibilityLabel(PageSwitcherAccessibility.rowLabel(for: item))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityAction(named: item.isPinned ? "Unpin page" : "Pin page", onTogglePin)
+        .pageRoleAccessibilityAction(item: item, action: onEditRole)
         .accessibilityAction(.default, onSelect)
     }
 
-    private var accessibilityLabel: String {
+    private var secondaryText: String {
+        item.page.role == nil
+            ? item.page.pageID
+            : PageSwitcherAccessibility.pageTitle(for: item)
+    }
+}
+
+private struct PageRoleEditor: View {
+    let pageTitle: String?
+    let existingRole: String?
+    @Binding var draft: String
+    let onSave: () -> Void
+    let onClear: () -> Void
+    let onCancel: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.compact) {
+            TextField("Role, such as Today", text: $draft)
+                .textFieldStyle(.roundedBorder)
+                .focused($isFocused)
+                .onSubmit(onSave)
+                .accessibilityLabel(
+                    "Role for \(pageTitle ?? "untitled Notion page"), up to 32 characters"
+                )
+
+            HStack(spacing: DesignTokens.Spacing.control) {
+                Text("Up to \(PinnedPageRole.maximumLength) characters")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                if existingRole != nil {
+                    Button("Clear", action: onClear)
+                        .accessibilityLabel(
+                            PageSwitcherAccessibility.clearRoleLabel(
+                                role: existingRole,
+                                pageTitle: pageTitle
+                            )
+                        )
+                }
+                Button("Cancel", action: onCancel)
+                Button("Save", action: onSave)
+            }
+            .controlSize(.small)
+        }
+        .padding(.horizontal, DesignTokens.Spacing.section)
+        .padding(.bottom, DesignTokens.Spacing.control)
+        .onAppear { isFocused = true }
+    }
+}
+
+enum PageSwitcherAccessibility {
+    static func pageTitle(for item: PageSwitcherItem) -> String {
+        item.page.displayTitle ?? "Untitled Notion page"
+    }
+
+    static func rowLabel(for item: PageSwitcherItem) -> String {
         [
-            item.page.displayTitle ?? "Untitled Notion page",
+            item.page.role.map { "Role \($0)" },
+            item.page.role == nil
+                ? pageTitle(for: item)
+                : "Notion page \(pageTitle(for: item))",
             item.isActive ? "Active page" : nil,
             item.isPinned ? "Pinned" : "Recent",
         ]
         .compactMap { $0 }
         .joined(separator: ", ")
+    }
+
+    static func roleActionLabel(for item: PageSwitcherItem) -> String {
+        let title = pageTitle(for: item)
+        if let role = item.page.role {
+            return "Edit role \(role) for \(title)"
+        }
+        return "Add role for \(title)"
+    }
+
+    static func clearRoleLabel(role: String?, pageTitle: String?) -> String {
+        let title = pageTitle ?? "Untitled Notion page"
+        guard let role, !role.isEmpty else { return "Clear role from \(title)" }
+        return "Clear role \(role) from \(title)"
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func pageRoleAccessibilityAction(
+        item: PageSwitcherItem,
+        action: @escaping () -> Void
+    ) -> some View {
+        if item.isPinned {
+            accessibilityAction(
+                named: PageSwitcherAccessibility.roleActionLabel(for: item),
+                action
+            )
+        } else {
+            self
+        }
     }
 }
