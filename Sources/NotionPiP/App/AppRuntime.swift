@@ -11,14 +11,16 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var captureRecords: [CaptureRecordSummary] = []
     @Published private(set) var captureRecoveryMessage: String?
     @Published private(set) var serviceHealth: ServiceHealthState
-    @Published private(set) var globalShortcut: GlobalShortcut
+    @Published private(set) var shortcutConfiguration: ShortcutConfiguration
     @Published private(set) var holdToPeekEnabled: Bool
-    @Published private(set) var quickCaptureShortcut: GlobalShortcut
     @Published private(set) var quickCapturePrefillsClipboard: Bool
     @Published private(set) var quickCaptureInsertsAtNotionCursor: Bool
     @Published private(set) var savedMenuBarIconVisibility: Bool
     @Published private(set) var effectiveMenuBarIconVisibility: Bool
     @Published private(set) var isMenuBarIconVisibilityForced: Bool
+
+    var globalShortcut: GlobalShortcut { shortcutConfiguration.panel }
+    var quickCaptureShortcut: GlobalShortcut { shortcutConfiguration.quickCapture }
 
     let pageURLInputState: PageURLInputState
 
@@ -79,6 +81,10 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     var persistenceGeneration = 0
     var pageSelectionGeneration = 0
     let shortcutHoldDuration: Duration
+    let shortcutLifecycleCoordinatorFactory:
+        (@escaping @MainActor (ShortcutRecoveryTrigger) -> Void) -> ShortcutLifecycleCoordinator
+    var shortcutLifecycleCoordinator: ShortcutLifecycleCoordinator?
+    var shortcutConfigurationGeneration: UInt = 0
     var shortcutHoldTask: Task<Void, Never>?
     var shortcutHoldTriggered = false
     var shortcutPeekRestoredPanel = false
@@ -107,7 +113,11 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         destinationSearchDebounceDuration: Duration = .milliseconds(300),
         shortcutHoldDuration: Duration = .milliseconds(300),
         initialServiceHealth: ServiceHealthState = .healthy,
-        automaticSettingsPresentationAllowed: @escaping @MainActor () -> Bool = { true }
+        automaticSettingsPresentationAllowed: @escaping @MainActor () -> Bool = { true },
+        shortcutLifecycleCoordinatorFactory:
+            @escaping (@escaping @MainActor (ShortcutRecoveryTrigger) -> Void) -> ShortcutLifecycleCoordinator = {
+                ShortcutLifecycleCoordinator(onRecovery: $0)
+            }
     ) {
         let inputState = PageURLInputState()
         let submissionRelay = PageURLInputSubmissionRelay()
@@ -137,6 +147,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.captureRepository = captureRepository
         self.deliveryScheduler = deliveryScheduler
         self.shortcutHoldDuration = shortcutHoldDuration
+        self.shortcutLifecycleCoordinatorFactory = shortcutLifecycleCoordinatorFactory
         let connectionController = NotionConnectionController(
             credentialVault: credentialVault,
             notionClientFactory: notionClientFactory,
@@ -151,9 +162,17 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             searchDebounceDuration: destinationSearchDebounceDuration
         )
         serviceHealth = initialServiceHealth
-        globalShortcut = shortcutStore.load()
+        let panelShortcut = shortcutStore.load()
+        let loadedQuickCaptureShortcut = quickCaptureShortcutStore.load()
+        let quickCaptureShortcut = Self.distinctQuickCaptureShortcut(
+            loadedQuickCaptureShortcut,
+            panelShortcut: panelShortcut
+        )
+        shortcutConfiguration = ShortcutConfiguration(
+            panel: panelShortcut,
+            quickCapture: quickCaptureShortcut
+        )
         holdToPeekEnabled = holdToPeekPreferenceStore.load()
-        quickCaptureShortcut = quickCaptureShortcutStore.load()
         quickCapturePrefillsClipboard = trustedCapturePreferenceStore.prefillsClipboard
         quickCaptureInsertsAtNotionCursor = trustedCapturePreferenceStore.insertsAtNotionCursor
         let iconState = Self.menuBarIconState(
@@ -177,6 +196,11 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
         registerGlobalShortcut()
         registerQuickCaptureShortcut()
+        let shortcutLifecycleCoordinator = shortcutLifecycleCoordinatorFactory { [weak self] trigger in
+            self?.recoverShortcuts(trigger: trigger)
+        }
+        self.shortcutLifecycleCoordinator = shortcutLifecycleCoordinator
+        shortcutLifecycleCoordinator.start()
         bootstrapTask = Task { [weak self] in
             await self?.bootstrapPersonalTokenConnection()
         }
@@ -195,6 +219,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         switch issue {
         case .globalShortcutUnavailable:
             registerGlobalShortcut()
+        case .quickCaptureShortcutUnavailable:
+            registerQuickCaptureShortcut()
         case .pinnedPagePersistenceUnavailable:
             if let activePage {
                 enqueuePersistence(of: activePage)
@@ -263,16 +289,12 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         lastActivationSource = source
     }
 
-    func publishGlobalShortcut(_ shortcut: GlobalShortcut) {
-        globalShortcut = shortcut
-    }
-
     func publishHoldToPeekEnabled(_ enabled: Bool) {
         holdToPeekEnabled = enabled
     }
 
-    func publishQuickCaptureShortcut(_ shortcut: GlobalShortcut) {
-        quickCaptureShortcut = shortcut
+    func publishShortcutConfiguration(_ configuration: ShortcutConfiguration) {
+        shortcutConfiguration = configuration
     }
 
     func publishQuickCapturePrefillsClipboard(_ enabled: Bool) {
@@ -330,6 +352,18 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         let saved = store.load()
         let forced = serviceHealth.issues.contains(.globalShortcutUnavailable) && !saved
         return MenuBarIconState(saved: saved, effective: saved || forced, forced: forced)
+    }
+
+    private static func distinctQuickCaptureShortcut(
+        _ shortcut: GlobalShortcut,
+        panelShortcut: GlobalShortcut
+    ) -> GlobalShortcut {
+        guard shortcut == panelShortcut else { return shortcut }
+        return panelShortcut == .defaultQuickCapture ? .default : .defaultQuickCapture
+    }
+
+    isolated deinit {
+        shortcutLifecycleCoordinator?.stop()
     }
 }
 
