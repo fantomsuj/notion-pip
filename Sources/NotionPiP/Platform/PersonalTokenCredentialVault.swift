@@ -11,32 +11,72 @@ enum KeychainSecretStoreError: Error, Equatable {
     case unexpectedStatus(OSStatus)
 }
 
+struct KeychainClient {
+    let copyMatching: ([String: Any]) -> (OSStatus, Data?)
+    let update: ([String: Any], [String: Any]) -> OSStatus
+    let add: ([String: Any]) -> OSStatus
+    let delete: ([String: Any]) -> OSStatus
+
+    static var live: KeychainClient {
+        KeychainClient(
+            copyMatching: { query in
+                var result: CFTypeRef?
+                let status = SecItemCopyMatching(query as CFDictionary, &result)
+                return (status, result as? Data)
+            },
+            update: { query, attributes in
+                SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            },
+            add: { query in
+                SecItemAdd(query as CFDictionary, nil)
+            },
+            delete: { query in
+                SecItemDelete(query as CFDictionary)
+            }
+        )
+    }
+}
+
 final class KeychainSecretStore: SecretStoring {
     private let service: String
     private let account: String
+    private let client: KeychainClient
 
     init(
         service: String = "com.fantomsuj.NotionPiP.personalIntegration",
-        account: String = "notion-token"
+        account: String = "notion-token",
+        client: KeychainClient = .live
     ) {
         self.service = service
         self.account = account
+        self.client = client
     }
 
     func read() throws -> Data? {
+        if let data = try read(matching: dataProtectionQuery) {
+            return data
+        }
+        guard let legacyData = try read(matching: legacyQuery) else {
+            return nil
+        }
+
+        try write(legacyData)
+        return legacyData
+    }
+
+    private func read(matching baseQuery: [String: Any]) throws -> Data? {
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let (status, data) = client.copyMatching(query)
         if status == errSecItemNotFound {
             return nil
         }
         guard status == errSecSuccess else {
             throw KeychainSecretStoreError.unexpectedStatus(status)
         }
-        return result as? Data
+        return data
     }
 
     func write(_ data: Data) throws {
@@ -44,36 +84,56 @@ final class KeychainSecretStore: SecretStoring {
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
         ]
-        let updateStatus = SecItemUpdate(baseQuery as CFDictionary, attributes as CFDictionary)
+        let updateStatus = client.update(dataProtectionQuery, attributes)
         if updateStatus == errSecSuccess {
+            try deleteLegacyItem()
             return
         }
         guard updateStatus == errSecItemNotFound else {
             throw KeychainSecretStoreError.unexpectedStatus(updateStatus)
         }
 
-        var insertQuery = baseQuery
+        var insertQuery = dataProtectionQuery
         attributes.forEach { insertQuery[$0.key] = $0.value }
-        let insertStatus = SecItemAdd(insertQuery as CFDictionary, nil)
+        let insertStatus = client.add(insertQuery)
         guard insertStatus == errSecSuccess else {
             throw KeychainSecretStoreError.unexpectedStatus(insertStatus)
         }
+        try deleteLegacyItem()
     }
 
     func delete() throws {
-        let status = SecItemDelete(baseQuery as CFDictionary)
+        let statuses = [
+            client.delete(dataProtectionQuery),
+            client.delete(legacyQuery),
+        ]
+        if let unexpectedStatus = statuses.first(where: {
+            $0 != errSecSuccess && $0 != errSecItemNotFound
+        }) {
+            throw KeychainSecretStoreError.unexpectedStatus(unexpectedStatus)
+        }
+    }
+
+    private func deleteLegacyItem() throws {
+        let status = client.delete(legacyQuery)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainSecretStoreError.unexpectedStatus(status)
         }
     }
 
-    private var baseQuery: [String: Any] {
+    private var legacyQuery: [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
         ]
+    }
+
+    private var dataProtectionQuery: [String: Any] {
+        var query = legacyQuery
+        query[kSecUseDataProtectionKeychain as String] = true
+        return query
     }
 }
 

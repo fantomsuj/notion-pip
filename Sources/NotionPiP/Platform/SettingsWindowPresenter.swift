@@ -5,15 +5,26 @@ protocol SettingsWindowPresenting: AnyObject {
 
 @MainActor
 final class SettingsWindowPresenter: SettingsWindowPresenting {
-    private let makeWindowPresenter: @MainActor () -> any AppWindowPresenting
+    typealias CloseHandler = @MainActor () -> Void
+    private let makeWindowPresenter: @MainActor (
+        @escaping CloseHandler
+    ) -> any AppWindowPresenting
     private var windowPresenter: (any AppWindowPresenting)?
 
     init(windowPresenter: any AppWindowPresenting) {
-        makeWindowPresenter = { windowPresenter }
+        makeWindowPresenter = { _ in windowPresenter }
         self.windowPresenter = windowPresenter
     }
 
     init(makeWindowPresenter: @escaping @MainActor () -> any AppWindowPresenting) {
+        self.makeWindowPresenter = { _ in makeWindowPresenter() }
+    }
+
+    init(
+        makeWindowPresenter: @escaping @MainActor (
+            @escaping CloseHandler
+        ) -> any AppWindowPresenting
+    ) {
         self.makeWindowPresenter = makeWindowPresenter
     }
 
@@ -22,7 +33,9 @@ final class SettingsWindowPresenter: SettingsWindowPresenting {
             windowPresenter.show()
             return
         }
-        let windowPresenter = makeWindowPresenter()
+        let windowPresenter = makeWindowPresenter { [weak self] in
+            self?.windowPresenter = nil
+        }
         self.windowPresenter = windowPresenter
         windowPresenter.show()
     }

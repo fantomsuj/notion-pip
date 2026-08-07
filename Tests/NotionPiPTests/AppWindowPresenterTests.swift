@@ -30,6 +30,26 @@ final class AppWindowPresenterTests: XCTestCase {
         XCTAssertEqual(factoryCount, 1)
         XCTAssertEqual(windowPresenter.showCount, 2)
     }
+
+    func testSettingsWindowPresenterRecreatesWindowAfterClose() {
+        var closeHandlers: [@MainActor () -> Void] = []
+        var windowPresenters: [FakeAppWindowPresenter] = []
+        let presenter = SettingsWindowPresenter { closeHandler in
+            closeHandlers.append(closeHandler)
+            let windowPresenter = FakeAppWindowPresenter()
+            windowPresenters.append(windowPresenter)
+            return windowPresenter
+        }
+
+        presenter.show()
+        closeHandlers[0]()
+        presenter.show()
+
+        XCTAssertEqual(windowPresenters.count, 2)
+        XCTAssertEqual(windowPresenters[0].showCount, 1)
+        XCTAssertEqual(windowPresenters[1].showCount, 1)
+    }
+
     func testLazyPresenterDefersConstructionUntilFirstShowAndReusesPresenter() {
         let window = FakeAppWindow()
         var factoryCount = 0
@@ -122,6 +142,25 @@ final class AppWindowPresenterTests: XCTestCase {
         XCTAssertEqual(signposter.endCalls.count, 1)
         XCTAssertNotNil(signposter.endCalls.first?.token)
         XCTAssertEqual(signposter.endCalls.first?.outcome, .success)
+    }
+
+    func testWindowCloseRequestHidesWindowBeforeRunningCloseHandler() {
+        let window = FakeAppWindow()
+        var closeHandlerCallCount = 0
+        let presenter = AppWindowPresenter(
+            window: window,
+            closeRequestHandler: {
+                XCTAssertFalse(window.isVisible)
+                closeHandlerCallCount += 1
+            }
+        )
+
+        presenter.show()
+        window.requestClose()
+
+        XCTAssertFalse(window.isVisible)
+        XCTAssertEqual(window.orderOutCount, 1)
+        XCTAssertEqual(closeHandlerCallCount, 1)
     }
 
     func testLazyPresenterHasNoTerminationParticipantUntilWindowIsLive() async throws {
@@ -259,6 +298,7 @@ private final class FakeAppWindow: AppWindow {
     private(set) var presentCount = 0
     private(set) var orderOutCount = 0
     var onPresentAsKey: (() -> Void)?
+    var closeRequestHandler: (@MainActor () -> Void)?
 
     func presentAsKey() {
         isVisible = true
@@ -269,5 +309,13 @@ private final class FakeAppWindow: AppWindow {
     func orderOut() {
         isVisible = false
         orderOutCount += 1
+    }
+
+    func installCloseRequestHandler(_ handler: @escaping @MainActor () -> Void) {
+        closeRequestHandler = handler
+    }
+
+    func requestClose() {
+        closeRequestHandler?()
     }
 }
