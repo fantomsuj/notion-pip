@@ -68,12 +68,21 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
     func testHoldingShortcutPeeksAtStashedPanelUntilRelease() async throws {
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
+        let previousApplication = FocusApplicationSpy(processIdentifier: 101)
+        let notionPiP = FocusApplicationSpy(processIdentifier: 202)
+        let frontmost = FrontmostApplicationProvider(previousApplication.application)
+        let focusRestorer = PeekFocusRestorer(
+            currentProcessIdentifier: notionPiP.processIdentifier,
+            frontmostApplication: { frontmost.application },
+            interactionMonitor: PeekInteractionMonitorSpy()
+        )
         let repository = RuntimePinnedPageRepository()
         let runtime = makeRuntime(
             panel: panel,
             shortcutRegistrar: shortcut,
             pageRepository: repository,
-            shortcutHoldDuration: .zero
+            shortcutHoldDuration: .zero,
+            peekFocusRestorer: focusRestorer
         )
         let storedPage = try makeStoredPage(id: firstPageID, title: "Restored")
         runtime.start()
@@ -85,10 +94,43 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
 
         shortcut.eventHandler?(.pressed)
         await waitUntilRuntimeCondition { panel.isVisible }
+        frontmost.application = notionPiP.application
 
         shortcut.eventHandler?(.released)
         XCTAssertTrue(panel.isStashed)
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
+        XCTAssertEqual(previousApplication.activationCount, 1)
+    }
+
+    func testDisabledHoldToPeekActsImmediatelyWithoutReleaseTiming() throws {
+        let defaults = try XCTUnwrap(
+            UserDefaults(suiteName: "RuntimeHoldPreferenceTests.\(UUID().uuidString)")
+        )
+        let holdPreferenceStore = HoldToPeekPreferenceStore(defaults: defaults)
+        holdPreferenceStore.save(false)
+        let panel = RuntimePanelCoordinator()
+        let shortcut = RuntimeShortcutRegistrar()
+        let runtime = makeRuntime(
+            panel: panel,
+            shortcutRegistrar: shortcut,
+            shortcutHoldDuration: .seconds(60),
+            holdToPeekPreferenceStore: holdPreferenceStore
+        )
+        runtime.activate(
+            page: try makePage(id: firstPageID, title: "Visible"),
+            source: .typedURL
+        )
+        runtime.start()
+
+        shortcut.eventHandler?(.pressed)
+
+        XCTAssertTrue(panel.isStashed)
+        XCTAssertFalse(panel.isVisible)
+
+        shortcut.eventHandler?(.released)
+
+        XCTAssertTrue(panel.isStashed)
+        XCTAssertEqual(panel.globalShortcutActionCount, 1)
     }
 
     func testHoldingShortcutPreservesAlreadyVisiblePanelOnRelease() async throws {

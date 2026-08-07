@@ -12,6 +12,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var captureRecoveryMessage: String?
     @Published private(set) var serviceHealth: ServiceHealthState
     @Published private(set) var globalShortcut: GlobalShortcut
+    @Published private(set) var holdToPeekEnabled: Bool
     @Published private(set) var quickCaptureShortcut: GlobalShortcut
     @Published private(set) var quickCapturePrefillsClipboard: Bool
     @Published private(set) var quickCaptureInsertsAtNotionCursor: Bool
@@ -52,6 +53,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let pinCoordinator: PinCoordinator
     let shortcutRegistrar: any GlobalShortcutRegistering
     let shortcutStore: GlobalShortcutStore
+    let holdToPeekPreferenceStore: HoldToPeekPreferenceStore
+    let peekFocusRestorer: any PeekFocusRestoring
     let quickCaptureShortcutRegistrar: any GlobalShortcutRegistering
     let quickCaptureShortcutStore: QuickCaptureShortcutStore
     let trustedCapturePreferenceStore: TrustedCapturePreferenceStore
@@ -90,6 +93,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         quickCaptureShortcutStore: QuickCaptureShortcutStore = QuickCaptureShortcutStore(),
         trustedCapturePreferenceStore: TrustedCapturePreferenceStore = TrustedCapturePreferenceStore(),
         menuBarIconPreferenceStore: MenuBarIconPreferenceStore = MenuBarIconPreferenceStore(),
+        holdToPeekPreferenceStore: HoldToPeekPreferenceStore = HoldToPeekPreferenceStore(),
+        peekFocusRestorer: any PeekFocusRestoring = PeekFocusRestorer(),
         pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
         pageRepository: (any PageWorkingSetPersisting)? = nil,
         destinationRepository: (any QuickCaptureDestinationPersisting)? = nil,
@@ -120,6 +125,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         )
         self.shortcutRegistrar = shortcutRegistrar
         self.shortcutStore = shortcutStore
+        self.holdToPeekPreferenceStore = holdToPeekPreferenceStore
+        self.peekFocusRestorer = peekFocusRestorer
         self.quickCaptureShortcutRegistrar = quickCaptureShortcutRegistrar
         self.quickCaptureShortcutStore = quickCaptureShortcutStore
         self.trustedCapturePreferenceStore = trustedCapturePreferenceStore
@@ -145,6 +152,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         )
         serviceHealth = initialServiceHealth
         globalShortcut = shortcutStore.load()
+        holdToPeekEnabled = holdToPeekPreferenceStore.load()
         quickCaptureShortcut = quickCaptureShortcutStore.load()
         quickCapturePrefillsClipboard = trustedCapturePreferenceStore.prefillsClipboard
         quickCaptureInsertsAtNotionCursor = trustedCapturePreferenceStore.insertsAtNotionCursor
@@ -257,6 +265,10 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
     func publishGlobalShortcut(_ shortcut: GlobalShortcut) {
         globalShortcut = shortcut
+    }
+
+    func publishHoldToPeekEnabled(_ enabled: Bool) {
+        holdToPeekEnabled = enabled
     }
 
     func publishQuickCaptureShortcut(_ shortcut: GlobalShortcut) {
