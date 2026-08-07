@@ -708,6 +708,9 @@ final class PinCoordinatorTests: XCTestCase {
         let coordinator = PiPPanelCoordinator(
             panel: panel,
             pageLoader: FakePageLoader(),
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_440, height: 900)]
+            },
             initialFrameProvider: {
                 placementCount += 1
                 return initialFrame
@@ -731,6 +734,9 @@ final class PinCoordinatorTests: XCTestCase {
         let coordinator = PiPPanelCoordinator(
             panel: panel,
             pageLoader: FakePageLoader(),
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_440, height: 900)]
+            },
             initialFrameProvider: nil
         )
 
