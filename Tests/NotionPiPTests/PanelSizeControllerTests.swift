@@ -5,20 +5,18 @@ import XCTest
 
 @MainActor
 final class PanelSizeControllerTests: XCTestCase {
-    func testChangingDefaultPersistsWithoutApplyingIt() {
+    func testResetAppliesVerticalOrientation() {
         let store = PanelSizeStoreSpy()
         let target = PanelSizingSpy()
         let controller = PanelSizeController(store: store)
         controller.bind(to: target)
 
-        controller.setDefault(.wide)
+        XCTAssertTrue(controller.resetToDefault())
 
-        XCTAssertEqual(controller.defaultPresetID, .wide)
-        XCTAssertTrue(target.appliedSizes.isEmpty)
-        XCTAssertEqual(store.savedPreferences.last?.defaultPresetID, .wide)
+        XCTAssertEqual(target.appliedSizes, [CGSize(width: 480, height: 720)])
     }
 
-    func testApplyUsesAdaptiveScreenSizeAndPersistsRequestedWorkingSize() throws {
+    func testApplyHorizontalPersistsRequestedWorkingSize() throws {
         let store = PanelSizeStoreSpy()
         let target = PanelSizingSpy(
             screenSize: CGSize(width: 1_440, height: 900)
@@ -26,9 +24,9 @@ final class PanelSizeControllerTests: XCTestCase {
         let controller = PanelSizeController(store: store)
         controller.bind(to: target)
 
-        XCTAssertTrue(controller.apply(.comfortable))
+        XCTAssertTrue(controller.apply(.horizontal))
 
-        let expected = CGSize(width: 489.6, height: 630)
+        let expected = CGSize(width: 760, height: 520)
         XCTAssertEqual(target.appliedSizes, [expected])
         XCTAssertEqual(
             store.savedPreferences.last?.lastExplicitWorkingContentSize,
@@ -43,7 +41,7 @@ final class PanelSizeControllerTests: XCTestCase {
         controller.bind(to: target)
 
         XCTAssertFalse(controller.canApply)
-        XCTAssertFalse(controller.apply(.compact))
+        XCTAssertFalse(controller.apply(.vertical))
         XCTAssertTrue(target.appliedSizes.isEmpty)
 
         XCTAssertNotNil(
@@ -86,23 +84,23 @@ final class PanelSizeControllerTests: XCTestCase {
         let controller = PanelSizeController(store: store)
         controller.bind(to: target)
 
-        XCTAssertTrue(controller.apply(.wide))
+        XCTAssertTrue(controller.apply(.horizontal))
 
         XCTAssertEqual(controller.currentContentSize, CGSize(width: 500, height: 400))
         XCTAssertEqual(
             store.savedPreferences.last?.lastExplicitWorkingContentSize,
-            try PanelContentSize(width: 680, height: 720)
+            try PanelContentSize(width: 760, height: 520)
         )
     }
 
-    func testDefaultSuffixAndManageActionAreSharedControllerState() {
+    func testOrientationNamesAndManageActionAreSharedControllerState() {
         let controller = PanelSizeController(store: PanelSizeStoreSpy())
         var manageCount = 0
         controller.onManagePanelSizes = { manageCount += 1 }
 
         XCTAssertEqual(
             controller.presets.map(controller.displayName),
-            ["Compact", "Comfortable — Default", "Wide"]
+            ["Horizontal", "Vertical"]
         )
 
         controller.managePanelSizes()

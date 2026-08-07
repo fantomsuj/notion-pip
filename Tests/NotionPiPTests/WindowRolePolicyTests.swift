@@ -84,7 +84,7 @@ final class WindowRolePolicyTests: XCTestCase {
         )
         XCTAssertFalse(window.isReleasedWhenClosed)
         XCTAssertTrue(window.canBecomeKey)
-        XCTAssertEqual(window.contentRect(forFrameRect: window.frame).size, CGSize(width: 520, height: 680))
+        XCTAssertEqual(window.contentRect(forFrameRect: window.frame).size, CGSize(width: 480, height: 720))
         XCTAssertEqual(window.contentMinSize, CGSize(width: 360, height: 420))
     }
 

@@ -61,7 +61,7 @@ final class AppCommandTests: XCTestCase {
         XCTAssertEqual(PiPChromeView.primaryActionAccessibilityLabel, "Quick Capture")
     }
 
-    func testPanelSizeSubmenuUsesSharedRowsDefaultSuffixAndDisabledApplyState() throws {
+    func testPanelSizeSubmenuUsesSharedOrientationRowsAndDisabledApplyState() throws {
         let defaultsName = "AppCommandTests.PanelSizes.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
         defaults.removePersistentDomain(forName: defaultsName)
@@ -82,19 +82,18 @@ final class AppCommandTests: XCTestCase {
         XCTAssertEqual(
             actionableItems.map(\.title),
             [
-                "Compact",
-                "Comfortable — Default",
-                "Wide",
-                "Reset to Default Size",
+                "Horizontal",
+                "Vertical",
+                "Reset to Vertical",
                 "Manage Panel Sizes…",
             ]
         )
         XCTAssertEqual(
             actionableItems.map(\.isEnabled),
-            [false, false, false, false, true]
+            [false, false, false, true]
         )
         XCTAssertEqual(
-            actionableItems.prefix(3).compactMap {
+            actionableItems.prefix(2).compactMap {
                 $0.representedObject as? String
             },
             controller.presets.map(\.id.rawValue)

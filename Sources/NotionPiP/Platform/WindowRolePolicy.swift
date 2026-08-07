@@ -59,7 +59,7 @@ enum WindowRole {
                     .transient,
                     .ignoresCycle,
                 ],
-                initialContentSize: CGSize(width: 520, height: 680),
+                initialContentSize: CGSize(width: 480, height: 720),
                 minimumContentSize: CGSize(width: 360, height: 420)
             )
         case .stashHandle:

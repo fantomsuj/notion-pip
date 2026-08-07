@@ -42,10 +42,6 @@ final class PanelSizeController: ObservableObject {
         preferences.presets
     }
 
-    var defaultPresetID: PanelSizePresetID {
-        preferences.defaultPresetID
-    }
-
     var canSaveCurrentSize: Bool {
         currentContentSize != nil
             && preferences.customPresets.count < PanelSizePreferences.maximumCustomPresetCount
@@ -68,11 +64,7 @@ final class PanelSizeController: ObservableObject {
     }
 
     func displayName(for preset: PanelSizePreset) -> String {
-        if preset.id == defaultPresetID {
-            "\(preset.name) — Default"
-        } else {
-            preset.name
-        }
+        preset.name
     }
 
     func resolvedContentSize(for preset: PanelSizePreset) -> PanelContentSize {
@@ -105,18 +97,12 @@ final class PanelSizeController: ObservableObject {
 
     @discardableResult
     func applyDefault() -> Bool {
-        apply(defaultPresetID)
+        apply(.vertical)
     }
 
     @discardableResult
     func resetToDefault() -> Bool {
         applyDefault()
-    }
-
-    func setDefault(_ id: PanelSizePresetID) {
-        updatePreferences { preferences in
-            try preferences.setDefaultPreset(id: id)
-        }
     }
 
     @discardableResult

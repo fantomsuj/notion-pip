@@ -14,24 +14,7 @@ struct PanelSizeSettingsView: View {
                     .monospacedDigit()
             }
 
-            Picker(
-                "Default Size",
-                selection: Binding(
-                    get: { controller.defaultPresetID },
-                    set: { controller.setDefault($0) }
-                )
-            ) {
-                ForEach(controller.presets) { preset in
-                    Text(preset.name).tag(preset.id)
-                }
-            }
-
             HStack {
-                Button("Apply Default") {
-                    controller.applyDefault()
-                }
-                .disabled(!controller.canApply)
-
                 Button("Save Current Size…") {
                     prepareCapture()
                 }
@@ -54,7 +37,6 @@ struct PanelSizeSettingsView: View {
                 PanelSizeBuiltInRow(
                     preset: preset,
                     contentSize: controller.resolvedContentSize(for: preset),
-                    isDefault: preset.id == controller.defaultPresetID,
                     canApply: controller.canApply,
                     onApply: { controller.apply(preset.id) }
                 )
@@ -81,7 +63,6 @@ struct PanelSizeSettingsView: View {
                 ForEach(controller.preferences.customPresets) { preset in
                     CustomPanelSizeRow(
                         preset: preset,
-                        isDefault: controller.defaultPresetID == .custom(preset.id),
                         canApply: controller.canApply,
                         onSave: { name, width, height in
                             controller.updateCustomPreset(
@@ -188,14 +169,13 @@ struct PanelSizeSettingsView: View {
     private struct PanelSizeBuiltInRow: View {
         let preset: PanelSizePreset
         let contentSize: PanelContentSize
-        let isDefault: Bool
         let canApply: Bool
         let onApply: () -> Void
 
         var body: some View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(preset.name + (isDefault ? " — Default" : ""))
+                    Text(preset.name)
                     Text(
                         "\(contentSize.width.formatted()) × \(contentSize.height.formatted()) pt"
                     )
@@ -214,7 +194,6 @@ struct PanelSizeSettingsView: View {
 
 private struct CustomPanelSizeRow: View {
     let preset: CustomPanelSizePreset
-    let isDefault: Bool
     let canApply: Bool
     let onSave: (String, Double, Double) -> Void
     let onApply: () -> Void
@@ -226,14 +205,12 @@ private struct CustomPanelSizeRow: View {
 
     init(
         preset: CustomPanelSizePreset,
-        isDefault: Bool,
         canApply: Bool,
         onSave: @escaping (String, Double, Double) -> Void,
         onApply: @escaping () -> Void,
         onDelete: @escaping () -> Void
     ) {
         self.preset = preset
-        self.isDefault = isDefault
         self.canApply = canApply
         self.onSave = onSave
         self.onApply = onApply
@@ -248,11 +225,6 @@ private struct CustomPanelSizeRow: View {
             HStack {
                 TextField("Preset name", text: $name)
                     .accessibilityLabel("Preset name")
-                if isDefault {
-                    Text("Default")
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.Colors.secondaryText)
-                }
             }
 
             HStack {
