@@ -1,9 +1,23 @@
 import AppKit
+import WebKit
 import XCTest
 @testable import NotionPiP
 
 @MainActor
 final class AppMainMenuTests: XCTestCase {
+    func testViewMenuRoutesCommandRReloadThroughTheResponderChain() throws {
+        let mainMenu = AppMainMenuFactory.make()
+        let viewMenu = try XCTUnwrap(mainMenu.item(withTitle: "View")?.submenu)
+        let reload = try XCTUnwrap(viewMenu.item(withTitle: "Reload"))
+
+        XCTAssertTrue(viewMenu.autoenablesItems)
+        XCTAssertEqual(reload.action, NSSelectorFromString("reload:"))
+        XCTAssertNil(reload.target)
+        XCTAssertEqual(reload.keyEquivalent, "r")
+        XCTAssertEqual(reload.keyEquivalentModifierMask, [.command])
+        XCTAssertTrue(WKWebView().responds(to: try XCTUnwrap(reload.action)))
+    }
+
     func testEditMenuRoutesStandardCommandsThroughTheResponderChain() throws {
         let mainMenu = AppMainMenuFactory.make()
         let editMenu = try XCTUnwrap(mainMenu.item(withTitle: "Edit")?.submenu)

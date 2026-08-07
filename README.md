@@ -15,6 +15,7 @@ Pin the Notion page you are living in and keep it close without turning it into 
 - Create a fresh Notion page from the `+` button; it becomes the new pinned page automatically.
 - Stash the panel against the nearest screen edge and restore it from its slim tab, the optional menu-bar icon, or `Command-Shift-P`; when the PiP itself is zoomed or full screen, the shortcut first returns it to its prior floating size.
 - Keep working in the real, embedded Notion page—not a screenshot or a simplified native imitation.
+- Reload the currently displayed Notion page with `Command-R`, including the sign-in page if your session has expired.
 - Hover at the panel’s top edge and open the page switcher to resume one of seven
   pinned favorites or seven recent pages. Search is local and works with partial,
   out-of-order-free character matches.
