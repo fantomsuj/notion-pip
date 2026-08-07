@@ -7,7 +7,23 @@ enum AppMainMenuFactory {
         let editMenuItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         editMenuItem.submenu = makeEditMenu()
         mainMenu.addItem(editMenuItem)
+        let viewMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
+        viewMenuItem.submenu = makeViewMenu()
+        mainMenu.addItem(viewMenuItem)
         return mainMenu
+    }
+
+    private static func makeViewMenu() -> NSMenu {
+        let menu = NSMenu(title: "View")
+        menu.autoenablesItems = true
+        menu.addItem(
+            command(
+                title: "Reload",
+                action: NSSelectorFromString("reload:"),
+                keyEquivalent: "r"
+            )
+        )
+        return menu
     }
 
     private static func makeEditMenu() -> NSMenu {
