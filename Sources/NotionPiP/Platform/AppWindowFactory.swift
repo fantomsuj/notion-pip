@@ -116,7 +116,8 @@ enum AppWindowFactory {
 
     static func makeSettings(
         runtime: AppRuntime,
-        panelSizeController: PanelSizeController
+        panelSizeController: PanelSizeController,
+        closeRequestHandler: @escaping @MainActor () -> Void
     ) -> AppWindowPresenter {
         AppWindowPresenter(
             window: makeWindow(
@@ -128,7 +129,8 @@ enum AppWindowFactory {
                         panelSizeController: panelSizeController
                     )
                 )
-            )
+            ),
+            closeRequestHandler: closeRequestHandler
         )
     }
 

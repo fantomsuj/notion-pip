@@ -225,10 +225,11 @@ private final class AppComposition {
             firstPresentationOperation: .firstQuickCapturePresentation
         )
         quickCaptureReleaseRelay.presenter = quickCapturePresenter
-        let settingsWindowPresenter = SettingsWindowPresenter {
+        let settingsWindowPresenter = SettingsWindowPresenter { closeHandler in
             AppWindowFactory.makeSettings(
                 runtime: runtime,
-                panelSizeController: panelSizeController
+                panelSizeController: panelSizeController,
+                closeRequestHandler: closeHandler
             )
         }
         let onboardingCoordinator = OnboardingCoordinator(

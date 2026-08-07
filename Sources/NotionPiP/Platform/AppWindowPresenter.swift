@@ -5,6 +5,7 @@ protocol AppWindow: AnyObject {
     var isVisible: Bool { get }
     func presentAsKey()
     func orderOut()
+    func installCloseRequestHandler(_ handler: @escaping @MainActor () -> Void)
 }
 
 @MainActor
@@ -141,13 +142,21 @@ final class AppWindowPresenter: AppWindowPresenting,
         performanceSignposter: (any PerformanceSignposting)? = nil,
         firstPresentationOperation: PerformanceOperation? = nil,
         terminationHandler: (@MainActor () async -> Bool)? = nil,
-        resourceDisposalHandler: (@MainActor () -> Void)? = nil
+        resourceDisposalHandler: (@MainActor () -> Void)? = nil,
+        closeRequestHandler: (@MainActor () -> Void)? = nil
     ) {
         self.window = window
         self.performanceSignposter = performanceSignposter
         self.firstPresentationOperation = firstPresentationOperation
         self.terminationHandler = terminationHandler
         self.resourceDisposalHandler = resourceDisposalHandler
+        if let closeRequestHandler {
+            window.installCloseRequestHandler { [weak self] in
+                guard let self else { return }
+                self.hide()
+                closeRequestHandler()
+            }
+        }
     }
 
     func show() {
@@ -203,5 +212,9 @@ final class KeyCapableAppWindow: NSWindow, AppWindow {
 
     func orderOut() {
         orderOut(nil)
+    }
+
+    func installCloseRequestHandler(_ handler: @escaping @MainActor () -> Void) {
+        closeRequestHandler = handler
     }
 }
