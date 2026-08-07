@@ -71,6 +71,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     private var bootstrapTask: Task<Void, Never>?
     var restorePinnedPageTask: Task<Void, Never>?
     var persistPinnedPageTask: Task<Void, Never>?
+    var firstPageHandoffTask: Task<Void, Never>?
+    var isFirstPageHandoffPending = false
     var persistenceGeneration = 0
     var pageSelectionGeneration = 0
     let shortcutHoldDuration: Duration
