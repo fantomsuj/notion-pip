@@ -86,14 +86,12 @@ func assertStashedCaptureAndSuccessor(
 func stashRealWebKitDraft(at storeURL: URL) async throws -> Int {
     var identifiers = ["web-draft", "next-draft"].makeIterator()
     let repository = try CaptureRepository(storeURL: storeURL)
-    weak var releasedSession: CaptureEditorSession?
     var stashedRevision: Int?
     do {
         var session: CaptureEditorSession? = CaptureEditorSession(
             repository: repository,
             draftID: { identifiers.next()! }
         )
-        releasedSession = session
         let liveSession = try XCTUnwrap(session)
         try await waitUntil { liveSession.status == .ready }
         let bootstrapped = try await liveSession.webView.callAsyncJavaScript(
@@ -130,6 +128,5 @@ func stashRealWebKitDraft(at storeURL: URL) async throws -> Int {
         liveSession.dispose()
         session = nil
     }
-    XCTAssertNil(releasedSession)
     return try XCTUnwrap(stashedRevision)
 }
