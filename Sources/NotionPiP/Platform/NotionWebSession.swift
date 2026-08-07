@@ -206,49 +206,6 @@ enum NotionWebSessionState: Equatable {
     case failed(String)
 }
 
-struct NotionInteractionStateCache {
-    private let capacity: Int
-    private var values: [String: Any] = [:]
-    private var recency: [String] = []
-
-    init(capacity: Int) {
-        self.capacity = max(0, capacity)
-    }
-
-    var count: Int { values.count }
-
-    mutating func insert(_ value: Any, forKey key: String) {
-        guard capacity > 0 else { return }
-        values[key] = value
-        recency.removeAll { $0 == key }
-        recency.append(key)
-        while recency.count > capacity {
-            let evicted = recency.removeFirst()
-            values.removeValue(forKey: evicted)
-        }
-    }
-
-    mutating func takeValue(forKey key: String) -> Any? {
-        recency.removeAll { $0 == key }
-        return values.removeValue(forKey: key)
-    }
-
-    mutating func removeValue(forKey key: String) {
-        recency.removeAll { $0 == key }
-        values.removeValue(forKey: key)
-    }
-
-    mutating func retain(keys: Set<String>) {
-        recency.removeAll { !keys.contains($0.lowercased()) }
-        values = values.filter { keys.contains($0.key.lowercased()) }
-    }
-
-    mutating func removeAll() {
-        values.removeAll()
-        recency.removeAll()
-    }
-}
-
 @MainActor
 final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     NotionEditorActivityHandling, NotionScrollHandling, NotionEditorCaretHandling,
@@ -267,6 +224,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let webViewFactory: NotionWebViewFactory
     private let lifecycleController: NotionWebLifecycleController
     private let navigationDecisionPolicy = NotionWebNavigationPolicy()
+    private let pageStateRestoration = NotionPageStateRestorationCoordinator()
     private let pauseMedia: @MainActor (WKWebView) -> Void
     private let stopLoading: @MainActor (WKWebView) -> Void
     private let interactionStateReader: @MainActor (WKWebView) -> Any?
@@ -288,13 +246,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     private var panelIsVisible: Bool { lifecycleController.isVisible }
     private var loadedPageID: String?
-    private var savedURL: URL?
-    private var savedURLPageID: String?
-    private var interactionStates = NotionInteractionStateCache(capacity: 14)
-    private var durableRestorations: [String: DurablePageRestoration] = [:]
-    private var latestScrollSnapshots: [String: NotionScrollSnapshot] = [:]
-    private var pendingScrollRestoration: DurablePageRestoration?
-    private var isAttemptingDurableRestoration = false
     private var restorationToken: PerformanceIntervalToken?
     var onRestorationCaptured: (@MainActor (DurablePageRestoration) -> Void)?
     var onQuickCopyTargetInvalidated: (@MainActor () -> Void)?
@@ -519,9 +470,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         if let outgoingPage = activePage, let webView {
             invalidateEditorSelection()
             if outgoingPage.pageID == page.pageID {
-                interactionStates.removeValue(forKey: page.pageID)
-                durableRestorations.removeValue(forKey: page.pageID)
-                latestScrollSnapshots.removeValue(forKey: page.pageID)
+                pageStateRestoration.discardCachedState(for: page.pageID)
                 _ = retire(webView)
             } else {
                 captureAndTearDown(webView, page: outgoingPage)
@@ -529,11 +478,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
         activePage = page
         revealTopControls()
-        if let restoration, restoration.pageID == page.pageID {
-            durableRestorations[page.pageID] = restoration
-        }
-        savedURL = restoration?.lastURL ?? page.canonicalURL
-        savedURLPageID = page.pageID
+        pageStateRestoration.prepareActivation(of: page, restoration: restoration)
         guard panelIsVisible, state != .suspended else {
             if !panelIsVisible, webView != nil {
                 suspendWebViewIfNeeded()
@@ -547,13 +492,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         invalidateEditorSelection()
         activePage = page
         revealTopControls()
-        interactionStates.removeValue(forKey: page.pageID)
-        durableRestorations.removeValue(forKey: page.pageID)
-        latestScrollSnapshots.removeValue(forKey: page.pageID)
-        pendingScrollRestoration = nil
-        isAttemptingDurableRestoration = false
-        savedURL = page.canonicalURL
-        savedURLPageID = page.pageID
+        pageStateRestoration.prepareReload(of: page)
         load(page.canonicalURL, pageID: page.pageID)
     }
 
@@ -597,10 +536,12 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         isDurableRestoration: Bool = false
     ) {
         invalidateEditorSelection()
-        savedURL = url
-        savedURLPageID = pageID
+        pageStateRestoration.recordLoad(
+            url: url,
+            pageID: pageID,
+            isDurableRestoration: isDurableRestoration
+        )
         loadedPageID = pageID
-        self.isAttemptingDurableRestoration = isDurableRestoration
         lifecycleController.setState(.loading)
         loadRequest(ensureWebView(), URLRequest(url: url))
     }
@@ -640,8 +581,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func handleScrollSnapshot(_ snapshot: NotionScrollSnapshot) {
-        guard let loadedPageID else { return }
-        latestScrollSnapshots[loadedPageID] = snapshot
+        pageStateRestoration.recordScroll(snapshot, pageID: loadedPageID)
     }
 
     func handleEditorCaretUpdate(
@@ -670,8 +610,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func evictInteractionSnapshots(retaining pageIDs: Set<String>) {
-        let retained = Set(pageIDs.map { $0.lowercased() })
-        interactionStates.retain(keys: retained)
+        pageStateRestoration.evictInteractionStates(retaining: pageIDs)
     }
 
     func handleEditorActivity(
@@ -698,7 +637,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     func handleMemoryPressure() {
         if lifecycleController.requestEvictionIfEligible() {
-            interactionStates.removeAll()
+            pageStateRestoration.removeAllInteractionStates()
         }
     }
 
@@ -719,7 +658,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         performanceSignposter?.end(
             evictionToken,
             outcome: .success,
-            metadata: PerformanceMetadata(cacheEntryCount: interactionStates.count)
+            metadata: PerformanceMetadata(
+                cacheEntryCount: pageStateRestoration.interactionStateCount
+            )
         )
     }
 
@@ -869,24 +810,16 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
         restorationToken = performanceSignposter?.begin(.notionSessionRestoration)
         let webView = ensureWebView()
-        if let interactionState = interactionStates.takeValue(forKey: page.pageID) {
-            isAttemptingDurableRestoration = false
-            pendingScrollRestoration = nil
+        switch pageStateRestoration.restorationPlan(for: page) {
+        case let .interactionState(interactionState):
             interactionStateWriter(webView, interactionState)
             loadedPageID = page.pageID
             lifecycleController.setState(.loading)
-        } else {
-            let durableRestoration = durableRestorations[page.pageID]
-            pendingScrollRestoration = durableRestoration
-            let restorationURL = durableRestoration?.lastURL
-                ?? ((savedURLPageID == nil || savedURLPageID == page.pageID)
-                    ? savedURL ?? page.canonicalURL
-                    : page.canonicalURL)
+        case let .load(restorationURL, isDurableRestoration):
             load(
                 restorationURL,
                 pageID: page.pageID,
-                isDurableRestoration: durableRestoration != nil
-                    && restorationURL != page.canonicalURL
+                isDurableRestoration: isDurableRestoration
             )
         }
     }
@@ -897,21 +830,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     ) {
         guard isCurrent(webView) else { return }
         endEditing(webView)
-        if let state = interactionStateReader(webView) {
-            interactionStates.insert(state, forKey: page.pageID)
-        }
-        let trustedURL = webView.url ?? savedURL ?? page.canonicalURL
-        let scroll = latestScrollSnapshots[page.pageID]
-            ?? NotionScrollSnapshot(x: 0, y: 0, progress: 0)
-        if let restoration = try? DurablePageRestoration(
-            pageID: page.pageID,
-            validatingLastURL: trustedURL,
-            scrollX: scroll.x,
-            scrollY: scroll.y,
-            scrollProgress: scroll.progress,
-            updatedAt: Date()
+        if let restoration = pageStateRestoration.capture(
+            page: page,
+            currentURL: webView.url,
+            interactionState: interactionStateReader(webView)
         ) {
-            durableRestorations[page.pageID] = restoration
             onRestorationCaptured?(restoration)
         }
         _ = retire(webView)
@@ -1147,7 +1070,7 @@ extension NotionWebSession: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard isCurrent(webView) else { return }
-        isAttemptingDurableRestoration = false
+        pageStateRestoration.navigationDidFinish()
         invalidateEditorSelection()
         publishNavigationState(.active)
         if restorationToken != nil {
@@ -1162,9 +1085,9 @@ extension NotionWebSession: WKNavigationDelegate {
             from: webView,
             generation: webViewGeneration
         )
-        if let restoration = pendingScrollRestoration,
-           restoration.pageID == loadedPageID {
-            pendingScrollRestoration = nil
+        if let restoration = pageStateRestoration.takePendingScrollRestoration(
+            for: loadedPageID
+        ) {
             scrollRestorer(webView, restoration)
         }
     }
@@ -1197,8 +1120,7 @@ extension NotionWebSession: WKNavigationDelegate {
         invalidateEditorSelection()
         activePage = resolvedPage
         loadedPageID = resolvedPage.pageID
-        savedURL = url
-        savedURLPageID = resolvedPage.pageID
+        pageStateRestoration.recordResolvedPage(resolvedPage, at: url)
         onPageResolved?(resolvedPage)
     }
 
@@ -1287,19 +1209,11 @@ extension NotionWebSession: WKNavigationDelegate {
         invalidateEditorSelection()
         let page = activePage
         if let page {
-            savedURL = page.canonicalURL
-            savedURLPageID = page.pageID
+            pageStateRestoration.rendererDidTerminate(page: page)
         }
 
         // WebKit cannot provide unsaved DOM edits after its renderer exits, so only
         // the canonical page can be recovered. Never restore stale interaction state.
-        if let page {
-            interactionStates.removeValue(forKey: page.pageID)
-            durableRestorations.removeValue(forKey: page.pageID)
-            latestScrollSnapshots.removeValue(forKey: page.pageID)
-        }
-        pendingScrollRestoration = nil
-        isAttemptingDurableRestoration = false
         guard retire(webView) else { return }
 
         guard panelIsVisible, let page else {
@@ -1310,11 +1224,13 @@ extension NotionWebSession: WKNavigationDelegate {
     }
 
     private func fallBackFromFailedDurableRestoration() -> Bool {
-        guard isAttemptingDurableRestoration, let activePage else { return false }
-        isAttemptingDurableRestoration = false
-        pendingScrollRestoration = nil
-        durableRestorations.removeValue(forKey: activePage.pageID)
-        load(activePage.canonicalURL, pageID: activePage.pageID)
+        guard let activePage,
+              let canonicalURL = pageStateRestoration
+                .canonicalFallbackAfterFailedDurableRestoration(for: activePage)
+        else {
+            return false
+        }
+        load(canonicalURL, pageID: activePage.pageID)
         return true
     }
 }
