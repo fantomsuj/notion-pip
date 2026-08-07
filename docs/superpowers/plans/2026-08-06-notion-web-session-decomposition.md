@@ -144,4 +144,3 @@ Inspect `git diff origin/master...HEAD` and verify the session remains the sole 
 - [ ] **Step 4: Commit the implementation**
 
 Stage only the documented source, test, and design/plan files. Commit with `Decompose Notion web session responsibilities`.
-

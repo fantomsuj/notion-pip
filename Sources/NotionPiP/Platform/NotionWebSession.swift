@@ -919,9 +919,7 @@ extension NotionWebSession: WKNavigationDelegate {
         revealTopControls()
         invalidateEditorSelection()
         let page = activePage
-        if let page {
-            pageStateRestoration.rendererDidTerminate(page: page)
-        }
+        pageStateRestoration.rendererDidTerminate(page: page)
 
         // WebKit cannot provide unsaved DOM edits after its renderer exits, so only
         // the canonical page can be recovered. Never restore stale interaction state.

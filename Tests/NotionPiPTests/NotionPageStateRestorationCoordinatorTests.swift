@@ -154,6 +154,50 @@ final class NotionPageStateRestorationCoordinatorTests: XCTestCase {
         XCTAssertFalse(isDurable)
     }
 
+    func testRendererTerminationWithoutActivePageCancelsPendingDurableFallback() throws {
+        let coordinator = NotionPageStateRestorationCoordinator()
+        let page = try makePage(id: firstPageID)
+        let lastURL = try XCTUnwrap(
+            URL(string: "\(page.canonicalURL.absoluteString)?pvs=4")
+        )
+        let restoration = try DurablePageRestoration(
+            pageID: page.pageID,
+            validatingLastURL: lastURL,
+            scrollX: 0,
+            scrollY: 10,
+            scrollProgress: 0.2,
+            updatedAt: Date(timeIntervalSince1970: 10)
+        )
+        coordinator.prepareActivation(of: page, restoration: restoration)
+        _ = coordinator.restorationPlan(for: page)
+
+        coordinator.rendererDidTerminate(page: nil)
+
+        XCTAssertNil(coordinator.canonicalFallbackAfterFailedDurableRestoration(for: page))
+        XCTAssertNil(coordinator.takePendingScrollRestoration(for: page.pageID))
+    }
+
+    func testPrepareReloadClearsOpaqueAndDurableState() throws {
+        let coordinator = NotionPageStateRestorationCoordinator()
+        let page = try makePage(id: firstPageID)
+        let state = InteractionStateSentinel()
+        _ = coordinator.capture(
+            page: page,
+            currentURL: page.canonicalURL,
+            interactionState: state,
+            now: Date(timeIntervalSince1970: 1)
+        )
+
+        coordinator.prepareReload(of: page)
+
+        guard case let .load(url, isDurable) = coordinator.restorationPlan(for: page) else {
+            return XCTFail("Expected re-pin to discard opaque interaction state")
+        }
+        XCTAssertEqual(url, page.canonicalURL)
+        XCTAssertFalse(isDurable)
+        XCTAssertNil(coordinator.takePendingScrollRestoration(for: page.pageID))
+    }
+
     private func makePage(id: String) throws -> NotionPageReference {
         try NotionPageReference(
             validating: XCTUnwrap(URL(string: "https://www.notion.so/Page-\(id)"))

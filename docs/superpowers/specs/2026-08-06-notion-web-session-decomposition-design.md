@@ -56,4 +56,3 @@ The coordinator forwards validated values, source WebView identity, and generati
 - Add direct script-coordinator tests for monotonic installation/removal generations and installed bridge shape.
 - Retain session integration tests for WebKit delegate ordering, one-WebView identity, URL observation, selection restoration, scroll application, external effects, failure banners, reload/re-pin, and renderer recovery.
 - Run the timing-sensitive `NotionWebSessionTests`, `NotionEditorSelectionTests`, `NotionEditorCaretBridgeTests`, and `WebNavigationDestinationTests` repeatedly before the full Swift suite.
-
