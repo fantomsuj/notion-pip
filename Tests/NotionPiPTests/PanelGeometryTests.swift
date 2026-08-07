@@ -4,6 +4,71 @@ import XCTest
 @testable import NotionPiP
 
 final class PanelGeometryTests: XCTestCase {
+    func testTopologyCaptureRecordsDisplayAffinity() throws {
+        let topology = makeTopology(secondaryID: 22, secondaryX: 1_440)
+        let frame = CGRect(x: 2_856, y: 431, width: 480, height: 600)
+
+        let geometry = try XCTUnwrap(
+            PanelGeometryPolicy.capture(
+                frame: frame,
+                topology: topology,
+                contentRectForFrameRect: { $0 }
+            )
+        )
+
+        XCTAssertEqual(geometry.displayAffinity?.identifier, 22)
+        XCTAssertEqual(geometry.displayAffinity?.placement, .right)
+        XCTAssertFalse(geometry.displayAffinity?.isPrimary ?? true)
+    }
+
+    func testTopologyResolutionFollowsSameDisplayAfterRearrangement() throws {
+        let original = makeTopology(secondaryID: 22, secondaryX: 1_440)
+        let geometry = try XCTUnwrap(
+            PanelGeometryPolicy.capture(
+                frame: CGRect(x: 2_856, y: 431, width: 480, height: 600),
+                topology: original,
+                contentRectForFrameRect: { $0 }
+            )
+        )
+        let rearranged = makeTopology(secondaryID: 22, secondaryX: -1_920)
+
+        let resolved = PanelGeometryPolicy.resolvedFrame(
+            for: geometry,
+            topology: rearranged,
+            minimumContentSize: CGSize(width: 360, height: 420),
+            frameForContentRect: { $0 }
+        )
+
+        XCTAssertEqual(resolved, CGRect(x: -504, y: 431, width: 480, height: 600))
+    }
+
+    func testTopologyResolutionUsesStrongChangedIdentifierAndScaleReplacement() throws {
+        let original = makeTopology(secondaryID: 22, secondaryX: 1_440)
+        let geometry = try XCTUnwrap(
+            PanelGeometryPolicy.capture(
+                frame: CGRect(x: 2_856, y: 431, width: 480, height: 600),
+                topology: original,
+                contentRectForFrameRect: { $0 }
+            )
+        )
+        let replacement = makeTopology(
+            secondaryID: 77,
+            secondaryX: -1_706,
+            secondaryWidth: 1_706,
+            secondaryHeight: 960,
+            secondaryScale: 2
+        )
+
+        let resolved = PanelGeometryPolicy.resolvedFrame(
+            for: geometry,
+            topology: replacement,
+            minimumContentSize: CGSize(width: 360, height: 420),
+            frameForContentRect: { $0 }
+        )
+
+        XCTAssertEqual(resolved, CGRect(x: -504, y: 311, width: 480, height: 600))
+    }
+
     func testCaptureRecordsExactHorizontalFrameContentSizeAndNearestEdges() throws {
         let screen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
         let frame = CGRect(x: 656, y: 356, width: 760, height: 520)
@@ -104,5 +169,43 @@ final class PanelGeometryTests: XCTestCase {
 
         XCTAssertEqual(resolved, smallScreen)
         XCTAssertEqual(geometry.desiredContentSize, try PanelContentSize(width: 760, height: 520))
+    }
+
+    private func makeTopology(
+        secondaryID: UInt32,
+        secondaryX: CGFloat,
+        secondaryWidth: CGFloat = 1_920,
+        secondaryHeight: CGFloat = 1_080,
+        secondaryScale: CGFloat = 1
+    ) -> DisplayTopology {
+        DisplayTopology(
+            revision: 1,
+            displays: [
+                DisplayDescriptor(
+                    identifier: 11,
+                    frame: CGRect(x: 0, y: 0, width: 1_440, height: 900),
+                    visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 875),
+                    backingScaleFactor: 2,
+                    isPrimary: true
+                ),
+                DisplayDescriptor(
+                    identifier: secondaryID,
+                    frame: CGRect(
+                        x: secondaryX,
+                        y: 0,
+                        width: secondaryWidth,
+                        height: secondaryHeight
+                    ),
+                    visibleFrame: CGRect(
+                        x: secondaryX,
+                        y: 0,
+                        width: secondaryWidth,
+                        height: secondaryHeight - 25
+                    ),
+                    backingScaleFactor: secondaryScale,
+                    isPrimary: false
+                ),
+            ]
+        )
     }
 }
