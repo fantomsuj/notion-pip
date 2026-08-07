@@ -2,6 +2,22 @@ import Foundation
 import OSLog
 
 extension AppRuntime {
+    func presentPageURLInputAfterRestoreIfNeeded() {
+        guard activePage == nil, firstPageHandoffTask == nil else { return }
+        isFirstPageHandoffPending = true
+        let restoreTask = restorePinnedPageTask
+        firstPageHandoffTask = Task { [weak self] in
+            await restoreTask?.value
+            guard let self else { return }
+            defer {
+                isFirstPageHandoffPending = false
+                firstPageHandoffTask = nil
+            }
+            guard !Task.isCancelled, activePage == nil else { return }
+            pageURLInputPresenter.presentAndFocus()
+        }
+    }
+
     func prepareForTermination() async {
         while let persistenceTask = persistPinnedPageTask {
             let expectedGeneration = persistenceGeneration
@@ -74,6 +90,7 @@ extension AppRuntime {
     private func showSettingsIfRestoreStillEmpty(expectedGeneration: Int) {
         guard expectedGeneration == pageSelectionGeneration,
               activePage == nil,
+              !isFirstPageHandoffPending,
               automaticSettingsPresentationAllowed(),
               !Task.isCancelled
         else {
