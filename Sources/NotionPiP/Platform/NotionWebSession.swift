@@ -254,6 +254,12 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     NotionEditorActivityHandling, NotionScrollHandling, NotionEditorCaretHandling,
     QuickCopyInsertionTarget
 {
+    private enum WebContentRecoveryState: Equatable {
+        case ready
+        case attempting(pageID: String)
+        case failed(pageID: String)
+    }
+
     static let warmRetentionInterval = NotionWebLifecycleController.defaultWarmRetentionInterval
 
     @Published private(set) var webView: WKWebView?
@@ -294,6 +300,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var latestScrollSnapshots: [String: NotionScrollSnapshot] = [:]
     private var pendingScrollRestoration: DurablePageRestoration?
     private var isAttemptingDurableRestoration = false
+    private var webContentRecoveryState = WebContentRecoveryState.ready
     private var restorationToken: PerformanceIntervalToken?
     var onRestorationCaptured: (@MainActor (DurablePageRestoration) -> Void)?
     var onQuickCopyTargetInvalidated: (@MainActor () -> Void)?
@@ -493,6 +500,19 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
     }
 
+    private func refreshDOMBridges(afterTerminationOf webView: WKWebView) {
+        guard isCurrent(webView) else { return }
+        editorActivityHandler?.delegate = nil
+        scrollHandler?.delegate = nil
+        editorCaretHandler?.delegate = nil
+        if let urlObservation {
+            invalidateURLObservation(urlObservation)
+            self.urlObservation = nil
+        }
+        removeActivityBridge(webView.configuration.userContentController)
+        configure(webView)
+    }
+
     @discardableResult
     private func ensureWebView() -> WKWebView {
         if let webView {
@@ -527,6 +547,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             }
         }
         activePage = page
+        webContentRecoveryState = .ready
         revealTopControls()
         if let restoration, restoration.pageID == page.pageID {
             durableRestorations[page.pageID] = restoration
@@ -545,6 +566,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     func reloadPinnedPage(_ page: NotionPageReference) {
         invalidateEditorSelection()
         activePage = page
+        webContentRecoveryState = .ready
         revealTopControls()
         interactionStates.removeValue(forKey: page.pageID)
         durableRestorations.removeValue(forKey: page.pageID)
@@ -596,6 +618,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         isDurableRestoration: Bool = false
     ) {
         invalidateEditorSelection()
+        webContentRecoveryState = .ready
         savedURL = url
         savedURLPageID = pageID
         loadedPageID = pageID
@@ -610,6 +633,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
 
         invalidateEditorSelection()
+        webContentRecoveryState = .ready
         revealTopControls()
         guard panelIsVisible else {
             suspendWebViewIfNeeded()
@@ -895,6 +919,10 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         page: NotionPageReference
     ) {
         guard isCurrent(webView) else { return }
+        guard webContentRecoveryState == .ready else {
+            _ = retire(webView)
+            return
+        }
         endEditing(webView)
         if let state = interactionStateReader(webView) {
             interactionStates.insert(state, forKey: page.pageID)
@@ -1149,6 +1177,15 @@ extension NotionWebSession: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard isCurrent(webView) else { return }
+        switch webContentRecoveryState {
+        case let .attempting(pageID):
+            guard pageID == activePage?.pageID, pageID == loadedPageID else { return }
+            webContentRecoveryState = .ready
+        case .failed:
+            return
+        case .ready:
+            break
+        }
         isAttemptingDurableRestoration = false
         invalidateEditorSelection()
         publishNavigationState(.active)
@@ -1201,6 +1238,14 @@ extension NotionWebSession: WKNavigationDelegate {
         loadedPageID = resolvedPage.pageID
         savedURL = url
         savedURLPageID = resolvedPage.pageID
+        if case .attempting = webContentRecoveryState {
+            // A trusted Notion redirect can resolve the recovery navigation to a
+            // different document before didFinish. Follow the adopted document so
+            // completion cannot leave recovery stuck, but discard the old page's
+            // scroll fallback and keep the same single-attempt budget.
+            webContentRecoveryState = .attempting(pageID: resolvedPage.pageID)
+            pendingScrollRestoration = nil
+        }
         onPageResolved?(resolvedPage)
     }
 
@@ -1221,6 +1266,7 @@ extension NotionWebSession: WKNavigationDelegate {
         if fallBackFromFailedDurableRestoration() {
             return
         }
+        markWebContentRecoveryFailedIfNeeded()
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(navigationFailureState(for: error))
@@ -1246,6 +1292,7 @@ extension NotionWebSession: WKNavigationDelegate {
         if fallBackFromFailedDurableRestoration() {
             return
         }
+        markWebContentRecoveryFailedIfNeeded()
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(navigationFailureState(for: error))
@@ -1295,28 +1342,63 @@ extension NotionWebSession: WKNavigationDelegate {
 
         revealTopControls()
         invalidateEditorSelection()
-        let page = activePage
-        if let page {
-            savedURL = page.canonicalURL
-            savedURLPageID = page.pageID
-        }
-
-        // WebKit cannot provide unsaved DOM edits after its renderer exits, so only
-        // the canonical page can be recovered. Never restore stale interaction state.
-        if let page {
-            interactionStates.removeValue(forKey: page.pageID)
-            durableRestorations.removeValue(forKey: page.pageID)
-            latestScrollSnapshots.removeValue(forKey: page.pageID)
-        }
-        pendingScrollRestoration = nil
-        isAttemptingDurableRestoration = false
-        guard retire(webView) else { return }
-
-        guard panelIsVisible, let page else {
-            lifecycleController.setState(.unloaded)
+        refreshDOMBridges(afterTerminationOf: webView)
+        guard let page = activePage else {
+            pendingScrollRestoration = nil
+            isAttemptingDurableRestoration = false
+            publishNavigationState(.failed("Notion couldn't reload after its web content stopped."))
             return
         }
-        load(page.canonicalURL, pageID: page.pageID)
+
+        savedURL = page.canonicalURL
+        savedURLPageID = page.pageID
+
+        // WebKit cannot provide unsaved DOM edits or an opaque interactionState after
+        // its renderer exits. A numeric scroll snapshot is durable enough to retry, but
+        // only when it was captured from the same selected document.
+        interactionStates.removeValue(forKey: page.pageID)
+        durableRestorations.removeValue(forKey: page.pageID)
+        pendingScrollRestoration = terminationScrollRestoration(for: page)
+        latestScrollSnapshots.removeValue(forKey: page.pageID)
+        isAttemptingDurableRestoration = false
+
+        switch webContentRecoveryState {
+        case .attempting(pageID: page.pageID), .failed(pageID: page.pageID):
+            webContentRecoveryState = .failed(pageID: page.pageID)
+            pendingScrollRestoration = nil
+            publishNavigationState(.failed("Notion couldn't reload after its web content stopped."))
+            return
+        case .ready, .attempting, .failed:
+            webContentRecoveryState = .attempting(pageID: page.pageID)
+        }
+
+        loadedPageID = page.pageID
+        publishNavigationState(.loading)
+        loadRequest(webView, URLRequest(url: page.canonicalURL))
+    }
+
+    private func terminationScrollRestoration(
+        for page: NotionPageReference
+    ) -> DurablePageRestoration? {
+        guard loadedPageID == page.pageID,
+              let scroll = latestScrollSnapshots[page.pageID]
+        else {
+            return nil
+        }
+        return try? DurablePageRestoration(
+            pageID: page.pageID,
+            validatingLastURL: page.canonicalURL,
+            scrollX: scroll.x,
+            scrollY: scroll.y,
+            scrollProgress: scroll.progress,
+            updatedAt: Date()
+        )
+    }
+
+    private func markWebContentRecoveryFailedIfNeeded() {
+        guard case let .attempting(pageID) = webContentRecoveryState else { return }
+        webContentRecoveryState = .failed(pageID: pageID)
+        pendingScrollRestoration = nil
     }
 
     private func fallBackFromFailedDurableRestoration() -> Bool {

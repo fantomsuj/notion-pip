@@ -786,7 +786,7 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertNotNil(session as WKUIDelegate)
     }
 
-    func testVisibleRendererTerminationRecreatesAndReloadsCanonicalPage() throws {
+    func testIdleRendererTerminationReloadsCanonicalPageInSameWebView() throws {
         var createdWebViews: [WKWebView] = []
         var loads: [(WKWebView, URL?)] = []
         let session = NotionWebSession(
@@ -801,23 +801,44 @@ final class NotionWebSessionTests: XCTestCase {
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         session.activate(page: page)
-        let retiredWebView = try XCTUnwrap(session.webView)
+        let liveWebView = try XCTUnwrap(session.webView)
+        session.webView(liveWebView, didFinish: nil)
 
-        session.webViewWebContentProcessDidTerminate(retiredWebView)
+        session.webViewWebContentProcessDidTerminate(liveWebView)
 
-        let replacementWebView = try XCTUnwrap(session.webView)
-        XCTAssertFalse(replacementWebView === retiredWebView)
-        XCTAssertEqual(createdWebViews.count, 2)
+        XCTAssertTrue(session.webView === liveWebView)
+        XCTAssertEqual(createdWebViews.count, 1)
         XCTAssertEqual(loads.map(\.1), [page.canonicalURL, page.canonicalURL])
-        XCTAssertTrue(loads[0].0 === retiredWebView)
-        XCTAssertTrue(loads[1].0 === replacementWebView)
+        XCTAssertTrue(loads.allSatisfy { $0.0 === liveWebView })
         XCTAssertEqual(session.state, .loading)
-        XCTAssertNil(retiredWebView.navigationDelegate)
-        XCTAssertNil(retiredWebView.uiDelegate)
-        XCTAssertTrue(retiredWebView.configuration.userContentController.userScripts.isEmpty)
+        XCTAssertTrue(liveWebView.navigationDelegate === session)
+        XCTAssertTrue(liveWebView.uiDelegate === session)
+
+        session.webView(liveWebView, didFinish: nil)
+
+        XCTAssertEqual(session.state, .active)
+        XCTAssertTrue(session.webView === liveWebView)
     }
 
-    func testHiddenRendererTerminationDefersRecoveryUntilPanelShows() throws {
+    func testNavigationTerminationRestartsOnlyCurrentCanonicalPage() throws {
+        var loadedURLs: [URL?] = []
+        let session = NotionWebSession(
+            loadRequest: { _, request in loadedURLs.append(request.url) }
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        session.activate(page: page)
+        let webView = try XCTUnwrap(session.webView)
+
+        session.webView(webView, didStartProvisionalNavigation: nil)
+        session.webViewWebContentProcessDidTerminate(webView)
+
+        XCTAssertEqual(loadedURLs, [page.canonicalURL, page.canonicalURL])
+        XCTAssertTrue(session.webView === webView)
+        XCTAssertEqual(session.activePage, page)
+        XCTAssertEqual(session.state, .loading)
+    }
+
+    func testStashedRendererTerminationRecoversWithoutReplacingWebView() throws {
         var creationCount = 0
         var loadedURLs: [URL?] = []
         let session = NotionWebSession(
@@ -830,39 +851,172 @@ final class NotionWebSessionTests: XCTestCase {
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         session.activate(page: page)
-        let retiredWebView = try XCTUnwrap(session.webView)
+        let liveWebView = try XCTUnwrap(session.webView)
+        session.webView(liveWebView, didFinish: nil)
         session.panelDidHide()
 
-        session.webViewWebContentProcessDidTerminate(retiredWebView)
+        session.webViewWebContentProcessDidTerminate(liveWebView)
 
-        XCTAssertNil(session.webView)
-        XCTAssertEqual(session.state, .unloaded)
+        XCTAssertTrue(session.webView === liveWebView)
+        XCTAssertEqual(session.state, .suspended)
         XCTAssertEqual(creationCount, 1)
-        XCTAssertEqual(loadedURLs, [page.canonicalURL])
+        XCTAssertEqual(loadedURLs, [page.canonicalURL, page.canonicalURL])
+
+        session.webView(liveWebView, didFinish: nil)
 
         session.panelDidShow()
 
-        XCTAssertNotNil(session.webView)
-        XCTAssertEqual(session.state, .loading)
-        XCTAssertEqual(creationCount, 2)
+        XCTAssertTrue(session.webView === liveWebView)
+        XCTAssertEqual(session.state, .active)
+        XCTAssertEqual(creationCount, 1)
         XCTAssertEqual(loadedURLs, [page.canonicalURL, page.canonicalURL])
     }
 
-    func testRetiredWebViewCallbacksCannotMutateReplacementState() throws {
-        let session = NotionWebSession(loadRequest: { _, _ in })
+    func testFailedAutomaticRecoverySurfacesRetryableNativeFailure() throws {
+        var loadedURLs: [URL?] = []
+        let session = NotionWebSession(
+            loadRequest: { _, request in loadedURLs.append(request.url) }
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        session.activate(page: page)
+        let webView = try XCTUnwrap(session.webView)
+        session.webViewWebContentProcessDidTerminate(webView)
+
+        session.webView(
+            webView,
+            didFailProvisionalNavigation: nil,
+            withError: NSError(domain: "Test", code: 1)
+        )
+        session.webView(webView, didFinish: nil)
+
+        guard case .failed = session.state else {
+            return XCTFail("Expected a retryable native failure state")
+        }
+        let chrome = PiPChromeView(webSession: session)
+        XCTAssertTrue(String(reflecting: chrome.body).contains("Try Again"))
+
+        session.reloadPinnedPage(page)
+
+        XCTAssertEqual(loadedURLs, [page.canonicalURL, page.canonicalURL, page.canonicalURL])
+        XCTAssertEqual(session.state, .loading)
+    }
+
+    func testRepeatedTerminationStopsAfterOneAutomaticReload() throws {
+        var loadedURLs: [URL?] = []
+        let session = NotionWebSession(
+            loadRequest: { _, request in loadedURLs.append(request.url) }
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        session.activate(page: page)
+        let webView = try XCTUnwrap(session.webView)
+
+        session.webViewWebContentProcessDidTerminate(webView)
+        session.webViewWebContentProcessDidTerminate(webView)
+        session.webViewWebContentProcessDidTerminate(webView)
+
+        XCTAssertEqual(loadedURLs, [page.canonicalURL, page.canonicalURL])
+        XCTAssertTrue(session.webView === webView)
+        guard case .failed = session.state else {
+            return XCTFail("Expected repeated termination to stop automatic reloads")
+        }
+    }
+
+    func testSuccessfulRecoveryRestoresSamePageScrollButNeverDOMSelection() throws {
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = TrustedURLWebView(url: page.canonicalURL)
+        var appliedRestorations: [DurablePageRestoration] = []
+        var insertionEvaluationCount = 0
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            scrollRestorer: { _, restoration in
+                appliedRestorations.append(restoration)
+            },
+            selectionEvaluator: { _, evaluation, completion in
+                switch evaluation {
+                case .capture:
+                    completion(.success(self.validSelectionSnapshotValue()))
+                case .restore:
+                    XCTFail("Terminated DOM selection must never be restored")
+                    completion(.success(false))
+                case .insert:
+                    insertionEvaluationCount += 1
+                    completion(.success(self.validSelectionSnapshotValue()))
+                }
+            }
+        )
+        session.activate(page: page)
+        var remembered = false
+        session.rememberCurrentEditorCursor { remembered = $0 }
+        session.handleScrollSnapshot(NotionScrollSnapshot(x: 8, y: 480, progress: 0.4))
+
+        session.webViewWebContentProcessDidTerminate(webView)
+        var insertionSucceeded = true
+        session.insertAtSavedEditorCursor("unsafe") { insertionSucceeded = $0 }
+        session.webView(webView, didFinish: nil)
+
+        XCTAssertTrue(remembered)
+        XCTAssertFalse(insertionSucceeded)
+        XCTAssertEqual(insertionEvaluationCount, 0)
+        let restoration = try XCTUnwrap(appliedRestorations.first)
+        XCTAssertEqual(appliedRestorations.count, 1)
+        XCTAssertEqual(restoration.pageID, page.pageID)
+        XCTAssertEqual(restoration.lastURL, page.canonicalURL)
+        XCTAssertEqual(restoration.scrollX, 8)
+        XCTAssertEqual(restoration.scrollY, 480)
+        XCTAssertEqual(restoration.scrollProgress, 0.4)
+    }
+
+    func testRecoveryCompletesAfterValidatedRedirectWithoutRestoringOldPageScroll() throws {
+        let firstPage = try makePage(id: firstPageID, title: "Roadmap")
+        let secondPage = try makePage(id: secondPageID, title: "Notes")
+        let webView = WKWebView()
+        var appliedRestorations: [DurablePageRestoration] = []
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { webView, request in webView.load(request) },
+            scrollRestorer: { _, restoration in
+                appliedRestorations.append(restoration)
+            }
+        )
+        session.onPageResolved = { _ in }
+        session.activate(page: firstPage)
+        session.handleScrollSnapshot(NotionScrollSnapshot(x: 8, y: 480, progress: 0.4))
+        session.webViewWebContentProcessDidTerminate(webView)
+
+        webView.load(URLRequest(url: secondPage.canonicalURL))
+        session.webView(webView, didFinish: nil)
+
+        XCTAssertTrue(session.webView === webView)
+        XCTAssertEqual(session.activePage, secondPage)
+        XCTAssertEqual(session.state, .active)
+        XCTAssertTrue(appliedRestorations.isEmpty)
+    }
+
+    func testTerminationDuringPageSwitchCannotLetStaleCallbacksReplaceSelection() throws {
+        var loads: [(WKWebView, URL?)] = []
+        var interactionReadCount = 0
+        var capturedRestorations: [DurablePageRestoration] = []
+        let session = NotionWebSession(
+            loadRequest: { webView, request in loads.append((webView, request.url)) },
+            interactionStateReader: { _ in
+                interactionReadCount += 1
+                return "must-not-survive-termination"
+            }
+        )
+        session.onRestorationCaptured = { capturedRestorations.append($0) }
         let firstPage = try makePage(id: firstPageID, title: "Roadmap")
         let secondPage = try makePage(id: secondPageID, title: "Notes")
         session.activate(page: firstPage)
-        let retiredWebView = try XCTUnwrap(session.webView)
-        session.webViewWebContentProcessDidTerminate(retiredWebView)
-        let replacementWebView = try XCTUnwrap(session.webView)
-        session.webView(replacementWebView, didFinish: nil)
-        XCTAssertEqual(session.state, .active)
+        let staleWebView = try XCTUnwrap(session.webView)
+        session.webViewWebContentProcessDidTerminate(staleWebView)
+        session.activate(page: secondPage)
+        let currentWebView = try XCTUnwrap(session.webView)
+        XCTAssertFalse(currentWebView === staleWebView)
 
-        retiredWebView.load(URLRequest(url: secondPage.canonicalURL))
-        session.webView(retiredWebView, didStartProvisionalNavigation: nil)
+        session.webView(staleWebView, didStartProvisionalNavigation: nil)
         session.webView(
-            retiredWebView,
+            staleWebView,
             didFailProvisionalNavigation: nil,
             withError: NSError(
                 domain: "Test",
@@ -871,7 +1025,7 @@ final class NotionWebSessionTests: XCTestCase {
             )
         )
         session.webView(
-            retiredWebView,
+            staleWebView,
             didFail: nil,
             withError: NSError(
                 domain: "Test",
@@ -879,13 +1033,21 @@ final class NotionWebSessionTests: XCTestCase {
                 userInfo: [NSLocalizedDescriptionKey: "Stale committed failure"]
             )
         )
-        session.webView(retiredWebView, didFinish: nil)
-        session.adoptResolvedPage(at: secondPage.canonicalURL, from: retiredWebView)
-        session.handleEditorActivity(.typingStarted, from: retiredWebView)
+        session.webView(staleWebView, didFinish: nil)
+        session.webViewWebContentProcessDidTerminate(staleWebView)
+        session.adoptResolvedPage(at: firstPage.canonicalURL, from: staleWebView)
+        session.handleEditorActivity(.typingStarted, from: staleWebView)
 
-        XCTAssertEqual(session.state, .active)
-        XCTAssertEqual(session.activePage, firstPage)
+        XCTAssertEqual(session.state, .loading)
+        XCTAssertEqual(session.activePage, secondPage)
         XCTAssertFalse(session.isTypingInPage)
+        XCTAssertEqual(interactionReadCount, 0)
+        XCTAssertTrue(capturedRestorations.isEmpty)
+        XCTAssertEqual(loads.map(\.1), [
+            firstPage.canonicalURL,
+            firstPage.canonicalURL,
+            secondPage.canonicalURL,
+        ])
     }
 
     func testCurrentWebViewPublishesCaretGeometryAndRejectsStaleGeneration() throws {
@@ -906,11 +1068,11 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(session.editorCaretGeometry, currentGeometry)
     }
 
-    func testRetiredWebViewCannotPublishCaretGeometry() throws {
+    func testTerminatedDocumentGenerationCannotPublishCaretGeometry() throws {
         let session = NotionWebSession(loadRequest: { _, _ in })
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        let retiredWebView = try XCTUnwrap(session.webView)
-        session.webViewWebContentProcessDidTerminate(retiredWebView)
+        let liveWebView = try XCTUnwrap(session.webView)
+        session.webViewWebContentProcessDidTerminate(liveWebView)
 
         session.handleEditorCaretUpdate(
             .visible(
@@ -922,7 +1084,8 @@ final class NotionWebSessionTests: XCTestCase {
                     viewportHeight: 600
                 )
             ),
-            from: retiredWebView
+            from: liveWebView,
+            generation: 1
         )
 
         XCTAssertNil(session.editorCaretGeometry)
@@ -950,7 +1113,7 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertNil(session.editorCaretGeometry)
     }
 
-    func testRendererTeardownRemovesBridgeAndObservationExactlyOnce() throws {
+    func testRendererTerminationRefreshesBridgeAndObservationGeneration() throws {
         var bridgeRemovalCount = 0
         var observationInvalidationCount = 0
         let session = NotionWebSession(
@@ -965,6 +1128,14 @@ final class NotionWebSessionTests: XCTestCase {
                     forName: NotionEditorActivityBridge.handlerName,
                     contentWorld: .page
                 )
+                controller.removeScriptMessageHandler(
+                    forName: NotionScrollBridge.handlerName,
+                    contentWorld: .page
+                )
+                controller.removeScriptMessageHandler(
+                    forName: NotionEditorCaretBridge.handlerName,
+                    contentWorld: .page
+                )
                 controller.removeAllUserScripts()
             }
         )
@@ -974,8 +1145,9 @@ final class NotionWebSessionTests: XCTestCase {
         session.webViewWebContentProcessDidTerminate(retiredWebView)
         session.webViewWebContentProcessDidTerminate(retiredWebView)
 
-        XCTAssertEqual(bridgeRemovalCount, 1)
-        XCTAssertEqual(observationInvalidationCount, 1)
+        XCTAssertEqual(bridgeRemovalCount, 2)
+        XCTAssertEqual(observationInvalidationCount, 2)
+        XCTAssertTrue(session.webView === retiredWebView)
     }
 
     func testMemoryPressureEvictsOnlyHiddenNonTypingWarmWebView() throws {
