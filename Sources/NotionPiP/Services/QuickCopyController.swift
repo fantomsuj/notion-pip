@@ -54,13 +54,15 @@ final class QuickCopyController: ObservableObject {
     static let missingCursorMessage = "Click in the Notion page first."
     static let staleCursorMessage =
         "The Notion cursor changed. Click in the page, then retry."
+    static let busyMessage =
+        "Quick Copy is busy. This selection wasn’t added; try again shortly."
 
     @Published private(set) var state: QuickCopyState = .off
 
     private let monitor: any QuickCopyMonitoring
     private weak var target: (any QuickCopyInsertionTarget)?
     private let policy: QuickCopyPolicy
-    private var pendingCandidates: [QuickCopyCandidate] = []
+    private var pendingCandidates: QuickCopyCandidateBuffer
     private var failedCandidate: QuickCopyCandidate?
     private var lastAcceptedSequence: UInt64?
     private var deferredWarningMessage: String?
@@ -68,11 +70,13 @@ final class QuickCopyController: ObservableObject {
     init(
         monitor: any QuickCopyMonitoring,
         target: any QuickCopyInsertionTarget,
-        policy: QuickCopyPolicy = QuickCopyPolicy()
+        policy: QuickCopyPolicy = QuickCopyPolicy(),
+        pendingCandidateCapacity: Int = QuickCopyCandidateBuffer.standardCapacity
     ) {
         self.monitor = monitor
         self.target = target
         self.policy = policy
+        pendingCandidates = QuickCopyCandidateBuffer(capacity: pendingCandidateCapacity)
         monitor.onEvent = { [weak self] event in
             self?.handle(event)
         }
@@ -94,7 +98,7 @@ final class QuickCopyController: ObservableObject {
         if wasActive {
             monitor.stop()
         }
-        pendingCandidates.removeAll(keepingCapacity: false)
+        pendingCandidates.removeAll()
         failedCandidate = nil
         lastAcceptedSequence = nil
         deferredWarningMessage = nil
@@ -105,7 +109,7 @@ final class QuickCopyController: ObservableObject {
         if state.isSessionActive {
             monitor.stop()
         }
-        pendingCandidates.removeAll(keepingCapacity: false)
+        pendingCandidates.removeAll()
         failedCandidate = nil
         lastAcceptedSequence = nil
         deferredWarningMessage = nil
@@ -117,7 +121,7 @@ final class QuickCopyController: ObservableObject {
             state = .failed(Self.missingCursorMessage)
             return
         }
-        pendingCandidates.removeAll(keepingCapacity: false)
+        pendingCandidates.removeAll()
         lastAcceptedSequence = nil
         deferredWarningMessage = nil
         state = .requestingPermission
@@ -137,8 +141,14 @@ final class QuickCopyController: ObservableObject {
             guard self.state == .armed else { return }
             if let failedCandidate = self.failedCandidate {
                 self.failedCandidate = nil
-                self.pendingCandidates.append(failedCandidate)
-                self.insertNextCandidateIfNeeded()
+                switch self.pendingCandidates.enqueue(failedCandidate) {
+                case .accepted:
+                    self.insertNextCandidateIfNeeded()
+                case .atCapacity:
+                    self.failedCandidate = failedCandidate
+                    self.monitor.stop()
+                    self.state = .failed(Self.staleCursorMessage)
+                }
             }
         }
     }
@@ -154,7 +164,7 @@ final class QuickCopyController: ObservableObject {
             showWarning("Quick Copy ignores secure text fields.")
         case .permissionRevoked:
             monitor.stop()
-            pendingCandidates.removeAll(keepingCapacity: false)
+            pendingCandidates.removeAll()
             failedCandidate = nil
             lastAcceptedSequence = nil
             deferredWarningMessage = nil
@@ -168,9 +178,13 @@ final class QuickCopyController: ObservableObject {
             lastAcceptedSequence: lastAcceptedSequence
         ) {
         case .accept:
-            lastAcceptedSequence = candidate.sequence
-            pendingCandidates.append(candidate)
-            insertNextCandidateIfNeeded()
+            switch pendingCandidates.enqueue(candidate) {
+            case .accepted:
+                lastAcceptedSequence = candidate.sequence
+                insertNextCandidateIfNeeded()
+            case .atCapacity:
+                showWarning(Self.busyMessage)
+            }
         case .ignore:
             break
         case let .reject(rejection):
@@ -179,9 +193,13 @@ final class QuickCopyController: ObservableObject {
     }
 
     private func insertNextCandidateIfNeeded() {
-        guard state != .inserting, let candidate = pendingCandidates.first else {
+        guard state != .inserting, let candidate = pendingCandidates.front else {
             return
         }
+        beginInsertion(of: candidate)
+    }
+
+    private func beginInsertion(of candidate: QuickCopyCandidate) {
         guard let target else {
             failInsertion(of: candidate)
             return
@@ -189,7 +207,7 @@ final class QuickCopyController: ObservableObject {
         state = .inserting
         target.insertAtSavedEditorCursor(candidate.text) { [weak self] inserted in
             guard let self, self.state == .inserting,
-                  self.pendingCandidates.first == candidate
+                  self.pendingCandidates.front == candidate
             else {
                 return
             }
@@ -197,20 +215,27 @@ final class QuickCopyController: ObservableObject {
                 self.failInsertion(of: candidate)
                 return
             }
-            self.pendingCandidates.removeFirst()
-            if let deferredWarningMessage = self.deferredWarningMessage {
-                self.deferredWarningMessage = nil
-                self.state = .warning(deferredWarningMessage)
+            _ = self.pendingCandidates.dequeue()
+            if let nextCandidate = self.pendingCandidates.front {
+                self.beginInsertion(of: nextCandidate)
             } else {
-                self.state = .armed
+                self.finishCandidateDrain()
             }
-            self.insertNextCandidateIfNeeded()
+        }
+    }
+
+    private func finishCandidateDrain() {
+        if let deferredWarningMessage {
+            self.deferredWarningMessage = nil
+            state = .warning(deferredWarningMessage)
+        } else {
+            state = .armed
         }
     }
 
     private func failInsertion(of candidate: QuickCopyCandidate) {
         failedCandidate = candidate
-        pendingCandidates.removeAll(keepingCapacity: false)
+        pendingCandidates.removeAll()
         deferredWarningMessage = nil
         monitor.stop()
         state = .failed(Self.staleCursorMessage)
@@ -219,7 +244,7 @@ final class QuickCopyController: ObservableObject {
     private func targetDidInvalidate() {
         guard state.isSessionActive else { return }
         monitor.stop()
-        pendingCandidates.removeAll(keepingCapacity: false)
+        pendingCandidates.removeAll()
         failedCandidate = nil
         lastAcceptedSequence = nil
         deferredWarningMessage = nil
