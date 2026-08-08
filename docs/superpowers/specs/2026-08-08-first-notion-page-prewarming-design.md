@@ -220,6 +220,11 @@ account, and editable page. The change should demonstrate:
 - no duplicate exact-page request when a candidate is adopted;
 - no panel presentation or persistence before submission.
 
+Support this A/B run with a developer-only
+`--disable-first-page-prewarm` launch argument. It is not a persisted setting
+or user-facing preference and must alter only shell/candidate preparation, not
+normal page activation.
+
 Also record peak memory and energy observations rather than claiming they are
 free. If hidden prewarming does not progress under the retained ordered-out
 window with `.suspend`, stop and revisit the scheduling design based on trace
