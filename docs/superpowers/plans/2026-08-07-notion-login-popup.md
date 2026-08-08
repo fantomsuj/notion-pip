@@ -24,6 +24,7 @@
 **Files:**
 - Modify: `Sources/NotionPiP/Platform/NotionWebNavigationPolicy.swift`
 - Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
+- Test: `Tests/NotionPiPTests/NotionWebNavigationPolicyTests.swift`
 - Test: `Tests/NotionPiPTests/WebNavigationDestinationTests.swift`
 
 **Interfaces:**
@@ -134,6 +135,7 @@ Run the same filtered command. Expected: all `WebNavigationDestinationTests` pas
 ```sh
 git add Sources/NotionPiP/Platform/NotionWebNavigationPolicy.swift \
   Sources/NotionPiP/Platform/NotionWebSession.swift \
+  Tests/NotionPiPTests/NotionWebNavigationPolicyTests.swift \
   Tests/NotionPiPTests/WebNavigationDestinationTests.swift
 git commit -m "Fix Notion subframe navigation routing"
 ```

@@ -6,8 +6,14 @@ enum NotionWebNavigationActionDecision: Equatable {
     case openExternally(URL)
 }
 
+enum NotionWebNavigationContext: Equatable {
+    case mainFrame
+    case subframe
+    case newWindow
+}
+
 enum NotionWebNewWindowDecision: Equatable {
-    case loadInExistingWebView(URLRequest)
+    case createPopup
     case openExternally(URL)
     case ignore
 }
@@ -21,14 +27,16 @@ enum NotionWebNavigationFailureDecision: Equatable {
 struct NotionWebNavigationPolicy {
     func actionDecision(
         for url: URL?,
-        targetFrameIsPresent: Bool
+        context: NotionWebNavigationContext
     ) -> NotionWebNavigationActionDecision {
-        guard targetFrameIsPresent else {
+        guard context != .newWindow else {
             return .allow
         }
 
         switch WebNavigationDestination.classify(url) {
         case .trustedNotion:
+            return .allow
+        case .externalWeb where context == .subframe:
             return .allow
         case .externalWeb:
             guard let url else { return .cancel }
@@ -41,7 +49,7 @@ struct NotionWebNavigationPolicy {
     func newWindowDecision(for request: URLRequest) -> NotionWebNewWindowDecision {
         switch WebNavigationDestination.classify(request.url) {
         case .trustedNotion:
-            return .loadInExistingWebView(request)
+            return .createPopup
         case .externalWeb:
             guard let url = request.url else { return .ignore }
             return .openExternally(url)

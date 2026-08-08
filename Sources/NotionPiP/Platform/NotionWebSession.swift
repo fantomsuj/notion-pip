@@ -762,19 +762,25 @@ extension NotionWebSession: WKNavigationDelegate {
         guard isCurrent(webView) else {
             return .cancel
         }
+        let context: NotionWebNavigationContext
+        if let targetFrame = navigationAction.targetFrame {
+            context = targetFrame.isMainFrame ? .mainFrame : .subframe
+        } else {
+            context = .newWindow
+        }
         return navigationPolicy(
             for: navigationAction.request.url,
-            targetFrameIsPresent: navigationAction.targetFrame != nil
+            context: context
         )
     }
 
     func navigationPolicy(
         for url: URL?,
-        targetFrameIsPresent: Bool
+        context: NotionWebNavigationContext
     ) -> WKNavigationActionPolicy {
         switch navigationDecisionPolicy.actionDecision(
             for: url,
-            targetFrameIsPresent: targetFrameIsPresent
+            context: context
         ) {
         case .allow:
             return .allow
@@ -1024,8 +1030,8 @@ extension NotionWebSession: WKUIDelegate {
     ) -> WKWebView? {
         guard isCurrent(webView) else { return nil }
         switch navigationDecisionPolicy.newWindowDecision(for: request) {
-        case let .loadInExistingWebView(request):
-            loadRequest(webView, request)
+        case .createPopup:
+            break
         case let .openExternally(url):
             openURL(url)
         case .ignore:

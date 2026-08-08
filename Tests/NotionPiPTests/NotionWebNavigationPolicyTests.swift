@@ -5,38 +5,57 @@ import XCTest
 final class NotionWebNavigationPolicyTests: XCTestCase {
     private let policy = NotionWebNavigationPolicy()
 
-    func testTargetlessNavigationDefersEveryDestinationToUIDelegate() throws {
+    func testNewWindowNavigationDefersEveryDestinationToUIDelegate() throws {
         for url in [
             try XCTUnwrap(URL(string: "https://www.notion.so/workspace")),
             try XCTUnwrap(URL(string: "https://example.com/path")),
             try XCTUnwrap(URL(string: "javascript:alert(1)")),
         ] {
             XCTAssertEqual(
-                policy.actionDecision(for: url, targetFrameIsPresent: false),
+                policy.actionDecision(for: url, context: .newWindow),
                 .allow
             )
         }
     }
 
-    func testFramedNavigationAllowsTrustedOpensExternalAndCancelsUnsupported() throws {
+    func testMainFrameNavigationAllowsTrustedOpensExternalAndCancelsUnsupported() throws {
         let trustedURL = try XCTUnwrap(URL(string: "https://app.notion.com/workspace"))
         let externalURL = try XCTUnwrap(URL(string: "http://example.com/path"))
 
         XCTAssertEqual(
-            policy.actionDecision(for: trustedURL, targetFrameIsPresent: true),
+            policy.actionDecision(for: trustedURL, context: .mainFrame),
             .allow
         )
         XCTAssertEqual(
-            policy.actionDecision(for: externalURL, targetFrameIsPresent: true),
+            policy.actionDecision(for: externalURL, context: .mainFrame),
             .openExternally(externalURL)
         )
         XCTAssertEqual(
-            policy.actionDecision(for: nil, targetFrameIsPresent: true),
+            policy.actionDecision(for: nil, context: .mainFrame),
             .cancel
         )
     }
 
-    func testNewWindowDecisionPreservesTrustedRequestAndRoutesExternalURL() throws {
+    func testSubframeNavigationAllowsHTTPAndHTTPSButCancelsUnsupported() throws {
+        for url in [
+            try XCTUnwrap(URL(string: "https://aif.notion.so/aif-production.html")),
+            try XCTUnwrap(URL(string: "http://example.com/frame")),
+        ] {
+            XCTAssertEqual(
+                policy.actionDecision(for: url, context: .subframe),
+                .allow
+            )
+        }
+        XCTAssertEqual(
+            policy.actionDecision(
+                for: try XCTUnwrap(URL(string: "javascript:alert(1)")),
+                context: .subframe
+            ),
+            .cancel
+        )
+    }
+
+    func testNewWindowDecisionCreatesTrustedPopupAndRoutesExternalURL() throws {
         let trustedRequest = URLRequest(
             url: try XCTUnwrap(URL(string: "https://www.notion.so/workspace")),
             cachePolicy: .reloadIgnoringLocalCacheData,
@@ -46,7 +65,7 @@ final class NotionWebNavigationPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             policy.newWindowDecision(for: trustedRequest),
-            .loadInExistingWebView(trustedRequest)
+            .createPopup
         )
         XCTAssertEqual(
             policy.newWindowDecision(for: URLRequest(url: externalURL)),
