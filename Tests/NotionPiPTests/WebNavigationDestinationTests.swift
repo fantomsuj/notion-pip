@@ -165,6 +165,50 @@ final class WebNavigationDestinationTests: XCTestCase {
     }
 
     @MainActor
+    func testTrustedNewWindowReturnsPopupWithoutReplacingMainWebView() throws {
+        let mainWebView = WKWebView()
+        let popupWebView = WKWebView()
+        let popupCoordinator = PopupCoordinatorSpy(webView: popupWebView)
+        var mainLoads: [URLRequest] = []
+        let session = NotionWebSession(
+            webView: mainWebView,
+            loadRequest: { _, request in mainLoads.append(request) },
+            popupCoordinator: popupCoordinator
+        )
+        let configuration = WKWebViewConfiguration()
+        let request = URLRequest(
+            url: try XCTUnwrap(
+                URL(string: "https://app.notion.com/verifyNoPopupBlockerHtmlAndRedirect")
+            )
+        )
+
+        let returned = session.handleNewWindowRequest(
+            request,
+            configuration: configuration,
+            in: mainWebView
+        )
+
+        XCTAssertTrue(returned === popupWebView)
+        XCTAssertTrue(popupCoordinator.receivedConfiguration === configuration)
+        XCTAssertTrue(mainLoads.isEmpty)
+        XCTAssertTrue(session.webView === mainWebView)
+    }
+
+    @MainActor
+    func testRendererTerminationClosesActivePopup() {
+        let mainWebView = WKWebView()
+        let popupCoordinator = PopupCoordinatorSpy(webView: WKWebView())
+        let session = NotionWebSession(
+            webView: mainWebView,
+            popupCoordinator: popupCoordinator
+        )
+
+        session.webViewWebContentProcessDidTerminate(mainWebView)
+
+        XCTAssertEqual(popupCoordinator.closeCallCount, 1)
+    }
+
+    @MainActor
     func testNewWindowExternalRequestDefersThenOpensOnceAndReturnsNil() throws {
         var openedURLs: [URL] = []
         var loadedRequests: [URLRequest] = []
@@ -182,7 +226,11 @@ final class WebNavigationDestinationTests: XCTestCase {
         )
         XCTAssertTrue(openedURLs.isEmpty)
         XCTAssertNil(
-            session.handleNewWindowRequest(URLRequest(url: externalURL), in: webView)
+            session.handleNewWindowRequest(
+                URLRequest(url: externalURL),
+                configuration: WKWebViewConfiguration(),
+                in: webView
+            )
         )
         XCTAssertEqual(openedURLs, [externalURL])
         XCTAssertTrue(loadedRequests.isEmpty)
@@ -207,10 +255,31 @@ final class WebNavigationDestinationTests: XCTestCase {
         XCTAssertNil(
             session.handleNewWindowRequest(
                 URLRequest(url: unsupportedURL),
+                configuration: WKWebViewConfiguration(),
                 in: webView
             )
         )
         XCTAssertTrue(openedURLs.isEmpty)
         XCTAssertTrue(loadedRequests.isEmpty)
+    }
+}
+
+@MainActor
+private final class PopupCoordinatorSpy: NotionWebPopupCoordinating {
+    let webView: WKWebView
+    private(set) var receivedConfiguration: WKWebViewConfiguration?
+    private(set) var closeCallCount = 0
+
+    init(webView: WKWebView) {
+        self.webView = webView
+    }
+
+    func present(using configuration: WKWebViewConfiguration) -> WKWebView {
+        receivedConfiguration = configuration
+        return webView
+    }
+
+    func close() {
+        closeCallCount += 1
     }
 }
