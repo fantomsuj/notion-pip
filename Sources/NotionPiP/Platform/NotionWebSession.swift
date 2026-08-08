@@ -57,11 +57,18 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     @Published private(set) var webView: WKWebView?
     var state: NotionWebSessionState { lifecycleController.state }
+    @Published private(set) var browserLoginState: NotionBrowserLoginState = .idle
     @Published private(set) var isTypingInPage = false
     @Published private(set) var editorCaretGeometry: NotionEditorCaretGeometry?
     private(set) var activePage: NotionPageReference?
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
     private let openURL: @MainActor (URL) -> Void
+    private let browserAuthenticationSessionFactory:
+        NotionBrowserAuthenticationSessionFactory
+    private let browserLoginPresentationAnchor: @MainActor (WKWebView) -> NSWindow?
+    private let browserLoginCurrentURL: @MainActor (WKWebView) -> URL?
+    private let browserHandoffRedeemer: NotionBrowserHandoffRedeemer
+    private let scheduleBrowserLoginTimeout: NotionWebEvictionScheduler
     private let loadRequest: NotionWebRequestLoader
     private let webViewFactory: NotionWebViewFactory
     private let lifecycleController: NotionWebLifecycleController
@@ -84,8 +91,16 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     private var panelIsVisible: Bool { lifecycleController.isVisible }
     private var loadedPageID: String?
+    private var loadedRequestURL: URL?
     private var webContentRecoveryState = WebContentRecoveryState.ready
     private var restorationToken: PerformanceIntervalToken?
+    private var browserAuthenticationSession:
+        (any NotionBrowserAuthenticationSession)?
+    private var browserLoginAttemptGeneration: UInt = 0
+    private var browserLoginPageID: String?
+    private var browserLoginRestoringPageID: String?
+    private var browserLoginTimeoutCancellable: AnyCancellable?
+    private var browserHandoffRedemptionCancellable: AnyCancellable?
     var onRestorationCaptured: (@MainActor (DurablePageRestoration) -> Void)?
     var onQuickCopyTargetInvalidated: (@MainActor () -> Void)?
     private var selectionCaptureGeneration = 0
@@ -145,6 +160,45 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     init(
         webView: WKWebView? = nil,
         openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
+        browserAuthenticationSessionFactory:
+            @escaping NotionBrowserAuthenticationSessionFactory = {
+                url,
+                callbackScheme,
+                anchor,
+                completion in
+                SystemNotionBrowserAuthenticationSession(
+                    url: url,
+                    callbackScheme: callbackScheme,
+                    anchor: anchor,
+                    completion: completion
+                )
+            },
+        browserLoginPresentationAnchor: @escaping @MainActor (WKWebView) -> NSWindow? = {
+            $0.window
+        },
+        browserLoginCurrentURL: @escaping @MainActor (WKWebView) -> URL? = {
+            $0.url
+        },
+        browserHandoffRedeemer: @escaping NotionBrowserHandoffRedeemer = {
+            webView,
+            code,
+            completion in
+            NotionBrowserHandoffRedemption.redeem(
+                in: webView,
+                code: code,
+                completion: completion
+            )
+        },
+        scheduleBrowserLoginTimeout: @escaping NotionWebEvictionScheduler = {
+            interval,
+            action in
+            let task = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(interval))
+                guard !Task.isCancelled else { return }
+                action()
+            }
+            return AnyCancellable { task.cancel() }
+        },
         loadRequest: @escaping NotionWebRequestLoader = { webView, request in
             webView.load(request)
         },
@@ -224,6 +278,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     ) {
         self.webView = nil
         self.openURL = openURL
+        self.browserAuthenticationSessionFactory = browserAuthenticationSessionFactory
+        self.browserLoginPresentationAnchor = browserLoginPresentationAnchor
+        self.browserLoginCurrentURL = browserLoginCurrentURL
+        self.browserHandoffRedeemer = browserHandoffRedeemer
+        self.scheduleBrowserLoginTimeout = scheduleBrowserLoginTimeout
         self.loadRequest = loadRequest
         self.webViewFactory = webViewFactory
         self.lifecycleController = NotionWebLifecycleController(scheduleEviction: scheduleEviction)
@@ -264,6 +323,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         webView.uiDelegate = self
         urlObservation = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             MainActor.assumeIsolated {
+                self?.browserLoginRouteDidChange(to: webView.url)
                 self?.adoptResolvedPage(
                     at: webView.url,
                     from: webView,
@@ -306,6 +366,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
 
         if let outgoingPage = activePage, let webView {
+            cancelBrowserLogin(resetState: true)
             invalidateEditorSelection()
             if outgoingPage.pageID == page.pageID {
                 pageStateRestoration.discardCachedState(for: page.pageID)
@@ -328,6 +389,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func reloadPinnedPage(_ page: NotionPageReference) {
+        cancelBrowserLogin(resetState: true)
         invalidateEditorSelection()
         activePage = page
         webContentRecoveryState = .ready
@@ -383,6 +445,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             isDurableRestoration: isDurableRestoration
         )
         loadedPageID = pageID
+        loadedRequestURL = url
         lifecycleController.setState(.loading)
         loadRequest(ensureWebView(), URLRequest(url: url))
     }
@@ -392,6 +455,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             return
         }
 
+        cancelBrowserLogin(resetState: true)
         invalidateEditorSelection()
         webContentRecoveryState = .ready
         revealTopControls()
@@ -413,6 +477,245 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
 
         openURL(activePage.canonicalURL)
+    }
+
+    func continueLoginInBrowser() {
+        guard browserLoginState == .loginRequired || isBrowserLoginFailure,
+              let webView,
+              NotionBrowserHandoffRoute.isLoginURL(browserLoginCurrentURL(webView)),
+              let anchor = browserLoginPresentationAnchor(webView),
+              let pageID = activePage?.pageID
+        else {
+            if browserLoginState != .openingBrowser && browserLoginState != .redeeming {
+                browserLoginState = .failed(
+                    "Browser sign-in could not open. Continue with email or SSO below."
+                )
+            }
+            return
+        }
+
+        browserLoginAttemptGeneration &+= 1
+        let generation = browserLoginAttemptGeneration
+        browserLoginPageID = pageID
+        browserLoginRestoringPageID = nil
+        browserLoginState = .openingBrowser
+        let authenticationSession = browserAuthenticationSessionFactory(
+            NotionBrowserHandoffRoute.startURL,
+            NotionBrowserHandoffRoute.callbackScheme,
+            anchor
+        ) { [weak self] result in
+            Task { @MainActor [weak self] in
+                self?.completeBrowserAuthentication(
+                    result,
+                    generation: generation,
+                    pageID: pageID
+                )
+            }
+        }
+        browserAuthenticationSession = authenticationSession
+        guard authenticationSession.start() else {
+            browserAuthenticationSession = nil
+            browserLoginState = .failed(
+                "Browser sign-in could not open. Continue with email or SSO below."
+            )
+            return
+        }
+    }
+
+    func performBrowserLoginAction() {
+        switch browserLoginState {
+        case .restorationFailed:
+            guard let activePage else { return }
+            cancelBrowserLogin(resetState: true)
+            load(activePage.canonicalURL, pageID: activePage.pageID)
+        case .loginRequired, .failed:
+            continueLoginInBrowser()
+        case .idle, .openingBrowser, .redeeming:
+            break
+        }
+    }
+
+    func browserLoginRouteDidChange(to url: URL?) {
+        guard NotionBrowserHandoffRoute.isLoginURL(url) else {
+            if browserLoginRestoringPageID == nil, browserLoginState != .idle {
+                cancelBrowserLogin(resetState: true)
+            }
+            return
+        }
+
+        switch browserLoginState {
+        case .openingBrowser, .redeeming, .failed, .restorationFailed:
+            break
+        case .idle, .loginRequired:
+            browserLoginState = .loginRequired
+        }
+    }
+
+    private var isBrowserLoginFailure: Bool {
+        if case .failed = browserLoginState {
+            return true
+        }
+        return false
+    }
+
+    private func completeBrowserAuthentication(
+        _ result: NotionBrowserAuthenticationResult,
+        generation: UInt,
+        pageID: String
+    ) {
+        guard generation == browserLoginAttemptGeneration,
+              browserLoginPageID == pageID,
+              activePage?.pageID == pageID,
+              browserLoginState == .openingBrowser
+        else {
+            return
+        }
+        browserAuthenticationSession = nil
+
+        switch result {
+        case .cancelled:
+            browserLoginState = .loginRequired
+        case .failed:
+            failBrowserLogin(
+                "Browser sign-in did not finish. Continue with email or SSO below."
+            )
+        case let .callback(callbackURL):
+            guard let code = NotionBrowserHandoffRoute.code(from: callbackURL),
+                  let webView,
+                  isCurrent(webView),
+                  NotionBrowserHandoffRoute.isLoginURL(browserLoginCurrentURL(webView))
+            else {
+                failBrowserLogin(
+                    "Notion returned an invalid sign-in handoff. Continue with email or SSO below."
+                )
+                return
+            }
+            redeemBrowserHandoff(
+                code,
+                in: webView,
+                generation: generation,
+                pageID: pageID
+            )
+        }
+    }
+
+    private func redeemBrowserHandoff(
+        _ code: String,
+        in webView: WKWebView,
+        generation: UInt,
+        pageID: String
+    ) {
+        browserLoginState = .redeeming
+        browserLoginTimeoutCancellable = scheduleBrowserLoginTimeout(15) {
+            [weak self, weak webView] in
+            guard let self,
+                  let webView,
+                  self.browserLoginState == .redeeming
+            else {
+                return
+            }
+            if NotionBrowserHandoffRoute.isLoginURL(
+                self.browserLoginCurrentURL(webView)
+            ) {
+                self.failBrowserLogin(
+                    "Notion did not finish browser sign-in. Continue with email or SSO below."
+                )
+            } else {
+                self.failBrowserLoginRestoration(
+                    "Notion signed in, but the saved page did not finish loading."
+                )
+            }
+        }
+        let redemptionCancellable = browserHandoffRedeemer(
+            webView,
+            code
+        ) { [weak self, weak webView] result in
+            guard let self,
+                  let webView,
+                  generation == self.browserLoginAttemptGeneration,
+                  self.browserLoginPageID == pageID,
+                  self.activePage?.pageID == pageID,
+                  self.isCurrent(webView),
+                  self.browserLoginState == .redeeming,
+                  NotionBrowserHandoffRoute.isLoginURL(
+                    self.browserLoginCurrentURL(webView)
+                  )
+            else {
+                return
+            }
+            self.browserHandoffRedemptionCancellable = nil
+
+            guard case .success(true) = result, let activePage = self.activePage else {
+                self.failBrowserLogin(
+                    "Browser sign-in is unavailable. Continue with email or SSO below."
+                )
+                return
+            }
+
+            self.browserLoginRestoringPageID = pageID
+            self.load(activePage.canonicalURL, pageID: pageID)
+        }
+        guard browserLoginState == .redeeming else {
+            redemptionCancellable.cancel()
+            return
+        }
+        browserHandoffRedemptionCancellable = redemptionCancellable
+    }
+
+    func finishBrowserLoginRestorationIfNeeded(at url: URL?) {
+        guard let pageID = browserLoginRestoringPageID,
+              let url
+        else {
+            return
+        }
+        guard let restoredPage = try? NotionPageReference(validating: url),
+              restoredPage.pageID == pageID
+        else {
+            if NotionBrowserHandoffRoute.isLoginURL(url) {
+                failBrowserLogin(
+                    "Notion did not accept browser sign-in. Continue with email or SSO below."
+                )
+            }
+            return
+        }
+        browserLoginTimeoutCancellable?.cancel()
+        browserLoginTimeoutCancellable = nil
+        browserLoginState = .idle
+        browserLoginPageID = nil
+        browserLoginRestoringPageID = nil
+    }
+
+    private func cancelBrowserLogin(resetState: Bool) {
+        browserLoginAttemptGeneration &+= 1
+        browserAuthenticationSession?.cancel()
+        browserAuthenticationSession = nil
+        browserHandoffRedemptionCancellable?.cancel()
+        browserHandoffRedemptionCancellable = nil
+        browserLoginTimeoutCancellable?.cancel()
+        browserLoginTimeoutCancellable = nil
+        browserLoginPageID = nil
+        browserLoginRestoringPageID = nil
+        if resetState {
+            browserLoginState = .idle
+        }
+    }
+
+    private func failBrowserLogin(_ message: String) {
+        browserHandoffRedemptionCancellable?.cancel()
+        browserHandoffRedemptionCancellable = nil
+        browserLoginTimeoutCancellable?.cancel()
+        browserLoginTimeoutCancellable = nil
+        browserLoginRestoringPageID = nil
+        browserLoginState = .failed(message)
+    }
+
+    private func failBrowserLoginRestoration(_ message: String) {
+        browserHandoffRedemptionCancellable?.cancel()
+        browserHandoffRedemptionCancellable = nil
+        browserLoginTimeoutCancellable?.cancel()
+        browserLoginTimeoutCancellable = nil
+        browserLoginRestoringPageID = nil
+        browserLoginState = .restorationFailed(message)
     }
 
     func handleEditorActivity(_ activity: NotionEditorActivity) {
@@ -534,6 +837,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         lifecycleController.cancelWarmRetention()
         self.webView = nil
         loadedPageID = nil
+        loadedRequestURL = nil
         if let urlObservation {
             invalidateURLObservation(urlObservation)
             self.urlObservation = nil
@@ -808,7 +1112,12 @@ extension NotionWebSession: WKNavigationDelegate {
         case .ready:
             break
         }
-        pageStateRestoration.navigationDidFinish()
+        let finishedLoadedPage = finishedNavigationMatchesLoadedPage(
+            at: webView.url ?? loadedRequestURL
+        )
+        if finishedLoadedPage {
+            pageStateRestoration.navigationDidFinish()
+        }
         invalidateEditorSelection()
         publishNavigationState(.active)
         if restorationToken != nil {
@@ -823,11 +1132,25 @@ extension NotionWebSession: WKNavigationDelegate {
             from: webView,
             generation: scriptMessageCoordinator.generation
         )
-        if let restoration = pageStateRestoration.takePendingScrollRestoration(
+        browserLoginRouteDidChange(to: webView.url)
+        finishBrowserLoginRestorationIfNeeded(at: webView.url)
+        if finishedLoadedPage,
+           let restoration = pageStateRestoration.takePendingScrollRestoration(
             for: loadedPageID
-        ) {
+           )
+        {
             scrollRestorer(webView, restoration)
         }
+    }
+
+    func finishedNavigationMatchesLoadedPage(at url: URL?) -> Bool {
+        guard let loadedPageID,
+              let url,
+              let page = try? NotionPageReference(validating: url)
+        else {
+            return false
+        }
+        return page.pageID == loadedPageID
     }
 
     func adoptResolvedPage(at url: URL?) {
@@ -866,6 +1189,7 @@ extension NotionWebSession: WKNavigationDelegate {
         invalidateEditorSelection()
         activePage = resolvedPage
         loadedPageID = resolvedPage.pageID
+        loadedRequestURL = url
         pageStateRestoration.recordResolvedPage(resolvedPage, at: url)
         if case .attempting = webContentRecoveryState {
             // A trusted Notion redirect can resolve the recovery navigation to a
@@ -896,6 +1220,11 @@ extension NotionWebSession: WKNavigationDelegate {
             return
         }
         markWebContentRecoveryFailedIfNeeded()
+        if browserLoginRestoringPageID != nil {
+            failBrowserLoginRestoration(
+                "Notion signed in, but the saved page did not reload."
+            )
+        }
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(navigationFailureState(for: error))
@@ -922,6 +1251,11 @@ extension NotionWebSession: WKNavigationDelegate {
             return
         }
         markWebContentRecoveryFailedIfNeeded()
+        if browserLoginRestoringPageID != nil {
+            failBrowserLoginRestoration(
+                "Notion signed in, but the saved page did not reload."
+            )
+        }
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(navigationFailureState(for: error))
@@ -985,6 +1319,7 @@ extension NotionWebSession: WKNavigationDelegate {
         }
 
         loadedPageID = page.pageID
+        loadedRequestURL = page.canonicalURL
         publishNavigationState(.loading)
         loadRequest(webView, URLRequest(url: page.canonicalURL))
     }

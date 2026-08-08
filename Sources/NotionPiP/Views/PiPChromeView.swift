@@ -97,9 +97,34 @@ struct PiPChromeView: View {
         commandModel.perform(Self.primaryActionID)
     }
 
+    func continueLoginInBrowser() {
+        webSession.performBrowserLoginAction()
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            if webSession.state == .offline {
+            if let browserLogin = NotionBrowserLoginPresentation(
+                state: webSession.browserLoginState
+            ) {
+                HStack(spacing: DesignTokens.Spacing.control) {
+                    Label(browserLogin.message, systemImage: "person.badge.key")
+                        .font(.caption)
+                    Spacer()
+                    if browserLogin.showsProgress {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Waiting for browser sign-in")
+                    }
+                    Button(browserLogin.actionTitle, action: continueLoginInBrowser)
+                        .disabled(!browserLogin.actionIsEnabled)
+                        .accessibilityLabel(browserLogin.actionTitle)
+                }
+                .padding(.horizontal, DesignTokens.Spacing.control)
+                .padding(.vertical, DesignTokens.Spacing.compact)
+                .accessibilityElement(children: .contain)
+
+                Divider()
+            } else if webSession.state == .offline {
                 HStack(spacing: DesignTokens.Spacing.control) {
                     Label("You're offline. Quick Capture saves notes on this Mac and sends them when Notion reconnects.", systemImage: "wifi.slash")
                         .font(.caption)
