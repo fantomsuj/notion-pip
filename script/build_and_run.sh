@@ -18,11 +18,16 @@ APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 ENTITLEMENTS="$ROOT_DIR/Support/NotionPiP.entitlements"
 SIGN_SCRIPT="$ROOT_DIR/script/sign_app.sh"
+APP_ICON_SOURCE="$ROOT_DIR/Support/NotionPiP.icns"
 
 VERSION_CONFIG="$ROOT_DIR/Support/Version.env"
 
 if [[ ! -f "$VERSION_CONFIG" ]]; then
     echo "error: missing release version configuration at $VERSION_CONFIG" >&2
+    exit 1
+fi
+if [[ ! -f "$APP_ICON_SOURCE" ]]; then
+    echo "error: missing app icon at $APP_ICON_SOURCE" >&2
     exit 1
 fi
 
@@ -73,6 +78,7 @@ fi
 /bin/mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 /bin/cp "$BUILD_BINARY" "$APP_BINARY"
 /bin/chmod +x "$APP_BINARY"
+/bin/cp "$APP_ICON_SOURCE" "$APP_RESOURCES/NotionPiP.icns"
 
 while IFS= read -r -d '' resource_bundle; do
     /usr/bin/ditto "$resource_bundle" "$APP_RESOURCES/$(basename "$resource_bundle")"
@@ -91,6 +97,8 @@ cat >"$INFO_PLIST" <<PLIST
     <string>$APP_NAME</string>
     <key>CFBundleIdentifier</key>
     <string>$BUNDLE_ID</string>
+    <key>CFBundleIconFile</key>
+    <string>NotionPiP.icns</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -147,10 +155,12 @@ wait_for_process() {
 
 verify_bundle() {
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST")" == "$BUNDLE_ID" ]] || return 1
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$INFO_PLIST")" == "NotionPiP.icns" ]] || return 1
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$INFO_PLIST")" == "$MIN_SYSTEM_VERSION" ]] || return 1
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$INFO_PLIST")" == "true" ]] || return 1
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$INFO_PLIST")" == "notion-pip" ]] || return 1
     [[ -f "$APP_RESOURCES/NotionPiP_NotionPiP.bundle/QuickCapture/index.html" ]] || return 1
+    [[ -f "$APP_RESOURCES/NotionPiP.icns" ]] || return 1
     /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE" || return 1
 }
 

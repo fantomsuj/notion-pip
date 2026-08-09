@@ -97,9 +97,34 @@ struct PiPChromeView: View {
         commandModel.perform(Self.primaryActionID)
     }
 
+    func continueLoginInBrowser() {
+        webSession.performBrowserLoginAction()
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            if webSession.state == .offline {
+            if let browserLogin = NotionBrowserLoginPresentation(
+                state: webSession.browserLoginState
+            ) {
+                HStack(spacing: DesignTokens.Spacing.control) {
+                    Label(browserLogin.message, systemImage: "person.badge.key")
+                        .font(.caption)
+                    Spacer()
+                    if browserLogin.showsProgress {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Waiting for browser sign-in")
+                    }
+                    Button(browserLogin.actionTitle, action: continueLoginInBrowser)
+                        .disabled(!browserLogin.actionIsEnabled)
+                        .accessibilityLabel(browserLogin.actionTitle)
+                }
+                .padding(.horizontal, DesignTokens.Spacing.control)
+                .padding(.vertical, DesignTokens.Spacing.compact)
+                .accessibilityElement(children: .contain)
+
+                Divider()
+            } else if webSession.state == .offline {
                 HStack(spacing: DesignTokens.Spacing.control) {
                     Label("You're offline. Quick Capture saves notes on this Mac and sends them when Notion reconnects.", systemImage: "wifi.slash")
                         .font(.caption)
@@ -136,36 +161,6 @@ struct PiPChromeView: View {
                 let webView = webSession.webView
             {
                 NotionWebView(webView: webView)
-                    .overlay {
-                        GeometryReader { proxy in
-                            Button {
-                                let copiedText = NSPasteboard.general.string(forType: .string)
-                                guard let copiedText, !copiedText.isEmpty else { return }
-                                webSession.rememberCurrentEditorCursor { remembered in
-                                    guard remembered else { return }
-                                    webSession.insertAtSavedEditorCursor(copiedText) { _ in }
-                                }
-                            } label: {
-                                Label("Fill copied text", systemImage: "doc.on.clipboard")
-                                    .labelStyle(.iconOnly)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .frame(
-                                width: CursorAdjacentControlPlacement.controlSize,
-                                height: CursorAdjacentControlPlacement.controlSize
-                            )
-                            .help("Insert copied text at the current Notion cursor")
-                            .accessibilityLabel("Fill copied text at Notion cursor")
-                            .position(
-                                CursorAdjacentControlPlacement.center(
-                                    for: webSession.editorCaretGeometry,
-                                    in: proxy.size
-                                )
-                            )
-                            .animation(nil, value: webSession.editorCaretGeometry)
-                        }
-                    }
             } else {
                 ContentUnavailableView(
                     "No Notion page selected",
