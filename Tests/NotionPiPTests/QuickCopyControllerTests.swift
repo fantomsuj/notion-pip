@@ -158,6 +158,64 @@ final class QuickCopyControllerTests: XCTestCase {
         XCTAssertEqual(monitor.startCount, 1)
     }
 
+    func testFullBufferRejectsNewestCandidateDrainsAcceptedFIFOAndWarnsAfterDrain() {
+        let monitor = QuickCopyMonitorSpy(accessGranted: true)
+        let target = QuickCopyInsertionTargetSpy()
+        let controller = QuickCopyController(
+            monitor: monitor,
+            target: target,
+            pendingCandidateCapacity: 2
+        )
+        let source = QuickCopySource(processID: 7, applicationName: "Editor")
+        controller.toggle()
+        target.completeRemembering(true)
+
+        monitor.emit(.candidate(QuickCopyCandidate(text: "alpha", source: source, sequence: 1)))
+        monitor.emit(.candidate(QuickCopyCandidate(text: "beta", source: source, sequence: 2)))
+        monitor.emit(.candidate(QuickCopyCandidate(text: "gamma", source: source, sequence: 3)))
+
+        XCTAssertEqual(target.insertionTexts, ["alpha"])
+        XCTAssertEqual(controller.state, .inserting)
+
+        target.completeNextInsertion(true)
+        XCTAssertEqual(target.insertionTexts, ["alpha", "beta"])
+        XCTAssertEqual(controller.state, .inserting)
+
+        target.completeNextInsertion(true)
+        XCTAssertEqual(target.insertionTexts, ["alpha", "beta"])
+        XCTAssertEqual(controller.state, .warning(QuickCopyController.busyMessage))
+
+        monitor.emit(.candidate(QuickCopyCandidate(text: "delta", source: source, sequence: 4)))
+        XCTAssertEqual(target.insertionTexts, ["alpha", "beta", "delta"])
+        target.completeNextInsertion(true)
+        XCTAssertEqual(controller.state, .armed)
+    }
+
+    func testDisableClearsQueuedCandidateBeforeAStaleCompletionAndNextSession() {
+        let monitor = QuickCopyMonitorSpy(accessGranted: true)
+        let target = QuickCopyInsertionTargetSpy()
+        let controller = QuickCopyController(
+            monitor: monitor,
+            target: target,
+            pendingCandidateCapacity: 2
+        )
+        let source = QuickCopySource(processID: 7, applicationName: "Editor")
+        controller.toggle()
+        target.completeRemembering(true)
+        monitor.emit(.candidate(QuickCopyCandidate(text: "alpha", source: source, sequence: 1)))
+        monitor.emit(.candidate(QuickCopyCandidate(text: "must be cleared", source: source, sequence: 2)))
+
+        controller.disable()
+        target.completeNextInsertion(true)
+
+        controller.toggle()
+        target.completeRemembering(true)
+        monitor.emit(.candidate(QuickCopyCandidate(text: "new session", source: source, sequence: 3)))
+
+        XCTAssertEqual(target.insertionTexts, ["alpha", "new session"])
+        XCTAssertEqual(controller.state, .inserting)
+    }
+
     func testWarningDuringInsertionDoesNotRetryCompletedCandidate() {
         let monitor = QuickCopyMonitorSpy(accessGranted: true)
         let target = QuickCopyInsertionTargetSpy()
