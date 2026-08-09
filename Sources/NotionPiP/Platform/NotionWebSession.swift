@@ -73,6 +73,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let webViewFactory: NotionWebViewFactory
     private let lifecycleController: NotionWebLifecycleController
     private let navigationDecisionPolicy = NotionWebNavigationPolicy()
+    private let popupCoordinator: any NotionWebPopupCoordinating
     private let pageStateRestoration = NotionPageStateRestorationCoordinator()
     private let pauseMedia: @MainActor (WKWebView) -> Void
     private let stopLoading: @MainActor (WKWebView) -> Void
@@ -202,6 +203,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         loadRequest: @escaping NotionWebRequestLoader = { webView, request in
             webView.load(request)
         },
+        popupCoordinator: (any NotionWebPopupCoordinating)? = nil,
         webViewFactory: @escaping NotionWebViewFactory = { NotionWebSession.makeWebView() },
         scheduleEviction: @escaping NotionWebEvictionScheduler = { interval, action in
             let task = Task { @MainActor in
@@ -284,6 +286,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.browserHandoffRedeemer = browserHandoffRedeemer
         self.scheduleBrowserLoginTimeout = scheduleBrowserLoginTimeout
         self.loadRequest = loadRequest
+        self.popupCoordinator = popupCoordinator
+            ?? NotionWebPopupCoordinator(openURL: openURL)
         self.webViewFactory = webViewFactory
         self.lifecycleController = NotionWebLifecycleController(scheduleEviction: scheduleEviction)
         self.pauseMedia = pauseMedia
@@ -834,6 +838,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             return false
         }
 
+        popupCoordinator.close()
         lifecycleController.cancelWarmRetention()
         self.webView = nil
         loadedPageID = nil
@@ -1066,19 +1071,25 @@ extension NotionWebSession: WKNavigationDelegate {
         guard isCurrent(webView) else {
             return .cancel
         }
+        let context: NotionWebNavigationContext
+        if let targetFrame = navigationAction.targetFrame {
+            context = targetFrame.isMainFrame ? .mainFrame : .subframe
+        } else {
+            context = .newWindow
+        }
         return navigationPolicy(
             for: navigationAction.request.url,
-            targetFrameIsPresent: navigationAction.targetFrame != nil
+            context: context
         )
     }
 
     func navigationPolicy(
         for url: URL?,
-        targetFrameIsPresent: Bool
+        context: NotionWebNavigationContext
     ) -> WKNavigationActionPolicy {
         switch navigationDecisionPolicy.actionDecision(
             for: url,
-            targetFrameIsPresent: targetFrameIsPresent
+            context: context
         ) {
         case .allow:
             return .allow
@@ -1289,6 +1300,7 @@ extension NotionWebSession: WKNavigationDelegate {
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         guard isCurrent(webView) else { return }
+        popupCoordinator.close()
 
         if restorationToken != nil {
             performanceSignposter?.end(restorationToken, outcome: .failure)
@@ -1350,17 +1362,22 @@ extension NotionWebSession: WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         guard isCurrent(webView) else { return nil }
-        return handleNewWindowRequest(navigationAction.request, in: webView)
+        return handleNewWindowRequest(
+            navigationAction.request,
+            configuration: configuration,
+            in: webView
+        )
     }
 
     func handleNewWindowRequest(
         _ request: URLRequest,
+        configuration: WKWebViewConfiguration,
         in webView: WKWebView
     ) -> WKWebView? {
         guard isCurrent(webView) else { return nil }
         switch navigationDecisionPolicy.newWindowDecision(for: request) {
-        case let .loadInExistingWebView(request):
-            loadRequest(webView, request)
+        case .createPopup:
+            return popupCoordinator.present(using: configuration)
         case let .openExternally(url):
             openURL(url)
         case .ignore:

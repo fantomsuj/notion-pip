@@ -17,6 +17,7 @@ APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 ENTITLEMENTS="$ROOT_DIR/Support/NotionPiP.entitlements"
+SIGN_SCRIPT="$ROOT_DIR/script/sign_app.sh"
 APP_ICON_SOURCE="$ROOT_DIR/Support/NotionPiP.icns"
 
 VERSION_CONFIG="$ROOT_DIR/Support/Version.env"
@@ -130,7 +131,7 @@ cat >"$INFO_PLIST" <<PLIST
 PLIST
 
 /usr/bin/plutil -lint "$INFO_PLIST" >/dev/null
-/usr/bin/codesign --force --deep --sign - --timestamp=none --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
+"$SIGN_SCRIPT" "$APP_BUNDLE" "$ENTITLEMENTS"
 /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 
 open_app() {

@@ -79,6 +79,8 @@ enum NotionBrowserHandoffRoute {
     ]
     private static let trustedLoginHosts: Set<String> = [
         "app.notion.com",
+        "notion.com",
+        "www.notion.com",
         "notion.so",
         "www.notion.so",
     ]
@@ -226,6 +228,8 @@ enum NotionBrowserHandoffRedemption {
         let script = """
             const allowedHosts = new Set([
               'app.notion.com',
+              'notion.com',
+              'www.notion.com',
               'notion.so',
               'www.notion.so',
             ]);

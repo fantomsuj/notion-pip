@@ -34,15 +34,17 @@ final class NotionEditorCaretBridgeTests: XCTestCase {
     }
 
     func testTrustedHiddenMessageContainsNoGeometry() {
-        XCTAssertEqual(
-            NotionEditorCaretBridge.update(
-                from: ["visible": false],
-                isMainFrame: true,
-                scheme: "https",
-                host: "notion.so"
-            ),
-            .hidden
-        )
+        for host in ["notion.com", "www.notion.com", "notion.so", "www.notion.so"] {
+            XCTAssertEqual(
+                NotionEditorCaretBridge.update(
+                    from: ["visible": false],
+                    isMainFrame: true,
+                    scheme: "https",
+                    host: host
+                ),
+                .hidden
+            )
+        }
     }
 
     func testBridgeRejectsSubframeNonHTTPSAndUntrustedHost() {

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Security
 
 protocol SecretStoring: AnyObject {
@@ -38,6 +39,10 @@ struct KeychainClient {
 }
 
 final class KeychainSecretStore: SecretStoring {
+    private let logger = Logger(
+        subsystem: "com.fantomsuj.NotionPiP",
+        category: "keychain"
+    )
     private let service: String
     private let account: String
     private let client: KeychainClient
@@ -53,8 +58,13 @@ final class KeychainSecretStore: SecretStoring {
     }
 
     func read() throws -> Data? {
-        if let data = try read(matching: dataProtectionQuery) {
-            return data
+        do {
+            if let data = try read(matching: dataProtectionQuery) {
+                return data
+            }
+        } catch let error as KeychainSecretStoreError where error.isMissingEntitlement {
+            logLegacyFallback()
+            return try read(matching: legacyQuery)
         }
         guard let legacyData = try read(matching: legacyQuery) else {
             return nil
@@ -80,26 +90,34 @@ final class KeychainSecretStore: SecretStoring {
     }
 
     func write(_ data: Data) throws {
+        do {
+            try write(data, matching: dataProtectionQuery)
+            try deleteLegacyItem()
+        } catch let error as KeychainSecretStoreError where error.isMissingEntitlement {
+            logLegacyFallback()
+            try write(data, matching: legacyQuery)
+        }
+    }
+
+    private func write(_ data: Data, matching query: [String: Any]) throws {
         let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
         ]
-        let updateStatus = client.update(dataProtectionQuery, attributes)
+        let updateStatus = client.update(query, attributes)
         if updateStatus == errSecSuccess {
-            try deleteLegacyItem()
             return
         }
         guard updateStatus == errSecItemNotFound else {
             throw KeychainSecretStoreError.unexpectedStatus(updateStatus)
         }
 
-        var insertQuery = dataProtectionQuery
+        var insertQuery = query
         attributes.forEach { insertQuery[$0.key] = $0.value }
         let insertStatus = client.add(insertQuery)
         guard insertStatus == errSecSuccess else {
             throw KeychainSecretStoreError.unexpectedStatus(insertStatus)
         }
-        try deleteLegacyItem()
     }
 
     func delete() throws {
@@ -134,6 +152,18 @@ final class KeychainSecretStore: SecretStoring {
         var query = legacyQuery
         query[kSecUseDataProtectionKeychain as String] = true
         return query
+    }
+
+    private func logLegacyFallback() {
+        logger.notice(
+            "Data-protection Keychain unavailable; using legacy Keychain status=\(errSecMissingEntitlement, privacy: .public)"
+        )
+    }
+}
+
+private extension KeychainSecretStoreError {
+    var isMissingEntitlement: Bool {
+        self == .unexpectedStatus(errSecMissingEntitlement)
     }
 }
 

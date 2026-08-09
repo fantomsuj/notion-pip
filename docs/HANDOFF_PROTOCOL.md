@@ -14,12 +14,12 @@ notion-pip://pin?url=<percent-encoded-notion-page-url>&source=chrome-extension
 - Supported source in this slice: `chrome-extension`
 - Maximum outer URL length: 4,096 UTF-8 bytes
 
-The nested `url` must use HTTPS, have no username or password, use the exact host `app.notion.com`, `notion.so`, or `www.notion.so`, and end in a component containing a 32-hex-character Notion page ID. Hyphens in a UUID are ignored for identity. Accepted `notion.so` pages canonicalize to `www.notion.so`; all accepted hosts retain their percent-encoded path. Canonical URLs have no query or fragment.
+The nested `url` must use HTTPS, have no username or password, use the exact host `app.notion.com`, `notion.com`, or `www.notion.com`, and end in a component containing a 32-hex-character Notion page ID. Legacy `notion.so` and `www.notion.so` links are also accepted. Hyphens in a UUID are ignored for identity. All accepted non-app hosts canonicalize to `www.notion.com`; every accepted host retains its percent-encoded path. Canonical URLs have no query or fragment.
 
 Example:
 
 ```text
-notion-pip://pin?url=https%3A%2F%2Fwww.notion.so%2FProject-Roadmap-0123456789abcdef0123456789abcdef&source=chrome-extension
+notion-pip://pin?url=https%3A%2F%2Fwww.notion.com%2FProject-Roadmap-0123456789abcdef0123456789abcdef&source=chrome-extension
 ```
 
 ## Trust boundary

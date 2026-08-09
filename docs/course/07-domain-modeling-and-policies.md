@@ -191,7 +191,8 @@ so the current source layout is not a dependency-pure standalone Domain module.
 1. the UTF-8 length of `absoluteString` is at most 4,096 bytes;
 2. the scheme, case-insensitively, is exactly `https`;
 3. URL user and password are absent;
-4. the lowercased host is exactly `app.notion.com`, `notion.so`, or
+4. the lowercased host is exactly `app.notion.com`, `notion.com`,
+   `www.notion.com`, or one of the legacy hosts `notion.so` and
    `www.notion.so`; and
 5. scanning backward through the final path component can collect 32 ASCII
    hexadecimal characters, skipping hyphens encountered before all 32 are
@@ -199,13 +200,13 @@ so the current source layout is not a dependency-pure standalone Domain module.
    prefix rather than being validated as more ID characters.
 
 The page ID is lowercased. Canonicalization always uses `https`, preserves
-`app.notion.com`, maps both `notion.so` variants to `www.notion.so`, preserves
+`app.notion.com`, maps every other accepted host to `www.notion.com`, preserves
 the complete percent-encoded path, and drops query and fragment because neither
 is copied into the canonical components. The optional display title comes from
 the final component's prefix before the ID: surrounding hyphens/spaces are
 trimmed, hyphens become spaces, and whitespace collapses.
 
-This is exact-host validation, not suffix matching. `notion.so.example.com` is
+This is exact-host validation, not suffix matching. `notion.com.example.com` is
 rejected. Workspace routes and percent-encoded path segments survive. Bare and
 hyphenated UUID page IDs are accepted. Home/search paths without the required
 ID are rejected. Unlike the outer handoff parser, the page initializer does not
@@ -438,8 +439,8 @@ Step by step:
 | Input or condition | Domain result | Side effects permitted |
 |---|---|---|
 | Unknown handoff query key or duplicate `url` | `.invalidRouteShape` | None |
-| `http://www.notion.so/...` nested page | `.invalidPage(.unsupportedScheme)` | None |
-| Host `notion.so.example.com` | `.invalidPage(.unsupportedHost)` | None |
+| `http://www.notion.com/...` nested page | `.invalidPage(.unsupportedScheme)` | None |
+| Host `notion.com.example.com` | `.invalidPage(.unsupportedHost)` | None |
 | Eighth new pin | `.pinLimitReached(maximum: 7)` | Existing working set must remain unchanged |
 | Restoration URL belongs to another page | `.invalidRestoration` | Invalid restoration must not become resume input |
 | No fuzzy page match | empty sections | UI may show no results; no activation |
@@ -543,7 +544,7 @@ duplicating repository transition logic inside passive transport values.
 |---|---|---|
 | “Everything in Domain is platform-free pure business logic.” | Most is value/policy code, but `DesignTokens` imports AppKit/SwiftUI and page policy consumes a persistence-declared snapshot. | Complete Domain file map |
 | “A canonical Notion URL proves access.” | It proves accepted syntax, host, ID, and representation only. Notion authentication/authorization remains remote. | `NotionPageReference.init` |
-| “Checking `hasSuffix("notion.so")` is equivalent.” | Exact allowlist membership prevents hosts such as `notion.so.example.com`. | `supportedHosts` and URL tests |
+| “Checking `hasSuffix("notion.com")` is equivalent.” | Exact allowlist membership prevents hosts such as `notion.com.example.com`. | `supportedHosts` and URL tests |
 | “The external source string authenticates the extension.” | It is one allowed metadata value in an untrusted custom-scheme URL, not a signature. | `ExternalURLRoute.parse` |
 | “Query and fragment are part of page identity.” | They are deliberately omitted from the canonical page URL; the encoded path and 32-hex ID are retained. | canonical URL construction |
 | “Pins and recents are two independent lists.” | Policy removes pinned IDs from recents, bounds both, and returns their union for restoration retention. | `PageWorkingSetPolicy` |
@@ -646,8 +647,8 @@ transaction details.
    and a backward scan of the final path component that collects 32 ASCII hex
    characters while skipping hyphens until the count is reached.
 3. HTTPS and the full percent-encoded path survive; query/fragment are omitted.
-   `app.notion.com` remains itself, while `notion.so` and `www.notion.so`
-   canonicalize to `www.notion.so`.
+   `app.notion.com` remains itself, while all other accepted current and legacy
+   hosts canonicalize to `www.notion.com`.
 4. The outer custom-scheme grammar constrains action, source, and field shape;
    nested validation independently constrains the page to an accepted HTTPS
    Notion identity. Neither boundary substitutes for the other.
@@ -724,7 +725,7 @@ A bare ID is not enough to reconstruct the canonical URL safely. The current
 `NotionPageReference` requires a validated URL and preserves meaningful
 workspace/app-host path. Route parsing should therefore produce a typed lookup
 request such as `.openRecent(pageID:source:)`, not invent
-`https://www.notion.so/<id>` and pretend it is the stored page reference.
+`https://www.notion.com/<id>` and pretend it is the stored page reference.
 
 The effectful runtime/controller should ask the page repository or in-memory
 working-set port for the current snapshot, then use a small deterministic policy
@@ -758,8 +759,9 @@ design—not a reason to trust a string already present in the URL.
   invariants, enums, and deterministic policies.
 - Value semantics and `Sendable` snapshots complement actors: values cross
   isolation boundaries while repositories/services own mutable effects.
-- `NotionPageReference` accepts bounded HTTPS URLs on three exact hosts with a
-  32-hex page suffix; it canonicalizes host/path and removes query/fragment.
+- `NotionPageReference` accepts bounded HTTPS URLs on the current exact hosts
+  plus two legacy `.so` hosts with a 32-hex page suffix; it canonicalizes
+  non-app hosts to `www.notion.com` and removes query/fragment.
 - `ExternalURLRoute` independently constrains the outer custom-scheme grammar,
   one action, one source, field cardinality, and nested page validation.
 - Page-working-set policy bounds pins and unpinned recents at seven each,

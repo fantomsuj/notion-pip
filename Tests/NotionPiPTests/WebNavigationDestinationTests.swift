@@ -5,7 +5,13 @@ import XCTest
 
 final class WebNavigationDestinationTests: XCTestCase {
     func testClassifiesEveryExactNotionHostAsTrusted() throws {
-        for host in ["app.notion.com", "notion.so", "www.notion.so"] {
+        for host in [
+            "app.notion.com",
+            "notion.com",
+            "www.notion.com",
+            "notion.so",
+            "www.notion.so",
+        ] {
             XCTAssertEqual(
                 WebNavigationDestination.classify(
                     try XCTUnwrap(URL(string: "https://\(host)/workspace"))
@@ -50,7 +56,7 @@ final class WebNavigationDestinationTests: XCTestCase {
         for rawURL in [
             "https://user@app.notion.com/workspace",
             "https://user:password@example.com/path",
-            "https://:password@www.notion.so/workspace",
+            "https://:password@www.notion.com/workspace",
         ] {
             XCTAssertEqual(
                 WebNavigationDestination.classify(try XCTUnwrap(URL(string: rawURL))),
@@ -64,6 +70,9 @@ final class WebNavigationDestinationTests: XCTestCase {
             "https://notion.so.evil.example/workspace",
             "https://www.notion.so.evil.example/workspace",
             "https://evilnotion.so/workspace",
+            "https://notion.com.evil.example/workspace",
+            "https://www.notion.com.evil.example/workspace",
+            "https://evilnotion.com/workspace",
         ] {
             XCTAssertEqual(
                 WebNavigationDestination.classify(try XCTUnwrap(URL(string: rawURL))),
@@ -118,46 +127,94 @@ final class WebNavigationDestinationTests: XCTestCase {
     func testNotionSessionAllowsTrustedNavigationAndOpensExternalOnce() throws {
         var openedURLs: [URL] = []
         let session = NotionWebSession(openURL: { openedURLs.append($0) })
-        let trustedURL = try XCTUnwrap(URL(string: "https://notion.so/workspace"))
+        let trustedURL = try XCTUnwrap(URL(string: "https://notion.com/workspace"))
         let externalURL = try XCTUnwrap(URL(string: "https://example.com/path"))
 
         XCTAssertEqual(
-            session.navigationPolicy(for: trustedURL, targetFrameIsPresent: true),
+            session.navigationPolicy(for: trustedURL, context: .mainFrame),
             .allow
         )
         XCTAssertEqual(
-            session.navigationPolicy(for: externalURL, targetFrameIsPresent: true),
+            session.navigationPolicy(for: externalURL, context: .mainFrame),
             .cancel
         )
         XCTAssertEqual(
-            session.navigationPolicy(for: nil, targetFrameIsPresent: true),
+            session.navigationPolicy(for: nil, context: .mainFrame),
             .cancel
         )
         XCTAssertEqual(openedURLs, [externalURL])
     }
 
     @MainActor
-    func testNewWindowTrustedRequestDefersThenLoadsExistingWebViewAndReturnsNil() throws {
-        var loadedRequests: [URLRequest] = []
-        let webView = WKWebView()
-        let session = NotionWebSession(
-            webView: webView,
-            loadRequest: { loadedWebView, request in
-                XCTAssertTrue(loadedWebView === webView)
-                loadedRequests.append(request)
-            }
-        )
-        let request = URLRequest(
-            url: try XCTUnwrap(URL(string: "https://www.notion.so/workspace"))
+    func testAllowsExternalHTTPSSubframeWithoutOpeningBrowser() throws {
+        var openedURLs: [URL] = []
+        let session = NotionWebSession(openURL: { openedURLs.append($0) })
+        let analyticsURL = try XCTUnwrap(
+            URL(string: "https://aif.notion.so/aif-production.html")
         )
 
         XCTAssertEqual(
-            session.navigationPolicy(for: request.url, targetFrameIsPresent: false),
+            session.navigationPolicy(for: analyticsURL, context: .subframe),
             .allow
         )
-        XCTAssertTrue(loadedRequests.isEmpty)
-        XCTAssertNil(session.handleNewWindowRequest(request, in: webView))
-        XCTAssertEqual(loadedRequests, [request])
+        XCTAssertTrue(openedURLs.isEmpty)
+    }
+
+    func testTrustedNewWindowProducesPopupDecision() throws {
+        let request = URLRequest(
+            url: try XCTUnwrap(
+                URL(string: "https://app.notion.com/verifyNoPopupBlockerHtmlAndRedirect")
+            )
+        )
+
+        XCTAssertEqual(
+            NotionWebNavigationPolicy().newWindowDecision(for: request),
+            .createPopup
+        )
+    }
+
+    @MainActor
+    func testTrustedNewWindowReturnsPopupWithoutReplacingMainWebView() throws {
+        let mainWebView = WKWebView()
+        let popupWebView = WKWebView()
+        let popupCoordinator = PopupCoordinatorSpy(webView: popupWebView)
+        var mainLoads: [URLRequest] = []
+        let session = NotionWebSession(
+            webView: mainWebView,
+            loadRequest: { _, request in mainLoads.append(request) },
+            popupCoordinator: popupCoordinator
+        )
+        let configuration = WKWebViewConfiguration()
+        let request = URLRequest(
+            url: try XCTUnwrap(
+                URL(string: "https://app.notion.com/verifyNoPopupBlockerHtmlAndRedirect")
+            )
+        )
+
+        let returned = session.handleNewWindowRequest(
+            request,
+            configuration: configuration,
+            in: mainWebView
+        )
+
+        XCTAssertTrue(returned === popupWebView)
+        XCTAssertTrue(popupCoordinator.receivedConfiguration === configuration)
+        XCTAssertTrue(mainLoads.isEmpty)
+        XCTAssertTrue(session.webView === mainWebView)
+    }
+
+    @MainActor
+    func testRendererTerminationClosesActivePopup() {
+        let mainWebView = WKWebView()
+        let popupCoordinator = PopupCoordinatorSpy(webView: WKWebView())
+        let session = NotionWebSession(
+            webView: mainWebView,
+            popupCoordinator: popupCoordinator
+        )
+
+        session.webViewWebContentProcessDidTerminate(mainWebView)
+
+        XCTAssertEqual(popupCoordinator.closeCallCount, 1)
     }
 
     @MainActor
@@ -173,12 +230,16 @@ final class WebNavigationDestinationTests: XCTestCase {
         let externalURL = try XCTUnwrap(URL(string: "http://example.com/path"))
 
         XCTAssertEqual(
-            session.navigationPolicy(for: externalURL, targetFrameIsPresent: false),
+            session.navigationPolicy(for: externalURL, context: .newWindow),
             .allow
         )
         XCTAssertTrue(openedURLs.isEmpty)
         XCTAssertNil(
-            session.handleNewWindowRequest(URLRequest(url: externalURL), in: webView)
+            session.handleNewWindowRequest(
+                URLRequest(url: externalURL),
+                configuration: WKWebViewConfiguration(),
+                in: webView
+            )
         )
         XCTAssertEqual(openedURLs, [externalURL])
         XCTAssertTrue(loadedRequests.isEmpty)
@@ -197,16 +258,37 @@ final class WebNavigationDestinationTests: XCTestCase {
         let unsupportedURL = try XCTUnwrap(URL(string: "javascript:alert(1)"))
 
         XCTAssertEqual(
-            session.navigationPolicy(for: unsupportedURL, targetFrameIsPresent: false),
+            session.navigationPolicy(for: unsupportedURL, context: .newWindow),
             .allow
         )
         XCTAssertNil(
             session.handleNewWindowRequest(
                 URLRequest(url: unsupportedURL),
+                configuration: WKWebViewConfiguration(),
                 in: webView
             )
         )
         XCTAssertTrue(openedURLs.isEmpty)
         XCTAssertTrue(loadedRequests.isEmpty)
+    }
+}
+
+@MainActor
+private final class PopupCoordinatorSpy: NotionWebPopupCoordinating {
+    let webView: WKWebView
+    private(set) var receivedConfiguration: WKWebViewConfiguration?
+    private(set) var closeCallCount = 0
+
+    init(webView: WKWebView) {
+        self.webView = webView
+    }
+
+    func present(using configuration: WKWebViewConfiguration) -> WKWebView {
+        receivedConfiguration = configuration
+        return webView
+    }
+
+    func close() {
+        closeCallCount += 1
     }
 }
