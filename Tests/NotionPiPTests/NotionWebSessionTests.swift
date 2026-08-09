@@ -257,7 +257,7 @@ final class NotionWebSessionTests: XCTestCase {
                 from: body,
                 isMainFrame: true,
                 scheme: "https",
-                host: "app.notion.com"
+                host: "www.notion.com"
             ),
             NotionScrollSnapshot(x: 4, y: 120, progress: 0.5)
         )
@@ -1619,7 +1619,7 @@ final class NotionWebSessionTests: XCTestCase {
                 from: "typingStarted",
                 isMainFrame: true,
                 scheme: "https",
-                host: "www.notion.so"
+                host: "www.notion.com"
             ),
             .typingStarted
         )
@@ -1628,7 +1628,16 @@ final class NotionWebSessionTests: XCTestCase {
                 from: "editingEnded",
                 isMainFrame: true,
                 scheme: "https",
-                host: "notion.so"
+                host: "notion.com"
+            ),
+            .editingEnded
+        )
+        XCTAssertEqual(
+            NotionEditorActivityBridge.activity(
+                from: "editingEnded",
+                isMainFrame: true,
+                scheme: "https",
+                host: "www.notion.so"
             ),
             .editingEnded
         )

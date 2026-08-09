@@ -5,7 +5,13 @@ import XCTest
 
 final class WebNavigationDestinationTests: XCTestCase {
     func testClassifiesEveryExactNotionHostAsTrusted() throws {
-        for host in ["app.notion.com", "notion.so", "www.notion.so"] {
+        for host in [
+            "app.notion.com",
+            "notion.com",
+            "www.notion.com",
+            "notion.so",
+            "www.notion.so",
+        ] {
             XCTAssertEqual(
                 WebNavigationDestination.classify(
                     try XCTUnwrap(URL(string: "https://\(host)/workspace"))
@@ -50,7 +56,7 @@ final class WebNavigationDestinationTests: XCTestCase {
         for rawURL in [
             "https://user@app.notion.com/workspace",
             "https://user:password@example.com/path",
-            "https://:password@www.notion.so/workspace",
+            "https://:password@www.notion.com/workspace",
         ] {
             XCTAssertEqual(
                 WebNavigationDestination.classify(try XCTUnwrap(URL(string: rawURL))),
@@ -64,6 +70,9 @@ final class WebNavigationDestinationTests: XCTestCase {
             "https://notion.so.evil.example/workspace",
             "https://www.notion.so.evil.example/workspace",
             "https://evilnotion.so/workspace",
+            "https://notion.com.evil.example/workspace",
+            "https://www.notion.com.evil.example/workspace",
+            "https://evilnotion.com/workspace",
         ] {
             XCTAssertEqual(
                 WebNavigationDestination.classify(try XCTUnwrap(URL(string: rawURL))),
@@ -118,7 +127,7 @@ final class WebNavigationDestinationTests: XCTestCase {
     func testNotionSessionAllowsTrustedNavigationAndOpensExternalOnce() throws {
         var openedURLs: [URL] = []
         let session = NotionWebSession(openURL: { openedURLs.append($0) })
-        let trustedURL = try XCTUnwrap(URL(string: "https://notion.so/workspace"))
+        let trustedURL = try XCTUnwrap(URL(string: "https://notion.com/workspace"))
         let externalURL = try XCTUnwrap(URL(string: "https://example.com/path"))
 
         XCTAssertEqual(

@@ -287,7 +287,7 @@ private struct PinPageArtwork: View {
                 .font(.headline)
 
             HStack(spacing: DesignTokens.Spacing.control) {
-                Text("notion.so/Project-Roadmap-…")
+                Text("notion.com/Project-Roadmap-…")
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)

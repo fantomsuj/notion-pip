@@ -25,7 +25,8 @@ enum NotionEditorCaretBridge {
     ) -> NotionEditorCaretUpdate? {
         guard isMainFrame,
               scheme.lowercased() == "https",
-              ["app.notion.com", "notion.so", "www.notion.so"].contains(host.lowercased()),
+              ["app.notion.com", "notion.com", "www.notion.com", "notion.so", "www.notion.so"]
+                  .contains(host.lowercased()),
               let values = body as? [String: Any],
               let visible = boolean(values["visible"])
         else {

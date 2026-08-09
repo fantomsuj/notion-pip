@@ -7,7 +7,7 @@ final class NotionPageReferenceTests: XCTestCase {
 
     func testSluggedPageExtractsLowercaseIDTitleAndCanonicalURL() throws {
         let input = try XCTUnwrap(
-            URL(string: "https://notion.so/Project-Roadmap-0123456789ABCDEF0123456789ABCDEF")
+            URL(string: "https://notion.com/Project-Roadmap-0123456789ABCDEF0123456789ABCDEF")
         )
 
         let page = try NotionPageReference(validating: input)
@@ -16,23 +16,23 @@ final class NotionPageReferenceTests: XCTestCase {
         XCTAssertEqual(page.displayTitle, "Project Roadmap")
         XCTAssertEqual(
             page.canonicalURL.absoluteString,
-            "https://www.notion.so/Project-Roadmap-0123456789ABCDEF0123456789ABCDEF"
+            "https://www.notion.com/Project-Roadmap-0123456789ABCDEF0123456789ABCDEF"
         )
     }
 
     func testBarePageIDHasNoDisplayTitle() throws {
-        let input = try XCTUnwrap(URL(string: "https://www.notion.so/\(pageID)"))
+        let input = try XCTUnwrap(URL(string: "https://www.notion.com/\(pageID)"))
 
         let page = try NotionPageReference(validating: input)
 
         XCTAssertEqual(page.pageID, pageID)
         XCTAssertNil(page.displayTitle)
-        XCTAssertEqual(page.canonicalURL.absoluteString, "https://www.notion.so/\(pageID)")
+        XCTAssertEqual(page.canonicalURL.absoluteString, "https://www.notion.com/\(pageID)")
     }
 
     func testHyphenatedUUIDIsAcceptedAndCanonicalComponentIsPreserved() throws {
         let input = try XCTUnwrap(
-            URL(string: "https://www.notion.so/01234567-89ab-cdef-0123-456789abcdef")
+            URL(string: "https://www.notion.com/01234567-89ab-cdef-0123-456789abcdef")
         )
 
         let page = try NotionPageReference(validating: input)
@@ -41,25 +41,25 @@ final class NotionPageReferenceTests: XCTestCase {
         XCTAssertNil(page.displayTitle)
         XCTAssertEqual(
             page.canonicalURL.absoluteString,
-            "https://www.notion.so/01234567-89ab-cdef-0123-456789abcdef"
+            "https://www.notion.com/01234567-89ab-cdef-0123-456789abcdef"
         )
     }
 
     func testCanonicalURLStripsQueryAndFragmentAndNormalizesHost() throws {
         let input = try XCTUnwrap(
-            URL(string: "https://notion.so/Roadmap-\(pageID)?view=table#updates")
+            URL(string: "https://notion.com/Roadmap-\(pageID)?view=table#updates")
         )
 
         let page = try NotionPageReference(validating: input)
 
-        XCTAssertEqual(page.canonicalURL.absoluteString, "https://www.notion.so/Roadmap-\(pageID)")
+        XCTAssertEqual(page.canonicalURL.absoluteString, "https://www.notion.com/Roadmap-\(pageID)")
         XCTAssertNil(page.canonicalURL.query)
         XCTAssertNil(page.canonicalURL.fragment)
     }
 
     func testWWWWorkspaceRoutePreservesPathWhileStrippingQueryAndFragment() throws {
         let input = try XCTUnwrap(
-            URL(string: "https://www.notion.so/acme/Roadmap-\(pageID)?view=table#updates")
+            URL(string: "https://www.notion.com/acme/Roadmap-\(pageID)?view=table#updates")
         )
 
         let page = try NotionPageReference(validating: input)
@@ -67,35 +67,35 @@ final class NotionPageReferenceTests: XCTestCase {
         XCTAssertEqual(page.pageID, pageID)
         XCTAssertEqual(
             page.canonicalURL.absoluteString,
-            "https://www.notion.so/acme/Roadmap-\(pageID)"
+            "https://www.notion.com/acme/Roadmap-\(pageID)"
         )
         XCTAssertNil(page.canonicalURL.query)
         XCTAssertNil(page.canonicalURL.fragment)
     }
 
-    func testNotionSoWorkspaceRouteNormalizesHostWhilePreservingPath() throws {
+    func testBareNotionComWorkspaceRouteNormalizesHostWhilePreservingPath() throws {
         let input = try XCTUnwrap(
-            URL(string: "https://notion.so/acme/Roadmap-\(pageID)?view=table#updates")
+            URL(string: "https://notion.com/acme/Roadmap-\(pageID)?view=table#updates")
         )
 
         let page = try NotionPageReference(validating: input)
 
         XCTAssertEqual(
             page.canonicalURL.absoluteString,
-            "https://www.notion.so/acme/Roadmap-\(pageID)"
+            "https://www.notion.com/acme/Roadmap-\(pageID)"
         )
     }
 
     func testCanonicalURLPreservesPercentEncodedWorkspaceSegments() throws {
         let input = try XCTUnwrap(
-            URL(string: "https://www.notion.so/acme%2Fworkspace/Roadmap-\(pageID)")
+            URL(string: "https://www.notion.com/acme%2Fworkspace/Roadmap-\(pageID)")
         )
 
         let page = try NotionPageReference(validating: input)
 
         XCTAssertEqual(
             page.canonicalURL.absoluteString,
-            "https://www.notion.so/acme%2Fworkspace/Roadmap-\(pageID)"
+            "https://www.notion.com/acme%2Fworkspace/Roadmap-\(pageID)"
         )
     }
 
@@ -116,32 +116,42 @@ final class NotionPageReferenceTests: XCTestCase {
         XCTAssertNil(page.canonicalURL.fragment)
     }
 
+    func testLegacyNotionSoURLCanonicalizesToNotionCom() throws {
+        let input = try XCTUnwrap(
+            URL(string: "https://www.notion.so/Roadmap-\(pageID)?view=table#updates")
+        )
+
+        let page = try NotionPageReference(validating: input)
+
+        XCTAssertEqual(page.canonicalURL.absoluteString, "https://www.notion.com/Roadmap-\(pageID)")
+    }
+
     func testCredentialsAreRejected() throws {
         try assertRejected(
-            "https://user:password@www.notion.so/\(pageID)",
+            "https://user:password@www.notion.com/\(pageID)",
             as: .credentialsNotAllowed
         )
     }
 
     func testNonHTTPSURLIsRejected() throws {
-        try assertRejected("http://www.notion.so/\(pageID)", as: .unsupportedScheme)
+        try assertRejected("http://www.notion.com/\(pageID)", as: .unsupportedScheme)
     }
 
     func testWrongHostIsRejected() throws {
         try assertRejected("https://example.com/\(pageID)", as: .unsupportedHost)
-        try assertRejected("https://notion.so.example.com/\(pageID)", as: .unsupportedHost)
+        try assertRejected("https://notion.com.example.com/\(pageID)", as: .unsupportedHost)
     }
 
     func testWorkspaceHomeAndSearchURLsWithoutPageIDsAreRejected() throws {
-        try assertRejected("https://www.notion.so", as: .missingPageID)
-        try assertRejected("https://www.notion.so/workspace", as: .missingPageID)
-        try assertRejected("https://www.notion.so/search", as: .missingPageID)
+        try assertRejected("https://www.notion.com", as: .missingPageID)
+        try assertRejected("https://www.notion.com/workspace", as: .missingPageID)
+        try assertRejected("https://www.notion.com/search", as: .missingPageID)
     }
 
     func testOversizedURLIsRejected() throws {
         let oversizedSlug = String(repeating: "a", count: 4_097)
         try assertRejected(
-            "https://www.notion.so/\(oversizedSlug)-\(pageID)",
+            "https://www.notion.com/\(oversizedSlug)-\(pageID)",
             as: .inputTooLong
         )
     }

@@ -150,7 +150,7 @@ a retired renderer harmless.
 
 | Boundary | Accepted | Rejected or redirected | Why |
 |---|---|---|---|
-| Pin or cross-app handoff | A canonical HTTPS page on `app.notion.com`, `notion.so`, or `www.notion.so` with a 32-hex page ID | Unknown action/source, credentials, invalid page, oversized outer URL | [`HANDOFF_PROTOCOL.md`](../HANDOFF_PROTOCOL.md) and `NotionPageReference` turn external input into a validated page value before activation |
+| Pin or cross-app handoff | A canonical HTTPS page on `app.notion.com`, `notion.com`, or `www.notion.com` with a 32-hex page ID; legacy `.so` links remain accepted | Unknown action/source, credentials, invalid page, oversized outer URL | [`HANDOFF_PROTOCOL.md`](../HANDOFF_PROTOCOL.md) and `NotionPageReference` turn external input into a validated page value before activation |
 | Live top-frame navigation | Exact HTTPS Notion hosts, plus `identity.notion.com` for authentication | External HTTP(S) opens through the system; credential-bearing, relative, malformed, and unsupported schemes cancel | [`WebNavigationDestination.swift`](../../Sources/NotionPiP/Platform/WebNavigationDestination.swift) uses exact hosts, not suffix matching |
 | New-window request | Trusted Notion request loads in the existing view | External HTTP(S) opens through the system; unsupported input does nothing; no second `WKWebView` is returned | `WKUIDelegate` preserves the one-live-view invariant |
 | Activity message | Main-frame HTTPS message from the three page hosts and exactly `typingStarted` or `editingEnded` | Subframes, HTTP, other hosts, and other payload shapes | The message only changes chrome/eviction state, but it is still origin- and shape-checked |

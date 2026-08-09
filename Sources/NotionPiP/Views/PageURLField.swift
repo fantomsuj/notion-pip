@@ -19,7 +19,7 @@ struct PageURLField: View {
                 .foregroundStyle(DesignTokens.Colors.secondaryText)
 
             HStack(spacing: DesignTokens.Spacing.control) {
-                TextField("https://www.notion.so/…", text: $text)
+                TextField("https://www.notion.com/…", text: $text)
                     .textFieldStyle(.roundedBorder)
                     .focused($isFocused)
                     .onSubmit(onSubmit)
