@@ -29,6 +29,19 @@ final class CaptureBridgeProtocolTests: XCTestCase {
         )
     }
 
+    func testCanonicalDocumentMapsNonJSONValuesToInvalidDocument() {
+        let document: [String: Any] = [
+            "type": "doc",
+            "content": [["type": "paragraph", "createdAt": Date()]],
+        ]
+
+        XCTAssertThrowsError(
+            try CanonicalCaptureDocument(validatingJSONObject: document)
+        ) { error in
+            XCTAssertTrue(error is CanonicalCaptureDocumentError)
+        }
+    }
+
     func testRejectsMalformedOversizedUnknownAndCredentialShapedMessages() throws {
         let malformed = Data(#"{"version":1,"id":7,"type":"ready"}"#.utf8)
         XCTAssertThrowsError(try CaptureBridgeProtocol.decode(malformed, context: localMainFrame))

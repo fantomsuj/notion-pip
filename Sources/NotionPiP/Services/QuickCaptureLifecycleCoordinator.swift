@@ -32,12 +32,11 @@ actor QuickCaptureLifecycleCoordinator {
             else {
                 return .failed("The latest capture could not be saved.")
             }
-            let canonicalDocument = try CaptureBridgeProtocol.canonicalDocument(
-                snapshot.document
-            )
+            let canonicalDocument = try snapshot.canonicalDocument
+                ?? CanonicalCaptureDocument(validating: snapshot.document)
             let saved: CaptureDraftSnapshot
             if stored.title == snapshot.title,
-               stored.editorDocument == canonicalDocument
+               stored.editorDocument == canonicalDocument.data
             {
                 saved = stored
             } else {
@@ -45,7 +44,7 @@ actor QuickCaptureLifecycleCoordinator {
                     DraftMutation(
                         id: snapshot.draftID,
                         title: snapshot.title,
-                        editorDocument: canonicalDocument,
+                        canonicalEditorDocument: canonicalDocument,
                         sourceDocument: stored.sourceDocument,
                         disposition: stored.disposition
                     ),
@@ -54,7 +53,7 @@ actor QuickCaptureLifecycleCoordinator {
             }
 
             if snapshot.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               CaptureDocumentContent.isEmpty(canonicalDocument)
+               CaptureDocumentContent.isEmpty(canonicalDocument.data)
             {
                 try await repository.discardDraft(
                     id: saved.id,

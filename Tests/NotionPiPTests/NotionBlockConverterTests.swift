@@ -3,6 +3,18 @@ import XCTest
 @testable import NotionPiP
 
 final class NotionBlockConverterTests: XCTestCase {
+    func testJSONSerializationConversionMatchesCodableForEveryJSONValueKind() throws {
+        let data = Data(
+            #"{"object":{"array":[null,true,false,0,-1,1.5,"text"],"nested":{"value":42}}}"#.utf8
+        )
+        let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
+        let converted = try JSONValue(
+            jsonObject: JSONSerialization.jsonObject(with: data)
+        )
+
+        XCTAssertEqual(converted, decoded)
+    }
+
     func testConvertsEverySupportedEditorBlockAndInlineMark() throws {
         let document = jsonData([
             "type": "doc",

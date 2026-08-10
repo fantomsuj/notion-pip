@@ -333,14 +333,15 @@ enum CaptureBridgeProtocol {
         )
         guard let title = dictionary["title"] as? String,
               title.utf8.count <= 32_768,
-              let document = dictionary["document"],
-              JSONSerialization.isValidJSONObject(document)
+              let document = dictionary["document"]
         else {
             throw CaptureBridgeProtocolError.malformedMessage
         }
         let canonicalDocument: CanonicalCaptureDocument
         do {
-            canonicalDocument = try CanonicalCaptureDocument(validatingJSONObject: document)
+            canonicalDocument = try CanonicalCaptureDocument(
+                validatingParsedJSONObject: document
+            )
         } catch {
             throw CaptureBridgeProtocolError.invalidDocument
         }
