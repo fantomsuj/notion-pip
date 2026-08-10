@@ -29,24 +29,34 @@ final class PiPChromeViewTests: XCTestCase {
         XCTAssertEqual(PanelCornerControls.minimumHitTarget, 24)
     }
 
-    func testCornerControlsRemainVisibleWithoutToolbarHover() {
-        XCTAssertTrue(
-            PiPChromeView.shouldShowPersistentCornerControls(
+    func testTopToolbarKeepsCornerControlsInItsCompactPresentation() {
+        XCTAssertEqual(
+            PiPChromeView.topToolbarPresentation(
                 hasPositionController: true,
                 showsTopControls: false
-            )
+            ),
+            .compact
         )
-        XCTAssertTrue(
-            PiPChromeView.shouldShowPersistentCornerControls(
+        XCTAssertEqual(
+            PiPChromeView.topToolbarPresentation(
                 hasPositionController: true,
                 showsTopControls: true
-            )
+            ),
+            .expanded
         )
-        XCTAssertFalse(
-            PiPChromeView.shouldShowPersistentCornerControls(
+        XCTAssertEqual(
+            PiPChromeView.topToolbarPresentation(
+                hasPositionController: false,
+                showsTopControls: false
+            ),
+            .hidden
+        )
+        XCTAssertEqual(
+            PiPChromeView.topToolbarPresentation(
                 hasPositionController: false,
                 showsTopControls: true
-            )
+            ),
+            .expanded
         )
     }
 

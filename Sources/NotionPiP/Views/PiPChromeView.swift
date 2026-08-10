@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+enum PiPTopToolbarPresentation: Equatable {
+    case hidden
+    case compact
+    case expanded
+}
+
 struct PiPChromeView: View {
     static let primaryActionID = AppCommandID.newNotionPage
     static let primaryActionAccessibilityLabel = "New Notion Page"
@@ -53,11 +59,14 @@ struct PiPChromeView: View {
         0
     }
 
-    static func shouldShowPersistentCornerControls(
+    static func topToolbarPresentation(
         hasPositionController: Bool,
-        showsTopControls _: Bool
-    ) -> Bool {
-        hasPositionController
+        showsTopControls: Bool
+    ) -> PiPTopToolbarPresentation {
+        if showsTopControls {
+            return .expanded
+        }
+        return hasPositionController ? .compact : .hidden
     }
 
     static func shouldHostNotionWebView(for session: NotionWebSession) -> Bool {
@@ -175,16 +184,13 @@ struct PiPChromeView: View {
                         }
                         .accessibilityHidden(true)
                 }
-                topControlsOverlay
-                if Self.shouldShowPersistentCornerControls(
+                let toolbarPresentation = Self.topToolbarPresentation(
                     hasPositionController: panelPositionController != nil,
                     showsTopControls: showsTopControls
-                ), let panelPositionController {
-                    PanelCornerControls(controller: panelPositionController)
+                )
+                if toolbarPresentation != .hidden {
+                    topControlsOverlay(presentation: toolbarPresentation)
                         .padding(.leading, DesignTokens.Spacing.control)
-                        .onHover { isHovering in
-                            topControlsHover.setHovering(isHovering)
-                        }
                 }
             }
         }
@@ -210,13 +216,51 @@ struct PiPChromeView: View {
         )
     }
 
-    private var topControlsOverlay: some View {
-        HStack {
-            Spacer()
+    private func topControlsOverlay(
+        presentation: PiPTopToolbarPresentation
+    ) -> some View {
+        HStack(spacing: 0) {
+            if let panelPositionController {
+                PanelCornerControls(controller: panelPositionController)
+            }
 
+            if presentation == .expanded {
+                if panelPositionController != nil {
+                    Divider()
+                        .frame(height: 14)
+                        .padding(.horizontal, DesignTokens.Spacing.compact)
+                }
+                expandedTopControls
+                    .transition(.opacity)
+            }
+        }
+        .padding(DesignTokens.Spacing.compact)
+        .frame(height: Self.topControlsHeight)
+        .background(
+            .regularMaterial,
+            in: RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
+                .stroke(DesignTokens.Colors.border.opacity(0.7), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+        .contentShape(Rectangle().inset(by: -Self.topControlsHoverOutset))
+        .onHover { isHovering in
+            topControlsHover.setHovering(isHovering)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var expandedTopControls: some View {
+        HStack(spacing: DesignTokens.Spacing.control) {
             if webSession.state == .loading {
                 ProgressView()
                     .controlSize(.small)
+                    .frame(
+                        width: PanelCornerControls.minimumHitTarget,
+                        height: PanelCornerControls.minimumHitTarget
+                    )
                     .accessibilityLabel("Loading Notion page")
             }
 
@@ -224,6 +268,11 @@ struct PiPChromeView: View {
                 commandModel.perform(Self.primaryActionID)
             } label: {
                 Image(systemName: "plus")
+                    .frame(
+                        width: PanelCornerControls.minimumHitTarget,
+                        height: PanelCornerControls.minimumHitTarget
+                    )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!(commandModel.command(for: Self.primaryActionID)?.isEnabled ?? false))
@@ -234,6 +283,11 @@ struct PiPChromeView: View {
                 presentsPageSwitcher.toggle()
             } label: {
                 Image(systemName: "rectangle.stack")
+                    .frame(
+                        width: PanelCornerControls.minimumHitTarget,
+                        height: PanelCornerControls.minimumHitTarget
+                    )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Self.pageSwitcherAccessibilityLabel)
@@ -251,6 +305,11 @@ struct PiPChromeView: View {
 
             Button(action: repinCurrentPage) {
                 Image(systemName: "arrow.clockwise")
+                    .frame(
+                        width: PanelCornerControls.minimumHitTarget,
+                        height: PanelCornerControls.minimumHitTarget
+                    )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Self.reloadAccessibilityLabel)
@@ -258,6 +317,11 @@ struct PiPChromeView: View {
 
             Button(action: openInNotionAndStash) {
                 NotionToolbarMark()
+                    .frame(
+                        width: PanelCornerControls.minimumHitTarget,
+                        height: PanelCornerControls.minimumHitTarget
+                    )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open Notion page in browser")
@@ -269,23 +333,16 @@ struct PiPChromeView: View {
 
             Button(action: onStash) {
                 Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    .frame(
+                        width: PanelCornerControls.minimumHitTarget,
+                        height: PanelCornerControls.minimumHitTarget
+                    )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Self.stashAccessibilityLabel)
             .help(Self.stashHelp)
         }
-        .padding(.horizontal, DesignTokens.Spacing.control)
-        .frame(height: Self.topControlsHeight)
-        .background(DesignTokens.Colors.background)
-        .overlay(alignment: .bottom) { Divider() }
-        .contentShape(Rectangle().inset(by: -Self.topControlsHoverOutset))
-        .onHover { isHovering in
-            topControlsHover.setHovering(isHovering)
-        }
-        .opacity(showsTopControls ? 1 : 0)
-        .offset(y: showsTopControls ? 0 : -Self.topControlsHeight)
-        .allowsHitTesting(showsTopControls)
-        .accessibilityHidden(!showsTopControls)
     }
 }
 

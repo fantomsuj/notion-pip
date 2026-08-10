@@ -73,16 +73,6 @@ struct PanelCornerControls: View {
                 .help(corner.accessibilityLabel)
             }
         }
-        .padding(DesignTokens.Spacing.compact)
-        .background(
-            .regularMaterial,
-            in: RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
-                .stroke(DesignTokens.Colors.border.opacity(0.7), lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
         .accessibilityElement(children: .contain)
     }
 }

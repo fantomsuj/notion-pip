@@ -212,7 +212,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         case .pinPage:
             "Paste a Notion page link in Settings to pin it. The page keeps its navigation and session as you move between other apps."
         case .panelControls:
-            "Move the pointer to the top edge of the PiP to reveal its controls. Double-click the title bar above them to maximize the PiP, then double-click again to restore it."
+            "The four corner arrows stay visible. Hover over that toolbar or the top edge of the PiP to reveal the other controls. Double-click the title bar above them to maximize the PiP, then double-click again to restore it."
         case .appMenu:
             "Click the Notion PiP icon in the menu bar for Show, Stash, New Notion Page, Settings, and this guide. The ellipsis inside the panel opens the same app commands."
         case .shortcuts:
@@ -404,8 +404,16 @@ private struct PanelControlsArtwork: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: DesignTokens.Spacing.container) {
-            Text("Hover at the top edge")
+        HStack(spacing: DesignTokens.Spacing.compact) {
+            ForEach(PanelCorner.allCases, id: \.self) { corner in
+                Image(systemName: corner.symbolName)
+                    .font(.system(size: 8, weight: .semibold))
+                    .frame(width: 16, height: 20)
+            }
+            Divider()
+                .frame(height: 14)
+                .padding(.horizontal, DesignTokens.Spacing.compact)
+            Text("Hover for more")
                 .font(.caption)
                 .foregroundStyle(DesignTokens.Colors.secondaryText)
             Spacer()
@@ -442,7 +450,7 @@ private struct PanelControlsArtwork: View {
     }
 
     private var accessibilitySummary: String {
-        "Panel controls. Hover at the top edge to reveal: "
+        "Panel controls. Four corner movement arrows remain visible. Hover to reveal: "
             + OnboardingToolbarControl.all.map(\.title).joined(separator: ", ")
             + ". Double-click the title bar to maximize or restore the PiP."
     }
