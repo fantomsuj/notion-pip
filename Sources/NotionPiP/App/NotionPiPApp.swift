@@ -61,6 +61,7 @@ private final class AppComposition {
     private let settingsWindowPresenter: SettingsWindowPresenter
     private let statusItemController: StatusItemController
     private let panelSizeController: PanelSizeController
+    private let panelPositionController: PanelPositionController
     private let launchAtLoginService: LaunchAtLoginService
 
     init() {
@@ -93,6 +94,7 @@ private final class AppComposition {
 
         let pageLauncher = NotionDesktopPageLauncher()
         let panelSizeController = PanelSizeController()
+        let panelPositionController = PanelPositionController()
         let launchAtLoginService = LaunchAtLoginService()
         let commandModel = AppCommandModel(
             newNotionPage: { actionRelay.openNewNotionPage() },
@@ -113,6 +115,7 @@ private final class AppComposition {
             quickCopyController: quickCopyController,
             onReloadSavedPin: { actionRelay.reloadSavedPin() },
             panelSizeController: panelSizeController,
+            panelPositionController: panelPositionController,
             onPageSwitcherSelection: pageSwitcherRelay.perform
         )
         let runtime = AppRuntime(
@@ -199,6 +202,7 @@ private final class AppComposition {
         self.settingsWindowPresenter = settingsWindowPresenter
         self.statusItemController = statusItemController
         self.panelSizeController = panelSizeController
+        self.panelPositionController = panelPositionController
         self.launchAtLoginService = launchAtLoginService
     }
 }

@@ -1067,6 +1067,97 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertFalse(panel.isVisible)
     }
 
+    func testMovePanelSupportsEveryExplicitCornerAndCommitsSelection() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 300, y: 150, width: 400, height: 500)
+        )
+        let geometryStore = TransientPanelGeometryStore()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: { [screen] },
+            initialPreferredContentSize: panel.frame.size,
+            geometryStore: geometryStore
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let expectedFrames: [PanelCorner: CGRect] = [
+            .topLeft: CGRect(x: 24, y: 276, width: 400, height: 500),
+            .topRight: CGRect(x: 576, y: 276, width: 400, height: 500),
+            .bottomLeft: CGRect(x: 24, y: 24, width: 400, height: 500),
+            .bottomRight: CGRect(x: 576, y: 24, width: 400, height: 500),
+        ]
+
+        for corner in PanelCorner.allCases {
+            XCTAssertTrue(coordinator.movePanel(to: corner))
+            XCTAssertEqual(panel.frame, expectedFrames[corner])
+            XCTAssertEqual(coordinator.selectedCorner, corner)
+            XCTAssertEqual(panel.animatedSetFrames.last, expectedFrames[corner])
+            XCTAssertEqual(geometryStore.load()?.anchor, corner.anchor())
+            XCTAssertEqual(
+                geometryStore.load()?.desiredContentSize.cgSize,
+                CGSize(width: 400, height: 500)
+            )
+        }
+    }
+
+    func testManualMoveAwayFromExplicitCornerClearsPublishedSelection() async throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 300, y: 150, width: 400, height: 500)
+        )
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: { [screen] },
+            initialPreferredContentSize: panel.frame.size
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        var publishedCorners: [PanelCorner?] = []
+        coordinator.onPanelPositionChange = {
+            publishedCorners.append(coordinator.selectedCorner)
+        }
+
+        XCTAssertTrue(coordinator.movePanel(to: .topLeft))
+        await Task.yield()
+        panel.move(to: CGRect(x: 300, y: 150, width: 400, height: 500))
+        coordinator.recordPanelMove()
+
+        XCTAssertEqual(publishedCorners, [.topLeft, nil])
+        XCTAssertNil(coordinator.selectedCorner)
+    }
+
+    func testMovePanelRequiresPinnedPageAndVisibleDisplay() throws {
+        let panelWithoutPage = FakePanelWindow(
+            frame: CGRect(x: 300, y: 150, width: 400, height: 500)
+        )
+        let coordinatorWithoutPage = PiPPanelCoordinator(
+            panel: panelWithoutPage,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+
+        XCTAssertFalse(coordinatorWithoutPage.movePanel(to: .topLeft))
+        XCTAssertTrue(panelWithoutPage.animatedSetFrames.isEmpty)
+
+        let panelWithoutDisplay = FakePanelWindow(
+            frame: CGRect(x: 300, y: 150, width: 400, height: 500)
+        )
+        let coordinatorWithoutDisplay = PiPPanelCoordinator(
+            panel: panelWithoutDisplay,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: { [] }
+        )
+        coordinatorWithoutDisplay.show(
+            page: try makePage(id: secondPageID, title: "Notes")
+        )
+
+        XCTAssertFalse(coordinatorWithoutDisplay.movePanel(to: .topLeft))
+        XCTAssertTrue(panelWithoutDisplay.animatedSetFrames.isEmpty)
+    }
+
     func testApplyingSizeToNonvisiblePanelShowsRetainedPageWithoutReloading() throws {
         let panel = FakePanelWindow(
             frame: CGRect(x: 620, y: 100, width: 360, height: 680)
@@ -1358,6 +1449,7 @@ private final class FakePanelWindow: PiPPanelWindow {
     private(set) var restoreFromExpandedStateCount = 0
     private(set) var setFrames: [CGRect] = []
     private(set) var setFrameDisplays: [Bool] = []
+    private(set) var animatedSetFrames: [CGRect] = []
     var onClose: (@MainActor () -> Void)?
     private let recordEvent: (String) -> Void
     private let defersStashDismissal: Bool
@@ -1396,6 +1488,13 @@ private final class FakePanelWindow: PiPPanelWindow {
         self.frame = frame
         setFrames.append(frame)
         setFrameDisplays.append(display)
+    }
+
+    func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
+        setFrame(frame, display: display)
+        if animate {
+            animatedSetFrames.append(frame)
+        }
     }
 
     func move(to frame: CGRect) {

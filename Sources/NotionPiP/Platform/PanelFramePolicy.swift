@@ -37,6 +37,74 @@ enum PanelFramePolicy {
     static let cornerInset: CGFloat = 24
     static let cornerSnapThreshold: CGFloat = 72
 
+    static func cornerPlacement(
+        preferredContentSize: CGSize,
+        at corner: PanelCorner,
+        relativeTo currentFrame: CGRect,
+        visibleFrames: [CGRect],
+        minimumContentSize: CGSize = .zero,
+        frameForContentRect: (CGRect) -> CGRect
+    ) -> PanelFramePlacement? {
+        guard let visibleFrame = targetVisibleFrame(
+            for: currentFrame,
+            from: visibleFrames
+        ) else {
+            return nil
+        }
+
+        let preferredFrameSize = frameSize(
+            forContentSize: preferredContentSize,
+            minimumContentSize: minimumContentSize,
+            frameForContentRect: frameForContentRect
+        )
+        let fittedSize = CGSize(
+            width: min(
+                preferredFrameSize.width,
+                max(visibleFrame.width - cornerInset, 0)
+            ),
+            height: min(
+                preferredFrameSize.height,
+                max(visibleFrame.height - cornerInset, 0)
+            )
+        )
+        let anchor = corner.anchor()
+
+        return PanelFramePlacement(
+            frame: frame(of: fittedSize, anchoredBy: anchor, in: visibleFrame),
+            preferredContentSize: preferredContentSize,
+            anchor: anchor
+        )
+    }
+
+    static func corner(
+        for frame: CGRect,
+        visibleFrames: [CGRect],
+        inset: CGFloat = cornerInset,
+        tolerance: CGFloat = 1
+    ) -> PanelCorner? {
+        guard let visibleFrame = targetVisibleFrame(for: frame, from: visibleFrames) else {
+            return nil
+        }
+
+        return PanelCorner.allCases.first { corner in
+            let anchor = corner.anchor(inset: inset)
+            let horizontalInset = switch anchor.horizontalEdge {
+            case .left:
+                frame.minX - visibleFrame.minX
+            case .right:
+                visibleFrame.maxX - frame.maxX
+            }
+            let verticalInset = switch anchor.verticalEdge {
+            case .bottom:
+                frame.minY - visibleFrame.minY
+            case .top:
+                visibleFrame.maxY - frame.maxY
+            }
+            return abs(horizontalInset - anchor.horizontalInset) <= tolerance
+                && abs(verticalInset - anchor.verticalInset) <= tolerance
+        }
+    }
+
     /// Returns a corner-aligned frame when both axes are close to or beyond a
     /// corner. Oversized dimensions are reduced only enough to fit the display.
     /// Frames away from a corner are unchanged.

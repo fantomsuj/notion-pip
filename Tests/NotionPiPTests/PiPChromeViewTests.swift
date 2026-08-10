@@ -3,6 +3,53 @@ import XCTest
 
 @MainActor
 final class PiPChromeViewTests: XCTestCase {
+    func testCornerControlsExposeStableOneClickDestinations() {
+        XCTAssertEqual(
+            PanelCorner.allCases,
+            [.topLeft, .topRight, .bottomLeft, .bottomRight]
+        )
+        XCTAssertEqual(
+            PanelCorner.allCases.map(\.symbolName),
+            [
+                "arrow.up.left",
+                "arrow.up.right",
+                "arrow.down.left",
+                "arrow.down.right",
+            ]
+        )
+        XCTAssertEqual(
+            PanelCorner.allCases.map(\.accessibilityLabel),
+            [
+                "Move Notion PiP to top left",
+                "Move Notion PiP to top right",
+                "Move Notion PiP to bottom left",
+                "Move Notion PiP to bottom right",
+            ]
+        )
+        XCTAssertEqual(PanelCornerControls.minimumHitTarget, 24)
+    }
+
+    func testCornerControlsRemainVisibleWithoutToolbarHover() {
+        XCTAssertTrue(
+            PiPChromeView.shouldShowPersistentCornerControls(
+                hasPositionController: true,
+                showsTopControls: false
+            )
+        )
+        XCTAssertTrue(
+            PiPChromeView.shouldShowPersistentCornerControls(
+                hasPositionController: true,
+                showsTopControls: true
+            )
+        )
+        XCTAssertFalse(
+            PiPChromeView.shouldShowPersistentCornerControls(
+                hasPositionController: false,
+                showsTopControls: true
+            )
+        )
+    }
+
     func testQuickCopyButtonUsesCompactBottomLeftSizingAndAccessibleCopy() {
         XCTAssertEqual(QuickCopyButton.controlSize, 30)
         XCTAssertEqual(QuickCopyButton.edgeInset, 8)
