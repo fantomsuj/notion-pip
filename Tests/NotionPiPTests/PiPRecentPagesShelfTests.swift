@@ -3,6 +3,25 @@ import XCTest
 @testable import NotionPiP
 
 final class PiPRecentPagesShelfTests: XCTestCase {
+    func testAccessibilityCopyDescribesCurrentAndRestorableRows() {
+        XCTAssertEqual(
+            PiPRecentPagesShelfAccessibility.rowLabel(
+                title: "Product roadmap",
+                recency: "Current",
+                isCurrent: true
+            ),
+            "Product roadmap, Current, active Notion PiP page"
+        )
+        XCTAssertEqual(
+            PiPRecentPagesShelfAccessibility.rowHint(isCurrent: false),
+            "Restore this recent page in Notion PiP"
+        )
+        XCTAssertEqual(
+            PiPRecentPagesShelfAccessibility.rowHint(isCurrent: true),
+            "Restore the current Notion PiP page without reloading"
+        )
+    }
+
     @MainActor
     func testLoadPublishesFiveRowsAndMarksCurrentPage() async throws {
         let snapshot = try makeRecentSnapshot(count: 7, activeIndex: 1)
