@@ -1,22 +1,5 @@
 import Foundation
 
-struct ShortcutConfiguration: Equatable, Sendable {
-    let panel: GlobalShortcut
-    let quickCapture: GlobalShortcut
-
-    var isValid: Bool {
-        panel.isValid && quickCapture.isValid && panel != quickCapture
-    }
-
-    func replacingPanel(with shortcut: GlobalShortcut) -> ShortcutConfiguration {
-        ShortcutConfiguration(panel: shortcut, quickCapture: quickCapture)
-    }
-
-    func replacingQuickCapture(with shortcut: GlobalShortcut) -> ShortcutConfiguration {
-        ShortcutConfiguration(panel: panel, quickCapture: shortcut)
-    }
-}
-
 struct ServiceHealthState: Equatable, Sendable {
     static let healthy = ServiceHealthState()
 
@@ -45,7 +28,6 @@ enum ServiceHealthIssue: String, Comparable, Identifiable, Sendable {
     case persistentStoreUnavailable
     case pinnedPagePersistenceUnavailable
     case globalShortcutUnavailable
-    case quickCaptureShortcutUnavailable
 
     var id: String {
         rawValue
@@ -61,7 +43,6 @@ enum PageActivationSource: Equatable, Sendable {
     case typedURL
     case clipboard
     case externalRoute(ExternalURLSource)
-    case notionSearch
     case notionWebSession
     case pagePicker
     case pageSwitcher
@@ -73,11 +54,4 @@ enum ShortcutPeekGestureState: Equatable, Sendable {
     case awaitingSecondPress(generation: UInt)
     case persistent(generation: UInt)
     case suppressingRelease(generation: UInt)
-}
-
-enum PersonalTokenConnectionState: Equatable {
-    case disconnected
-    case connecting
-    case connected(workspaceName: String)
-    case failed(String)
 }

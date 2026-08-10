@@ -20,20 +20,12 @@ final class PerformanceSignposterTests: XCTestCase {
     func testRepeatableOperationReturnsDistinctTokensForEveryInterval() throws {
         let signposter = AppPerformanceSignposter()
 
-        let first = try XCTUnwrap(signposter.begin(.quickCaptureAutosave))
-        let second = try XCTUnwrap(signposter.begin(.quickCaptureAutosave))
+        let first = try XCTUnwrap(signposter.begin(.webViewEviction))
+        let second = try XCTUnwrap(signposter.begin(.webViewEviction))
 
         XCTAssertNotEqual(first, second)
-        signposter.end(
-            first,
-            outcome: .success,
-            metadata: PerformanceMetadata(documentByteCount: 1_024)
-        )
-        signposter.end(
-            second,
-            outcome: .failure,
-            metadata: PerformanceMetadata(documentByteCount: 2_048)
-        )
+        signposter.end(first, outcome: .success)
+        signposter.end(second, outcome: .failure)
     }
 }
 
@@ -41,13 +33,18 @@ final class PerformanceSignposterTests: XCTestCase {
 final class PerformanceSignposterSpy: PerformanceSignposting {
     private let tokenSource = AppPerformanceSignposter()
     private(set) var beginCalls: [PerformanceOperation] = []
+    private(set) var beginRecords: [
+        (operation: PerformanceOperation, token: PerformanceIntervalToken?)
+    ] = []
     private(set) var endCalls: [
         (token: PerformanceIntervalToken?, outcome: PerformanceOutcome, metadata: PerformanceMetadata)
     ] = []
 
     func begin(_ operation: PerformanceOperation) -> PerformanceIntervalToken? {
         beginCalls.append(operation)
-        return tokenSource.begin(operation)
+        let token = tokenSource.begin(operation)
+        beginRecords.append((operation, token))
+        return token
     }
 
     func end(

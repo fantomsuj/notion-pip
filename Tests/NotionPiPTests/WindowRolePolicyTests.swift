@@ -23,22 +23,6 @@ final class WindowRolePolicyTests: XCTestCase {
         XCTAssertEqual(window.contentMinSize, CGSize(width: 680, height: 480))
     }
 
-    func testQuickCaptureRoleCreatesRetainedFloatingKeyWindow() {
-        let window = WindowRole.quickCapture.makeWindow()
-
-        XCTAssertTrue(type(of: window) == KeyCapableAppWindow.self)
-        XCTAssertEqual(window.styleMask, [.titled, .closable, .resizable])
-        XCTAssertEqual(window.level, .floating)
-        XCTAssertEqual(
-            window.collectionBehavior,
-            [.moveToActiveSpace, .fullScreenAuxiliary]
-        )
-        XCTAssertFalse(window.isReleasedWhenClosed)
-        XCTAssertTrue(window.canBecomeKey)
-        XCTAssertEqual(window.contentRect(forFrameRect: window.frame).size, CGSize(width: 520, height: 520))
-        XCTAssertEqual(window.contentMinSize, CGSize(width: 440, height: 400))
-    }
-
     func testSettingsRoleCreatesRetainedNormalKeyWindow() {
         let window = WindowRole.settings.makeWindow()
 
@@ -74,6 +58,7 @@ final class WindowRolePolicyTests: XCTestCase {
 
     func testPiPRoleCreatesRetainedFloatingKeyOverlayPanel() {
         let window = WindowRole.pictureInPicture.makeWindow()
+        let closeButton = window.standardWindowButton(.closeButton)
 
         XCTAssertTrue(type(of: window) == KeyCapablePiPPanel.self)
         XCTAssertEqual(window.styleMask, [.titled, .closable, .resizable])
@@ -86,6 +71,15 @@ final class WindowRolePolicyTests: XCTestCase {
         XCTAssertTrue(window.canBecomeKey)
         XCTAssertEqual(window.contentRect(forFrameRect: window.frame).size, CGSize(width: 480, height: 720))
         XCTAssertEqual(window.contentMinSize, CGSize(width: 360, height: 420))
+        XCTAssertEqual(closeButton?.toolTip, KeyCapablePiPPanel.stashCloseButtonLabel)
+        XCTAssertEqual(
+            closeButton?.accessibilityLabel(),
+            KeyCapablePiPPanel.stashCloseButtonLabel
+        )
+        XCTAssertEqual(
+            closeButton?.accessibilityHelp(),
+            KeyCapablePiPPanel.stashCloseButtonHelp
+        )
     }
 
     func testStashHandleRoleCreatesRetainedNonactivatingOverlayPanel() {

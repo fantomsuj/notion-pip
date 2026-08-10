@@ -12,7 +12,7 @@ I am happily biased toward writing. Writing is how I build scaffolding for my id
 
 Pin the Notion page you are living in and keep it close without turning it into another full window. The PiP can stay visible across Spaces, tuck itself neatly onto a screen edge, and return to the same live page when you need it again.
 
-- Create a fresh Notion page from the `+` button; it becomes the new pinned page automatically.
+- Create a fresh page in the native Notion app from the `+` button.
 - Stash the panel against the nearest screen edge and restore it from its slim tab, the optional menu-bar icon, or `Command-Shift-P`; when the PiP itself is zoomed or full screen, the shortcut first returns it to its prior floating size.
 - Keep working in the real, embedded Notion page—not a screenshot or a simplified native imitation.
 - Reload the currently displayed Notion page with `Command-R`, including the sign-in page if your session has expired.
@@ -25,7 +25,6 @@ Pin the Notion page you are living in and keep it close without turning it into 
 - Opt in to launching Notion PiP when you log in to your Mac. The Settings
   toggle reads macOS's current registration state and points you to Login Items
   settings when the system requires approval.
-- Use Quick Capture to get a thought into your workspace without losing the thread of what you were doing.
 
 The app intentionally runs as an accessory rather than appearing in the Dock. Its menu-bar icon is shown by default, and you can turn it off in Settings while continuing to use the edge handle and global shortcut.
 
@@ -33,7 +32,7 @@ The app intentionally runs as an accessory rather than appearing in the Dock. It
 
 One of my favorite things about this project is its combination of native macOS behavior and the full Notion experience. Notion PiP is written in Swift 6.2 for macOS 14+ and uses WebKit’s `WKWebView` to host the live Notion app in a native floating panel. That means the panel gets to feel at home on the Mac while the page remains the actual Notion editor, with its familiar session and navigation.
 
-Around that WebKit core are the small native details that make a difference: optional menu-bar access, an always-available panel or edge handle, keyboard control, safe Notion URL handoff, persistence for your pinned page, and a Quick Capture flow.
+Around that WebKit core are the small native details that make a difference: optional menu-bar access, an always-available panel or edge handle, keyboard control, safe Notion URL handoff, persistence for your pinned page, and a native Notion new-page handoff.
 
 The page switcher keeps one live `WKWebView`, not one view per page. During the
 current app session, switching pages preserves WebKit interaction state such as
@@ -48,7 +47,7 @@ automatic cycle and presents a native retry action.
 
 ## Why I love building with Notion
 
-Notion is already a wonderful canvas for thinking. Its API makes it possible for a companion app to participate in that canvas thoughtfully: search a workspace, understand a chosen destination, create a page, and append captured writing without pretending to own your data. For Quick Capture, Notion PiP keeps that API surface narrow and deliberate, with the personal integration token entered only in the app’s own settings.
+Notion is already a wonderful canvas for thinking. Notion PiP leaves account access, workspace search, and page creation inside Notion’s own interface instead of asking for a personal integration token.
 
 That combination is the point: the flexibility of a workspace you can shape around your life, plus a tiny native tool that helps you return to it more often.
 
@@ -87,4 +86,4 @@ Codex will check the Mac and Xcode prerequisites, build and verify the app, and 
 
 Notion PiP accepts HTTPS page URLs on `app.notion.com`, `notion.com`, and `www.notion.com` with a canonical 32-character hexadecimal page ID. Legacy `notion.so` and `www.notion.so` links remain accepted; all non-app hosts canonicalize to `www.notion.com`. Every accepted host retains its percent-encoded path, while credentials, query strings, and fragments are removed. The `notion-pip` handoff contract is documented in [the handoff protocol](docs/HANDOFF_PROTOCOL.md).
 
-The development app is unsandboxed so the explicitly enabled Quick Copy mode can read selected text from other applications after the user grants macOS Accessibility access. Quick Copy keeps selections in memory only and does not modify the clipboard. Local builds use an available Apple Development or Notion PiP local-development signing identity, falling back to ad-hoc signing when neither exists. Run `./script/setup_local_signing.sh` once to create the optional machine-local identity when repeated ad-hoc rebuilds trigger Keychain authorization prompts. This identity is only for local development; it is not Developer ID distribution signing or notarization. Launch at Login uses Apple's public ServiceManagement API and changes system registration only when you use its explicit toggle. Windowing and login-item checks live in [the manual test matrix](docs/MANUAL_TEST_MATRIX.md), while reference provenance and reuse exclusions live in [the open-source research](docs/OPEN_SOURCE_RESEARCH.md) and [upstream-reuse notes](docs/UPSTREAM_REUSE.md). Product opportunities, comparable interaction patterns, and recommended experiments are synthesized in the [product research report](docs/PRODUCT_RESEARCH_REPORT.md).
+The development app is unsandboxed so the explicitly enabled Quick Copy mode can read selected text from other applications after the user grants macOS Accessibility access. Quick Copy keeps selections in memory only and does not modify the clipboard. Notion PiP does not ask for, store, or send a personal integration token; the signed-in Notion session remains in WebKit's website data store. Local builds use an available Apple Development or Notion PiP local-development signing identity, falling back to ad-hoc signing when neither exists. Run `./script/setup_local_signing.sh` once to create the optional machine-local identity when repeated ad-hoc rebuilds destabilize macOS permissions or login-item approval. This identity is only for local development; it is not Developer ID distribution signing or notarization. Launch at Login uses Apple's public ServiceManagement API and changes system registration only when you use its explicit toggle. Windowing and login-item checks live in [the manual test matrix](docs/MANUAL_TEST_MATRIX.md), while reference provenance and reuse exclusions live in [the open-source research](docs/OPEN_SOURCE_RESEARCH.md) and [upstream-reuse notes](docs/UPSTREAM_REUSE.md). Product opportunities, comparable interaction patterns, and recommended experiments are synthesized in the [product research report](docs/PRODUCT_RESEARCH_REPORT.md).

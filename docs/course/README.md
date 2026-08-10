@@ -1,5 +1,17 @@
 # Notion PiP Repository Course
 
+> **Historical course snapshot:** This course documents earlier product
+> architecture, including Quick Capture and personal-token API access, that is
+> no longer present in the shipping app. Source links to removed subsystems are
+> retained as historical teaching material and may not resolve in the current
+> checkout.
+
+> Archived source snapshot: this course describes the August 3, 2026 capture
+> architecture. Quick Capture, its TypeScript editor, and its delivery pipeline
+> were removed on August 10, 2026. The course remains for historical context;
+> capture-related links and implementation tours do not describe the current
+> checkout.
+
 This course teaches Notion PiP as a complete system: the product experience,
 the native macOS shell, the embedded Notion session, durable state, Quick
 Capture, delivery, testing, and the workflow for making safe changes. It is

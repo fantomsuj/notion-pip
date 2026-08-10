@@ -1,5 +1,9 @@
 # Modularity roadmap
 
+> Historical note: the capture editor and delivery pipeline described below
+> were removed from the current architecture. This document records the
+> earlier modularity work; it is not a map of the current implementation.
+
 This document records the incremental implementation path following the
 modularity audit. The changes are intentionally staged so behavior, signing,
 and the single-product Swift package remain stable while boundaries become

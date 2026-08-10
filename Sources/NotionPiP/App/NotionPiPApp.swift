@@ -19,9 +19,6 @@ enum NotionPiPApp {
             },
             quickCopyTerminationAction: {
                 composition.quickCopyController.prepareForTermination()
-            },
-            terminationParticipantProvider: {
-                composition.quickCaptureTerminationParticipant
             }
         )
         withExtendedLifetime(composition) {
@@ -38,11 +35,7 @@ enum AppStartup {
         coldLaunchToken: PerformanceIntervalToken? = nil,
         performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
         applicationDidFinishLaunching: @escaping @MainActor () -> Void = {},
-        quickCopyTerminationAction: @escaping @MainActor () -> Void = {},
-        terminationParticipantProvider:
-            @escaping @MainActor () -> (
-                any ApplicationTerminationParticipating
-            )? = { nil }
+        quickCopyTerminationAction: @escaping @MainActor () -> Void = {}
     ) {
         runtime.start()
         appDelegate.bind(
@@ -52,11 +45,8 @@ enum AppStartup {
         appDelegate.bind(applicationDidFinishLaunching: applicationDidFinishLaunching)
         appDelegate.bind {
             quickCopyTerminationAction()
-            let shouldTerminate =
-                await terminationParticipantProvider()?
-                .prepareForTermination() ?? true
             await runtime.prepareForTermination()
-            return shouldTerminate
+            return true
         }
         appDelegate.bind(urlHandler: runtime)
     }
@@ -66,65 +56,48 @@ enum AppStartup {
 private final class AppComposition {
     let runtime: AppRuntime
     let onboardingCoordinator: OnboardingCoordinator
-    private let quickCapturePresenter: LazyAppWindowPresenter
-    private let quickCaptureReleaseRelay: QuickCaptureReleaseRelay
+    let quickCopyController: QuickCopyController
+
     private let settingsWindowPresenter: SettingsWindowPresenter
     private let statusItemController: StatusItemController
     private let panelSizeController: PanelSizeController
     private let panelPositionController: PanelPositionController
     private let launchAtLoginService: LaunchAtLoginService
-    let quickCopyController: QuickCopyController
 
     init() {
         let actionRelay = AppCommandActionRelay()
         let onboardingPreferenceStore = OnboardingPreferenceStore()
         let webSession = NotionWebSession()
-        let credentialVault = PersonalTokenCredentialVault()
         let pageRepository: PageRepository?
-        let captureRepository: CaptureRepository?
-        let destinationRepository: QuickCaptureDestinationRepository?
-        let deliveryScheduler: DeliveryScheduler?
         let initialServiceHealth: ServiceHealthState
 
         do {
+            try LegacyPersonalTokenRemover().remove()
+        } catch let LegacyPersonalTokenRemovalError.unexpectedStatus(status) {
+            Logger(subsystem: "com.fantomsuj.NotionPiP", category: "cleanup")
+                .error("Legacy personal-token cleanup failed status=\(status, privacy: .public)")
+        } catch {
+            Logger(subsystem: "com.fantomsuj.NotionPiP", category: "cleanup")
+                .error("Legacy personal-token cleanup failed")
+        }
+
+        do {
             let container = try NotionPiPPersistence.makeContainer()
-            let captures = CaptureRepository(container: container)
-            let destinations = QuickCaptureDestinationRepository(container: container)
-            let captureAPI = PersonalTokenNotionCaptureAPI(
-                credentialVault: credentialVault
-            )
-            let deliveryService = NotionCaptureDeliveryService(
-                repository: captures,
-                api: captureAPI
-            )
-            let engine = DeliveryEngine(
-                repository: captures,
-                transport: deliveryService
-            )
-            let scheduler = DeliveryScheduler(
-                repository: captures,
-                engine: engine
-            )
             pageRepository = PageRepository(container: container)
-            captureRepository = captures
-            destinationRepository = destinations
-            deliveryScheduler = scheduler
             initialServiceHealth = .healthy
         } catch {
             Logger(subsystem: "com.fantomsuj.NotionPiP", category: "persistence")
                 .error("Persistent store unavailable")
             pageRepository = nil
-            captureRepository = nil
-            destinationRepository = nil
-            deliveryScheduler = nil
             initialServiceHealth = ServiceHealthState(issues: [.persistentStoreUnavailable])
         }
 
+        let pageLauncher = NotionDesktopPageLauncher()
         let panelSizeController = PanelSizeController()
         let panelPositionController = PanelPositionController()
         let launchAtLoginService = LaunchAtLoginService()
         let commandModel = AppCommandModel(
-            quickCapture: { actionRelay.showQuickCapture() },
+            newNotionPage: { actionRelay.openNewNotionPage() },
             settings: { actionRelay.showSettings() },
             gettingStarted: { actionRelay.showGettingStarted() },
             quit: { actionRelay.quit() }
@@ -148,10 +121,6 @@ private final class AppComposition {
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
             pageRepository: pageRepository,
-            destinationRepository: destinationRepository,
-            captureRepository: captureRepository,
-            deliveryScheduler: deliveryScheduler,
-            credentialVault: credentialVault,
             initialServiceHealth: initialServiceHealth,
             automaticSettingsPresentationAllowed: {
                 !onboardingPreferenceStore.shouldPresent(
@@ -159,33 +128,16 @@ private final class AppComposition {
                 )
             }
         )
+
         actionRelay.reloadSavedPinAction = { [weak runtime] in
             runtime?.reloadSavedPin()
         }
-        let captureLifecycle: QuickCaptureLifecycleCoordinator?
-        if let captureRepository, let destinationRepository, let deliveryScheduler {
-            captureLifecycle = QuickCaptureLifecycleCoordinator(
-                repository: captureRepository,
-                destinations: destinationRepository,
-                hasUsableToken: { [weak runtime] in
-                    await MainActor.run {
-                        runtime?.hasUsablePersonalToken() == true
-                    }
-                },
-                onEnqueued: { _ in
-                    Task {
-                        await deliveryScheduler.trigger()
-                    }
-                }
-            )
-        } else {
-            captureLifecycle = nil
+        actionRelay.newNotionPageAction = {
+            _ = pageLauncher.openNewPage()
         }
         webSession.onPageResolved = { [weak runtime] page in
             runtime?.activate(page: page, source: .notionWebSession)
         }
-        let quickCaptureReleaseRelay = QuickCaptureReleaseRelay()
-        let quickCapturePrefillRelay = QuickCapturePrefillRelay()
         webSession.onRestorationCaptured = { restoration in
             guard let pageRepository else { return }
             Task {
@@ -206,30 +158,7 @@ private final class AppComposition {
                 restoration: restoration
             )
         }
-        let quickCapturePresenter = LazyAppWindowPresenter(
-            makePresenter: {
-                let presenter = AppWindowFactory.makeQuickCapture(
-                    repository: captureRepository,
-                    lifecycle: captureLifecycle,
-                    onSessionCreated: { session in
-                        quickCapturePrefillRelay.bind(session)
-                    },
-                    onNeedsConfiguration: { _ in
-                        actionRelay.showSettings()
-                    },
-                    onSuccessfulClose: { [weak quickCaptureReleaseRelay] in
-                        quickCaptureReleaseRelay?.scheduleReleaseAfterSuccessfulClose()
-                    }
-                ) { [weak runtime] in
-                    guard let page = runtime?.activePage else { return }
-                    NSWorkspace.shared.open(page.canonicalURL)
-                }
-                return presenter
-            },
-            performanceSignposter: AppPerformanceSignposter.shared,
-            firstPresentationOperation: .firstQuickCapturePresentation
-        )
-        quickCaptureReleaseRelay.presenter = quickCapturePresenter
+
         let settingsWindowPresenter = SettingsWindowPresenter { closeHandler in
             AppWindowFactory.makeSettings(
                 runtime: runtime,
@@ -247,7 +176,6 @@ private final class AppComposition {
             makeWindowPresenter: { completion, openSettings in
                 AppWindowFactory.makeOnboarding(
                     globalShortcut: runtime.globalShortcut,
-                    quickCaptureShortcut: runtime.quickCaptureShortcut,
                     onComplete: completion,
                     onOpenSettings: openSettings
                 )
@@ -259,19 +187,6 @@ private final class AppComposition {
             panelSizeController: panelSizeController
         )
 
-        actionRelay.quickCapturePresenter = quickCapturePresenter
-        actionRelay.quickCapturePrefillAction = { text in
-            quickCapturePrefillRelay.prefill(text)
-        }
-        runtime.quickCaptureAction = { [weak webSession] prefill, insertAtCursor in
-            guard insertAtCursor, let prefill, let webSession else {
-                actionRelay.showQuickCapture(prefill: prefill)
-                return
-            }
-            webSession.insertAtSavedEditorCursor(prefill) { inserted in
-                if !inserted { actionRelay.showQuickCapture(prefill: prefill) }
-            }
-        }
         actionRelay.settingsWindowPresenter = settingsWindowPresenter
         actionRelay.gettingStartedAction = { [weak onboardingCoordinator] in
             onboardingCoordinator?.show()
@@ -283,49 +198,12 @@ private final class AppComposition {
 
         self.runtime = runtime
         self.onboardingCoordinator = onboardingCoordinator
-        self.quickCapturePresenter = quickCapturePresenter
-        self.quickCaptureReleaseRelay = quickCaptureReleaseRelay
+        self.quickCopyController = quickCopyController
         self.settingsWindowPresenter = settingsWindowPresenter
         self.statusItemController = statusItemController
         self.panelSizeController = panelSizeController
         self.panelPositionController = panelPositionController
         self.launchAtLoginService = launchAtLoginService
-        self.quickCopyController = quickCopyController
-    }
-
-    var quickCaptureTerminationParticipant:
-        (
-            any ApplicationTerminationParticipating
-        )?
-    {
-        quickCapturePresenter.terminationParticipant
-    }
-}
-
-@MainActor
-private final class QuickCapturePrefillRelay {
-    weak var session: CaptureEditorSession?
-    private var pending: String?
-
-    func bind(_ session: CaptureEditorSession) {
-        self.session = session
-        if let pending { self.pending = nil; prefill(pending) }
-    }
-
-    func prefill(_ text: String) {
-        guard let session else { pending = text; return }
-        Task { @MainActor in
-            if !(await session.prefill(text)) { self.pending = text }
-        }
-    }
-}
-
-@MainActor
-private final class QuickCaptureReleaseRelay {
-    weak var presenter: LazyAppWindowPresenter?
-
-    func scheduleReleaseAfterSuccessfulClose() {
-        presenter?.scheduleReleaseAfterSuccessfulClose()
     }
 }
 

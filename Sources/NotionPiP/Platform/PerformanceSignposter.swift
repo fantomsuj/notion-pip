@@ -4,21 +4,26 @@ import OSLog
 enum PerformanceOperation: String, CaseIterable, Sendable {
     case coldLaunchToReady = "ColdLaunchToReady"
     case firstPiPPresentation = "FirstPiPPresentation"
-    case firstQuickCapturePresentation = "FirstQuickCapturePresentation"
-    case quickCaptureReadyToEdit = "QuickCaptureReadyToEdit"
-    case quickCaptureAutosave = "QuickCaptureAutosave"
     case notionSessionRestoration = "NotionSessionRestoration"
     case webViewEviction = "WebViewEviction"
+    case webViewConstruction = "WebViewConstruction"
+    case navigationRequestToCommit = "NavigationRequestToCommit"
+    case commitToUsefulContent = "CommitToUsefulContent"
+    case interactionStateRestoreToUsefulContent = "InteractionStateRestoreToUsefulContent"
+    case rendererRecoveryToUsefulContent = "RendererRecoveryToUsefulContent"
+    case hiddenPanelWarmResume = "HiddenPanelWarmResume"
     case shortcutPressToPresentationRequest = "ShortcutPressToPresentationRequest"
     case shortcutPressToUsefulContent = "ShortcutPressToUsefulContent"
     case peekRestash = "PeekRestash"
 
     var isFirstOnly: Bool {
         switch self {
-        case .coldLaunchToReady, .firstPiPPresentation, .firstQuickCapturePresentation:
+        case .coldLaunchToReady, .firstPiPPresentation:
             true
-        case .quickCaptureReadyToEdit, .quickCaptureAutosave,
-             .notionSessionRestoration, .webViewEviction,
+        case .notionSessionRestoration, .webViewEviction,
+             .webViewConstruction, .navigationRequestToCommit,
+             .commitToUsefulContent, .interactionStateRestoreToUsefulContent,
+             .rendererRecoveryToUsefulContent, .hiddenPanelWarmResume,
              .shortcutPressToPresentationRequest, .shortcutPressToUsefulContent,
              .peekRestash:
             false
@@ -37,16 +42,13 @@ struct PerformanceIntervalToken: Hashable, Sendable {
 }
 
 struct PerformanceMetadata: Equatable, Sendable {
-    var documentByteCount: Int?
     var cacheEntryCount: Int?
     var webViewRetention: WebViewRetention?
 
     init(
-        documentByteCount: Int? = nil,
         cacheEntryCount: Int? = nil,
         webViewRetention: WebViewRetention? = nil
     ) {
-        self.documentByteCount = documentByteCount
         self.cacheEntryCount = cacheEntryCount
         self.webViewRetention = webViewRetention
     }
@@ -99,10 +101,6 @@ final class AppPerformanceSignposter: PerformanceSignposting {
         subsystem: "com.fantomsuj.NotionPiP",
         category: "performance.presentation"
     )
-    private let captureSignposter = OSSignposter(
-        subsystem: "com.fantomsuj.NotionPiP",
-        category: "performance.capture"
-    )
     private let webViewSignposter = OSSignposter(
         subsystem: "com.fantomsuj.NotionPiP",
         category: "performance.webview"
@@ -122,16 +120,22 @@ final class AppPerformanceSignposter: PerformanceSignposting {
             state = lifecycleSignposter.beginInterval("ColdLaunchToReady")
         case .firstPiPPresentation:
             state = presentationSignposter.beginInterval("FirstPiPPresentation")
-        case .firstQuickCapturePresentation:
-            state = presentationSignposter.beginInterval("FirstQuickCapturePresentation")
-        case .quickCaptureReadyToEdit:
-            state = captureSignposter.beginInterval("QuickCaptureReadyToEdit")
-        case .quickCaptureAutosave:
-            state = captureSignposter.beginInterval("QuickCaptureAutosave")
         case .notionSessionRestoration:
             state = webViewSignposter.beginInterval("NotionSessionRestoration")
         case .webViewEviction:
             state = webViewSignposter.beginInterval("WebViewEviction")
+        case .webViewConstruction:
+            state = webViewSignposter.beginInterval("WebViewConstruction")
+        case .navigationRequestToCommit:
+            state = webViewSignposter.beginInterval("NavigationRequestToCommit")
+        case .commitToUsefulContent:
+            state = webViewSignposter.beginInterval("CommitToUsefulContent")
+        case .interactionStateRestoreToUsefulContent:
+            state = webViewSignposter.beginInterval("InteractionStateRestoreToUsefulContent")
+        case .rendererRecoveryToUsefulContent:
+            state = webViewSignposter.beginInterval("RendererRecoveryToUsefulContent")
+        case .hiddenPanelWarmResume:
+            state = webViewSignposter.beginInterval("HiddenPanelWarmResume")
         case .shortcutPressToPresentationRequest:
             state = presentationSignposter.beginInterval("ShortcutPressToPresentationRequest")
         case .shortcutPressToUsefulContent:
@@ -169,24 +173,6 @@ final class AppPerformanceSignposter: PerformanceSignposting {
                 interval.state,
                 "outcome=\(outcome.rawValue, privacy: .public)"
             )
-        case .firstQuickCapturePresentation:
-            presentationSignposter.endInterval(
-                "FirstQuickCapturePresentation",
-                interval.state,
-                "outcome=\(outcome.rawValue, privacy: .public)"
-            )
-        case .quickCaptureReadyToEdit:
-            captureSignposter.endInterval(
-                "QuickCaptureReadyToEdit",
-                interval.state,
-                "outcome=\(outcome.rawValue, privacy: .public)"
-            )
-        case .quickCaptureAutosave:
-            captureSignposter.endInterval(
-                "QuickCaptureAutosave",
-                interval.state,
-                "outcome=\(outcome.rawValue, privacy: .public) document_bytes=\(metadata.documentByteCount ?? 0, privacy: .public)"
-            )
         case .notionSessionRestoration:
             webViewSignposter.endInterval(
                 "NotionSessionRestoration",
@@ -198,6 +184,42 @@ final class AppPerformanceSignposter: PerformanceSignposting {
                 "WebViewEviction",
                 interval.state,
                 "outcome=\(outcome.rawValue, privacy: .public) cache_entries=\(metadata.cacheEntryCount ?? 0, privacy: .public)"
+            )
+        case .webViewConstruction:
+            webViewSignposter.endInterval(
+                "WebViewConstruction",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public)"
+            )
+        case .navigationRequestToCommit:
+            webViewSignposter.endInterval(
+                "NavigationRequestToCommit",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public)"
+            )
+        case .commitToUsefulContent:
+            webViewSignposter.endInterval(
+                "CommitToUsefulContent",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public)"
+            )
+        case .interactionStateRestoreToUsefulContent:
+            webViewSignposter.endInterval(
+                "InteractionStateRestoreToUsefulContent",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public)"
+            )
+        case .rendererRecoveryToUsefulContent:
+            webViewSignposter.endInterval(
+                "RendererRecoveryToUsefulContent",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public)"
+            )
+        case .hiddenPanelWarmResume:
+            webViewSignposter.endInterval(
+                "HiddenPanelWarmResume",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public)"
             )
         case .shortcutPressToPresentationRequest:
             presentationSignposter.endInterval(

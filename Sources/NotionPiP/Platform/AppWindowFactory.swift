@@ -5,7 +5,6 @@ import SwiftUI
 enum AppWindowFactory {
     static func makeOnboarding(
         globalShortcut: GlobalShortcut,
-        quickCaptureShortcut: GlobalShortcut,
         onComplete: @escaping @MainActor () -> Void,
         onOpenSettings: @escaping @MainActor () -> Void
     ) -> AppWindowPresenter {
@@ -15,7 +14,6 @@ enum AppWindowFactory {
             content: AnyView(
                 OnboardingView(
                     globalShortcut: globalShortcut,
-                    quickCaptureShortcut: quickCaptureShortcut,
                     onComplete: onComplete,
                     onOpenSettings: onOpenSettings
                 )
@@ -23,95 +21,6 @@ enum AppWindowFactory {
         )
         window.closeRequestHandler = onComplete
         return AppWindowPresenter(window: window)
-    }
-
-    static func makeQuickCapture(
-        repository: CaptureRepository?,
-        lifecycle: QuickCaptureLifecycleCoordinator? = nil,
-        onSessionCreated: @escaping @MainActor (CaptureEditorSession) -> Void = { _ in },
-        onNeedsConfiguration: @escaping @MainActor (String) -> Void = { _ in },
-        onSuccessfulClose: @escaping @MainActor () -> Void = {},
-        openInNotion: @escaping () -> Void
-    ) -> AppWindowPresenter {
-        let content: AnyView
-        let session: CaptureEditorSession?
-        if let repository {
-            let editorSession = CaptureEditorSession(
-                repository: repository,
-                openInNotion: openInNotion
-            )
-            session = editorSession
-            onSessionCreated(editorSession)
-            content = AnyView(
-                QuickCaptureView(session: editorSession)
-                    .padding(DesignTokens.Spacing.container)
-                    .frame(minWidth: 440, minHeight: 400)
-            )
-        } else {
-            session = nil
-            content = AnyView(
-                VStack(spacing: DesignTokens.Spacing.control) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.title2)
-                    Text("Quick Capture is unavailable")
-                        .font(.headline)
-                    Text("Your local draft store could not be opened. Restart the app and try again.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(DesignTokens.Spacing.container)
-                .frame(minWidth: 360, minHeight: 220)
-            )
-        }
-
-        let window = makeWindow(
-            role: .quickCapture,
-            title: "Quick Capture",
-            content: content
-        )
-        if let session, let lifecycle {
-            window.closeRequestHandler = { [weak window, weak session] in
-                guard let window, let session, !window.isProcessingCloseRequest else { return }
-                window.isProcessingCloseRequest = true
-                Task { @MainActor in
-                    defer { window.isProcessingCloseRequest = false }
-                    do {
-                        let snapshot = try await session.latestSnapshot()
-                        let outcome = await lifecycle.close(snapshot: snapshot)
-                        switch outcome {
-                        case .discarded, .enqueued:
-                            window.orderOut()
-                            onSuccessfulClose()
-                        case let .needsConfiguration(message):
-                            session.reportCloseGuidance(message)
-                            window.orderOut()
-                            onNeedsConfiguration(message)
-                            onSuccessfulClose()
-                        case let .failed(message):
-                            session.reportCloseGuidance(message)
-                        }
-                    } catch {
-                        session.reportCloseGuidance("The latest capture could not be saved.")
-                    }
-                }
-            }
-        }
-        let terminationHandler: (@MainActor () async -> Bool)?
-        if let session {
-            terminationHandler = { [weak session] in
-                guard let session else { return true }
-                return await session.prepareForTermination()
-            }
-        } else {
-            terminationHandler = nil
-        }
-        return AppWindowPresenter(
-            window: window,
-            terminationHandler: terminationHandler,
-            resourceDisposalHandler: { [weak session] in
-                session?.dispose()
-            }
-        )
     }
 
     static func makeSettings(

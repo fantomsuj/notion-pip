@@ -101,4 +101,4 @@ fi
 SETUP_COMPLETE=true
 
 echo "Installed $IDENTITY_NAME ($IDENTITY_HASH)."
-echo "Local Notion PiP rebuilds will now keep a stable Keychain identity."
+echo "Local Notion PiP rebuilds will now keep a stable signing identity."

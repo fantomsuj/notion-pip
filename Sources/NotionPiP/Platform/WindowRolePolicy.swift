@@ -3,7 +3,6 @@ import AppKit
 @MainActor
 enum WindowRole {
     case onboarding
-    case quickCapture
     case settings
     case pinPage
     case pictureInPicture
@@ -19,15 +18,6 @@ enum WindowRole {
                 collectionBehavior: [.moveToActiveSpace, .fullScreenAuxiliary],
                 initialContentSize: CGSize(width: 760, height: 520),
                 minimumContentSize: CGSize(width: 680, height: 480)
-            )
-        case .quickCapture:
-            WindowRolePolicy(
-                kind: .keyWindow,
-                styleMask: [.titled, .closable, .resizable],
-                level: .floating,
-                collectionBehavior: [.moveToActiveSpace, .fullScreenAuxiliary],
-                initialContentSize: CGSize(width: 520, height: 520),
-                minimumContentSize: CGSize(width: 440, height: 400)
             )
         case .settings:
             WindowRolePolicy(
@@ -145,6 +135,9 @@ struct WindowRolePolicy {
             )
         }
         apply(to: window)
+        if let panel = window as? KeyCapablePiPPanel {
+            panel.configureCloseButtonForStash()
+        }
         return window
     }
 

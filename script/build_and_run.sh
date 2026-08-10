@@ -61,10 +61,6 @@ cd "$ROOT_DIR"
 
 /usr/bin/pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-if [[ -f "$ROOT_DIR/package.json" && -d "$ROOT_DIR/node_modules" ]]; then
-    /usr/bin/env npm run build:editor --if-present
-fi
-
 swift build --product "$APP_NAME"
 BUILD_DIR="$(swift build --show-bin-path)"
 BUILD_BINARY="$BUILD_DIR/$APP_NAME"
@@ -159,7 +155,6 @@ verify_bundle() {
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$INFO_PLIST")" == "$MIN_SYSTEM_VERSION" ]] || return 1
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$INFO_PLIST")" == "true" ]] || return 1
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$INFO_PLIST")" == "notion-pip" ]] || return 1
-    [[ -f "$APP_RESOURCES/NotionPiP_NotionPiP.bundle/QuickCapture/index.html" ]] || return 1
     [[ -f "$APP_RESOURCES/NotionPiP.icns" ]] || return 1
     /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE" || return 1
 }

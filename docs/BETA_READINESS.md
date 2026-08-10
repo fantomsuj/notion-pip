@@ -4,7 +4,7 @@ This checklist defines the minimum bar for giving Notion PiP 0.1 to people outsi
 
 ## Release gate
 
-- [ ] CI passes for Swift tests, web tests, TypeScript checks, and generated-editor verification.
+- [ ] CI passes for the Swift test suite.
 - [ ] `Support/Version.env` contains the intended user-facing version and a new build number.
 - [ ] The ten critical manual tests below pass on a clean macOS 14+ user account.
 - [ ] The app has a final icon, support URL, privacy policy, and installation instructions.
@@ -13,6 +13,7 @@ This checklist defines the minimum bar for giving Notion PiP 0.1 to people outsi
   real login, disabled again, and checked after relaunch using that distributed
   archive.
 - [ ] No test account, Notion token, session cookie, signing credential, or notarization credential is committed.
+- [ ] Upgrading deletes the retired personal-token Keychain item without reading it and leaves the embedded Notion session intact.
 - [ ] Five to ten testers have an owner, contact method, and feedback deadline.
 - [ ] Known limitations and recovery steps are included with the beta.
 
@@ -30,8 +31,8 @@ Record full observations in [the complete manual test matrix](MANUAL_TEST_MATRIX
 | 6 | Relaunch restoration | After quitting and reopening, pins, local roles, recents, the last validated URL, panel geometry, best-effort scroll position, and the actual macOS Launch at Login registration are reflected safely. | |
 | 7 | Full-screen Spaces | The PiP appears above a full-screen app, accepts keyboard input, and stays out of Mission Control and normal window cycling. | |
 | 8 | Display changes | On a two-display setup, moving, stashing, unplugging, and reconnecting a display never loses the panel, creates a duplicate, or reloads the page. | |
-| 9 | Quick Capture durability | Saving, retrying after failure, resolving a conflict, closing, and terminating the app do not silently lose a draft or create an unintended duplicate. | |
-| 10 | Keyboard and VoiceOver | Pinning, switching, editing pin roles, stashing, restoring, choosing panel sizes, and Quick Capture remain reachable and clearly announced without a pointer. | |
+| 9 | Native page creation | The `+` button and Command-N open Notion's native new-page flow without changing or reloading the retained PiP page. | |
+| 10 | Keyboard and VoiceOver | Pinning, switching, editing pin roles, stashing, restoring, choosing panel sizes, and native page creation remain reachable and clearly announced without a pointer. | |
 
 ## Tester handoff
 
@@ -39,9 +40,9 @@ Ask each beta tester to use Notion PiP during a normal workday and complete thre
 
 1. Pin the Notion page they use most.
 2. Stash and restore the panel at least five times while editing.
-3. Save five thoughts with Quick Capture.
+3. Create five pages through the native Notion handoff.
 
-Collect whether they could install and sign in unaided, understood pin/stash/Quick Capture, encountered lost state or text, and chose to keep the app running the next day.
+Collect whether they could install and sign in unaided, understood pin/stash/new-page handoff, encountered lost state or text, and chose to keep the app running the next day.
 
 ## Launch at Login development limitation
 
@@ -55,4 +56,4 @@ on a clean account, including a real logout/login cycle.
 
 ## Stop-ship conditions
 
-Do not distribute a build that loses edits or drafts, exposes private Notion data, cannot be reopened after stashing, fails to recover after display changes, crashes during the three tester jobs, or is not signed and notarized for external installation.
+Do not distribute a build that loses edits, exposes private Notion data, cannot be reopened after stashing, fails to recover after display changes, crashes during the three tester jobs, or is not signed and notarized for external installation.

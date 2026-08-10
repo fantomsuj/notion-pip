@@ -2,19 +2,13 @@ import AppKit
 
 @MainActor
 final class AppCommandActionRelay {
-    weak var quickCapturePresenter: (any AppWindowPresenting)?
     weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
     var reloadSavedPinAction: () -> Void = {}
-    var quickCapturePrefillAction: (String) -> Void = { _ in }
+    var newNotionPageAction: () -> Void = {}
     var gettingStartedAction: () -> Void = {}
 
-    func showQuickCapture() {
-        quickCapturePresenter?.show()
-    }
-
-    func showQuickCapture(prefill: String?) {
-        quickCapturePresenter?.show()
-        if let prefill, !prefill.isEmpty { quickCapturePrefillAction(prefill) }
+    func openNewNotionPage() {
+        newNotionPageAction()
     }
 
     func showSettings() {

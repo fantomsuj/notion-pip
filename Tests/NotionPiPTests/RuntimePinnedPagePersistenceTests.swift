@@ -393,7 +393,7 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertEqual(settings.showCount, 0)
     }
 
-    func testDisconnectWhileRestoreIsDelayedStillRestoresSavedPage() async throws {
+    func testDelayedRestoreStillRestoresSavedPage() async throws {
         let panel = RuntimePanelCoordinator()
         let repository = RuntimePinnedPageRepository()
         let runtime = makeRuntime(panel: panel, pageRepository: repository)
@@ -401,7 +401,6 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
 
         runtime.start()
         try await repository.waitUntilRestoreRequested()
-        runtime.disconnectPersonalToken()
         await repository.finishRestore(with: storedPage)
         try await repository.waitUntilRestoreReturned()
         await waitUntilRuntimeCondition { runtime.activePage?.pageID == firstPageID }
@@ -445,7 +444,7 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         let second = try makePage(id: secondPageID, title: "Second")
 
         runtime.activate(page: first, source: .typedURL)
-        runtime.activate(page: second, source: .notionSearch)
+        runtime.activate(page: second, source: .pagePicker)
         try await repository.waitUntilSaveCount(1)
         let firstSaveIDs = await repository.savedPageIDs()
 
@@ -477,7 +476,7 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertTrue(panel.isVisible)
         XCTAssertEqual(panel.currentPage, first)
 
-        runtime.activate(page: second, source: .notionSearch)
+        runtime.activate(page: second, source: .pagePicker)
         try await repository.waitUntilSaveCount(2)
         let savedPageIDs = await repository.savedPageIDs()
         await waitUntilRuntimeCondition {

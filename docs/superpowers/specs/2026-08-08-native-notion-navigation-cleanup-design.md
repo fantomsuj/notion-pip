@@ -1,5 +1,11 @@
 # Native Notion Navigation and Legacy Feature Removal Design
 
+> **Implementation status:** Quick Capture's UI, runtime, and delivery machinery
+> were removed first while page management remained. Personal-token search and
+> Notion REST API access were removed later, with exact legacy Keychain cleanup.
+> The broader page-management removal described below remains historical design
+> work rather than current implementation.
+
 ## Goal
 
 Make Notion PiP a focused shell around Notion's native information architecture. Remove the personal-token connection, Quick Capture, delivery, and app-owned page-management systems. Users organize and find pages with Notion Home, Favorites, Recents, Search, Teamspaces, and the native new-page flow. Quick Copy remains as the sole capture helper.

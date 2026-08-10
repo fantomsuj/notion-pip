@@ -32,13 +32,13 @@ actor PageRepository {
         subsystem: "com.fantomsuj.NotionPiP",
         category: "page-working-set"
     )
-    private var clock: any CaptureClock = SystemCaptureClock()
+    private var clock: any DateProviding = SystemDateProvider()
     private var beforeSave: PageRepositorySaveCheck = {}
     private let policy = PageWorkingSetPolicy.standard
 
     init(
         container: ModelContainer,
-        clock: any CaptureClock = SystemCaptureClock(),
+        clock: any DateProviding = SystemDateProvider(),
         beforeSave: @escaping PageRepositorySaveCheck = {}
     ) {
         let context = ModelContext(container)
@@ -378,14 +378,14 @@ actor PageRepository {
 
     private func snapshot(_ model: PinnedPageModel) throws -> StoredPageSnapshot {
         guard let value = snapshotIfValid(model) else {
-            throw CaptureRepositoryError.invalidStoredValue(model.canonicalURL)
+            throw PageRepositoryError.invalidStoredValue(model.canonicalURL)
         }
         return value
     }
 
     private func snapshot(_ model: RecentPageModel) throws -> StoredPageSnapshot {
         guard let value = snapshotIfValid(model) else {
-            throw CaptureRepositoryError.invalidStoredValue(model.canonicalURL)
+            throw PageRepositoryError.invalidStoredValue(model.canonicalURL)
         }
         return value
     }

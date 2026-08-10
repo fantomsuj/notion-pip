@@ -1,7 +1,7 @@
 import AppKit
 
 enum AppCommandID: Int, CaseIterable, Sendable {
-    case quickCapture
+    case newNotionPage
     case settings
     case gettingStarted
     case quit
@@ -56,7 +56,7 @@ final class AppCommandModel {
 
     static var noOp: AppCommandModel {
         AppCommandModel(
-            quickCapture: {},
+            newNotionPage: {},
             settings: {},
             gettingStarted: {},
             quit: {}
@@ -64,7 +64,7 @@ final class AppCommandModel {
     }
 
     init(
-        quickCapture: @escaping @MainActor () -> Void,
+        newNotionPage: @escaping @MainActor () -> Void,
         settings: @escaping @MainActor () -> Void,
         gettingStarted: @escaping @MainActor () -> Void,
         quit: @escaping @MainActor () -> Void
@@ -72,10 +72,10 @@ final class AppCommandModel {
         groups = [
             AppCommandGroup(commands: [
                 AppCommand(
-                    id: .quickCapture,
-                    title: "Quick Capture",
+                    id: .newNotionPage,
+                    title: "New Notion Page",
                     keyEquivalent: "n",
-                    action: quickCapture
+                    action: newNotionPage
                 ),
             ]),
             AppCommandGroup(commands: [

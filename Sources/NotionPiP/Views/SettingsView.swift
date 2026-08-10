@@ -5,7 +5,6 @@ struct SettingsView: View {
     @ObservedObject var runtime: AppRuntime
     @ObservedObject var panelSizeController: PanelSizeController
     @ObservedObject var launchAtLoginService: LaunchAtLoginService
-    @State private var personalToken = ""
 
     var body: some View {
         ScrollView {
@@ -19,9 +18,6 @@ struct SettingsView: View {
                         state: runtime.pageURLInputState,
                         onSubmit: runtime.validatePageURL
                     )
-                    if runtime.isNotionConnected {
-                        NotionWorkspaceSearchView(runtime: runtime)
-                    }
                     if let activePage = runtime.activePage {
                         LabeledContent(
                             "Active page",
@@ -30,10 +26,6 @@ struct SettingsView: View {
                         Text("No page is pinned yet.")
                             .foregroundStyle(DesignTokens.Colors.secondaryText)
                     }
-                }
-
-                Section("Quick Capture Destination") {
-                    QuickCaptureDestinationSettingsView(runtime: runtime)
                 }
 
                 Section("Global Shortcut") {
@@ -52,26 +44,6 @@ struct SettingsView: View {
                     )
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
-                }
-
-                Section("Trusted Quick Capture") {
-                    QuickCaptureShortcutRecorderView(runtime: runtime)
-                    Text("This shortcut is separate from panel Show/Hide.")
-                        .font(.caption).foregroundStyle(DesignTokens.Colors.secondaryText)
-                    Toggle("Pre-fill Quick Capture from the clipboard", isOn: Binding(
-                        get: { runtime.quickCapturePrefillsClipboard },
-                        set: { enabled in
-                            runtime.setQuickCapturePrefillsClipboard(enabled)
-                        }
-                    ))
-                    Toggle("Insert at the saved Notion cursor when possible", isOn: Binding(
-                        get: { runtime.quickCaptureInsertsAtNotionCursor },
-                        set: { enabled in
-                            runtime.setQuickCaptureInsertsAtNotionCursor(enabled)
-                        }
-                    ))
-                    Text("Clipboard content is read only when you invoke Quick Capture. If the saved cursor is no longer valid, the content opens in Quick Capture instead.")
-                        .font(.caption).foregroundStyle(DesignTokens.Colors.secondaryText)
                 }
 
                 Section("Quick Copy") {
@@ -136,38 +108,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Personal Notion Access") {
-                    switch runtime.connectionState {
-                    case .disconnected, .failed:
-                        SecureField("Personal access token", text: $personalToken)
-                            .textFieldStyle(.roundedBorder)
-                        Button(isReconnectNeeded ? "Reconnect to Notion" : "Connect to Notion") {
-                            let token = personalToken
-                            personalToken = ""
-                            Task { await runtime.connectPersonalToken(token) }
-                        }
-                    case .connecting:
-                        LabeledContent("Status") { ProgressView("Connecting") }
-                    case .connected(let workspaceName):
-                        LabeledContent("Workspace", value: workspaceName)
-                        Button("Disconnect", role: .destructive) {
-                            runtime.disconnectPersonalToken()
-                        }
-                    }
-
-                    if case .failed(let message) = runtime.connectionState {
-                        Label(message, systemImage: "exclamationmark.circle")
-                            .font(.caption)
-                            .foregroundStyle(DesignTokens.Colors.error)
-                    }
-
-                    Text(
-                        "Use a personal access token (ntn_…). It is stored only in this Mac’s Keychain and acts with your own Notion permissions. It is never exposed to the Notion web view."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Colors.secondaryText)
-                }
-
                 if !runtime.serviceHealth.isHealthy {
                     Section("Service Health") {
                         ServiceHealthView(runtime: runtime)
@@ -175,7 +115,6 @@ struct SettingsView: View {
                 }
 
                 Section("Service Status") {
-                    CaptureOutboxStatusView(runtime: runtime)
                     LabeledContent(
                         "Pinned-page sync",
                         value: runtime.serviceHealth.issues.contains(.pinnedPagePersistenceUnavailable)
@@ -207,13 +146,5 @@ struct SettingsView: View {
         ) { _ in
             launchAtLoginService.refresh()
         }
-        .onDisappear {
-            personalToken = ""
-        }
-    }
-
-    private var isReconnectNeeded: Bool {
-        if case .failed = runtime.connectionState { return true }
-        return false
     }
 }

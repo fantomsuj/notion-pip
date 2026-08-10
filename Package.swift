@@ -13,10 +13,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "NotionPiP",
-            path: "Sources/NotionPiP",
-            resources: [
-                .copy("Resources/QuickCapture"),
-            ]
+            path: "Sources/NotionPiP"
         ),
         .testTarget(
             name: "NotionPiPTests",

@@ -21,7 +21,7 @@ This is a curated set of implementation and product references for Notion PiP. T
 - License: MIT
 - Why it matters: A mature macOS utility with excellent keyboard-first interaction, a focused floating-panel implementation, searchable history, pinned content, and clear privacy controls.
 - Study: `FloatingPanel.swift`, history models, shortcut handling, and the preferences flow.
-- Adopt: A fast global shortcut, compact searchable history, deterministic ordering, pinned entries, and visible status/error feedback for capture delivery.
+- Adopt: A fast global shortcut, focused floating-panel interaction, and visible status/error feedback.
 - Do not adopt wholesale: Its clipboard-specific data model, polling, and paste automation do not fit Notion PiP.
 
 ### Pindrop
@@ -58,13 +58,13 @@ This is a curated set of implementation and product references for Notion PiP. T
 - License: MIT
 - Why it matters: An unofficial Swift client for the public Notion API that demonstrates request/response modeling.
 - Constraints: It is marked work in progress and supports only internal-integration authorization.
-- Recommendation: Do not make it a dependency. Continue to place the narrow API surface behind `NotionAPIClient`/`DeliveryEngine` and model only the endpoints, auth modes, retries, and error cases Notion PiP actually uses.
+- Recommendation: Do not make it a dependency. Notion PiP uses Notion's embedded interface for workspace search and does not call the public Notion API.
 
 ## Product direction for Notion PiP
 
 1. Use Itsypin as the principal reference for persistent WebKit session and floating-panel behavior.
-2. Use Maccy as the principal reference for quick capture and history interaction: one shortcut, immediate feedback, searchable recent work, and a clear retry path.
-3. Keep native editor/capture state independent of the embedded Notion web session, so the app can recover from reloads, failed delivery, or authentication changes.
+2. Use Maccy as a reference for keyboard-first shortcut and settings interaction, not as a model for capture or clipboard history.
+3. Keep the page working set and panel-restoration state native while account access, workspace search, and page creation remain inside Notion's embedded interface.
 4. Use Pindrop's service/test separation as the ceiling for architectural complexity, not a reason to introduce a large global coordinator.
 5. Treat Helium and Ice as behavioral research only; do not introduce their code or their licensing constraints into the app.
 

@@ -18,6 +18,30 @@ final class OnboardingPreferenceStoreTests: XCTestCase {
     }
 }
 
+final class OnboardingContentTests: XCTestCase {
+    func testPanelControlsStepExplainsDiscoveryAndTitleBarMaximizeGesture() {
+        XCTAssertEqual(OnboardingStep.allCases.count, 5)
+        XCTAssertEqual(OnboardingStep.panelControls.sidebarTitle, "Panel controls")
+        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("top edge"))
+        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("Double-click"))
+        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("maximize"))
+    }
+
+    func testPanelControlsStepCoversEveryTopToolbarAction() {
+        XCTAssertEqual(
+            OnboardingToolbarControl.all.map(\.title),
+            [
+                "New Notion page",
+                "Switch page",
+                "Reload pinned page",
+                "Open in browser",
+                "App menu & sizes",
+                "Stash to edge",
+            ]
+        )
+    }
+}
+
 @MainActor
 final class OnboardingCoordinatorTests: XCTestCase {
     func testStartupWaitsUntilApplicationFinishesLaunchingToPresentOnboarding() {
