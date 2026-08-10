@@ -19,7 +19,9 @@ struct NotionBlockConverter {
     func convert(_ document: Data) throws -> NotionBlockConversion {
         let root: JSONValue
         do {
-            root = try JSONDecoder().decode(JSONValue.self, from: document)
+            root = try JSONValue(
+                jsonObject: JSONSerialization.jsonObject(with: document)
+            )
         } catch {
             throw NotionBlockConversionError.malformedDocument
         }
@@ -163,17 +165,40 @@ private struct ConversionContext {
         text: String,
         marks: [JSONValue]
     ) -> [JSONValue] {
-        let markObjects = marks.compactMap(\.objectValue)
+        var bold = false
+        var italic = false
+        var strikethrough = false
+        var underline = false
+        var code = false
+        var firstLink: [String: JSONValue]?
+        for mark in marks {
+            guard let mark = mark.objectValue else { continue }
+            switch mark.string("type") {
+            case "bold":
+                bold = true
+            case "italic":
+                italic = true
+            case "strike":
+                strikethrough = true
+            case "underline":
+                underline = true
+            case "code":
+                code = true
+            case "link" where firstLink == nil:
+                firstLink = mark
+            default:
+                break
+            }
+        }
         let annotations: [String: JSONValue] = [
-            "bold": .bool(markObjects.contains { $0.string("type") == "bold" }),
-            "italic": .bool(markObjects.contains { $0.string("type") == "italic" }),
-            "strikethrough": .bool(markObjects.contains { $0.string("type") == "strike" }),
-            "underline": .bool(markObjects.contains { $0.string("type") == "underline" }),
-            "code": .bool(markObjects.contains { $0.string("type") == "code" }),
+            "bold": .bool(bold),
+            "italic": .bool(italic),
+            "strikethrough": .bool(strikethrough),
+            "underline": .bool(underline),
+            "code": .bool(code),
             "color": .string("default"),
         ]
-        let linkURL = markObjects
-            .first { $0.string("type") == "link" }?
+        let linkURL = firstLink?
             .object("attrs")?
             .string("href")
             .flatMap(safeWebURL)

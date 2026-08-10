@@ -8,6 +8,32 @@ enum JSONValue: Codable, Equatable, Sendable {
     case bool(Bool)
     case null
 
+    init(jsonObject value: Any) throws {
+        switch value {
+        case is NSNull:
+            self = .null
+        case let value as String:
+            self = .string(value)
+        case let value as NSNumber:
+            if CFGetTypeID(value) == CFBooleanGetTypeID() {
+                self = .bool(value.boolValue)
+            } else {
+                self = .number(value.doubleValue)
+            }
+        case let value as [Any]:
+            self = .array(try value.map(Self.init(jsonObject:)))
+        case let value as [String: Any]:
+            self = .object(try value.mapValues(Self.init(jsonObject:)))
+        default:
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: [],
+                    debugDescription: "Unsupported JSON value"
+                )
+            )
+        }
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         if container.decodeNil() {

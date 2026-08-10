@@ -3,6 +3,51 @@ import XCTest
 @testable import NotionPiP
 
 final class QuickCaptureLifecycleTests: XCTestCase {
+    func testClosePassesAnAlreadyCanonicalEditorDocumentThroughToPersistence() async throws {
+        let document = try CanonicalCaptureDocument(
+            validating: jsonData([
+                "type": "doc",
+                "content": [[
+                    "type": "paragraph",
+                    "content": [["type": "text", "text": "Latest body"]],
+                ]],
+            ])
+        )
+        let stored = CaptureDraftSnapshot(
+            id: "draft-canonical",
+            revision: 1,
+            title: "Old title",
+            editorDocument: jsonData(["type": "doc", "content": []]),
+            sourceDocument: nil,
+            disposition: .active,
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 1),
+            captureRecordID: nil,
+            returnDraftID: nil
+        )
+        let repository = CanonicalMutationProbe(stored: stored)
+        let destinations = QuickCaptureDestinationRepository(
+            container: try NotionPiPPersistence.makeContainer(inMemory: true)
+        )
+        let coordinator = QuickCaptureLifecycleCoordinator(
+            repository: repository,
+            destinations: destinations,
+            hasUsableToken: { true }
+        )
+
+        _ = await coordinator.close(
+            snapshot: CaptureEditorSnapshot(
+                draftID: stored.id,
+                title: "Latest title",
+                canonicalDocument: document,
+                revision: stored.revision
+            )
+        )
+
+        let receivedCanonicalDocument = await repository.receivedCanonicalDocument
+        XCTAssertEqual(receivedCanonicalDocument, document)
+    }
+
     func testEmptyCloseDiscardsDraftWithoutCreatingRecord() async throws {
         let (repository, destinations, draft) = try await makeRepositories()
         let coordinator = QuickCaptureLifecycleCoordinator(
@@ -155,6 +200,48 @@ final class QuickCaptureLifecycleTests: XCTestCase {
             document: jsonData(["type": "doc", "content": content]),
             revision: revision
         )
+    }
+}
+
+private actor CanonicalMutationProbe: CaptureDraftFinalizing {
+    private let stored: CaptureDraftSnapshot
+    private(set) var receivedCanonicalDocument: CanonicalCaptureDocument?
+
+    init(stored: CaptureDraftSnapshot) {
+        self.stored = stored
+    }
+
+    func draft(id: String) -> CaptureDraftSnapshot? {
+        id == stored.id ? stored : nil
+    }
+
+    func saveDraft(
+        _ mutation: DraftMutation,
+        expectedRevision: Int
+    ) -> CaptureDraftSnapshot {
+        receivedCanonicalDocument = mutation.canonicalEditorDocument
+        return CaptureDraftSnapshot(
+            id: mutation.id,
+            revision: expectedRevision + 1,
+            title: mutation.title,
+            editorDocument: mutation.editorDocument,
+            sourceDocument: mutation.sourceDocument,
+            disposition: mutation.disposition,
+            createdAt: stored.createdAt,
+            updatedAt: stored.updatedAt,
+            captureRecordID: nil,
+            returnDraftID: nil
+        )
+    }
+
+    func discardDraft(id: String, expectedRevision: Int) {}
+
+    func enqueue(
+        draftID: String,
+        expectedRevision: Int,
+        destination: CaptureDestination
+    ) throws -> CaptureRecordSnapshot {
+        throw CaptureRepositoryError.draftNotFound(draftID)
     }
 }
 

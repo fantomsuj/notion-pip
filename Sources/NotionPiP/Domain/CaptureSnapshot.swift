@@ -15,18 +15,29 @@ struct CanonicalCaptureDocument: Equatable, Sendable {
 
     init(validating data: Data) throws {
         let object = try JSONSerialization.jsonObject(with: data)
-        try self.init(validatingJSONObject: object)
+        try self.init(validatingParsedJSONObject: object)
     }
 
     init(validatingJSONObject object: Any) throws {
+        guard JSONSerialization.isValidJSONObject(object) else {
+            throw CanonicalCaptureDocumentError.invalidDocument
+        }
+        try self.init(validatingParsedJSONObject: object)
+    }
+
+    /// Validates the document shape without re-walking values already produced by JSONSerialization.
+    init(validatingParsedJSONObject object: Any) throws {
         guard let document = object as? [String: Any],
               document["type"] as? String == "doc",
-              document["content"] is [Any],
-              JSONSerialization.isValidJSONObject(document)
+              document["content"] is [Any]
         else {
             throw CanonicalCaptureDocumentError.invalidDocument
         }
-        data = try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys])
+        do {
+            data = try JSONSerialization.data(withJSONObject: document, options: [.sortedKeys])
+        } catch {
+            throw CanonicalCaptureDocumentError.invalidDocument
+        }
     }
 }
 
