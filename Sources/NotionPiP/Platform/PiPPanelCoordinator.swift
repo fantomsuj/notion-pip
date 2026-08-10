@@ -118,7 +118,7 @@ extension PiPPanelCoordinating {
 }
 
 @MainActor
-final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
+final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositioning {
     private static let autosaveName = "NotionPiPPanel"
 
     private let logger = Logger(subsystem: "com.fantomsuj.NotionPiP", category: "panel")
@@ -150,6 +150,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     var onPinnedPageAvailabilityChange: (@MainActor () -> Void)?
     var onGeometryPersistenceFailure: (@MainActor () -> Void)?
     var onExternalPresentationAction: (@MainActor () -> Void)?
+    var onPanelPositionChange: (@MainActor () -> Void)?
 
     var presentationState: PiPPresentationState {
         guard currentPage != nil else { return .unavailable }
@@ -158,6 +159,18 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 
     var hasPinnedPage: Bool {
         currentPage != nil
+    }
+
+    var canPositionPanel: Bool {
+        currentPage != nil
+    }
+
+    var selectedCorner: PanelCorner? {
+        guard canPositionPanel else { return nil }
+        return PanelFramePolicy.corner(
+            for: panel.frame,
+            visibleFrames: currentTopology().visibleFrames
+        )
     }
 
     var currentPanelContentSize: CGSize {
@@ -185,6 +198,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         quickCopyController: QuickCopyController? = nil,
         onReloadSavedPin: @escaping () -> Void = {},
         panelSizeController: PanelSizeController? = nil,
+        panelPositionController: PanelPositionController? = nil,
         onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in },
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
@@ -283,6 +297,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             contentRectForFrameRect: contentRectForFrameRect
         )
         panelSizeController?.bind(to: self)
+        panelPositionController?.bind(to: self)
         let contentView = NSHostingView(
             rootView: PiPChromeView(
                 webSession: webSession,
@@ -418,6 +433,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         if !hadPinnedPage {
             onPinnedPageAvailabilityChange?()
         }
+        onPanelPositionChange?()
         logger.notice("Panel show requested")
     }
 
@@ -436,6 +452,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         if !hadPinnedPage {
             onPinnedPageAvailabilityChange?()
         }
+        onPanelPositionChange?()
         logger.notice("Pinned page reload requested")
     }
 
@@ -513,6 +530,35 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 
     func replace(page: NotionPageReference, restoration: DurablePageRestoration?) {
         show(page: page, restoration: restoration)
+    }
+
+    @discardableResult
+    func movePanel(to corner: PanelCorner) -> Bool {
+        onExternalPresentationAction?()
+        guard currentPage != nil else { return false }
+
+        let topology = currentTopology()
+        let desiredContentSize = committedGeometry?.desiredContentSize.cgSize
+            ?? currentPanelContentSize
+        guard let placement = PanelFramePolicy.cornerPlacement(
+            preferredContentSize: desiredContentSize,
+            at: corner,
+            relativeTo: panel.frame,
+            visibleFrames: topology.visibleFrames,
+            minimumContentSize: WindowRole.pictureInPicture.policy.minimumContentSize,
+            frameForContentRect: frameForContentRect
+        ) else {
+            return false
+        }
+
+        setPanelFrame(placement.frame, display: panel.isVisible, animate: true)
+        commitCurrentGeometry(
+            desiredContentSize: desiredContentSize,
+            anchor: placement.anchor,
+            topology: topology
+        )
+        logger.notice("Panel moved to explicit corner")
+        return true
     }
 
     @discardableResult
@@ -680,6 +726,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         if let placement = decision.stashPlacement, let stashHandle {
             presentStashHandle(stashHandle, placement: placement)
         }
+        onPanelPositionChange?()
     }
 
     private func dismissStashHandle() {
@@ -773,6 +820,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             return
         }
         committedGeometry = geometry
+        onPanelPositionChange?()
         do {
             try geometryStore.save(geometry)
         } catch {
@@ -954,7 +1002,9 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     }
 
     override func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
-        guard animate else {
+        guard animate,
+            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        else {
             setFrame(frame, display: display)
             return
         }
