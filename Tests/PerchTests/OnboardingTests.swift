@@ -23,11 +23,12 @@ final class OnboardingContentTests: XCTestCase {
         XCTAssertEqual(OnboardingStep.allCases.count, 5)
         XCTAssertEqual(OnboardingStep.panelControls.sidebarTitle, "Panel controls")
         XCTAssertTrue(OnboardingStep.panelControls.detail.contains("top edge"))
+        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("corner arrows"))
         XCTAssertTrue(OnboardingStep.panelControls.detail.contains("Double-click"))
         XCTAssertTrue(OnboardingStep.panelControls.detail.contains("maximize"))
     }
 
-    func testPanelControlsStepCoversEveryTopToolbarAction() {
+    func testPanelControlsStepCoversEveryHoverRevealedToolbarAction() {
         XCTAssertEqual(
             OnboardingToolbarControl.all.map(\.title),
             [
@@ -37,6 +38,18 @@ final class OnboardingContentTests: XCTestCase {
                 "Open in browser",
                 "App menu & sizes",
                 "Stash to edge",
+            ]
+        )
+    }
+
+    func testPanelControlsStepUsesEveryPersistentCornerArrow() {
+        XCTAssertEqual(
+            PanelCorner.allCases.map(\.symbolName),
+            [
+                "arrow.up.left",
+                "arrow.up.right",
+                "arrow.down.left",
+                "arrow.down.right",
             ]
         )
     }

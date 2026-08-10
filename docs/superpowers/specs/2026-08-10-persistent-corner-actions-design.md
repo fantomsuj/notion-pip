@@ -3,13 +3,12 @@
 ## Goal
 
 Give the user permanent, one-click controls for moving Perch to any corner
-of its current display without turning the existing hover toolbar into permanent
-chrome.
+of its current display without keeping every toolbar action permanently visible.
 
 ## Selected Interaction
 
-A compact four-button capsule remains visible at the panel's top-left, above the
-Notion web content. The buttons appear in this order:
+A lightweight, compact toolbar remains visible at the panel's top-left, above
+the Notion web content. Its four persistent buttons appear in this order:
 
 ```text
 [ top left ][ top right ][ bottom left ][ bottom right ]
@@ -19,17 +18,16 @@ Each button uses the matching directional SF Symbol and moves the panel
 immediately: `arrow.up.left`, `arrow.up.right`, `arrow.down.left`, and
 `arrow.down.right`. The control does not open a menu or popover.
 
-The existing toolbar continues to reveal when the pointer rests at the top edge.
-When it appears, the corner capsule stays fixed while the existing Quick Capture,
-page switcher, reload, open-in-Notion, app-menu, and stash actions reveal to its
-right. Hovering the persistent capsule counts as hovering the top controls, so
-moving between it and the transient actions does not dismiss the toolbar.
+Hovering the compact toolbar or resting the pointer at the top edge expands that
+same toolbar. The corner buttons stay fixed while the existing new-page, page
+switcher, reload, open-in-Notion, app-menu, and stash actions appear directly to
+their right.
 
-The capsule uses a compact material background, separators, and semantic colors
-so it stays legible without looking like a full permanent toolbar. It remains
-fully visible rather than fading when idle. Each button has a normal pointer hit
-target of at least 24 by 24 points, help text, and an explicit accessibility
-label such as **Move Perch to top left**.
+The toolbar uses one compact material background, separators, and semantic
+colors. It remains fully visible in its lightweight state rather than fading
+when idle. Each button has a normal pointer hit target of at least 24 by 24
+points, help text, and an explicit accessibility label such as **Move Perch
+to top left**.
 
 ## Positioning Behavior
 
@@ -48,7 +46,7 @@ label such as **Move Perch to top left**.
 - The explicit corner becomes the committed geometry anchor. Relaunching,
   resizing, stashing and restoring, or changing display topology preserves that
   corner relationship through the existing geometry store.
-- If the PiP is stashed, the capsule is not visible. Restoring the PiP retains
+- If the PiP is stashed, the toolbar is not visible. Restoring the PiP retains
   the previously committed corner.
 
 ## Architecture
@@ -109,19 +107,16 @@ existing failure callback; the in-memory move remains usable.
 ### SwiftUI chrome
 
 Extract the four controls into a focused `PanelCornerControls` view. It renders
-the four direct buttons from `PanelCorner`, applies selected styling, and sends
-intent only to `PanelPositionController`.
+the direct buttons from `PanelCorner` without independent container chrome,
+applies selected styling, and sends intent only to `PanelPositionController`.
 
-Refactor the top overlay in `PiPChromeView` into two visual layers:
-
-- the persistent leading capsule, which stays opaque and hit-testable; and
-- the existing trailing actions and full-width toolbar background, which retain
-  their current delayed reveal and dismissal behavior.
-
-The persistent capsule participates in the existing hover controller so the
-toolbar does not flicker when the pointer crosses between layers. The overlay
-continues to reserve no content height; only the capsule's compact top-left area
-covers the embedded page.
+`PiPChromeView` owns one leading-aligned material toolbar with three presentation
+states: hidden when no position controller or revealed actions are available,
+compact with the corner controls only, and expanded with the existing actions
+appended on the right. The shared hover controller retains the existing delayed
+reveal and dismissal behavior. The overlay continues to reserve no content
+height, and its intrinsic width prevents it from covering the rest of the top
+edge.
 
 ## Accessibility and Motion
 
@@ -152,7 +147,7 @@ Coordinator tests cover:
 - Reduce Motion choosing the nonanimated frame path.
 
 Controller and chrome tests cover action routing, enabled state, selected state,
-stable button order, accessibility copy, permanent visibility of the capsule,
+stable button order, accessibility copy, compact and expanded toolbar states,
 and unchanged delayed reveal/dismissal of the existing toolbar actions.
 
 Validation uses:
@@ -172,5 +167,5 @@ from a selected corner, stashing and restoring, and reconnecting a display.
 - Dedicated global shortcuts for the four corners.
 - Moving the panel to a different display as part of a corner action.
 - Center, edge-center, tiling, or percentage-based placements.
-- User-configurable inset or capsule location.
+- User-configurable inset or toolbar location.
 - Making the rest of the hover toolbar permanently visible.
