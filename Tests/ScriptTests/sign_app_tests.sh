@@ -4,13 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SIGN_SCRIPT="$ROOT_DIR/script/sign_app.sh"
 SETUP_SCRIPT="$ROOT_DIR/script/setup_local_signing.sh"
-TEST_DIR="$(mktemp -d /tmp/notion-pip-sign-app-tests.XXXXXX)"
+TEST_DIR="$(mktemp -d /tmp/perch-sign-app-tests.XXXXXX)"
 trap 'rm -rf "$TEST_DIR"' EXIT
 
 FAKE_SECURITY="$TEST_DIR/security"
 FAKE_CODESIGN="$TEST_DIR/codesign"
-APP_BUNDLE="$TEST_DIR/NotionPiP.app"
-ENTITLEMENTS="$TEST_DIR/NotionPiP.entitlements"
+APP_BUNDLE="$TEST_DIR/Perch.app"
+ENTITLEMENTS="$TEST_DIR/Perch.entitlements"
 CALL_LOG="$TEST_DIR/codesign-call"
 
 mkdir -p "$APP_BUNDLE"
@@ -45,12 +45,12 @@ assert_signing_identity() {
     fi
 }
 
-export NOTION_PIP_SIGNING_IDENTITY="EXPLICIT-IDENTITY"
+export PERCH_SIGNING_IDENTITY="EXPLICIT-IDENTITY"
 export FAKE_SECURITY_OUTPUT=""
 run_signer >/dev/null
 assert_signing_identity "EXPLICIT-IDENTITY"
 
-unset NOTION_PIP_SIGNING_IDENTITY
+unset PERCH_SIGNING_IDENTITY
 export FAKE_SECURITY_OUTPUT='  1) ABCDEF1234567890 "Apple Development: Developer (TEAMID)"'
 run_signer >/dev/null
 assert_signing_identity "ABCDEF1234567890"
@@ -73,7 +73,7 @@ cat >"$FAKE_SECURITY" <<'SCRIPT'
 #!/usr/bin/env bash
 if [[ "$1" == "find-identity" ]]; then
     if [[ -f "$FAKE_IDENTITY_MARKER" ]]; then
-        echo '  1) LOCALIDENTITY "Notion PiP Local Development"'
+        echo '  1) LOCALIDENTITY "Perch Local Development"'
     else
         echo '     0 valid identities found'
     fi

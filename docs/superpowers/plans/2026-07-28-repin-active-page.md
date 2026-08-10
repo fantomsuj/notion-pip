@@ -20,10 +20,10 @@
 ### Task 1: Add force-repin behavior to the page-loading path
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift:65-75,196-245`
-- Modify: `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift:26-35,153-165`
-- Test: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
-- Test: `Tests/NotionPiPTests/PinCoordinatorTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift:65-75,196-245`
+- Modify: `Sources/Perch/Platform/PiPPanelCoordinator.swift:26-35,153-165`
+- Test: `Tests/PerchTests/NotionWebSessionTests.swift`
+- Test: `Tests/PerchTests/PinCoordinatorTests.swift`
 
 **Interfaces:**
 - Consumes: `NotionPageReference.canonicalURL` and `NotionPageLoading`’s existing panel lifecycle methods.
@@ -107,13 +107,13 @@ Expected: both selected tests pass.
 ### Task 2: Route the toolbar action through the runtime without persistence
 
 **Files:**
-- Modify: `Sources/NotionPiP/App/PinCoordinator.swift:24-42`
-- Modify: `Sources/NotionPiP/App/AppRuntime.swift:224-252`
-- Modify: `Sources/NotionPiP/App/AppCommandActionRelay.swift`
-- Modify: `Sources/NotionPiP/App/NotionPiPApp.swift:104-121,169-171`
-- Modify: `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift:38-120`
-- Modify: `Sources/NotionPiP/Views/PiPChromeView.swift:40-85`
-- Test: `Tests/NotionPiPTests/RuntimeActivationTests.swift`
+- Modify: `Sources/Perch/App/PinCoordinator.swift:24-42`
+- Modify: `Sources/Perch/App/AppRuntime.swift:224-252`
+- Modify: `Sources/Perch/App/AppCommandActionRelay.swift`
+- Modify: `Sources/Perch/App/PerchApp.swift:104-121,169-171`
+- Modify: `Sources/Perch/Platform/PiPPanelCoordinator.swift:38-120`
+- Modify: `Sources/Perch/Views/PiPChromeView.swift:40-85`
+- Test: `Tests/PerchTests/RuntimeActivationTests.swift`
 
 **Interfaces:**
 - Consumes: `AppRuntime.activePage`, `PinCoordinator.reloadPinnedPage(_:)`, and `PiPPanelCoordinating.reloadPinnedPage(_:)` from Task 1.
@@ -188,7 +188,7 @@ Expected: all selected tests pass with the new accessibility copy.
 
 - [x] **Step 1: Inspect the focused diff**
 
-Run: `git diff -- Sources/NotionPiP/App/AppCommandActionRelay.swift Sources/NotionPiP/App/AppRuntime.swift Sources/NotionPiP/App/NotionPiPApp.swift Sources/NotionPiP/App/PinCoordinator.swift Sources/NotionPiP/Platform/NotionWebSession.swift Sources/NotionPiP/Platform/PiPPanelCoordinator.swift Sources/NotionPiP/Views/PiPChromeView.swift Tests/NotionPiPTests/NotionWebSessionTests.swift Tests/NotionPiPTests/PinCoordinatorTests.swift Tests/NotionPiPTests/RuntimeActivationTests.swift`
+Run: `git diff -- Sources/Perch/App/AppCommandActionRelay.swift Sources/Perch/App/AppRuntime.swift Sources/Perch/App/PerchApp.swift Sources/Perch/App/PinCoordinator.swift Sources/Perch/Platform/NotionWebSession.swift Sources/Perch/Platform/PiPPanelCoordinator.swift Sources/Perch/Views/PiPChromeView.swift Tests/PerchTests/NotionWebSessionTests.swift Tests/PerchTests/PinCoordinatorTests.swift Tests/PerchTests/RuntimeActivationTests.swift`
 
 Expected: only the recovery route, its UI callback, updated protocol test doubles, and focused regression tests are present.
 

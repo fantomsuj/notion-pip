@@ -22,10 +22,10 @@
 ### Task 1: Make Navigation Decisions Frame-Aware
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/NotionWebNavigationPolicy.swift`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Test: `Tests/NotionPiPTests/NotionWebNavigationPolicyTests.swift`
-- Test: `Tests/NotionPiPTests/WebNavigationDestinationTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebNavigationPolicy.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Test: `Tests/PerchTests/NotionWebNavigationPolicyTests.swift`
+- Test: `Tests/PerchTests/WebNavigationDestinationTests.swift`
 
 **Interfaces:**
 - Produces: `NotionWebNavigationContext` with `.mainFrame`, `.subframe`, and `.newWindow`.
@@ -133,10 +133,10 @@ Run the same filtered command. Expected: all `WebNavigationDestinationTests` pas
 - [ ] **Step 5: Commit the frame-policy change**
 
 ```sh
-git add Sources/NotionPiP/Platform/NotionWebNavigationPolicy.swift \
-  Sources/NotionPiP/Platform/NotionWebSession.swift \
-  Tests/NotionPiPTests/NotionWebNavigationPolicyTests.swift \
-  Tests/NotionPiPTests/WebNavigationDestinationTests.swift
+git add Sources/Perch/Platform/NotionWebNavigationPolicy.swift \
+  Sources/Perch/Platform/NotionWebSession.swift \
+  Tests/PerchTests/NotionWebNavigationPolicyTests.swift \
+  Tests/PerchTests/WebNavigationDestinationTests.swift
 git commit -m "Fix Notion subframe navigation routing"
 ```
 
@@ -145,8 +145,8 @@ git commit -m "Fix Notion subframe navigation routing"
 ### Task 2: Add the Temporary WebKit Popup Coordinator
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/NotionWebPopupCoordinator.swift`
-- Create: `Tests/NotionPiPTests/NotionWebPopupCoordinatorTests.swift`
+- Create: `Sources/Perch/Platform/NotionWebPopupCoordinator.swift`
+- Create: `Tests/PerchTests/NotionWebPopupCoordinatorTests.swift`
 
 **Interfaces:**
 - Consumes: `WebNavigationDestination.classify(_:)` for supported HTTP(S) popup navigation.
@@ -282,8 +282,8 @@ Run the same filtered popup test command. Expected: all popup lifecycle and navi
 - [ ] **Step 5: Commit the popup coordinator**
 
 ```sh
-git add Sources/NotionPiP/Platform/NotionWebPopupCoordinator.swift \
-  Tests/NotionPiPTests/NotionWebPopupCoordinatorTests.swift
+git add Sources/Perch/Platform/NotionWebPopupCoordinator.swift \
+  Tests/PerchTests/NotionWebPopupCoordinatorTests.swift
 git commit -m "Add in-app Notion login popup"
 ```
 
@@ -292,9 +292,9 @@ git commit -m "Add in-app Notion login popup"
 ### Task 3: Wire Popup Ownership into the Main Notion Session
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Modify: `Tests/NotionPiPTests/WebNavigationDestinationTests.swift`
-- Modify: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Modify: `Tests/PerchTests/WebNavigationDestinationTests.swift`
+- Modify: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 **Interfaces:**
 - Consumes: `NotionWebNavigationPolicy.newWindowDecision(for:)` and `NotionWebPopupCoordinating`.
@@ -411,14 +411,14 @@ Run:
 ./script/build_and_run.sh --verify
 ```
 
-Expected: the command prints `Verified .../dist/NotionPiP.app` with a live PID. Paste the existing clipboard Notion URL, trigger Google sign-in, and verify that the main panel remains on Notion, a titled in-app sign-in window appears, and no `aif.notion.so` browser tab opens. Do not enter or request user credentials.
+Expected: the command prints `Verified .../dist/Perch.app` with a live PID. Paste the existing clipboard Notion URL, trigger Google sign-in, and verify that the main panel remains on Notion, a titled in-app sign-in window appears, and no `aif.notion.so` browser tab opens. Do not enter or request user credentials.
 
 - [ ] **Step 7: Commit the session integration**
 
 ```sh
-git add Sources/NotionPiP/Platform/NotionWebSession.swift \
-  Tests/NotionPiPTests/WebNavigationDestinationTests.swift \
-  Tests/NotionPiPTests/NotionWebSessionTests.swift
+git add Sources/Perch/Platform/NotionWebSession.swift \
+  Tests/PerchTests/WebNavigationDestinationTests.swift \
+  Tests/PerchTests/NotionWebSessionTests.swift
 git commit -m "Preserve Notion page during login popups"
 ```
 

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Give the user permanent, one-click controls for moving Notion PiP to any corner
+Give the user permanent, one-click controls for moving Perch to any corner
 of its current display without keeping every toolbar action permanently visible.
 
 ## Selected Interaction
@@ -26,7 +26,7 @@ their right.
 The toolbar uses one compact material background, separators, and semantic
 colors. It remains fully visible in its lightweight state rather than fading
 when idle. Each button has a normal pointer hit target of at least 24 by 24
-points, help text, and an explicit accessibility label such as **Move Notion PiP
+points, help text, and an explicit accessibility label such as **Move Perch
 to top left**.
 
 ## Positioning Behavior

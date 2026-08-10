@@ -2,7 +2,7 @@
 
 ## Goal
 
-Keep the single retained Notion PiP panel, its live WebView, and its optional
+Keep the single retained Perch panel, its live WebView, and its optional
 stash handle reachable while the set, identity, scale, and arrangement of
 displays changes. Preserve the user's meaningful floating size and screen-edge
 intent without revisiting the panel sizing design shipped on `origin/master`.

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Give Notion PiP one reliable native Settings window that contains the current pinned-page controls, global shortcut configuration, personal Notion access, service health, and application information. Remove the overlapping `Change Pinned Page…` entry point.
+Give Perch one reliable native Settings window that contains the current pinned-page controls, global shortcut configuration, personal Notion access, service health, and application information. Remove the overlapping `Change Pinned Page…` entry point.
 
 ## User Experience
 

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Let someone temporarily tuck the Notion PiP out of the way without closing it, losing the pinned page, or disturbing the panel's saved size and position. A compact tab at the nearest horizontal screen edge restores the live PiP with one click.
+Let someone temporarily tuck the Perch out of the way without closing it, losing the pinned page, or disturbing the panel's saved size and position. A compact tab at the nearest horizontal screen edge restores the live PiP with one click.
 
 ## Research and Rationale
 
@@ -22,7 +22,7 @@ References:
 
 ## Interaction
 
-- Add a toolbar button with the accessibility label **Stash Notion PiP to Side** and help text explaining that it moves the PiP to the nearest edge.
+- Add a toolbar button with the accessibility label **Stash Perch to Side** and help text explaining that it moves the PiP to the nearest edge.
 - Activating the button hides the main panel and shows a 36-by-96-point edge tab.
 - Choose the left or right edge by comparing the panel center with the center of the screen containing most of the panel.
 - Vertically align the edge tab with the panel center, clamped fully inside the screen's visible frame.
@@ -46,7 +46,7 @@ References:
 
 - Use a system material, shadow, semantic foreground styles, and SF Symbols so the tab adapts to appearance and accessibility settings.
 - Keep the outer edge flush with the screen and round only the inward-facing corners, preserving the physical impression that the panel is tucked behind the edge.
-- The restore control has the accessibility label **Restore Notion PiP** and help text **Bring the stashed Notion PiP back from the side.**
+- The restore control has the accessibility label **Restore Perch** and help text **Bring the stashed Perch back from the side.**
 - Do not add motion that requires a Reduce Motion alternative. The panel and tab exchange visibility immediately.
 - Keep the tab large enough for a comfortable pointer target while consuming little screen space.
 

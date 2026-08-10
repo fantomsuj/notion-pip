@@ -1,14 +1,14 @@
-# Notion PiP handoff protocol
+# Perch handoff protocol
 
 The only cross-app page handoff in v1 is:
 
 ```text
-notion-pip://pin?url=<percent-encoded-notion-page-url>&source=chrome-extension
+perch://pin?url=<percent-encoded-notion-page-url>&source=chrome-extension
 ```
 
 ## Contract
 
-- Scheme: `notion-pip`
+- Scheme: `perch`
 - Action/host: `pin`
 - Required query fields: exactly one `url` and one `source`
 - Supported source in this slice: `chrome-extension`
@@ -19,7 +19,7 @@ The nested `url` must use HTTPS, have no username or password, use the exact hos
 Example:
 
 ```text
-notion-pip://pin?url=https%3A%2F%2Fwww.notion.com%2FProject-Roadmap-0123456789abcdef0123456789abcdef&source=chrome-extension
+perch://pin?url=https%3A%2F%2Fwww.notion.com%2FProject-Roadmap-0123456789abcdef0123456789abcdef&source=chrome-extension
 ```
 
 ## Trust boundary

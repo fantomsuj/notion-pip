@@ -21,8 +21,8 @@
 ### Task 1: Combine the external-page and PiP-stash toolbar behavior
 
 **Files:**
-- Modify: `Sources/NotionPiP/Views/PiPChromeView.swift:4-140`
-- Test: `Tests/NotionPiPTests/PiPChromeViewTests.swift`
+- Modify: `Sources/Perch/Views/PiPChromeView.swift:4-140`
+- Test: `Tests/PerchTests/PiPChromeViewTests.swift`
 
 **Interfaces:**
 - Consumes: `NotionWebSession.openInBrowser()` and `PiPChromeView.onStash`.
@@ -82,18 +82,18 @@ stash callback count is one.
 - [ ] **Step 5: Commit the focused implementation**
 
 ```bash
-git add Sources/NotionPiP/Views/PiPChromeView.swift Tests/NotionPiPTests/PiPChromeViewTests.swift
+git add Sources/Perch/Views/PiPChromeView.swift Tests/PerchTests/PiPChromeViewTests.swift
 git commit -m "feat: stash PiP when opening Notion"
 ```
 
-Do not stage `Sources/NotionPiP/Views/TopControlsHoverController.swift` or
+Do not stage `Sources/Perch/Views/TopControlsHoverController.swift` or
 unrelated user changes.
 
 ### Task 2: Verify the package regression suite
 
 **Files:**
-- Verify only: `Sources/NotionPiP/Views/PiPChromeView.swift`
-- Verify only: `Tests/NotionPiPTests/PiPChromeViewTests.swift`
+- Verify only: `Sources/Perch/Views/PiPChromeView.swift`
+- Verify only: `Tests/PerchTests/PiPChromeViewTests.swift`
 
 **Interfaces:**
 - Consumes: the completed combined toolbar action and full Swift package test suite.
@@ -102,7 +102,7 @@ edge-stash behavior remain compatible.
 
 - [ ] **Step 1: Inspect the focused diff**
 
-Run: `git diff -- Sources/NotionPiP/Views/PiPChromeView.swift Tests/NotionPiPTests/PiPChromeViewTests.swift`
+Run: `git diff -- Sources/Perch/Views/PiPChromeView.swift Tests/PerchTests/PiPChromeViewTests.swift`
 
 Expected: the diff contains the Notion toolbar mark, the combined action, and
 the focused regression test; the pre-existing hover-controller edits are left

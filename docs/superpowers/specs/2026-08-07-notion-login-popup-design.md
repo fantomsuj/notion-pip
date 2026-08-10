@@ -2,7 +2,7 @@
 
 ## Goal
 
-Keep Notion's embedded page in place while allowing interactive Google, Apple, and SAML sign-in popups inside Notion PiP. Prevent page-controlled HTTPS subframes such as `aif.notion.so` from opening blank tabs in the user's default browser.
+Keep Notion's embedded page in place while allowing interactive Google, Apple, and SAML sign-in popups inside Perch. Prevent page-controlled HTTPS subframes such as `aif.notion.so` from opening blank tabs in the user's default browser.
 
 ## Observed Failure
 
@@ -17,7 +17,7 @@ Frame-level diagnostics confirmed the sequence: main-frame Notion load, external
 
 - Preserve Swift 6.2, macOS 14, the public API, signing, and entitlements.
 - Keep the persistent default `WKWebsiteDataStore` so existing Notion sessions continue to work.
-- Do not broaden which top-level links remain inside Notion PiP.
+- Do not broaden which top-level links remain inside Perch.
 - Do not hard-code Google as the only identity provider; Apple and arbitrary HTTPS SAML providers must be able to complete in the same popup.
 - Use WebKit's supplied popup configuration so JavaScript opener relationships, cookies, process state, and callback behavior remain intact.
 - Keep WebKit and AppKit ownership on `@MainActor` without unsafe concurrency escapes.

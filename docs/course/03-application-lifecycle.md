@@ -2,7 +2,7 @@
 
 **Duration:** 60 minutes
 
-Notion PiP uses an explicit AppKit entry point rather than a SwiftUI `App`
+Perch uses an explicit AppKit entry point rather than a SwiftUI `App`
 scene. That choice makes the process lifecycle visible in one short path:
 construct the dependency graph, install an `NSApplicationDelegate`, start the
 runtime, and hand control to AppKit's event loop. From then on, callbacks and
@@ -19,7 +19,7 @@ when a lifecycle callback crosses into another subsystem.
 
 By the end of this lecture, you can:
 
-1. Trace the executable entry from `NotionPiPApp.main()` to
+1. Trace the executable entry from `PerchApp.main()` to
    `NSApplication.run()` and explain why `withExtendedLifetime` matters.
 2. Distinguish process entry, dependency composition, runtime startup, and
    AppKit delegate callbacks.
@@ -37,10 +37,10 @@ By the end of this lecture, you can:
    event loop, Launch Services, window server, and login session.
 
 The primary source trail is
-[`NotionPiPApp.swift`](../../Sources/NotionPiP/App/NotionPiPApp.swift),
-[`AppDelegate.swift`](../../Sources/NotionPiP/App/AppDelegate.swift),
-[`AppRuntime.swift`](../../Sources/NotionPiP/App/AppRuntime.swift), and
-[`AppRuntime+Persistence.swift`](../../Sources/NotionPiP/App/AppRuntime+Persistence.swift).
+[`PerchApp.swift`](../../Sources/Perch/App/PerchApp.swift),
+[`AppDelegate.swift`](../../Sources/Perch/App/AppDelegate.swift),
+[`AppRuntime.swift`](../../Sources/Perch/App/AppRuntime.swift), and
+[`AppRuntime+Persistence.swift`](../../Sources/Perch/App/AppRuntime+Persistence.swift).
 
 ## Before you begin
 
@@ -51,7 +51,7 @@ another system finishes an operation. Prior AppKit experience is not required.
 Use these terms consistently:
 
 - The **executable entry point** is the `@main` declaration Swift invokes to
-  start the process. Here it is the `NotionPiPApp` enum, not a SwiftUI scene.
+  start the process. Here it is the `PerchApp` enum, not a SwiftUI scene.
 - The shared **`NSApplication`** object owns the macOS application event loop.
 - An **application delegate** receives lifecycle and system callbacks on behalf
   of that application object.
@@ -103,13 +103,13 @@ synchronous setup stack.
 
 The committed source keeps four responsibilities distinct:
 
-1. [`NotionPiPApp.main()`](../../Sources/NotionPiP/App/NotionPiPApp.swift)
+1. [`PerchApp.main()`](../../Sources/Perch/App/PerchApp.swift)
    creates the process-level objects and enters the event loop.
 2. `AppComposition` constructs and retains the concrete dependency graph. It
    is the course's **composition root**; Lecture 4 examines that graph.
 3. `AppStartup.start` starts feature services and binds delegate-facing
    handlers without making the delegate know the concrete runtime.
-4. [`AppDelegate`](../../Sources/NotionPiP/App/AppDelegate.swift) translates
+4. [`AppDelegate`](../../Sources/Perch/App/AppDelegate.swift) translates
    AppKit lifecycle callbacks into the already-bound application behavior.
 
 This division is useful because tests can call `AppStartup.start` and delegate
@@ -124,16 +124,16 @@ isolation domain for UI-bound state. `AppStartup`, `AppComposition`,
 are main-actor isolated. Their mutable state is serialized with AppKit UI work.
 
 An actor-backed repository owns database mutation elsewhere. For example,
-[`PageRepository`](../../Sources/NotionPiP/Persistence/PageRepository.swift) is
+[`PageRepository`](../../Sources/Perch/Persistence/PageRepository.swift) is
 a SwiftData `@ModelActor`, while
-[`PageWorkingSetPersisting`](../../Sources/NotionPiP/Persistence/PageWorkingSetStore.swift)
+[`PageWorkingSetPersisting`](../../Sources/Perch/Persistence/PageWorkingSetStore.swift)
 is `Sendable` and exposes asynchronous operations. Awaiting `workingSet()` or
 `recordVisit(_:)` lets the main-actor task suspend; it does not justify touching
 AppKit from the repository actor.
 
 The boundaries are carried by value snapshots such as
-[`StoredPageSnapshot`](../../Sources/NotionPiP/Persistence/PageRepository.swift),
-[`PageWorkingSetSnapshot`](../../Sources/NotionPiP/Domain/PageWorkingSetSnapshot.swift),
+[`StoredPageSnapshot`](../../Sources/Perch/Persistence/PageRepository.swift),
+[`PageWorkingSetSnapshot`](../../Sources/Perch/Domain/PageWorkingSetSnapshot.swift),
 and `DurablePageRestoration`, all declared `Sendable`. `Sendable` is a compiler
 contract about safe transfer between isolation domains, not a promise that an
 operation is fast, atomic, or automatically persisted.
@@ -145,15 +145,15 @@ under `App` as one owner:
 
 | Source | Lifecycle responsibility | Evidence to pair with it |
 |---|---|---|
-| [`NotionPiPApp.swift`](../../Sources/NotionPiP/App/NotionPiPApp.swift) | `@main` entry, composition lifetime, startup binding, and concrete termination closure | [`RuntimeTerminationTests.swift`](../../Tests/NotionPiPTests/RuntimeTerminationTests.swift) |
-| [`AppDelegate.swift`](../../Sources/NotionPiP/App/AppDelegate.swift) | Accessory policy, launch completion, buffered URL delivery, and deferred termination reply | [`PinCoordinatorTests.swift`](../../Tests/NotionPiPTests/PinCoordinatorTests.swift) for delegate buffering; [`RuntimePinnedPagePersistenceTests.swift`](../../Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift) for startup race policy |
-| [`AppRuntime.swift`](../../Sources/NotionPiP/App/AppRuntime.swift) | Idempotent `start()`, shortcut registration, asynchronous bootstrap, recovery, and observable UI-facing state | [`RuntimeActivationAndMenuBarTests.swift`](../../Tests/NotionPiPTests/RuntimeActivationAndMenuBarTests.swift) |
-| [`AppRuntime+Activation.swift`](../../Sources/NotionPiP/App/AppRuntime+Activation.swift) | External URL routing into the same validated page-activation path as other entry routes | [`ExternalURLRouteTests.swift`](../../Tests/NotionPiPTests/ExternalURLRouteTests.swift) |
-| [`AppRuntime+Persistence.swift`](../../Sources/NotionPiP/App/AppRuntime+Persistence.swift) | Restored-page task, ordered visit-save chain, generations, cancellation, and termination wait | [`RuntimePinnedPagePersistenceTests.swift`](../../Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift) |
-| [`AppCommandActionRelay.swift`](../../Sources/NotionPiP/App/AppCommandActionRelay.swift) | Converts the shared Quit command into `NSApp.terminate(nil)`, which asks the delegate rather than bypassing it | [`AppCommandTests.swift`](../../Tests/NotionPiPTests/AppCommandTests.swift) |
-| [`AppWindowPresenter.swift`](../../Sources/NotionPiP/Platform/AppWindowPresenter.swift) | Exposes a termination participant only after the lazy Quick Capture window exists; flushes only while that window is visible | [`AppWindowPresenterTests.swift`](../../Tests/NotionPiPTests/AppWindowPresenterTests.swift) |
-| [`CaptureEditorSession.swift`](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift) | Requests a fresh editor snapshot and can veto termination when its latest draft cannot be saved | [`CaptureWebViewLifecycleTests.swift`](../../Tests/NotionPiPTests/CaptureWebViewLifecycleTests.swift) |
-| [`PerformanceSignposter.swift`](../../Sources/NotionPiP/Platform/PerformanceSignposter.swift) | Emits first-only OSLog intervals for lifecycle and first presentations | [`PerformanceSignposterTests.swift`](../../Tests/NotionPiPTests/PerformanceSignposterTests.swift) |
+| [`PerchApp.swift`](../../Sources/Perch/App/PerchApp.swift) | `@main` entry, composition lifetime, startup binding, and concrete termination closure | [`RuntimeTerminationTests.swift`](../../Tests/PerchTests/RuntimeTerminationTests.swift) |
+| [`AppDelegate.swift`](../../Sources/Perch/App/AppDelegate.swift) | Accessory policy, launch completion, buffered URL delivery, and deferred termination reply | [`PinCoordinatorTests.swift`](../../Tests/PerchTests/PinCoordinatorTests.swift) for delegate buffering; [`RuntimePinnedPagePersistenceTests.swift`](../../Tests/PerchTests/RuntimePinnedPagePersistenceTests.swift) for startup race policy |
+| [`AppRuntime.swift`](../../Sources/Perch/App/AppRuntime.swift) | Idempotent `start()`, shortcut registration, asynchronous bootstrap, recovery, and observable UI-facing state | [`RuntimeActivationAndMenuBarTests.swift`](../../Tests/PerchTests/RuntimeActivationAndMenuBarTests.swift) |
+| [`AppRuntime+Activation.swift`](../../Sources/Perch/App/AppRuntime+Activation.swift) | External URL routing into the same validated page-activation path as other entry routes | [`ExternalURLRouteTests.swift`](../../Tests/PerchTests/ExternalURLRouteTests.swift) |
+| [`AppRuntime+Persistence.swift`](../../Sources/Perch/App/AppRuntime+Persistence.swift) | Restored-page task, ordered visit-save chain, generations, cancellation, and termination wait | [`RuntimePinnedPagePersistenceTests.swift`](../../Tests/PerchTests/RuntimePinnedPagePersistenceTests.swift) |
+| [`AppCommandActionRelay.swift`](../../Sources/Perch/App/AppCommandActionRelay.swift) | Converts the shared Quit command into `NSApp.terminate(nil)`, which asks the delegate rather than bypassing it | [`AppCommandTests.swift`](../../Tests/PerchTests/AppCommandTests.swift) |
+| [`AppWindowPresenter.swift`](../../Sources/Perch/Platform/AppWindowPresenter.swift) | Exposes a termination participant only after the lazy Quick Capture window exists; flushes only while that window is visible | [`AppWindowPresenterTests.swift`](../../Tests/PerchTests/AppWindowPresenterTests.swift) |
+| [`CaptureEditorSession.swift`](../../Sources/Perch/Platform/CaptureEditorSession.swift) | Requests a fresh editor snapshot and can veto termination when its latest draft cannot be saved | [`CaptureWebViewLifecycleTests.swift`](../../Tests/PerchTests/CaptureWebViewLifecycleTests.swift) |
+| [`PerformanceSignposter.swift`](../../Sources/Perch/Platform/PerformanceSignposter.swift) | Emits first-only OSLog intervals for lifecycle and first presentations | [`PerformanceSignposterTests.swift`](../../Tests/PerchTests/PerformanceSignposterTests.swift) |
 
 Two ownership lines prevent misleading mental models:
 
@@ -169,12 +169,12 @@ durable transitions.
 
 ## Runtime trace
 
-### `NotionPiPApp.main()` to the event loop
+### `PerchApp.main()` to the event loop
 
 The exact committed sequence is:
 
 ```text
-NotionPiPApp.main()
+PerchApp.main()
   1. AppPerformanceSignposter.shared.begin(.coldLaunchToReady)
   2. AppComposition.init()
   3. AppDelegate.init()
@@ -203,7 +203,7 @@ panel-size controller, and relays. Keeping it alive for the duration of
 
 ### What `AppRuntime.start()` starts
 
-[`AppRuntime.start()`](../../Sources/NotionPiP/App/AppRuntime.swift) first uses a
+[`AppRuntime.start()`](../../Sources/Perch/App/AppRuntime.swift) first uses a
 `started` flag to make repeated calls no-ops. Its first call:
 
 1. registers the panel shortcut;
@@ -288,13 +288,13 @@ The runtime conforms to `ApplicationURLHandling`. It asks the pin coordinator
 for valid external pages, then sends each accepted page through normal
 `activate(page:source:)` with an `.externalRoute` source. Parsing is deliberately
 outside the delegate and is constrained by
-[`ExternalURLRoute`](../../Sources/NotionPiP/Domain/ExternalURLRoute.swift).
+[`ExternalURLRoute`](../../Sources/Perch/Domain/ExternalURLRoute.swift).
 Buffering preserves delivery; it does not make an untrusted URL valid.
 
 Two regressions prove different boundaries. `PinCoordinatorTests`
-[`testAppDelegateBuffersOpenURLsUntilBindingAndDrainsOnlyOnce`](../../Tests/NotionPiPTests/PinCoordinatorTests.swift)
+[`testAppDelegateBuffersOpenURLsUntilBindingAndDrainsOnlyOnce`](../../Tests/PerchTests/PinCoordinatorTests.swift)
 proves the delegate's opaque URL buffer and one-time drain directly. Separately,
-[`testBufferedOpenURLWinsOverDelayedRestoreDuringStartup`](../../Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift)
+[`testBufferedOpenURLWinsOverDelayedRestoreDuringStartup`](../../Tests/PerchTests/RuntimePinnedPagePersistenceTests.swift)
 passes an early route through `AppStartup`: the route activates and persists,
 while runtime generation/cancellation checks reject a delayed stored-page
 result. The second test proves application-level restore ordering; neither test
@@ -304,14 +304,14 @@ claims to exercise real Launch Services.
 
 The first executable operation begins
 `.coldLaunchToReady` through the shared
-[`AppPerformanceSignposter`](../../Sources/NotionPiP/Platform/PerformanceSignposter.swift).
+[`AppPerformanceSignposter`](../../Sources/Perch/Platform/PerformanceSignposter.swift).
 The returned `PerformanceIntervalToken?` is bound into the delegate and ended
 with `.success` in `applicationDidFinishLaunching`.
 
 Interpret the name using its endpoints, not intuition:
 
 ```text
-begin: first line of NotionPiPApp.main()
+begin: first line of PerchApp.main()
   │ dependency construction, delegate/menu installation, runtime start
   ▼
 end: AppDelegate.applicationDidFinishLaunching
@@ -406,7 +406,7 @@ veto termination; the runtime waits for the attempt to finish. If the Quick
 Capture window was never created or is hidden, its presenter contributes no
 flush or veto.
 
-[`RuntimeTerminationTests`](../../Tests/NotionPiPTests/RuntimeTerminationTests.swift)
+[`RuntimeTerminationTests`](../../Tests/PerchTests/RuntimeTerminationTests.swift)
 prove that repeated quit requests share one live capture flush, a failed flush
 permits a later retry, termination waits for pending and newly enqueued page
 saves, and a failed page save still produces a reply. The WebKit lifecycle
@@ -419,16 +419,16 @@ handshake.
 
 | Misconception or symptom | Correct lifecycle model | First source or test to inspect |
 |---|---|---|
-| “This must be a SwiftUI `App` because the UI uses SwiftUI.” | The executable has an explicit `@main` enum and an AppKit run loop; SwiftUI supplies views later. | [`NotionPiPApp.swift`](../../Sources/NotionPiP/App/NotionPiPApp.swift) |
-| “`NSApplication.run()` completes startup and returns.” | It enters the long-lived event loop; callbacks happen while it is running. | `NotionPiPApp.main()` and `withExtendedLifetime` |
-| “No Dock icon means launch failed.” | Accessory policy is selected intentionally before launch finishes and is paired with `LSUIElement`. | [`AppDelegate.swift`](../../Sources/NotionPiP/App/AppDelegate.swift), manual matrix |
-| “`applicationDidFinishLaunching` means restoration and delivery finished.” | It ends the cold-launch signpost, while runtime bootstrap tasks may still be suspended or running. | [`AppRuntime.start()`](../../Sources/NotionPiP/App/AppRuntime.swift) |
-| “`ColdLaunchToReady` measures first visible PiP.” | Its end is `applicationDidFinishLaunching`; first PiP presentation has a different operation. | [`PerformanceSignposter.swift`](../../Sources/NotionPiP/Platform/PerformanceSignposter.swift) |
-| “The delegate validates and pins external URLs.” | It only buffers/routes URLs. Runtime and domain parsing own validation and activation. | [`AppRuntime+Activation.swift`](../../Sources/NotionPiP/App/AppRuntime+Activation.swift), [`ExternalURLRoute.swift`](../../Sources/NotionPiP/Domain/ExternalURLRoute.swift) |
+| “This must be a SwiftUI `App` because the UI uses SwiftUI.” | The executable has an explicit `@main` enum and an AppKit run loop; SwiftUI supplies views later. | [`PerchApp.swift`](../../Sources/Perch/App/PerchApp.swift) |
+| “`NSApplication.run()` completes startup and returns.” | It enters the long-lived event loop; callbacks happen while it is running. | `PerchApp.main()` and `withExtendedLifetime` |
+| “No Dock icon means launch failed.” | Accessory policy is selected intentionally before launch finishes and is paired with `LSUIElement`. | [`AppDelegate.swift`](../../Sources/Perch/App/AppDelegate.swift), manual matrix |
+| “`applicationDidFinishLaunching` means restoration and delivery finished.” | It ends the cold-launch signpost, while runtime bootstrap tasks may still be suspended or running. | [`AppRuntime.start()`](../../Sources/Perch/App/AppRuntime.swift) |
+| “`ColdLaunchToReady` measures first visible PiP.” | Its end is `applicationDidFinishLaunching`; first PiP presentation has a different operation. | [`PerformanceSignposter.swift`](../../Sources/Perch/Platform/PerformanceSignposter.swift) |
+| “The delegate validates and pins external URLs.” | It only buffers/routes URLs. Runtime and domain parsing own validation and activation. | [`AppRuntime+Activation.swift`](../../Sources/Perch/App/AppRuntime+Activation.swift), [`ExternalURLRoute.swift`](../../Sources/Perch/Domain/ExternalURLRoute.swift) |
 | “An early URL can be overwritten by delayed restoration.” | Direct activation cancels restore and changes the selection generation; stale restore publication is rejected. | Buffered-route and delayed-restore tests |
-| “Every `Task` runs in parallel on a background thread.” | Tasks inherit actor context unless explicitly changed, suspend at awaits, and need explicit sequencing when order matters. | [`AppRuntime.swift`](../../Sources/NotionPiP/App/AppRuntime.swift), [`AppRuntime+Persistence.swift`](../../Sources/NotionPiP/App/AppRuntime+Persistence.swift) |
-| “`Sendable` makes a database object thread-safe.” | The app transfers `Sendable` snapshots; the actor retains ownership of mutable SwiftData models and context. | [`PageRepository.swift`](../../Sources/NotionPiP/Persistence/PageRepository.swift) |
-| “Quit is immediate after `NSApp.terminate`.” | AppKit receives `.terminateLater` until capture and page preservation complete. | [`RuntimeTerminationTests.swift`](../../Tests/NotionPiPTests/RuntimeTerminationTests.swift) |
+| “Every `Task` runs in parallel on a background thread.” | Tasks inherit actor context unless explicitly changed, suspend at awaits, and need explicit sequencing when order matters. | [`AppRuntime.swift`](../../Sources/Perch/App/AppRuntime.swift), [`AppRuntime+Persistence.swift`](../../Sources/Perch/App/AppRuntime+Persistence.swift) |
+| “`Sendable` makes a database object thread-safe.” | The app transfers `Sendable` snapshots; the actor retains ownership of mutable SwiftData models and context. | [`PageRepository.swift`](../../Sources/Perch/Persistence/PageRepository.swift) |
+| “Quit is immediate after `NSApp.terminate`.” | AppKit receives `.terminateLater` until capture and page preservation complete. | [`RuntimeTerminationTests.swift`](../../Tests/PerchTests/RuntimeTerminationTests.swift) |
 | “A failed page save cancels quit.” | Runtime waits for the attempt and reports health; only the visible Quick Capture participant returns the quit Boolean. | `AppStartup` termination closure and termination tests |
 | “A force quit runs the same cleanup.” | Graceful delegate coordination is not guaranteed for force quit, crash, power loss, or termination by the OS. | Manual/recovery testing, not the delegate handshake |
 
@@ -460,7 +460,7 @@ statements after `run()`.
 
 For the source demonstration:
 
-1. Start in `NotionPiPApp.main()` and number its statements.
+1. Start in `PerchApp.main()` and number its statements.
 2. Jump to `AppStartup.start` and identify the runtime-start/bind order.
 3. Open `AppDelegate` and follow each of the three callback branches.
 4. Use the buffered-route regression to show a race as an executable policy.
@@ -536,8 +536,8 @@ composition internals to Lecture 4.
 
 Without changing source, create a scratch timeline for this scenario:
 
-1. macOS launches Notion PiP because it received a valid
-   `notion-pip://pin` URL.
+1. macOS launches Perch because it received a valid
+   `perch://pin` URL.
 2. The URL reaches `AppDelegate` before its runtime handler is bound.
 3. `AppStartup.start` begins a delayed saved-page restore and then binds the
    runtime.
@@ -558,11 +558,11 @@ Use focused searches to locate the symbols:
 
 ```sh
 rg -n "static func main|applicationWillFinishLaunching|applicationDidFinishLaunching" \
-  Sources/NotionPiP/App
+  Sources/Perch/App
 rg -n "bufferedOpenURLs|handleOpenURLs|pageSelectionGeneration" \
-  Sources/NotionPiP/App Tests/NotionPiPTests
+  Sources/Perch/App Tests/PerchTests
 rg -n "applicationShouldTerminate|prepareForTermination|persistenceGeneration" \
-  Sources/NotionPiP Tests/NotionPiPTests
+  Sources/Perch Tests/PerchTests
 ```
 
 Do not edit production files. Compare source before test names so your timeline
@@ -573,7 +573,7 @@ describes behavior, not merely assertion vocabulary.
 A complete trace should contain these transitions:
 
 ```text
-NotionPiPApp.main begins signpost and installs delegate
+PerchApp.main begins signpost and installs delegate
   └─ early application(_:open:) stores URL in AppDelegate.bufferedOpenURLs
 
 AppStartup.start
@@ -606,7 +606,7 @@ stays alive, and a later quit request may create a new termination task.
 
 ## Recap
 
-- `NotionPiPApp.main()` performs explicit AppKit setup and then enters the
+- `PerchApp.main()` performs explicit AppKit setup and then enters the
   long-lived `NSApplication` event loop.
 - `AppComposition` is retained across that loop; `AppStartup` starts runtime
   work and binds lifecycle handlers; `AppDelegate` adapts AppKit callbacks.

@@ -2,7 +2,7 @@
 
 ## Goal
 
-When the global shortcut restores a stashed Notion PiP panel, return keyboard
+When the global shortcut restores a stashed Perch panel, return keyboard
 focus and the user's previous cursor or text selection in the same Notion page
 when its existing `WKWebView` is still retained in memory.
 

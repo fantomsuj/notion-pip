@@ -95,7 +95,7 @@ findings are reviewed.
 
 Add a `Brewfile` documenting SwiftFormat, SwiftLint, and Periphery as optional
 development dependencies. Do not run `brew bundle` from Conductor setup and do
-not make these tools prerequisites for building or launching Notion PiP.
+not make these tools prerequisites for building or launching Perch.
 
 Each wrapper script will detect missing tools and print the command needed to
 install the development bundle. Every wrapper that invokes Swift tooling will

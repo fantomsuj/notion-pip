@@ -3,22 +3,22 @@
 import PackageDescription
 
 let package = Package(
-    name: "NotionPiP",
+    name: "Perch",
     platforms: [
         .macOS(.v14),
     ],
     products: [
-        .executable(name: "NotionPiP", targets: ["NotionPiP"]),
+        .executable(name: "Perch", targets: ["Perch"]),
     ],
     targets: [
         .executableTarget(
-            name: "NotionPiP",
-            path: "Sources/NotionPiP"
+            name: "Perch",
+            path: "Sources/Perch"
         ),
         .testTarget(
-            name: "NotionPiPTests",
-            dependencies: ["NotionPiP"],
-            path: "Tests/NotionPiPTests"
+            name: "PerchTests",
+            dependencies: ["Perch"],
+            path: "Tests/PerchTests"
         ),
     ]
 )

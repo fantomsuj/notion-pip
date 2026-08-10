@@ -3,7 +3,7 @@
 ## Goal
 
 Move the existing “Fill copied text” button from the fixed bottom-right corner
-of the Notion PiP to the current Notion text insertion caret whenever a trusted,
+of the Perch to the current Notion text insertion caret whenever a trusted,
 live caret can be located. Preserve the button’s current insertion behavior and
 provide a stable fallback when no editable caret exists.
 

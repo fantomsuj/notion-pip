@@ -1,4 +1,4 @@
-# Notion PiP Presenter Guide
+# Perch Presenter Guide
 
 This guide turns the twelve lectures into teachable sessions. It is for a
 presenter who needs exact timing, a safe demonstration plan, useful questions,
@@ -69,18 +69,18 @@ sw_vers -productVersion
 test -x /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -version
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift --version
-pgrep -x NotionPiP
+pgrep -x Perch
 ```
 
 Preserve unrelated work. Rehearse against committed source with
 `git show HEAD:<path>` when the working tree is dirty. If you need a staged app,
-save active capture work, quit Notion PiP, and only then run:
+save active capture work, quit Perch, and only then run:
 
 ```sh
 ./script/build_and_run.sh --verify
 ```
 
-The script terminates running `NotionPiP` processes. A pre-existing
+The script terminates running `Perch` processes. A pre-existing
 `node_modules` directory also makes it regenerate the checked-in editor asset;
 understand and review that condition before the session. Prepare a source-only
 route and captured successful output so a build is never the sole teaching
@@ -226,10 +226,10 @@ full pacing, answers, and code context.
 | Cue | Presenter plan |
 |---|---|
 | Hook | Ask, “How many context switches does a fleeting thought take before it reaches the Notion page you are using?” |
-| Takeaway | Notion PiP is continuity across native presentation changes, not merely a small browser. |
+| Takeaway | Perch is continuity across native presentation changes, not merely a small browser. |
 | Hard concept | Separate one live browser, durable page identity/state, and visible/stashed presentation. |
 | Diagram cue | Draw the three-state model, then point to architecture-map [page activation](ARCHITECTURE_MAP.md#flow-2--page-activation-and-webkit-navigation), [stash](ARCHITECTURE_MAP.md#flow-3--stashrestore-presentation), and [capture](ARCHITECTURE_MAP.md#flow-4--capture-delivery-from-editor-to-notion) flows. |
-| Code-tour entry | Start at [`PiPChromeView.swift`](../../Sources/NotionPiP/Views/PiPChromeView.swift), then follow actions into `AppRuntime`. |
+| Code-tour entry | Start at [`PiPChromeView.swift`](../../Sources/Perch/Views/PiPChromeView.swift), then follow actions into `AppRuntime`. |
 | Demo steps | 1. Show one page and hover controls. 2. Switch and pin/unpin a page. 3. Stash/restore and resize. 4. Open Quick Capture and distinguish local save from delivery. |
 | Audience question | “Which state should survive a hidden panel, and which should survive a process restart?” |
 | Misconception to surface | No Dock icon does not mean a crash; accessory activation and the all-Spaces panel are intentional. |
@@ -244,7 +244,7 @@ full pacing, answers, and code context.
 | Hook | Put one source file, one resource, one app bundle, and one running process on screen and ask which can be edited. |
 | Takeaway | SwiftPM owns the native target/resources; TypeScript authors the checked-in editor bundle; the script stages and ad-hoc signs the app. |
 | Hard concept | Distinguish authored source, generated-but-checked-in `editor.js`, ignored build output, bundle resources, and a launched process. |
-| Diagram cue | Draw `Sources + Web → SwiftPM/esbuild → .build → dist/NotionPiP.app → process`. |
+| Diagram cue | Draw `Sources + Web → SwiftPM/esbuild → .build → dist/Perch.app → process`. |
 | Code-tour entry | Open [`Package.swift`](../../Package.swift), [`package.json`](../../package.json), then [`build_and_run.sh`](../../script/build_and_run.sh). Use the [file atlas](FILE_ATLAS.md) for unfamiliar paths. |
 | Demo steps | 1. Classify the top-level tree. 2. Locate the copied resource. 3. Trace build, plist, resource copy, entitlements, signing, and launch. 4. Inspect an existing bundle read-only if available. |
 | Audience question | “Why can a fresh clone run without Node, while a checkout with `node_modules` may invoke npm during the build?” |
@@ -261,7 +261,7 @@ full pacing, answers, and code context.
 | Takeaway | `main()` constructs and enters the loop; delegates, buffered routes, startup work, and deferred termination drive later behavior. |
 | Hard concept | Ordering main-actor UI work with actor calls, cancellation/generation guards, early URL delivery, and `.terminateLater`. |
 | Diagram cue | Draw `main()` ending at the run loop, with launch, URL, and quit callbacks entering from the side; use architecture [Flow 5](ARCHITECTURE_MAP.md#flow-5--terminationautosave-coordination) for termination. |
-| Code-tour entry | [`NotionPiPApp.swift`](../../Sources/NotionPiP/App/NotionPiPApp.swift) → [`AppDelegate.swift`](../../Sources/NotionPiP/App/AppDelegate.swift). |
+| Code-tour entry | [`PerchApp.swift`](../../Sources/Perch/App/PerchApp.swift) → [`AppDelegate.swift`](../../Sources/Perch/App/AppDelegate.swift). |
 | Demo steps | 1. Number `main()`. 2. Follow `AppStartup.start`. 3. Trace a URL arriving before readiness. 4. End at the termination reply after local preservation. |
 | Audience question | “What prevents startup restoration from overwriting a newer user activation?” |
 | Misconception to surface | Creating `Task {}` from main-actor code does not automatically make UI state unisolated or detached. |
@@ -277,7 +277,7 @@ full pacing, answers, and code context.
 | Takeaway | `AppComposition` constructs concrete dependencies; `AppRuntime` is a main-actor facade; narrow protocols and relays keep ownership explicit. |
 | Hard concept | Distinguish call direction from lifetime ownership, especially cycle-breaking relays and degraded persistence construction. |
 | Diagram cue | Build architecture [Flow 1](ARCHITECTURE_MAP.md#flow-1--startup-and-dependency-composition) in three passes: concrete boxes, protocol edges, dotted callbacks. |
-| Code-tour entry | Start at `AppComposition` in [`NotionPiPApp.swift`](../../Sources/NotionPiP/App/NotionPiPApp.swift), then [`AppRuntime.swift`](../../Sources/NotionPiP/App/AppRuntime.swift). |
+| Code-tour entry | Start at `AppComposition` in [`PerchApp.swift`](../../Sources/Perch/App/PerchApp.swift), then [`AppRuntime.swift`](../../Sources/Perch/App/AppRuntime.swift). |
 | Demo steps | 1. Number construction phases. 2. Branch success/failure container graphs. 3. Follow command and switcher relays. 4. Trace forwarded controller observation into Settings. |
 | Audience question | “Why is a relay preferable to capturing a not-yet-initialized runtime or introducing a service locator?” |
 | Misconception to surface | The runtime coordinates the system; it does not own AppKit mechanics, SwiftData mutation, or HTTP transport. |
@@ -293,7 +293,7 @@ full pacing, answers, and code context.
 | Takeaway | One retained feature state has two AppKit representations—the full panel and edge handle—controlled by pure geometry and main-actor coordination. |
 | Hard concept | Window roles/collection behavior, content-versus-frame geometry, stash state, and Carbon tap/hold timing cross distinct evidence boundaries. |
 | Diagram cue | Use architecture [Flow 3](ARCHITECTURE_MAP.md#flow-3--stashrestore-presentation); add lanes for pure policy, coordinator, AppKit, and SwiftUI. |
-| Code-tour entry | [`WindowRolePolicy.swift`](../../Sources/NotionPiP/Platform/WindowRolePolicy.swift), [`PanelFramePolicy.swift`](../../Sources/NotionPiP/Platform/PanelFramePolicy.swift), then [`PiPPanelCoordinator.swift`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift). |
+| Code-tour entry | [`WindowRolePolicy.swift`](../../Sources/Perch/Platform/WindowRolePolicy.swift), [`PanelFramePolicy.swift`](../../Sources/Perch/Platform/PanelFramePolicy.swift), then [`PiPPanelCoordinator.swift`](../../Sources/Perch/Platform/PiPPanelCoordinator.swift). |
 | Demo steps | 1. Compare panel/handle roles. 2. Trace stash ordering. 3. Predict 2-point versus 4-point handle movement. 4. Draw shortcut release at 299 ms and 301 ms. |
 | Audience question | “Which facts can a rectangle test prove, and which require the real window server?” |
 | Misconception to surface | Persistent all-Spaces `NSPanel` behavior is product intent, not a panel defect. |
@@ -309,7 +309,7 @@ full pacing, answers, and code context.
 | Takeaway | `NotionWebSession` owns at most one live Notion WebView and separates warm view state, process-lifetime restoration, and durable restoration. |
 | Hard concept | WebKit object lifetime, navigation trust, renderer recovery, and interaction-state capture are related but not interchangeable. |
 | Diagram cue | Extend architecture [Flow 2](ARCHITECTURE_MAP.md#flow-2--page-activation-and-webkit-navigation) with warm-hide, switch/retire, and renderer-recovery branches. |
-| Code-tour entry | [`NotionWebSession.swift`](../../Sources/NotionPiP/Platform/NotionWebSession.swift) and [`NotionWebLifecycleController.swift`](../../Sources/NotionPiP/Platform/NotionWebLifecycleController.swift). |
+| Code-tour entry | [`NotionWebSession.swift`](../../Sources/Perch/Platform/NotionWebSession.swift) and [`NotionWebLifecycleController.swift`](../../Sources/Perch/Platform/NotionWebLifecycleController.swift). |
 | Demo steps | 1. Show that SwiftUI receives an existing WebView. 2. Trace activate → restore/load → finish. 3. Contrast warm hide with page switch. 4. Compare trusted and lookalike hosts in tests. |
 | Audience question | “When should the session resume an object, recreate an object, or load a durable URL/state snapshot?” |
 | Misconception to surface | Page switching does not create a permanent WebView per page, and durable restoration does not persist cookies or DOM. |
@@ -325,7 +325,7 @@ full pacing, answers, and code context.
 | Takeaway | Validated `Sendable` values and deterministic policies carry meaning between effectful owners. |
 | Hard concept | Put invariants at construction/mutation boundaries while acknowledging current folder-level exceptions without spreading them. |
 | Diagram cue | Draw an inner value/policy core and outer effectful ring; arrows carry values, never database/window objects. |
-| Code-tour entry | [`NotionPageReference.swift`](../../Sources/NotionPiP/Domain/NotionPageReference.swift) then [`PageWorkingSetPolicy.swift`](../../Sources/NotionPiP/Domain/PageWorkingSetPolicy.swift). |
+| Code-tour entry | [`NotionPageReference.swift`](../../Sources/Perch/Domain/NotionPageReference.swift) then [`PageWorkingSetPolicy.swift`](../../Sources/Perch/Domain/PageWorkingSetPolicy.swift). |
 | Demo steps | 1. Number page-URL acceptance gates. 2. Trace a visit through working-set normalization. 3. Compare history assembly and switcher ranking. 4. Calculate retry attempts 1–5. |
 | Audience question | “Why do both an outer route and its nested URL need independent length and trust checks?” |
 | Misconception to surface | “Domain” does not mean every type imports nothing; it means the business decision is deterministic and effect-free. |
@@ -341,7 +341,7 @@ full pacing, answers, and code context.
 | Takeaway | One shared container feeds isolated model actors that exchange snapshots, commit explicit transactions, migrate deliberately, and degrade truthfully. |
 | Hard concept | Separate in-memory transaction behavior, on-disk migration/reopen, lazy bootstrap, idempotency, and rollback. |
 | Diagram cue | Use architecture page/capture flows, then draw draft → record → claim → terminal state as a durable state machine. |
-| Code-tour entry | [`NotionPiPPersistence.swift`](../../Sources/NotionPiP/Persistence/NotionPiPPersistence.swift), [`NotionPiPSchema.swift`](../../Sources/NotionPiP/Persistence/NotionPiPSchema.swift), and one repository. |
+| Code-tour entry | [`PerchPersistence.swift`](../../Sources/Perch/Persistence/PerchPersistence.swift), [`PerchSchema.swift`](../../Sources/Perch/Persistence/PerchSchema.swift), and one repository. |
 | Demo steps | 1. Compare V1–V3 model lists. 2. Show private contexts/autosave off. 3. Trace one save/rollback. 4. Run or read migration, lost-ack, and atomic-enqueue tests. |
 | Audience question | “Why can an in-memory repository test pass while a real migration still fails?” |
 | Misconception to surface | SwiftData autosave or one shared `ModelContext` is not the repository's transaction/actor contract. |
@@ -357,7 +357,7 @@ full pacing, answers, and code context.
 | Takeaway | A versioned, exact, bounded bridge makes a native persistence acknowledgement—not JavaScript dispatch—the durability boundary. |
 | Hard concept | Correlation IDs, expected revisions, serialized autosaves, transition gates, stale conflicts, and exact retry must agree in two languages. |
 | Diagram cue | Use the edit → debounce → native save → acknowledgement sequence, then architecture [Flow 4](ARCHITECTURE_MAP.md#flow-4--capture-delivery-from-editor-to-notion) for editor-to-delivery and [Flow 5](ARCHITECTURE_MAP.md#flow-5--terminationautosave-coordination) for quit-time preservation. |
-| Code-tour entry | Compare [`protocol.ts`](../../Web/QuickCaptureEditor/protocol.ts) with [`CaptureBridgeProtocol.swift`](../../Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift), then open [`CaptureEditorSession.swift`](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift). |
+| Code-tour entry | Compare [`protocol.ts`](../../Web/QuickCaptureEditor/protocol.ts) with [`CaptureBridgeProtocol.swift`](../../Sources/Perch/Platform/CaptureBridgeProtocol.swift), then open [`CaptureEditorSession.swift`](../../Sources/Perch/Platform/CaptureEditorSession.swift). |
 | Demo steps | 1. Start from stored revision 1 and delay the first native reply. 2. Queue two edits: request 1 carries expected revision 1 and returns revision 2; only after that acknowledgement does request 2 carry expected revision 2 and return revision 3. 3. Compare an ambiguous request and its retry byte-for-byte. 4. Use the final 15 minutes to compare Node, native protocol, and real-WebKit evidence. |
 | Audience question | “If native committed revision 2 but that reply was lost, what identity and payload may the retry change?” |
 | Misconception to surface | A local file URL/CSP alone is not trust, and generated `editor.js` is not the authoring source. |
@@ -373,7 +373,7 @@ full pacing, answers, and code context.
 | Takeaway | Local close/enqueue is separate from remote delivery; durable states, journals, and error classification make retries bounded and honest. |
 | Hard concept | Acknowledged progress is not exactly-once semantics: a timeout after a possible create can be uncertain. |
 | Diagram cue | Walk architecture [Flow 4](ARCHITECTURE_MAP.md#flow-4--capture-delivery-from-editor-to-notion) and annotate 401, 409, 429, 5xx, and ambiguous branches. |
-| Code-tour entry | [`QuickCaptureLifecycleCoordinator.swift`](../../Sources/NotionPiP/Services/QuickCaptureLifecycleCoordinator.swift) → [`DeliveryEngine.swift`](../../Sources/NotionPiP/Services/DeliveryEngine.swift) → [`NotionCaptureDeliveryService.swift`](../../Sources/NotionPiP/Services/NotionCaptureDeliveryService.swift). |
+| Code-tour entry | [`QuickCaptureLifecycleCoordinator.swift`](../../Sources/Perch/Services/QuickCaptureLifecycleCoordinator.swift) → [`DeliveryEngine.swift`](../../Sources/Perch/Services/DeliveryEngine.swift) → [`NotionCaptureDeliveryService.swift`](../../Sources/Perch/Services/NotionCaptureDeliveryService.swift). |
 | Demo steps | 1. Prove close only saves/enqueues. 2. Find single flight and claim-before-send. 3. Trace 201 blocks through create and two appends. 4. End at delivered-state cleanup. |
 | Audience question | “If remote create succeeds but the local journal write fails, which fact is missing and why is retry unsafe?” |
 | Misconception to surface | Single flight prevents concurrent local drains; it does not provide remote idempotency. |
@@ -389,7 +389,7 @@ full pacing, answers, and code context.
 | Takeaway | SwiftUI renders injected owners and local presentation state; AppKit hosts retained roots; commands and effects flow back to their actual owners. |
 | Hard concept | Choose `@ObservedObject`, `@StateObject`, `@Binding`, and `@State` by ownership, then distinguish saved, effective, and forced state. |
 | Diagram cue | Use architecture [Flow 6](ARCHITECTURE_MAP.md#flow-6--settings-propagation-and-observable-state); draw the four AppKit/SwiftUI hosting roots. |
-| Code-tour entry | [`SettingsView.swift`](../../Sources/NotionPiP/Views/SettingsView.swift), [`PiPChromeView.swift`](../../Sources/NotionPiP/Views/PiPChromeView.swift), and [`AppWindowFactory.swift`](../../Sources/NotionPiP/Platform/AppWindowFactory.swift). |
+| Code-tour entry | [`SettingsView.swift`](../../Sources/Perch/Views/SettingsView.swift), [`PiPChromeView.swift`](../../Sources/Perch/Views/PiPChromeView.swift), and [`AppWindowFactory.swift`](../../Sources/Perch/Platform/AppWindowFactory.swift). |
 | Demo steps | 1. Search for `NSHostingView`. 2. Trace switcher Return to activation. 3. Compare SwiftUI/AppKit command menus. 4. Follow a setting from binding through owner and effect. |
 | Audience question | “Why does changing the default panel size not necessarily resize the current panel?” |
 | Misconception to surface | `@StateObject` is not the default for every observable object; it means the view creates and owns that object. |
@@ -405,7 +405,7 @@ full pacing, answers, and code context.
 | Takeaway | Choose the smallest evidence that can falsify the owning contract, then verify outward and report what remains unproved. |
 | Hard concept | Distinguish pure/controller tests, in-memory versus disk SwiftData, Node/happy-dom versus real WebKit, bundle verification, and manual macOS evidence. |
 | Diagram cue | Draw failing observation → owner → narrow reproduction → regression → outward verification; finish at the [verification ladder](CHANGE_GUIDE.md#verification-ladder). |
-| Code-tour entry | Compare [`CaptureWebViewTestSupport.swift`](../../Tests/NotionPiPTests/CaptureWebViewTestSupport.swift) with [`dom.ts`](../../Web/QuickCaptureEditor/test-support/dom.ts), then inspect [`build_and_run.sh`](../../script/build_and_run.sh). |
+| Code-tour entry | Compare [`CaptureWebViewTestSupport.swift`](../../Tests/PerchTests/CaptureWebViewTestSupport.swift) with [`dom.ts`](../../Web/QuickCaptureEditor/test-support/dom.ts), then inspect [`build_and_run.sh`](../../script/build_and_run.sh). |
 | Demo steps | 1. Run/read a focused signposter test. 2. Compare test isolation helpers. 3. Select a manual matrix row. 4. Apply the change workflow to one domain, UI, or cross-language report. |
 | Audience question | “Which evidence would you require for a migration bug, a WebKit bridge bug, and a wrong-Space panel?” |
 | Misconception to surface | `--verify` is a bundle/startup gate, not the XCTest/Node/manual suite or notarization proof. |

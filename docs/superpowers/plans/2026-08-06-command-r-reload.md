@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a standard macOS `Command-R` command that reloads the URL currently displayed by the focused Notion PiP `WKWebView`.
+**Goal:** Add a standard macOS `Command-R` command that reloads the URL currently displayed by the focused Perch `WKWebView`.
 
 **Architecture:** Extend the existing AppKit main-menu factory with a targetless View → Reload item. AppKit's responder chain will route `reload:` to `WKWebView`, preserving the current URL, cookies, and sign-in state without adding a system-wide shortcut or application-specific reload state.
 
@@ -20,8 +20,8 @@
 ### Task 1: Route Command-R to the focused WebKit view
 
 **Files:**
-- Modify: `Tests/NotionPiPTests/AppMainMenuTests.swift`
-- Modify: `Sources/NotionPiP/Platform/AppMainMenuFactory.swift`
+- Modify: `Tests/PerchTests/AppMainMenuTests.swift`
+- Modify: `Sources/Perch/Platform/AppMainMenuFactory.swift`
 
 **Interfaces:**
 - Consumes: AppKit's targetless menu-item responder routing and `WKWebView`'s Objective-C `reload:` action.
@@ -97,8 +97,8 @@ Expected: all tests pass with zero failures.
 Run `git diff --check` and inspect `git diff origin/master...HEAD`, then commit:
 
 ```sh
-git add Sources/NotionPiP/Platform/AppMainMenuFactory.swift \
-  Tests/NotionPiPTests/AppMainMenuTests.swift \
+git add Sources/Perch/Platform/AppMainMenuFactory.swift \
+  Tests/PerchTests/AppMainMenuTests.swift \
   docs/superpowers/plans/2026-08-06-command-r-reload.md
 git commit -m "feat: reload Notion page with command-r"
 ```

@@ -4,7 +4,7 @@
 > repository tour, 15 minutes runtime traces, 15 minutes deep dive, 5 minutes
 > knowledge check, and 10 minutes exercise)
 
-Notion PiP's SwiftUI layer is small enough to read, but it spans four very
+Perch's SwiftUI layer is small enough to read, but it spans four very
 different surfaces: persistent PiP chrome, an edge stash handle, ordinary
 key-capable app windows, and local WebKit content. The views remain useful only
 because observable controllers own asynchronous work and platform coordinators
@@ -93,12 +93,12 @@ Menu-bar status item
 └─ AppKit NSMenu built from the same AppCommandModel
 ```
 
-[`PiPPanelCoordinator.swift`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift)
+[`PiPPanelCoordinator.swift`](../../Sources/Perch/Platform/PiPPanelCoordinator.swift)
 owns the persistent panel and installs `PiPChromeView` in an `NSHostingView`.
-[`PiPStashHandleController.swift`](../../Sources/NotionPiP/Platform/PiPStashHandleController.swift)
-does the same for the edge handle. [`AppWindowFactory.swift`](../../Sources/NotionPiP/Platform/AppWindowFactory.swift)
+[`PiPStashHandleController.swift`](../../Sources/Perch/Platform/PiPStashHandleController.swift)
+does the same for the edge handle. [`AppWindowFactory.swift`](../../Sources/Perch/Platform/AppWindowFactory.swift)
 creates key-capable Quick Capture and Settings windows, while
-[`PageURLInputPresenter.swift`](../../Sources/NotionPiP/Platform/PageURLInputPresenter.swift)
+[`PageURLInputPresenter.swift`](../../Sources/Perch/Platform/PageURLInputPresenter.swift)
 creates the separate pin-page window.
 
 The views do not choose panel collection behavior, reposition windows, open a
@@ -137,30 +137,30 @@ do not reproduce domain validation.
 
 ### Complete Views file map
 
-Every committed basename under `Sources/NotionPiP/Views` appears below.
+Every committed basename under `Sources/Perch/Views` appears below.
 
 | File | Inputs and local state | Actions / owner | Focused evidence |
 |---|---|---|---|
-| [`CaptureOutboxStatusView.swift`](../../Sources/NotionPiP/Views/CaptureOutboxStatusView.swift) | Runtime outbox rows/recovery message | Refresh and open local export through `AppRuntime` | delivery/repository/runtime tests; no direct render test |
-| [`CaptureStatusView.swift`](../../Sources/NotionPiP/Views/CaptureStatusView.swift) | One `CaptureEditorStatus` | Pure label/symbol/error-color projection; no current production consumer | editor-flow tests protect status cases; no direct view test |
-| [`ConflictRecoveryView.swift`](../../Sources/NotionPiP/Views/ConflictRecoveryView.swift) | Conflict, resolving flag | Invoke one allowed recovery action through session closure | [`CaptureEditorFlowTests.swift`](../../Tests/NotionPiPTests/CaptureEditorFlowTests.swift), WebKit conflict tests |
-| [`DeveloperStatusView.swift`](../../Sources/NotionPiP/Views/DeveloperStatusView.swift) | Process/system metrics snapshot | Read-only About content | no direct test; formatting/refresh are manual boundaries |
-| [`GlobalShortcutRecorderView.swift`](../../Sources/NotionPiP/Views/GlobalShortcutRecorderView.swift) | Runtime shortcuts plus local recording/feedback | Capture AppKit key event; apply/reset panel and Quick Capture shortcuts | [`GlobalShortcutTests.swift`](../../Tests/NotionPiPTests/GlobalShortcutTests.swift) |
-| [`NotionWorkspaceSearchView.swift`](../../Sources/NotionPiP/Views/NotionWorkspaceSearchView.swift) | Runtime search result/error plus query | Async workspace search and `.notionSearch` activation | [`AppRuntimeFacadeTests.swift`](../../Tests/NotionPiPTests/AppRuntimeFacadeTests.swift), activation tests |
-| [`PagePickerView.swift`](../../Sources/NotionPiP/Views/PagePickerView.swift) | Pages and pin closure | Pure 30-character display title and pin action; no current production consumer | `PagePickerDisplay` in [`PinCoordinatorTests.swift`](../../Tests/NotionPiPTests/PinCoordinatorTests.swift) |
-| [`PageSwitcherView.swift`](../../Sources/NotionPiP/Views/PageSwitcherView.swift) | Switcher controller, focus, row hover | Load/search/traverse/select/dismiss/pin through controller and callbacks | [`PageSwitcherMatcherTests.swift`](../../Tests/NotionPiPTests/PageSwitcherMatcherTests.swift) |
-| [`PageURLField.swift`](../../Sources/NotionPiP/Views/PageURLField.swift) | Text binding, focus request, submit closure | Edit, focus, submit/Pin | [`PageURLInputPresenterTests.swift`](../../Tests/NotionPiPTests/PageURLInputPresenterTests.swift) plus manual field checks |
-| [`PageURLInputView.swift`](../../Sources/NotionPiP/Views/PageURLInputView.swift) | URL state and submit closure | Compose field and typed validation feedback; also supplies window content | presenter/activation tests |
-| [`PanelSizeMenu.swift`](../../Sources/NotionPiP/Views/PanelSizeMenu.swift) | Size controller | Apply, reset default, manage | [`AppCommandTests.swift`](../../Tests/NotionPiPTests/AppCommandTests.swift), controller tests |
-| [`PanelSizeSettingsView.swift`](../../Sources/NotionPiP/Views/PanelSizeSettingsView.swift) | Size controller plus local sheet/row buffers | Set/apply default; add/edit/apply/delete custom presets | [`PanelSizeControllerTests.swift`](../../Tests/NotionPiPTests/PanelSizeControllerTests.swift), preferences tests |
-| [`PiPAppCommandMenu.swift`](../../Sources/NotionPiP/Views/PiPAppCommandMenu.swift) | Shared command model and optional size controller | Perform commands with keyboard equivalents | [`AppCommandTests.swift`](../../Tests/NotionPiPTests/AppCommandTests.swift) |
-| [`PiPChromeView.swift`](../../Sources/NotionPiP/Views/PiPChromeView.swift) | Web session, switcher/command/size controllers, callbacks, accessibility environment, hover owner | Quick Capture, switch, re-pin, browser, stash, menu, retry, offline capture, clipboard insertion | [`PiPChromeViewTests.swift`](../../Tests/NotionPiPTests/PiPChromeViewTests.swift), WebKit/command tests |
-| [`PiPStashHandleView.swift`](../../Sources/NotionPiP/Views/PiPStashHandleView.swift) | Side and restore/drag callbacks | Click/accessibility restore or AppKit drag/re-place | [`PiPStashHandleInteractionTests.swift`](../../Tests/NotionPiPTests/PiPStashHandleInteractionTests.swift) |
-| [`QuickCaptureDestinationSettingsView.swift`](../../Sources/NotionPiP/Views/QuickCaptureDestinationSettingsView.swift) | Destination/search facade plus local query | Clear, search, schedule search, select, paginate | [`QuickCaptureDestinationControllerTests.swift`](../../Tests/NotionPiPTests/QuickCaptureDestinationControllerTests.swift) |
-| [`QuickCaptureView.swift`](../../Sources/NotionPiP/Views/QuickCaptureView.swift) | Capture session web view/conflict state | Web editor plus async native conflict resolution | Lecture 9's editor-flow and real-WebKit tests |
-| [`ServiceHealthView.swift`](../../Sources/NotionPiP/Views/ServiceHealthView.swift) | Runtime health issues | Quit for unavailable store; retry pin/shortcut recovery | [`RuntimeActivationAndMenuBarTests.swift`](../../Tests/NotionPiPTests/RuntimeActivationAndMenuBarTests.swift), pinned-page tests |
-| [`SettingsView.swift`](../../Sources/NotionPiP/Views/SettingsView.swift) | Runtime, size controller, local token field | Compose all settings, token/toggles/menu visibility; scrub local token | controller/runtime tests; no snapshot test |
-| [`TopControlsHoverController.swift`](../../Sources/NotionPiP/Views/TopControlsHoverController.swift) | Pointer intent and delay parameters | Delayed reveal/dismiss/cancel | [`PiPChromeViewTests.swift`](../../Tests/NotionPiPTests/PiPChromeViewTests.swift) |
+| [`CaptureOutboxStatusView.swift`](../../Sources/Perch/Views/CaptureOutboxStatusView.swift) | Runtime outbox rows/recovery message | Refresh and open local export through `AppRuntime` | delivery/repository/runtime tests; no direct render test |
+| [`CaptureStatusView.swift`](../../Sources/Perch/Views/CaptureStatusView.swift) | One `CaptureEditorStatus` | Pure label/symbol/error-color projection; no current production consumer | editor-flow tests protect status cases; no direct view test |
+| [`ConflictRecoveryView.swift`](../../Sources/Perch/Views/ConflictRecoveryView.swift) | Conflict, resolving flag | Invoke one allowed recovery action through session closure | [`CaptureEditorFlowTests.swift`](../../Tests/PerchTests/CaptureEditorFlowTests.swift), WebKit conflict tests |
+| [`DeveloperStatusView.swift`](../../Sources/Perch/Views/DeveloperStatusView.swift) | Process/system metrics snapshot | Read-only About content | no direct test; formatting/refresh are manual boundaries |
+| [`GlobalShortcutRecorderView.swift`](../../Sources/Perch/Views/GlobalShortcutRecorderView.swift) | Runtime shortcuts plus local recording/feedback | Capture AppKit key event; apply/reset panel and Quick Capture shortcuts | [`GlobalShortcutTests.swift`](../../Tests/PerchTests/GlobalShortcutTests.swift) |
+| [`NotionWorkspaceSearchView.swift`](../../Sources/Perch/Views/NotionWorkspaceSearchView.swift) | Runtime search result/error plus query | Async workspace search and `.notionSearch` activation | [`AppRuntimeFacadeTests.swift`](../../Tests/PerchTests/AppRuntimeFacadeTests.swift), activation tests |
+| [`PagePickerView.swift`](../../Sources/Perch/Views/PagePickerView.swift) | Pages and pin closure | Pure 30-character display title and pin action; no current production consumer | `PagePickerDisplay` in [`PinCoordinatorTests.swift`](../../Tests/PerchTests/PinCoordinatorTests.swift) |
+| [`PageSwitcherView.swift`](../../Sources/Perch/Views/PageSwitcherView.swift) | Switcher controller, focus, row hover | Load/search/traverse/select/dismiss/pin through controller and callbacks | [`PageSwitcherMatcherTests.swift`](../../Tests/PerchTests/PageSwitcherMatcherTests.swift) |
+| [`PageURLField.swift`](../../Sources/Perch/Views/PageURLField.swift) | Text binding, focus request, submit closure | Edit, focus, submit/Pin | [`PageURLInputPresenterTests.swift`](../../Tests/PerchTests/PageURLInputPresenterTests.swift) plus manual field checks |
+| [`PageURLInputView.swift`](../../Sources/Perch/Views/PageURLInputView.swift) | URL state and submit closure | Compose field and typed validation feedback; also supplies window content | presenter/activation tests |
+| [`PanelSizeMenu.swift`](../../Sources/Perch/Views/PanelSizeMenu.swift) | Size controller | Apply, reset default, manage | [`AppCommandTests.swift`](../../Tests/PerchTests/AppCommandTests.swift), controller tests |
+| [`PanelSizeSettingsView.swift`](../../Sources/Perch/Views/PanelSizeSettingsView.swift) | Size controller plus local sheet/row buffers | Set/apply default; add/edit/apply/delete custom presets | [`PanelSizeControllerTests.swift`](../../Tests/PerchTests/PanelSizeControllerTests.swift), preferences tests |
+| [`PiPAppCommandMenu.swift`](../../Sources/Perch/Views/PiPAppCommandMenu.swift) | Shared command model and optional size controller | Perform commands with keyboard equivalents | [`AppCommandTests.swift`](../../Tests/PerchTests/AppCommandTests.swift) |
+| [`PiPChromeView.swift`](../../Sources/Perch/Views/PiPChromeView.swift) | Web session, switcher/command/size controllers, callbacks, accessibility environment, hover owner | Quick Capture, switch, re-pin, browser, stash, menu, retry, offline capture, clipboard insertion | [`PiPChromeViewTests.swift`](../../Tests/PerchTests/PiPChromeViewTests.swift), WebKit/command tests |
+| [`PiPStashHandleView.swift`](../../Sources/Perch/Views/PiPStashHandleView.swift) | Side and restore/drag callbacks | Click/accessibility restore or AppKit drag/re-place | [`PiPStashHandleInteractionTests.swift`](../../Tests/PerchTests/PiPStashHandleInteractionTests.swift) |
+| [`QuickCaptureDestinationSettingsView.swift`](../../Sources/Perch/Views/QuickCaptureDestinationSettingsView.swift) | Destination/search facade plus local query | Clear, search, schedule search, select, paginate | [`QuickCaptureDestinationControllerTests.swift`](../../Tests/PerchTests/QuickCaptureDestinationControllerTests.swift) |
+| [`QuickCaptureView.swift`](../../Sources/Perch/Views/QuickCaptureView.swift) | Capture session web view/conflict state | Web editor plus async native conflict resolution | Lecture 9's editor-flow and real-WebKit tests |
+| [`ServiceHealthView.swift`](../../Sources/Perch/Views/ServiceHealthView.swift) | Runtime health issues | Quit for unavailable store; retry pin/shortcut recovery | [`RuntimeActivationAndMenuBarTests.swift`](../../Tests/PerchTests/RuntimeActivationAndMenuBarTests.swift), pinned-page tests |
+| [`SettingsView.swift`](../../Sources/Perch/Views/SettingsView.swift) | Runtime, size controller, local token field | Compose all settings, token/toggles/menu visibility; scrub local token | controller/runtime tests; no snapshot test |
+| [`TopControlsHoverController.swift`](../../Sources/Perch/Views/TopControlsHoverController.swift) | Pointer intent and delay parameters | Delayed reveal/dismiss/cancel | [`PiPChromeViewTests.swift`](../../Tests/PerchTests/PiPChromeViewTests.swift) |
 
 The two no-consumer rows are still legitimate tested/public capabilities, but
 they are not evidence of today's rendered hierarchy.
@@ -265,10 +265,10 @@ requires a pinned panel target.
 
 `AppCommandModel` defines three command groups: Quick Capture (Command-N),
 Settings (Command-comma), and Quit (Command-Q). `PiPAppCommandMenu` renders them
-in SwiftUI. [`AppKitCommandMenuFactory.swift`](../../Sources/NotionPiP/Platform/AppKitCommandMenuFactory.swift)
+in SwiftUI. [`AppKitCommandMenuFactory.swift`](../../Sources/Perch/Platform/AppKitCommandMenuFactory.swift)
 renders the same groups in the status-item `NSMenu`, preserving labels,
 separators, key equivalents, enablement, and optional size submenu.
-[`StatusItemController.swift`](../../Sources/NotionPiP/Platform/StatusItemController.swift)
+[`StatusItemController.swift`](../../Sources/Perch/Platform/StatusItemController.swift)
 owns that AppKit menu's presentation and routes selected command tags back to
 the shared model, runtime context action, or size controller.
 

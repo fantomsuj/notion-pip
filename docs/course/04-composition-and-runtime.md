@@ -2,7 +2,7 @@
 
 **Duration:** 75 minutes
 
-Notion PiP assembles one long-lived object graph, then exposes a smaller
+Perch assembles one long-lived object graph, then exposes a smaller
 `AppRuntime` surface to most UI code. The composition root is allowed to know
 concrete repositories, WebKit and AppKit controllers, services, relays, and
 window factories. The runtime coordinates those objects without becoming a
@@ -39,12 +39,12 @@ By the end of this lecture, you can:
     Keychain, WebKit, network, or persistent store.
 
 The primary source is
-[`NotionPiPApp.swift`](../../Sources/NotionPiP/App/NotionPiPApp.swift), which
+[`PerchApp.swift`](../../Sources/Perch/App/PerchApp.swift), which
 contains `AppComposition`. Pair it with
-[`AppRuntime.swift`](../../Sources/NotionPiP/App/AppRuntime.swift),
-[`AppRuntime+Activation.swift`](../../Sources/NotionPiP/App/AppRuntime+Activation.swift),
+[`AppRuntime.swift`](../../Sources/Perch/App/AppRuntime.swift),
+[`AppRuntime+Activation.swift`](../../Sources/Perch/App/AppRuntime+Activation.swift),
 and
-[`AppRuntime+Persistence.swift`](../../Sources/NotionPiP/App/AppRuntime+Persistence.swift).
+[`AppRuntime+Persistence.swift`](../../Sources/Perch/App/AppRuntime+Persistence.swift).
 
 ## Before you begin
 
@@ -84,7 +84,7 @@ Most types should know only the collaborator they need. A page-switching
 controller needs a `PageWorkingSetPersisting` store; it should not know how to
 open a SwiftData container. A window presenter needs an `AppWindow`; it should
 not know how to validate a Notion token. The one exception is the
-**composition root**, [`AppComposition`](../../Sources/NotionPiP/App/NotionPiPApp.swift).
+**composition root**, [`AppComposition`](../../Sources/Perch/App/PerchApp.swift).
 It chooses the production implementations and connects them.
 
 For a beginner, imagine assembling a sound system. The composition root chooses
@@ -102,7 +102,7 @@ service locator.
 
 `AppComposition.init()` runs synchronously on the main actor. It creates and
 wires objects; it does not itself perform every startup action. Later,
-[`AppStartup.start`](../../Sources/NotionPiP/App/NotionPiPApp.swift) calls
+[`AppStartup.start`](../../Sources/Perch/App/PerchApp.swift) calls
 `runtime.start()`, which registers shortcuts and starts asynchronous bootstrap,
 delivery recovery, capture-history refresh, and page restoration.
 
@@ -138,11 +138,11 @@ framework mechanics is useful:
 | `PanelSizing` | size controller → panel coordinator | panel frame conversion and screen geometry |
 
 See the declarations in
-[`PiPPanelCoordinator.swift`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift),
-[`PageWorkingSetStore.swift`](../../Sources/NotionPiP/Persistence/PageWorkingSetStore.swift),
-[`AppWindowPresenter.swift`](../../Sources/NotionPiP/Platform/AppWindowPresenter.swift),
+[`PiPPanelCoordinator.swift`](../../Sources/Perch/Platform/PiPPanelCoordinator.swift),
+[`PageWorkingSetStore.swift`](../../Sources/Perch/Persistence/PageWorkingSetStore.swift),
+[`AppWindowPresenter.swift`](../../Sources/Perch/Platform/AppWindowPresenter.swift),
 and
-[`NotionAPIClient.swift`](../../Sources/NotionPiP/Services/NotionAPIClient.swift).
+[`NotionAPIClient.swift`](../../Sources/Perch/Services/NotionAPIClient.swift).
 A protocol is not automatically a separate layer. Its value here is the narrow
 edge it creates and the fake or actor implementation that can sit behind it.
 
@@ -152,27 +152,27 @@ Read the composition/runtime slice by responsibility:
 
 | Source | Responsibility | Focused evidence |
 |---|---|---|
-| [`NotionPiPApp.swift`](../../Sources/NotionPiP/App/NotionPiPApp.swift) | Concrete construction, persistence fallback, callback wiring, and graph retention | Startup and termination tests introduced in Lecture 3 |
-| [`AppCommandActionRelay.swift`](../../Sources/NotionPiP/App/AppCommandActionRelay.swift) | Late-bound command destinations and AppKit quit request | [`AppCommandActionRelayTests.swift`](../../Tests/NotionPiPTests/AppCommandActionRelayTests.swift) |
-| [`AppCommandModel.swift`](../../Sources/NotionPiP/App/AppCommandModel.swift) | Shared command metadata and main-actor actions | [`AppCommandTests.swift`](../../Tests/NotionPiPTests/AppCommandTests.swift) |
-| [`AppRuntime.swift`](../../Sources/NotionPiP/App/AppRuntime.swift) | Main-actor facade, published state, child controllers, startup, and controller observation | [`AppRuntimeFacadeTests.swift`](../../Tests/NotionPiPTests/AppRuntimeFacadeTests.swift) |
-| [`AppRuntime+Activation.swift`](../../Sources/NotionPiP/App/AppRuntime+Activation.swift) | Shortcut/settings commands and the unified page-activation path | [`RuntimeActivationAndMenuBarTests.swift`](../../Tests/NotionPiPTests/RuntimeActivationAndMenuBarTests.swift) |
-| [`AppRuntime+Persistence.swift`](../../Sources/NotionPiP/App/AppRuntime+Persistence.swift) | Restore, ordered visit persistence, health publication, and termination wait | [`RuntimePinnedPagePersistenceTests.swift`](../../Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift) |
-| [`AppRuntimeStateTypes.swift`](../../Sources/NotionPiP/App/AppRuntimeStateTypes.swift) | Service-health, activation-source, and connection-state values | Runtime and connection-controller tests |
-| [`NotionConnectionController.swift`](../../Sources/NotionPiP/App/NotionConnectionController.swift) | Token connection and workspace-page search state | [`NotionConnectionControllerTests.swift`](../../Tests/NotionPiPTests/NotionConnectionControllerTests.swift) |
-| [`QuickCaptureDestinationController.swift`](../../Sources/NotionPiP/App/QuickCaptureDestinationController.swift) | Saved destination and paginated/debounced search state | [`QuickCaptureDestinationControllerTests.swift`](../../Tests/NotionPiPTests/QuickCaptureDestinationControllerTests.swift) |
-| [`PageSwitcherController.swift`](../../Sources/NotionPiP/App/PageSwitcherController.swift) | Working-set loading, matching, selection, and favorite changes | [`PageSwitcherMatcherTests.swift`](../../Tests/NotionPiPTests/PageSwitcherMatcherTests.swift) |
-| [`PanelSizeController.swift`](../../Sources/NotionPiP/App/PanelSizeController.swift) | Observable size preferences and a weak sizing target | [`PanelSizeControllerTests.swift`](../../Tests/NotionPiPTests/PanelSizeControllerTests.swift) |
-| [`AppWindowFactory.swift`](../../Sources/NotionPiP/Platform/AppWindowFactory.swift) | Concrete Settings and Quick Capture windows, degraded capture UI, close and termination handlers | Capture lifecycle and presenter tests |
-| [`AppWindowPresenter.swift`](../../Sources/NotionPiP/Platform/AppWindowPresenter.swift) | Concrete presentation plus lazy creation, delayed release, resource disposal, and termination participation | [`AppWindowPresenterTests.swift`](../../Tests/NotionPiPTests/AppWindowPresenterTests.swift) |
-| [`SettingsWindowPresenter.swift`](../../Sources/NotionPiP/Platform/SettingsWindowPresenter.swift) | Small Settings-specific presentation adapter | `AppWindowPresenterTests` |
+| [`PerchApp.swift`](../../Sources/Perch/App/PerchApp.swift) | Concrete construction, persistence fallback, callback wiring, and graph retention | Startup and termination tests introduced in Lecture 3 |
+| [`AppCommandActionRelay.swift`](../../Sources/Perch/App/AppCommandActionRelay.swift) | Late-bound command destinations and AppKit quit request | [`AppCommandActionRelayTests.swift`](../../Tests/PerchTests/AppCommandActionRelayTests.swift) |
+| [`AppCommandModel.swift`](../../Sources/Perch/App/AppCommandModel.swift) | Shared command metadata and main-actor actions | [`AppCommandTests.swift`](../../Tests/PerchTests/AppCommandTests.swift) |
+| [`AppRuntime.swift`](../../Sources/Perch/App/AppRuntime.swift) | Main-actor facade, published state, child controllers, startup, and controller observation | [`AppRuntimeFacadeTests.swift`](../../Tests/PerchTests/AppRuntimeFacadeTests.swift) |
+| [`AppRuntime+Activation.swift`](../../Sources/Perch/App/AppRuntime+Activation.swift) | Shortcut/settings commands and the unified page-activation path | [`RuntimeActivationAndMenuBarTests.swift`](../../Tests/PerchTests/RuntimeActivationAndMenuBarTests.swift) |
+| [`AppRuntime+Persistence.swift`](../../Sources/Perch/App/AppRuntime+Persistence.swift) | Restore, ordered visit persistence, health publication, and termination wait | [`RuntimePinnedPagePersistenceTests.swift`](../../Tests/PerchTests/RuntimePinnedPagePersistenceTests.swift) |
+| [`AppRuntimeStateTypes.swift`](../../Sources/Perch/App/AppRuntimeStateTypes.swift) | Service-health, activation-source, and connection-state values | Runtime and connection-controller tests |
+| [`NotionConnectionController.swift`](../../Sources/Perch/App/NotionConnectionController.swift) | Token connection and workspace-page search state | [`NotionConnectionControllerTests.swift`](../../Tests/PerchTests/NotionConnectionControllerTests.swift) |
+| [`QuickCaptureDestinationController.swift`](../../Sources/Perch/App/QuickCaptureDestinationController.swift) | Saved destination and paginated/debounced search state | [`QuickCaptureDestinationControllerTests.swift`](../../Tests/PerchTests/QuickCaptureDestinationControllerTests.swift) |
+| [`PageSwitcherController.swift`](../../Sources/Perch/App/PageSwitcherController.swift) | Working-set loading, matching, selection, and favorite changes | [`PageSwitcherMatcherTests.swift`](../../Tests/PerchTests/PageSwitcherMatcherTests.swift) |
+| [`PanelSizeController.swift`](../../Sources/Perch/App/PanelSizeController.swift) | Observable size preferences and a weak sizing target | [`PanelSizeControllerTests.swift`](../../Tests/PerchTests/PanelSizeControllerTests.swift) |
+| [`AppWindowFactory.swift`](../../Sources/Perch/Platform/AppWindowFactory.swift) | Concrete Settings and Quick Capture windows, degraded capture UI, close and termination handlers | Capture lifecycle and presenter tests |
+| [`AppWindowPresenter.swift`](../../Sources/Perch/Platform/AppWindowPresenter.swift) | Concrete presentation plus lazy creation, delayed release, resource disposal, and termination participation | [`AppWindowPresenterTests.swift`](../../Tests/PerchTests/AppWindowPresenterTests.swift) |
+| [`SettingsWindowPresenter.swift`](../../Sources/Perch/Platform/SettingsWindowPresenter.swift) | Small Settings-specific presentation adapter | `AppWindowPresenterTests` |
 
 Two views demonstrate the facade boundary. `SettingsView` observes one runtime
 and reads both runtime-owned and controller-owned state through it, while
 `StatusItemController` subscribes specifically to
 `runtime.$effectiveMenuBarIconVisibility`. See
-[`SettingsView.swift`](../../Sources/NotionPiP/Views/SettingsView.swift) and
-[`StatusItemController.swift`](../../Sources/NotionPiP/Platform/StatusItemController.swift).
+[`SettingsView.swift`](../../Sources/Perch/Views/SettingsView.swift) and
+[`StatusItemController.swift`](../../Sources/Perch/Platform/StatusItemController.swift).
 
 ## Runtime trace
 
@@ -182,7 +182,7 @@ The committed initializer can be reconstructed in these phases:
 
 1. Create `AppCommandActionRelay`, `NotionWebSession`, and
    `PersonalTokenCredentialVault`.
-2. Attempt one shared `NotionPiPPersistence` container. On success, create the
+2. Attempt one shared `PerchPersistence` container. On success, create the
    capture and destination repositories, token-backed capture API, delivery
    service, engine, scheduler, and page repository. On failure, set all four
    optional persistence/delivery outputs to `nil` and create an initial
@@ -223,7 +223,7 @@ The committed initializer can be reconstructed in these phases:
     `NSApplication.run()`.
 
 That order is source behavior, not a suggested refactor. Follow it in
-[`AppComposition.init`](../../Sources/NotionPiP/App/NotionPiPApp.swift).
+[`AppComposition.init`](../../Sources/Perch/App/PerchApp.swift).
 
 ### Dependency graph
 
@@ -288,9 +288,9 @@ The runtime does not duplicate `connectionState`; it exposes a computed property
 that reads the child controller. Because SwiftUI observes the runtime rather
 than the private child, `observeControllers()` forwards the child's
 `objectWillChange`. The same pattern forwards destination-controller changes.
-[`AppRuntimeFacadeTests`](../../Tests/NotionPiPTests/AppRuntimeFacadeTests.swift)
+[`AppRuntimeFacadeTests`](../../Tests/PerchTests/AppRuntimeFacadeTests.swift)
 checks that child search publication reaches the facade, and
-[`NotionConnectionControllerTests`](../../Tests/NotionPiPTests/NotionConnectionControllerTests.swift)
+[`NotionConnectionControllerTests`](../../Tests/PerchTests/NotionConnectionControllerTests.swift)
 checks token validation, persistence, reconnection, errors, and stale-result
 rejection.
 
@@ -332,7 +332,7 @@ attribute the editor's lock-driven delivery to the native relay.
 
 ### `AppRuntime` is a facade and coordinator
 
-[`AppRuntime`](../../Sources/NotionPiP/App/AppRuntime.swift) is
+[`AppRuntime`](../../Sources/Perch/App/AppRuntime.swift) is
 `@MainActor`, `ObservableObject`, and `ApplicationURLHandling`. It presents a
 cohesive API to Settings, status-item, delegate, and command surfaces:
 
@@ -351,14 +351,14 @@ visible.
 
 The file split is organizational:
 
-- [`AppRuntime.swift`](../../Sources/NotionPiP/App/AppRuntime.swift) declares
+- [`AppRuntime.swift`](../../Sources/Perch/App/AppRuntime.swift) declares
   stored state, initialization, startup, facade forwarding, health, and child
   observation.
-- [`AppRuntime+Activation.swift`](../../Sources/NotionPiP/App/AppRuntime+Activation.swift)
+- [`AppRuntime+Activation.swift`](../../Sources/Perch/App/AppRuntime+Activation.swift)
   groups shortcut, status-menu, validation, and page-activation behavior.
-- [`AppRuntime+Persistence.swift`](../../Sources/NotionPiP/App/AppRuntime+Persistence.swift)
+- [`AppRuntime+Persistence.swift`](../../Sources/Perch/App/AppRuntime+Persistence.swift)
   groups restore, ordered visit writes, health changes, and termination wait.
-- [`AppRuntimeStateTypes.swift`](../../Sources/NotionPiP/App/AppRuntimeStateTypes.swift)
+- [`AppRuntimeStateTypes.swift`](../../Sources/Perch/App/AppRuntimeStateTypes.swift)
   keeps `Sendable` health and activation values plus connection UI state near
   the application layer.
 
@@ -422,7 +422,7 @@ disposes the editor session and clears the inner presenter, so a later open
 constructs a fresh one. A termination participant exists only while the inner
 presenter exists, and its handler is called only while the window is visible.
 These are explicit regressions in
-[`AppWindowPresenterTests.swift`](../../Tests/NotionPiPTests/AppWindowPresenterTests.swift).
+[`AppWindowPresenterTests.swift`](../../Tests/PerchTests/AppWindowPresenterTests.swift).
 
 Laziness here changes resource lifetime, not feature ownership. The composition
 root still owns the wrapper and factory closure, `AppWindowFactory` still owns
@@ -445,12 +445,12 @@ The persistence branch is one `do`/`catch`, producing two valid graphs:
 | Recovery guidance | Normal operation | Settings says local storage is unavailable and offers quit/reopen |
 
 See the branch in
-[`NotionPiPApp.swift`](../../Sources/NotionPiP/App/NotionPiPApp.swift), the
+[`PerchApp.swift`](../../Sources/Perch/App/PerchApp.swift), the
 fallback window in
-[`AppWindowFactory.swift`](../../Sources/NotionPiP/Platform/AppWindowFactory.swift),
+[`AppWindowFactory.swift`](../../Sources/Perch/Platform/AppWindowFactory.swift),
 and recovery copy in
-[`ServiceHealthView.swift`](../../Sources/NotionPiP/Views/ServiceHealthView.swift).
-[`RuntimeActivationAndMenuBarTests`](../../Tests/NotionPiPTests/RuntimeActivationAndMenuBarTests.swift)
+[`ServiceHealthView.swift`](../../Sources/Perch/Views/ServiceHealthView.swift).
+[`RuntimeActivationAndMenuBarTests`](../../Tests/PerchTests/RuntimeActivationAndMenuBarTests.swift)
 establish that an initial persistent-store issue is observable.
 
 This is **degraded service**, not pretend durability. A typed page may still be
@@ -541,7 +541,7 @@ For the source demonstration:
 Do not use a live app to claim persistent-store failure unless the failure was
 created safely and intentionally. Do not delete stores, credentials, or user
 data for a presentation. If demonstrating the UI, save work and quit any
-running Notion PiP before rebuilding; then treat actual window focus, status
+running Perch before rebuilding; then treat actual window focus, status
 item, Keychain, WebKit, and network behavior as manual observations.
 
 If time is short, preserve four ideas: concrete construction is centralized;
@@ -615,7 +615,7 @@ Without editing source, trace these two scenarios:
 1. The user chooses **Quick Capture** before any capture window has existed,
    then closes a nonempty successfully saved capture and reopens it after the
    scheduled release fires.
-2. On another launch, `NotionPiPPersistence.makeContainer()` throws, the user
+2. On another launch, `PerchPersistence.makeContainer()` throws, the user
    opens Settings, enters a valid page URL, and then chooses Quick Capture.
 
 For each step, record:
@@ -631,11 +631,11 @@ Use focused source searches:
 
 ```sh
 rg -n "AppComposition|AppCommandActionRelay|PageSwitcherSelectionRelay" \
-  Sources/NotionPiP/App
+  Sources/Perch/App
 rg -n "LazyAppWindowPresenter|scheduleReleaseAfterSuccessfulClose|makeQuickCapture" \
-  Sources/NotionPiP Tests/NotionPiPTests
+  Sources/Perch Tests/PerchTests
 rg -n "persistentStoreUnavailable|initialServiceHealth|serviceHealth" \
-  Sources/NotionPiP Tests/NotionPiPTests
+  Sources/Perch Tests/PerchTests
 ```
 
 Do not force a real store failure, remove a database, or enter a secret. The
@@ -672,7 +672,7 @@ focus and WebKit resource behavior remain manual.
 The degraded branch should read:
 
 ```text
-NotionPiPPersistence.makeContainer throws
+PerchPersistence.makeContainer throws
   → nil page/capture/destination repositories and scheduler
   → serviceHealth begins with .persistentStoreUnavailable
   → runtime, panel, WebKit, commands, Settings, status item still compose

@@ -27,8 +27,8 @@
 ### Task 1: First-load prewarm state policy
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/FirstNotionPagePrewarmController.swift`
-- Create: `Tests/NotionPiPTests/FirstNotionPagePrewarmControllerTests.swift`
+- Create: `Sources/Perch/Platform/FirstNotionPagePrewarmController.swift`
+- Create: `Tests/PerchTests/FirstNotionPagePrewarmControllerTests.swift`
 
 **Interfaces:**
 - Consumes: `NotionPageReference`.
@@ -42,7 +42,7 @@ Create the test file with focused cases for authorization, canonical duplicate s
 ```swift
 import Foundation
 import XCTest
-@testable import NotionPiP
+@testable import Perch
 
 @MainActor
 final class FirstNotionPagePrewarmControllerTests: XCTestCase {
@@ -231,17 +231,17 @@ Run the filtered command from Step 2. Expected: all policy tests pass.
 - [ ] **Step 5: Commit the policy**
 
 ```sh
-git add Sources/NotionPiP/Platform/FirstNotionPagePrewarmController.swift \
-  Tests/NotionPiPTests/FirstNotionPagePrewarmControllerTests.swift
+git add Sources/Perch/Platform/FirstNotionPagePrewarmController.swift \
+  Tests/PerchTests/FirstNotionPagePrewarmControllerTests.swift
 git commit -m "Add first page prewarm policy"
 ```
 
 ### Task 2: Strict editor-interactive bridge
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/NotionEditorReadinessBridge.swift`
-- Modify: `Sources/NotionPiP/Platform/NotionWebScriptMessageCoordinator.swift`
-- Create: `Tests/NotionPiPTests/NotionEditorReadinessBridgeTests.swift`
+- Create: `Sources/Perch/Platform/NotionEditorReadinessBridge.swift`
+- Modify: `Sources/Perch/Platform/NotionWebScriptMessageCoordinator.swift`
+- Create: `Tests/PerchTests/NotionEditorReadinessBridgeTests.swift`
 
 **Interfaces:**
 - Consumes: existing exact page-host validation and `WKUserContentController` lifecycle.
@@ -297,7 +297,7 @@ Expected: compilation fails because `NotionEditorReadinessBridge` is missing.
 import WebKit
 
 enum NotionEditorReadinessBridge {
-    static let handlerName = "notionPiPEditorReadiness"
+    static let handlerName = "perchEditorReadiness"
 
     static func isInteractive(
         from body: Any,
@@ -314,9 +314,9 @@ enum NotionEditorReadinessBridge {
 
     static let script = #"""
         (() => {
-          if (window.__notionPiPEditorReadinessInstalled) return;
-          window.__notionPiPEditorReadinessInstalled = true;
-          const handler = window.webkit?.messageHandlers?.notionPiPEditorReadiness;
+          if (window.__perchEditorReadinessInstalled) return;
+          window.__perchEditorReadinessInstalled = true;
+          const handler = window.webkit?.messageHandlers?.perchEditorReadiness;
           let frame = null;
           let consecutiveFrames = 0;
           let published = false;
@@ -381,17 +381,17 @@ Expected: all selected tests pass with no handler lifecycle regression.
 - [ ] **Step 5: Commit the readiness bridge**
 
 ```sh
-git add Sources/NotionPiP/Platform/NotionEditorReadinessBridge.swift \
-  Sources/NotionPiP/Platform/NotionWebScriptMessageCoordinator.swift \
-  Tests/NotionPiPTests/NotionEditorReadinessBridgeTests.swift
+git add Sources/Perch/Platform/NotionEditorReadinessBridge.swift \
+  Sources/Perch/Platform/NotionWebScriptMessageCoordinator.swift \
+  Tests/PerchTests/NotionEditorReadinessBridgeTests.swift
 git commit -m "Detect interactive Notion editors"
 ```
 
 ### Task 3: First-page performance intervals
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/PerformanceSignposter.swift`
-- Modify: `Tests/NotionPiPTests/PerformanceSignposterTests.swift`
+- Modify: `Sources/Perch/Platform/PerformanceSignposter.swift`
+- Modify: `Tests/PerchTests/PerformanceSignposterTests.swift`
 
 **Interfaces:**
 - Adds `.notionFirstPageShellPrewarm`, `.notionValidInputToInteractive`, and `.notionSubmitToInteractive`.
@@ -464,17 +464,17 @@ Run the Step 2 command. Expected: all signposter tests pass.
 - [ ] **Step 5: Commit instrumentation types**
 
 ```sh
-git add Sources/NotionPiP/Platform/PerformanceSignposter.swift \
-  Tests/NotionPiPTests/PerformanceSignposterTests.swift
+git add Sources/Perch/Platform/PerformanceSignposter.swift \
+  Tests/PerchTests/PerformanceSignposterTests.swift
 git commit -m "Measure first Notion page interactivity"
 ```
 
 ### Task 4: One-WebView shell warming, candidate loading, and adoption
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Modify: `Sources/NotionPiP/Platform/NotionWebScriptMessageCoordinator.swift`
-- Modify: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Modify: `Sources/Perch/Platform/NotionWebScriptMessageCoordinator.swift`
+- Modify: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 **Interfaces:**
 - Extends `NotionPageLoading` with `prepareFirstActivation()`, `prepareFirstActivation(page:)`, and `noteFirstPageSubmission(_:)`, all with default no-op implementations.
@@ -736,25 +736,25 @@ and unchanged login/navigation behavior.
 - [ ] **Step 6: Commit WebKit integration**
 
 ```sh
-git add Sources/NotionPiP/Platform/NotionWebSession.swift \
-  Sources/NotionPiP/Platform/NotionWebScriptMessageCoordinator.swift \
-  Tests/NotionPiPTests/NotionWebSessionTests.swift
+git add Sources/Perch/Platform/NotionWebSession.swift \
+  Sources/Perch/Platform/NotionWebScriptMessageCoordinator.swift \
+  Tests/PerchTests/NotionWebSessionTests.swift
 git commit -m "Prewarm the first Notion web session"
 ```
 
 ### Task 5: Runtime URL speculation and panel forwarding
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift`
-- Modify: `Sources/NotionPiP/App/PinCoordinator.swift`
-- Modify: `Sources/NotionPiP/App/AppRuntime.swift`
-- Modify: `Sources/NotionPiP/App/AppRuntime+Persistence.swift`
-- Modify: `Sources/NotionPiP/App/AppRuntime+Activation.swift`
-- Modify: `Sources/NotionPiP/App/NotionPiPApp.swift`
-- Modify: `Tests/NotionPiPTests/PinCoordinatorTests.swift`
-- Modify: `Tests/NotionPiPTests/PageURLInputPresenterTests.swift`
-- Modify: `Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift`
-- Modify: `Tests/NotionPiPTests/AppRuntimeTestSupport.swift`
+- Modify: `Sources/Perch/Platform/PiPPanelCoordinator.swift`
+- Modify: `Sources/Perch/App/PinCoordinator.swift`
+- Modify: `Sources/Perch/App/AppRuntime.swift`
+- Modify: `Sources/Perch/App/AppRuntime+Persistence.swift`
+- Modify: `Sources/Perch/App/AppRuntime+Activation.swift`
+- Modify: `Sources/Perch/App/PerchApp.swift`
+- Modify: `Tests/PerchTests/PinCoordinatorTests.swift`
+- Modify: `Tests/PerchTests/PageURLInputPresenterTests.swift`
+- Modify: `Tests/PerchTests/RuntimePinnedPagePersistenceTests.swift`
+- Modify: `Tests/PerchTests/AppRuntimeTestSupport.swift`
 
 **Interfaces:**
 - Extends `PiPPanelCoordinating` with `prepareFirstActivation()` and `prepareFirstActivation(page:)`, defaulting to no-op for unrelated test doubles.
@@ -871,7 +871,7 @@ func prepareFirstActivationIfEmpty() {
 }
 ```
 
-In `NotionPiPApp`, pass the developer-only switch explicitly:
+In `PerchApp`, pass the developer-only switch explicitly:
 
 ```swift
 let prewarmingEnabled = !ProcessInfo.processInfo.arguments.contains(
@@ -903,16 +903,16 @@ submission.
 - [ ] **Step 6: Commit runtime integration**
 
 ```sh
-git add Sources/NotionPiP/Platform/PiPPanelCoordinator.swift \
-  Sources/NotionPiP/App/PinCoordinator.swift \
-  Sources/NotionPiP/App/AppRuntime.swift \
-  Sources/NotionPiP/App/AppRuntime+Persistence.swift \
-  Sources/NotionPiP/App/AppRuntime+Activation.swift \
-  Sources/NotionPiP/App/NotionPiPApp.swift \
-  Tests/NotionPiPTests/PinCoordinatorTests.swift \
-  Tests/NotionPiPTests/PageURLInputPresenterTests.swift \
-  Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift \
-  Tests/NotionPiPTests/AppRuntimeTestSupport.swift
+git add Sources/Perch/Platform/PiPPanelCoordinator.swift \
+  Sources/Perch/App/PinCoordinator.swift \
+  Sources/Perch/App/AppRuntime.swift \
+  Sources/Perch/App/AppRuntime+Persistence.swift \
+  Sources/Perch/App/AppRuntime+Activation.swift \
+  Sources/Perch/App/PerchApp.swift \
+  Tests/PerchTests/PinCoordinatorTests.swift \
+  Tests/PerchTests/PageURLInputPresenterTests.swift \
+  Tests/PerchTests/RuntimePinnedPagePersistenceTests.swift \
+  Tests/PerchTests/AppRuntimeTestSupport.swift
 git commit -m "Speculate the first pasted Notion page"
 ```
 
@@ -940,8 +940,8 @@ editable test page. Never record its URL, title, workspace path, content,
 cookies, or credentials.
 
 Run ten alternating baseline and prewarm launches, using
-`open -n dist/NotionPiP.app --args --disable-first-page-prewarm` for baseline
-and `open -n dist/NotionPiP.app` for prewarm. Quit between runs; do not
+`open -n dist/Perch.app --args --disable-first-page-prewarm` for baseline
+and `open -n dist/Perch.app` for prewarm. Quit between runs; do not
 clear WebKit website data because persistent cache is normal product behavior.
 Record only milliseconds, candidate reuse, timeout/success, peak memory, and
 qualitative energy impact.
@@ -955,7 +955,7 @@ duplicate request, and no panel/persistence occurs before submit.
 ```
 
 Document Time Profiler, Hangs, Allocations, Memory, and an os_signpost track
-filtered to subsystem `com.fantomsuj.NotionPiP`. State raw traces are local
+filtered to subsystem `com.fantomsuj.Perch`. State raw traces are local
 diagnostic artifacts and must not be committed.
 
 - [ ] **Step 2: Extend the manual matrix**
@@ -979,7 +979,7 @@ Expected: all tests pass with zero failures.
 ```sh
 git diff --check
 git status --short
-git diff origin/master... -- Sources/NotionPiP Tests/NotionPiPTests \
+git diff origin/master... -- Sources/Perch Tests/PerchTests \
   docs/FIRST_PAGE_PERFORMANCE_BASELINE.md docs/MANUAL_TEST_MATRIX.md
 ```
 
@@ -989,15 +989,15 @@ completion on every terminal path.
 
 - [ ] **Step 5: Stage safely and verify**
 
-First run `pgrep -x NotionPiP`. If a process is running and ownership is not
+First run `pgrep -x Perch`. If a process is running and ownership is not
 clearly from this test session, stop and ask the user to save work and quit;
-the build script terminates `NotionPiP`. Otherwise run:
+the build script terminates `Perch`. Otherwise run:
 
 ```sh
 ./script/build_and_run.sh --verify
 ```
 
-Expected: `Verified .../dist/NotionPiP.app` with a live PID.
+Expected: `Verified .../dist/Perch.app` with a live PID.
 
 - [ ] **Step 6: Execute the real-page A/B gate without automating credentials**
 
