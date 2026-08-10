@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-/// Legacy schema entity retained only to migrate pre-V5 stores.
+/// Legacy Quick Capture entity retained so existing drafts remain recoverable.
 @Model
 final class CaptureDraftModel {
     @Attribute(.unique) var stableID: String
