@@ -12,7 +12,6 @@ func makeRuntime(
     shortcutRegistrar: any GlobalShortcutRegistering = RuntimeShortcutRegistrar(),
     pageURLInputPresenter: RuntimePageURLInputPresenter = RuntimePageURLInputPresenter(),
     pageRepository: (any PageWorkingSetPersisting)? = nil,
-    client: any NotionWorkspaceClient = RuntimeNotionClient(),
     shortcutHoldDuration: Duration = .milliseconds(300),
     shortcutGestureScheduler: any ShortcutGestureScheduling =
         TaskShortcutGestureScheduler(),
@@ -24,9 +23,6 @@ func makeRuntime(
     menuBarIconPreferenceStore: MenuBarIconPreferenceStore? = nil,
     automaticSettingsPresentationAllowed: @escaping @MainActor () -> Bool = { true }
 ) -> AppRuntime {
-    let store = RuntimeSecretStore()
-    let vault = PersonalTokenCredentialVault(store: store)
-    try! vault.save(PersonalIntegrationToken(validating: "ntn_1234567890abcdef"))
     let preferenceStore = menuBarIconPreferenceStore ?? MenuBarIconPreferenceStore(
         defaults: UserDefaults(
             suiteName: "AppRuntimeTests.\(UUID().uuidString)"
@@ -46,8 +42,6 @@ func makeRuntime(
         peekFocusRestorer: peekFocusRestorer,
         pageURLInputPresenter: pageURLInputPresenter,
         pageRepository: pageRepository,
-        credentialVault: vault,
-        notionClientFactory: { _ in client },
         shortcutHoldDuration: shortcutHoldDuration,
         shortcutGestureScheduler: shortcutGestureScheduler,
         accessibilityAnnouncementPoster: accessibilityAnnouncementPoster,
@@ -342,14 +336,6 @@ final class RuntimePageURLInputPresenter: PageURLInputPresenting {
     func hide() {}
 }
 
-final class RuntimeSecretStore: SecretStoring {
-    var data: Data?
-
-    func read() throws -> Data? { data }
-    func write(_ data: Data) throws { self.data = data }
-    func delete() throws { data = nil }
-}
-
 enum RuntimeRepositoryError: Error {
     case saveFailed
     case restoreFailed
@@ -495,15 +481,5 @@ actor RuntimePinnedPageRepository: PageWorkingSetPersisting {
             }
             await Task.yield()
         }
-    }
-}
-
-actor RuntimeNotionClient: NotionWorkspaceClient {
-    func validateConnection() async throws -> NotionConnectionSnapshot {
-        NotionConnectionSnapshot(workspaceName: "Workspace")
-    }
-
-    func searchPages(query: String) async throws -> [NotionPageSearchResult] {
-        []
     }
 }

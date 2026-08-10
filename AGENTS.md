@@ -89,13 +89,13 @@ prints `Verified .../dist/NotionPiP.app` with a process ID.
 - The user signs in to their own Notion account inside the app. Never ask them
   to paste a Notion password, session cookie, or integration token into chat or
   the terminal.
-- A personal integration token is optional, enables workspace page search, and
-  should be entered only through the app's own settings UI.
+- The app does not accept a personal integration token. Workspace search and
+  account access remain inside Notion's embedded interface.
 - Local builds use a configured Apple Development or Notion PiP local-development
   identity when available, and otherwise fall back to ad-hoc signing. The optional
   `./script/setup_local_signing.sh` helper creates a machine-local identity to keep
-  Keychain authorization stable across rebuilds. None of these development paths
-  replace a Developer ID-signed, notarized distribution build.
+  macOS permissions and login-item identity stable across rebuilds. None of these
+  development paths replace a Developer ID-signed, notarized distribution build.
 - Launch at Login works only from the staged `dist/NotionPiP.app`, not by
   running the SwiftPM executable directly. Its toggle reflects the current
   macOS ServiceManagement registration and may direct the user to System

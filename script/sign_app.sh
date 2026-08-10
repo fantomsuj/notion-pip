@@ -24,7 +24,7 @@ fi
 if [[ -z "$SIGNING_IDENTITY" ]]; then
     SIGNING_IDENTITY="-"
     echo "warning: no stable code-signing identity found; using ad-hoc signing" >&2
-    echo "warning: saved Keychain credentials can require authorization again after a rebuild" >&2
+    echo "warning: macOS permissions and login-item approval can reset after a rebuild" >&2
 else
     echo "Signing with stable identity $SIGNING_IDENTITY"
 fi
