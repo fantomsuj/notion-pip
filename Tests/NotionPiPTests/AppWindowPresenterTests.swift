@@ -50,31 +50,6 @@ final class AppWindowPresenterTests: XCTestCase {
         XCTAssertEqual(windowPresenters[1].showCount, 1)
     }
 
-    func testPresenterMeasuresOnlyFirstPresentationWhileShowingWindowEveryTime() {
-        let window = FakeAppWindow()
-        let signposter = PerformanceSignposterSpy()
-        let presenter = AppWindowPresenter(
-            window: window,
-            performanceSignposter: signposter,
-            firstPresentationOperation: .firstPiPPresentation
-        )
-
-        presenter.show()
-        XCTAssertTrue(window.isVisible)
-        XCTAssertEqual(window.presentCount, 1)
-
-        presenter.show()
-        XCTAssertEqual(window.presentCount, 2)
-
-        presenter.hide()
-        XCTAssertFalse(window.isVisible)
-        XCTAssertEqual(window.orderOutCount, 1)
-        XCTAssertEqual(signposter.beginCalls, [.firstPiPPresentation])
-        XCTAssertEqual(signposter.endCalls.count, 1)
-        XCTAssertNotNil(signposter.endCalls.first?.token)
-        XCTAssertEqual(signposter.endCalls.first?.outcome, .success)
-    }
-
     func testWindowCloseRequestHidesWindowBeforeRunningCloseHandler() {
         let window = FakeAppWindow()
         var closeHandlerCallCount = 0

@@ -55,7 +55,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let shortcutLifecycleCoordinatorFactory:
         (@escaping @MainActor (ShortcutRecoveryTrigger) -> Void) -> ShortcutLifecycleCoordinator
     var shortcutLifecycleCoordinator: ShortcutLifecycleCoordinator?
-    var shortcutConfigurationGeneration: UInt = 0
+    var shortcutRegistrationGeneration: UInt = 0
     var shortcutGestureTimer: (any ShortcutGestureTimer)?
     var shortcutGestureState = ShortcutPeekGestureState.idle
     var shortcutGestureGeneration: UInt = 0
@@ -133,7 +133,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
         registerGlobalShortcut()
         let shortcutLifecycleCoordinator = shortcutLifecycleCoordinatorFactory { [weak self] trigger in
-            self?.recoverShortcuts(trigger: trigger)
+            self?.recoverShortcut(trigger: trigger)
         }
         self.shortcutLifecycleCoordinator = shortcutLifecycleCoordinator
         shortcutLifecycleCoordinator.start()

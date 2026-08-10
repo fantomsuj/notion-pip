@@ -11,7 +11,7 @@ extension AppRuntime {
             cancelShortcutGesture(restashTransientPanel: true)
             publishGlobalShortcut(shortcut)
             shortcutStore.save(shortcut)
-            shortcutConfigurationDidChange()
+            shortcutRegistrationDidChange()
             resolveServiceIssue(.globalShortcutUnavailable)
             return true
         } catch {
@@ -32,10 +32,10 @@ extension AppRuntime {
         publishHoldToPeekEnabled(enabled)
     }
 
-    func recoverShortcuts(trigger: ShortcutRecoveryTrigger) {
-        let expectedGeneration = shortcutConfigurationGeneration
+    func recoverShortcut(trigger: ShortcutRecoveryTrigger) {
+        let expectedGeneration = shortcutRegistrationGeneration
         let panelFailure = revalidationFailure(from: shortcutRegistrar)
-        guard expectedGeneration == shortcutConfigurationGeneration else { return }
+        guard expectedGeneration == shortcutRegistrationGeneration else { return }
 
         updateShortcutHealth(
             issue: .globalShortcutUnavailable,
@@ -301,9 +301,9 @@ extension AppRuntime {
         pageURLInputState.showValidationFailure(message)
     }
 
-    private func shortcutConfigurationDidChange() {
+    private func shortcutRegistrationDidChange() {
         cancelShortcutGesture(restashTransientPanel: true)
-        shortcutConfigurationGeneration &+= 1
+        shortcutRegistrationGeneration &+= 1
         shortcutLifecycleCoordinator?.invalidatePendingRecovery()
     }
 

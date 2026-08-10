@@ -40,6 +40,21 @@ final class GlobalShortcutTests: XCTestCase {
         XCTAssertFalse(store.load())
     }
 
+    func testLegacyQuickCapturePreferenceRemovalDeletesOnlyRetiredKeys() throws {
+        let defaults = try makeDefaults()
+        defaults.set(Data([0x01]), forKey: "quickCaptureShortcut")
+        defaults.set(true, forKey: "quickCapturePrefillsClipboard")
+        defaults.set(true, forKey: "quickCaptureInsertsAtNotionCursor")
+        defaults.set("preserved", forKey: "unrelatedPreference")
+
+        _ = GlobalShortcutStore(defaults: defaults)
+
+        XCTAssertNil(defaults.object(forKey: "quickCaptureShortcut"))
+        XCTAssertNil(defaults.object(forKey: "quickCapturePrefillsClipboard"))
+        XCTAssertNil(defaults.object(forKey: "quickCaptureInsertsAtNotionCursor"))
+        XCTAssertEqual(defaults.string(forKey: "unrelatedPreference"), "preserved")
+    }
+
     func testApplyingShortcutPersistsAndRegistersTheNewValueImmediately() throws {
         let defaults = try makeDefaults()
         let registrar = ShortcutRegistrarSpy()
@@ -160,13 +175,13 @@ final class GlobalShortcutTests: XCTestCase {
 
     func testCarbonHotKeyEnginesOnlyAcceptTheirOwnEventIdentity() {
         let panelEngine = CarbonEventHotKeyEngine()
-        let captureEngine = CarbonEventHotKeyEngine()
+        let alternateEngine = CarbonEventHotKeyEngine()
 
-        XCTAssertNotEqual(panelEngine.registrationID.id, captureEngine.registrationID.id)
+        XCTAssertNotEqual(panelEngine.registrationID.id, alternateEngine.registrationID.id)
         XCTAssertTrue(panelEngine.accepts(eventHotKeyID: panelEngine.registrationID))
-        XCTAssertFalse(panelEngine.accepts(eventHotKeyID: captureEngine.registrationID))
-        XCTAssertTrue(captureEngine.accepts(eventHotKeyID: captureEngine.registrationID))
-        XCTAssertFalse(captureEngine.accepts(eventHotKeyID: panelEngine.registrationID))
+        XCTAssertFalse(panelEngine.accepts(eventHotKeyID: alternateEngine.registrationID))
+        XCTAssertTrue(alternateEngine.accepts(eventHotKeyID: alternateEngine.registrationID))
+        XCTAssertFalse(alternateEngine.accepts(eventHotKeyID: panelEngine.registrationID))
     }
 
     private func makeRuntime(registrar: ShortcutRegistrarSpy, defaults: UserDefaults) -> AppRuntime {
