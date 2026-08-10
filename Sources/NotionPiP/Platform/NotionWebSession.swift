@@ -16,21 +16,33 @@ typealias NotionWebURLObservationInvalidator = @MainActor (NSKeyValueObservation
 
 @MainActor
 protocol NotionPageLoading: AnyObject {
+    var webViewRetention: WebViewRetention { get }
     func activate(page: NotionPageReference)
     func activate(page: NotionPageReference, restoration: DurablePageRestoration?)
     func reloadPinnedPage(_ page: NotionPageReference)
     func reselect(page: NotionPageReference)
     func panelDidShow()
     func panelDidHide()
+    func beginShortcutPresentationMeasurement(
+        signposter: any PerformanceSignposting,
+        token: PerformanceIntervalToken?,
+        retention: WebViewRetention
+    )
 }
 
 extension NotionPageLoading {
+    var webViewRetention: WebViewRetention { .unknown }
     func activate(page: NotionPageReference, restoration: DurablePageRestoration?) {
         activate(page: page)
     }
     func reselect(page: NotionPageReference) {}
     func panelDidShow() {}
     func panelDidHide() {}
+    func beginShortcutPresentationMeasurement(
+        signposter: any PerformanceSignposting,
+        token: PerformanceIntervalToken?,
+        retention: WebViewRetention
+    ) {}
 }
 
 @MainActor
@@ -95,6 +107,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var loadedRequestURL: URL?
     private var webContentRecoveryState = WebContentRecoveryState.ready
     private var restorationToken: PerformanceIntervalToken?
+    private var shortcutPresentationMeasurement: (
+        signposter: any PerformanceSignposting,
+        token: PerformanceIntervalToken?,
+        retention: WebViewRetention
+    )?
     private var browserAuthenticationSession:
         (any NotionBrowserAuthenticationSession)?
     private var browserLoginAttemptGeneration: UInt = 0
@@ -156,6 +173,10 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     var shouldHostWebView: Bool {
         lifecycleController.shouldHostWebView(hasWebView: webView != nil)
+    }
+
+    var webViewRetention: WebViewRetention {
+        webView == nil ? .evicted : .warm
     }
 
     init(
@@ -429,11 +450,31 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
                 pageID: retainedPageID
             )
         }
+        if shortcutPresentationMeasurement?.retention == .warm {
+            switch state {
+            case .active, .suspended:
+                finishShortcutPresentationMeasurement(outcome: .success)
+            case .offline, .failed:
+                finishShortcutPresentationMeasurement(outcome: .failure)
+            case .unloaded, .loading:
+                break
+            }
+        }
     }
 
     func panelDidHide() {
+        finishShortcutPresentationMeasurement(outcome: .cancelled)
         lifecycleController.panelDidHide()
         captureSelectionAndSuspendIfNeeded()
+    }
+
+    func beginShortcutPresentationMeasurement(
+        signposter: any PerformanceSignposting,
+        token: PerformanceIntervalToken?,
+        retention: WebViewRetention
+    ) {
+        finishShortcutPresentationMeasurement(outcome: .cancelled)
+        shortcutPresentationMeasurement = (signposter, token, retention)
     }
 
     private func load(
@@ -1131,6 +1172,9 @@ extension NotionWebSession: WKNavigationDelegate {
         }
         invalidateEditorSelection()
         publishNavigationState(.active)
+        if finishedLoadedPage {
+            finishShortcutPresentationMeasurement(outcome: .success)
+        }
         if restorationToken != nil {
             performanceSignposter?.end(restorationToken, outcome: .success)
         }
@@ -1152,6 +1196,16 @@ extension NotionWebSession: WKNavigationDelegate {
         {
             scrollRestorer(webView, restoration)
         }
+    }
+
+    private func finishShortcutPresentationMeasurement(outcome: PerformanceOutcome) {
+        guard let measurement = shortcutPresentationMeasurement else { return }
+        shortcutPresentationMeasurement = nil
+        measurement.signposter.end(
+            measurement.token,
+            outcome: outcome,
+            metadata: PerformanceMetadata(webViewRetention: measurement.retention)
+        )
     }
 
     func finishedNavigationMatchesLoadedPage(at url: URL?) -> Bool {
@@ -1220,6 +1274,7 @@ extension NotionWebSession: WKNavigationDelegate {
     ) {
         guard isCurrent(webView) else { return }
         guard !isCancellation(error) else {
+            finishShortcutPresentationMeasurement(outcome: .cancelled)
             if restorationToken != nil {
                 performanceSignposter?.end(restorationToken, outcome: .cancelled)
                 restorationToken = nil
@@ -1239,6 +1294,7 @@ extension NotionWebSession: WKNavigationDelegate {
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(navigationFailureState(for: error))
+        finishShortcutPresentationMeasurement(outcome: .failure)
         if restorationToken != nil {
             performanceSignposter?.end(restorationToken, outcome: .failure)
         }
@@ -1251,6 +1307,7 @@ extension NotionWebSession: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         guard isCurrent(webView) else { return }
         guard !isCancellation(error) else {
+            finishShortcutPresentationMeasurement(outcome: .cancelled)
             if restorationToken != nil {
                 performanceSignposter?.end(restorationToken, outcome: .cancelled)
                 restorationToken = nil
@@ -1270,6 +1327,7 @@ extension NotionWebSession: WKNavigationDelegate {
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(navigationFailureState(for: error))
+        finishShortcutPresentationMeasurement(outcome: .failure)
         if restorationToken != nil {
             performanceSignposter?.end(restorationToken, outcome: .failure)
         }

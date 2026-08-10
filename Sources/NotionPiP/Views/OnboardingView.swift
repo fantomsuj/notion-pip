@@ -394,7 +394,7 @@ private struct ShortcutsArtwork: View {
         VStack(spacing: DesignTokens.Spacing.section) {
             ShortcutRow(
                 title: "Show or hide the panel",
-                detail: "Press and hold to peek",
+                detail: "Hold to peek. Double-press to keep the panel open.",
                 shortcut: globalShortcut.displayString
             )
             ShortcutRow(

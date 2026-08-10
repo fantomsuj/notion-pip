@@ -637,6 +637,70 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(events, ["panel.present", "handle.orderOut"])
     }
 
+    func testTemporaryPeekRestashOrdersOutImmediatelyAfterPresentingHandle() throws {
+        var events: [String] = []
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 620, y: 100, width: 300, height: 400),
+            defersStashDismissal: true,
+            recordEvent: { events.append($0) }
+        )
+        let handle = FakeStashHandle(recordEvent: { events.append($0) })
+        let loader = FakePageLoader()
+        let signposter = PerformanceSignposterSpy()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: handle,
+            performanceSignposter: signposter,
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        events.removeAll()
+
+        XCTAssertTrue(coordinator.stashCurrentPageImmediately())
+
+        XCTAssertEqual(events, ["handle.present", "panel.orderOut"])
+        XCTAssertEqual(loader.panelHideCount, 1)
+        XCTAssertEqual(signposter.beginCalls.last, .peekRestash)
+        XCTAssertEqual(signposter.endCalls.last?.outcome, .success)
+    }
+
+    func testShortcutPresentationMeasuresRequestAndWarmUsefulContent() throws {
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 620, y: 100, width: 300, height: 400)
+        )
+        let loader = FakePageLoader()
+        loader.webViewRetention = .warm
+        let signposter = PerformanceSignposterSpy()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: FakeStashHandle(),
+            performanceSignposter: signposter,
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        _ = coordinator.stashOrRestoreCurrentPage()
+
+        let measurement = ShortcutPresentationMeasurement(
+            signposter: signposter,
+            requestToken: signposter.begin(.shortcutPressToPresentationRequest),
+            usefulContentToken: signposter.begin(.shortcutPressToUsefulContent)
+        )
+        XCTAssertTrue(coordinator.showCurrentPageFromShortcut(measurement: measurement))
+
+        XCTAssertEqual(
+            Array(signposter.beginCalls.suffix(2)),
+            [.shortcutPressToPresentationRequest, .shortcutPressToUsefulContent]
+        )
+        XCTAssertEqual(loader.shortcutMeasurementRetentions, [.warm])
+        XCTAssertEqual(signposter.endCalls.last?.metadata.webViewRetention, .warm)
+    }
+
     func testRedCloseRequestsTheSameStashTransition() throws {
         let panel = FakePanelWindow(
             frame: CGRect(x: 620, y: 100, width: 300, height: 400)
@@ -1403,6 +1467,8 @@ private final class FakePageLoader: NotionPageLoading {
     private(set) var lifecycleEvents: [LifecycleEvent] = []
     private(set) var panelShowCount = 0
     private(set) var panelHideCount = 0
+    var webViewRetention = WebViewRetention.unknown
+    private(set) var shortcutMeasurementRetentions: [WebViewRetention] = []
 
     func activate(page: NotionPageReference) {
         activatedPages.append(page)
@@ -1425,6 +1491,14 @@ private final class FakePageLoader: NotionPageLoading {
 
     func panelDidHide() {
         panelHideCount += 1
+    }
+
+    func beginShortcutPresentationMeasurement(
+        signposter: any PerformanceSignposting,
+        token: PerformanceIntervalToken?,
+        retention: WebViewRetention
+    ) {
+        shortcutMeasurementRetentions.append(retention)
     }
 }
 

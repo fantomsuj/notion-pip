@@ -52,6 +52,64 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(signposter.endCalls.last?.metadata.cacheEntryCount, 1)
     }
 
+    func testWarmShortcutPresentationEndsWhenRetainedContentIsShown() throws {
+        let signposter = PerformanceSignposterSpy()
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            performanceSignposter: signposter
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        session.activate(page: page)
+        let webView = try XCTUnwrap(session.webView)
+        session.webView(webView, didFinish: nil)
+        session.panelDidHide()
+        let endCountBeforeShortcut = signposter.endCalls.count
+        let token = signposter.begin(.shortcutPressToUsefulContent)
+        session.beginShortcutPresentationMeasurement(
+            signposter: signposter,
+            token: token,
+            retention: .warm
+        )
+
+        session.panelDidShow()
+
+        XCTAssertEqual(signposter.endCalls.count, endCountBeforeShortcut + 1)
+        XCTAssertEqual(signposter.endCalls.last?.outcome, .success)
+        XCTAssertEqual(signposter.endCalls.last?.metadata.webViewRetention, .warm)
+    }
+
+    func testEvictedShortcutPresentationWaitsForNavigationReadiness() throws {
+        let signposter = PerformanceSignposterSpy()
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            interactionStateReader: { _ in "saved" },
+            performanceSignposter: signposter
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        session.activate(page: page)
+        session.webView(try XCTUnwrap(session.webView), didFinish: nil)
+        session.panelDidHide()
+        session.handleMemoryPressure()
+        XCTAssertEqual(session.webViewRetention, .evicted)
+        let token = signposter.begin(.shortcutPressToUsefulContent)
+        session.beginShortcutPresentationMeasurement(
+            signposter: signposter,
+            token: token,
+            retention: .evicted
+        )
+        let endCountBeforeShow = signposter.endCalls.count
+
+        session.panelDidShow()
+
+        XCTAssertEqual(signposter.endCalls.count, endCountBeforeShow)
+        session.webView(try XCTUnwrap(session.webView), didFinish: nil)
+        let shortcutEnd = try XCTUnwrap(
+            signposter.endCalls.first { $0.token == token }
+        )
+        XCTAssertEqual(shortcutEnd.outcome, .success)
+        XCTAssertEqual(shortcutEnd.metadata.webViewRetention, .evicted)
+    }
+
     func testSelectingPinnedPageCreatesAndLoadsLiveWebView() throws {
         var requests: [URLRequest] = []
         let session = NotionWebSession(loadRequest: { _, request in requests.append(request) })

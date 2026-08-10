@@ -19,6 +19,7 @@ extension AppRuntime {
     }
 
     func prepareForTermination() async {
+        cancelShortcutGesture(restashTransientPanel: true)
         while let persistenceTask = persistPinnedPageTask {
             let expectedGeneration = persistenceGeneration
             await persistenceTask.value
