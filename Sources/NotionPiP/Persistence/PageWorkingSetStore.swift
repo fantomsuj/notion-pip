@@ -1,6 +1,6 @@
 import Foundation
 
-protocol PageWorkingSetPersisting: Sendable {
+protocol PageWorkingSetPersisting: PiPRecentPagesProviding, Sendable {
     func workingSet() async throws -> PageWorkingSetSnapshot
     func recordVisit(_ page: NotionPageReference) async throws -> StoredPageSnapshot
     func setPinned(
@@ -11,6 +11,22 @@ protocol PageWorkingSetPersisting: Sendable {
     func saveRestoration(
         _ restoration: DurablePageRestoration
     ) async throws -> DurablePageRestoration
+}
+
+extension PageWorkingSetPersisting {
+    func recentPiPPages(limit: Int) async throws -> PiPRecentPagesSnapshot {
+        let workingSet = try await workingSet()
+        var seen: Set<String> = []
+        let candidates = [workingSet.activePage].compactMap { $0 } + workingSet.recentPages
+        let pages = candidates.filter {
+            seen.insert($0.pageID.lowercased()).inserted
+        }
+        return PiPRecentPagesSnapshot(
+            activePageID: workingSet.activePage?.pageID,
+            pages: Array(pages.prefix(max(limit, 0))),
+            restorations: workingSet.restorations
+        )
+    }
 }
 
 extension PageRepository: PageWorkingSetPersisting {}
