@@ -58,7 +58,7 @@ This is a curated set of implementation and product references for Notion PiP. T
 - License: MIT
 - Why it matters: An unofficial Swift client for the public Notion API that demonstrates request/response modeling.
 - Constraints: It is marked work in progress and supports only internal-integration authorization.
-- Recommendation: Do not make it a dependency. Continue to place the narrow API surface behind `NotionAPIClient`/`DeliveryEngine` and model only the endpoints, auth modes, retries, and error cases Notion PiP actually uses.
+- Recommendation: Do not make it a dependency. Keep the optional workspace-search API surface behind `NotionAPIClient` and model only the endpoints, auth modes, and error cases Notion PiP actually uses.
 
 ## Product direction for Notion PiP
 

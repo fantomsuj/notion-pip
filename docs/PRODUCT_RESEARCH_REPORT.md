@@ -4,6 +4,10 @@
 **Prepared:** 2026-07-30
 **Decision horizon:** the next three product experiments
 
+> Superseded product direction (August 10, 2026): Quick Capture was removed.
+> The `+` action now hands page creation to the native Notion app. This report
+> remains as historical research, not a description of the current product.
+
 ## Executive summary
 
 Notion PiP's strongest thesis is not “Notion in a smaller window.” It is:
