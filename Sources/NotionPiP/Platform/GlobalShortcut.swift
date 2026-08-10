@@ -47,11 +47,19 @@ struct GlobalShortcut: Codable, Equatable, Hashable, Sendable {
 
 final class GlobalShortcutStore {
     static let key = "globalShortcut"
+    private static let retiredQuickCaptureKeys = [
+        "quickCaptureShortcut",
+        "quickCapturePrefillsClipboard",
+        "quickCaptureInsertsAtNotionCursor",
+    ]
 
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        for key in Self.retiredQuickCaptureKeys {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     func load() -> GlobalShortcut {

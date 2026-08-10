@@ -1,7 +1,8 @@
 import Foundation
 import SwiftData
 
-/// Legacy Quick Capture entity retained so existing destination settings remain recoverable.
+/// Legacy Quick Capture entity retained only for SwiftData schema compatibility.
+/// The current app does not expose or read these rows.
 @Model
 final class QuickCaptureSettingsModel {
     @Attribute(.unique) var stableID: String
