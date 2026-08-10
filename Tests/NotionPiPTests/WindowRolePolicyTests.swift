@@ -58,6 +58,7 @@ final class WindowRolePolicyTests: XCTestCase {
 
     func testPiPRoleCreatesRetainedFloatingKeyOverlayPanel() {
         let window = WindowRole.pictureInPicture.makeWindow()
+        let closeButton = window.standardWindowButton(.closeButton)
 
         XCTAssertTrue(type(of: window) == KeyCapablePiPPanel.self)
         XCTAssertEqual(window.styleMask, [.titled, .closable, .resizable])
@@ -70,6 +71,15 @@ final class WindowRolePolicyTests: XCTestCase {
         XCTAssertTrue(window.canBecomeKey)
         XCTAssertEqual(window.contentRect(forFrameRect: window.frame).size, CGSize(width: 480, height: 720))
         XCTAssertEqual(window.contentMinSize, CGSize(width: 360, height: 420))
+        XCTAssertEqual(closeButton?.toolTip, KeyCapablePiPPanel.stashCloseButtonLabel)
+        XCTAssertEqual(
+            closeButton?.accessibilityLabel(),
+            KeyCapablePiPPanel.stashCloseButtonLabel
+        )
+        XCTAssertEqual(
+            closeButton?.accessibilityHelp(),
+            KeyCapablePiPPanel.stashCloseButtonHelp
+        )
     }
 
     func testStashHandleRoleCreatesRetainedNonactivatingOverlayPanel() {

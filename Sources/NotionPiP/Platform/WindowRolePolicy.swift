@@ -135,6 +135,9 @@ struct WindowRolePolicy {
             )
         }
         apply(to: window)
+        if let panel = window as? KeyCapablePiPPanel {
+            panel.configureCloseButtonForStash()
+        }
         return window
     }
 
