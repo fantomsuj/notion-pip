@@ -3,14 +3,13 @@ import Foundation
 extension AppRuntime {
     @discardableResult
     func applyGlobalShortcut(_ shortcut: GlobalShortcut) -> Bool {
-        let candidate = shortcutConfiguration.replacingPanel(with: shortcut)
-        guard candidate.isValid else { return false }
+        guard shortcut.isValid else { return false }
         do {
             try shortcutRegistrar.register(shortcut: shortcut) { [weak self] event in
                 self?.handleGlobalShortcut(event)
             }
             cancelShortcutGesture(restashTransientPanel: true)
-            publishShortcutConfiguration(candidate)
+            publishGlobalShortcut(shortcut)
             shortcutStore.save(shortcut)
             shortcutConfigurationDidChange()
             resolveServiceIssue(.globalShortcutUnavailable)
@@ -33,46 +32,9 @@ extension AppRuntime {
         publishHoldToPeekEnabled(enabled)
     }
 
-    @discardableResult
-    func applyQuickCaptureShortcut(_ shortcut: GlobalShortcut) -> Bool {
-        let candidate = shortcutConfiguration.replacingQuickCapture(with: shortcut)
-        guard candidate.isValid else { return false }
-        do {
-            try quickCaptureShortcutRegistrar.register(shortcut: shortcut) { [weak self] in
-                self?.handleQuickCaptureShortcut()
-            }
-            publishShortcutConfiguration(candidate)
-            quickCaptureShortcutStore.save(shortcut)
-            shortcutConfigurationDidChange()
-            resolveServiceIssue(.quickCaptureShortcutUnavailable)
-            return true
-        } catch {
-            logger.error("Quick Capture shortcut registration failed")
-            reportServiceIssue(.quickCaptureShortcutUnavailable)
-            return false
-        }
-    }
-
-    func resetQuickCaptureShortcut() { _ = applyQuickCaptureShortcut(.defaultQuickCapture) }
-
-    func setQuickCapturePrefillsClipboard(_ enabled: Bool) {
-        trustedCapturePreferenceStore.setPrefillsClipboard(enabled)
-        publishQuickCapturePrefillsClipboard(enabled)
-    }
-
-    func setQuickCaptureInsertsAtNotionCursor(_ enabled: Bool) {
-        trustedCapturePreferenceStore.setInsertsAtNotionCursor(enabled)
-        publishQuickCaptureInsertsAtNotionCursor(enabled)
-    }
-
-    func registerQuickCaptureShortcut() { _ = applyQuickCaptureShortcut(quickCaptureShortcut) }
-
     func recoverShortcuts(trigger: ShortcutRecoveryTrigger) {
         let expectedGeneration = shortcutConfigurationGeneration
         let panelFailure = revalidationFailure(from: shortcutRegistrar)
-        let quickCaptureFailure = revalidationFailure(
-            from: quickCaptureShortcutRegistrar
-        )
         guard expectedGeneration == shortcutConfigurationGeneration else { return }
 
         updateShortcutHealth(
@@ -82,13 +44,8 @@ extension AppRuntime {
         if panelFailure != nil {
             cancelShortcutGesture(restashTransientPanel: true)
         }
-        updateShortcutHealth(
-            issue: .quickCaptureShortcutUnavailable,
-            failure: quickCaptureFailure
-        )
-
         if trigger == .lifecycleEvent,
-           panelFailure == .transient || quickCaptureFailure == .transient
+           panelFailure == .transient
         {
             shortcutLifecycleCoordinator?.requestRetry()
         }

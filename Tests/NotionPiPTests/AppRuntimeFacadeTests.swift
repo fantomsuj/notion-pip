@@ -42,86 +42,29 @@ final class AppRuntimeFacadeTests: XCTestCase {
         withExtendedLifetime(observation) {}
     }
 
-    func testDestinationSearchFacadeForwardsResultsAndChildPublication() async {
-        let result = NotionDestinationSearchResult(
-            destination: .pageParent(pageID: firstPageID, title: "Roadmap"),
-            lastEditedTime: "2026-07-28T00:00:00.000Z"
-        )
-        let client = FacadeNotionClient(
-            destinationPage: NotionDestinationSearchPage(
-                results: [result],
-                nextCursor: nil
-            )
-        )
+    func testDisconnectFacadeResetsConnectionState() async {
+        let client = FacadeNotionClient()
         let runtime = makeRuntime(panel: RuntimePanelCoordinator(), client: client)
         await runtime.bootstrapPersonalTokenConnection()
-        var publicationCount = 0
-        let observation = runtime.objectWillChange.sink {
-            publicationCount += 1
-        }
-
-        await runtime.searchQuickCaptureDestinations(query: "Roadmap")
-
-        let requests = await client.destinationRequests()
-        XCTAssertEqual(
-            requests,
-            [FacadeDestinationRequest(query: "Roadmap", startCursor: nil)]
-        )
-        XCTAssertEqual(runtime.destinationSearchResults, [result])
-        XCTAssertGreaterThan(publicationCount, 0)
-        withExtendedLifetime(observation) {}
-    }
-
-    func testDisconnectFacadeResetsDestinationControllerState() async {
-        let result = NotionDestinationSearchResult(
-            destination: .pageParent(pageID: firstPageID, title: "Roadmap"),
-            lastEditedTime: ""
-        )
-        let client = FacadeNotionClient(
-            destinationPage: NotionDestinationSearchPage(
-                results: [result],
-                nextCursor: "next"
-            )
-        )
-        let runtime = makeRuntime(panel: RuntimePanelCoordinator(), client: client)
-        await runtime.bootstrapPersonalTokenConnection()
-        await runtime.searchQuickCaptureDestinations(query: "Roadmap")
 
         runtime.disconnectPersonalToken()
 
         XCTAssertEqual(runtime.connectionState, .disconnected)
-        XCTAssertTrue(runtime.destinationSearchResults.isEmpty)
-        XCTAssertNil(runtime.destinationSearchError)
-        XCTAssertFalse(runtime.isSearchingDestinations)
-        XCTAssertFalse(runtime.canLoadMoreDestinations)
-        XCTAssertFalse(runtime.isDestinationSearchCapped)
     }
-}
-
-private struct FacadeDestinationRequest: Equatable, Sendable {
-    let query: String
-    let startCursor: String?
 }
 
 private actor FacadeNotionClient: NotionWorkspaceClient {
     private let workspaceName: String
     private let workspaceResults: [NotionPageSearchResult]
-    private let destinationPage: NotionDestinationSearchPage
     private var recordedValidationCount = 0
     private var recordedWorkspaceQueries: [String] = []
-    private var recordedDestinationRequests: [FacadeDestinationRequest] = []
 
     init(
         workspaceName: String = "Workspace",
-        workspaceResults: [NotionPageSearchResult] = [],
-        destinationPage: NotionDestinationSearchPage = NotionDestinationSearchPage(
-            results: [],
-            nextCursor: nil
-        )
+        workspaceResults: [NotionPageSearchResult] = []
     ) {
         self.workspaceName = workspaceName
         self.workspaceResults = workspaceResults
-        self.destinationPage = destinationPage
     }
 
     func validateConnection() async throws -> NotionConnectionSnapshot {
@@ -134,26 +77,12 @@ private actor FacadeNotionClient: NotionWorkspaceClient {
         return workspaceResults
     }
 
-    func searchDestinations(
-        query: String,
-        startCursor: String?
-    ) async throws -> NotionDestinationSearchPage {
-        recordedDestinationRequests.append(
-            FacadeDestinationRequest(query: query, startCursor: startCursor)
-        )
-        return destinationPage
-    }
-
     func validationCount() -> Int {
         recordedValidationCount
     }
 
     func workspaceQueries() -> [String] {
         recordedWorkspaceQueries
-    }
-
-    func destinationRequests() -> [FacadeDestinationRequest] {
-        recordedDestinationRequests
     }
 
     func waitUntilValidationCount(_ count: Int) async {

@@ -66,7 +66,7 @@ final class PageRepositoryTests: XCTestCase {
         let failure = FailNextPageSave()
         let repository = try PageRepository(
             container: makeContainer(),
-            clock: TestCaptureClock(Date(timeIntervalSince1970: 4_000)),
+            clock: TestDateProvider(Date(timeIntervalSince1970: 4_000)),
             beforeSave: failure.check
         )
         let page = try page(number: 0)
@@ -289,68 +289,11 @@ final class PageRepositoryTests: XCTestCase {
         XCTAssertEqual(persistedRestorations.count, 8)
     }
 
-    func testCaptureRepositoryAcceptsSharedContainer() throws {
-        let repository = CaptureRepository(container: try makeContainer())
-
-        XCTAssertNotNil(repository)
-    }
-
-    func testSharedContainerPreservesInterleavedCaptureAndPageWritesAfterReopen() async throws {
-        let temporaryDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
-
-        let storeURL = temporaryDirectory.appendingPathComponent("NotionPiP.store")
-        let firstPage = try page(slug: "First", id: firstPageID)
-        let secondPage = try page(slug: "Second", id: secondPageID)
-        let document = Data(#"{"type":"doc","content":[{"type":"paragraph"}]}"#.utf8)
-
-        do {
-            let container = try NotionPiPPersistence.makeContainer(storeURL: storeURL)
-            let pageRepository = PageRepository(container: container)
-            let captureRepository = CaptureRepository(container: container)
-
-            _ = try await pageRepository.recordVisit(firstPage)
-            let draft = try await captureRepository.saveDraft(
-                DraftMutation(
-                    id: "shared-draft",
-                    title: "First draft",
-                    editorDocument: document,
-                    sourceDocument: nil,
-                    disposition: .active
-                ),
-                expectedRevision: 0
-            )
-            _ = try await pageRepository.recordVisit(secondPage)
-            _ = try await captureRepository.saveDraft(
-                DraftMutation(
-                    id: draft.id,
-                    title: "Updated draft",
-                    editorDocument: document,
-                    sourceDocument: nil,
-                    disposition: .active
-                ),
-                expectedRevision: draft.revision
-            )
-        }
-
-        let reopenedContainer = try NotionPiPPersistence.makeContainer(storeURL: storeURL)
-        let reopenedPageRepository = PageRepository(container: reopenedContainer)
-        let reopenedCaptureRepository = CaptureRepository(container: reopenedContainer)
-        let workingSet = try await reopenedPageRepository.workingSet()
-        let draft = try await reopenedCaptureRepository.draft(id: "shared-draft")
-
-        XCTAssertEqual(workingSet.activePage?.pageID, secondPageID)
-        XCTAssertEqual(draft?.title, "Updated draft")
-        XCTAssertEqual(draft?.revision, 2)
-    }
-
     func testFailedRecentInsertIsRolledBackBeforeLaterPinSave() async throws {
         let failure = FailNextPageSave()
         let repository = try PageRepository(
             container: makeContainer(),
-            clock: TestCaptureClock(Date(timeIntervalSince1970: 4_000)),
+            clock: TestDateProvider(Date(timeIntervalSince1970: 4_000)),
             beforeSave: failure.check
         )
 
@@ -382,7 +325,7 @@ final class PageRepositoryTests: XCTestCase {
     private var secondPageID: String { "fedcba9876543210fedcba9876543210" }
 }
 
-private final class AdvancingPageClock: CaptureClock, @unchecked Sendable {
+private final class AdvancingPageClock: DateProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var current: Date
 

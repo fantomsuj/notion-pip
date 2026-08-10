@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 
+/// Legacy Quick Capture entity retained so existing delivery records remain recoverable.
 @Model
 final class CaptureRecordModel {
     @Attribute(.unique) var stableID: String

@@ -7,26 +7,6 @@ protocol NotionRequestTransport: AnyObject, Sendable {
 protocol NotionWorkspaceClient: AnyObject, Sendable {
     func validateConnection() async throws -> NotionConnectionSnapshot
     func searchPages(query: String) async throws -> [NotionPageSearchResult]
-    func searchDestinations(
-        query: String,
-        startCursor: String?
-    ) async throws -> NotionDestinationSearchPage
-    func dataSourceTitleProperty(dataSourceID: String) async throws -> NotionDataSourceTitleProperty
-}
-
-extension NotionWorkspaceClient {
-    func searchDestinations(
-        query: String,
-        startCursor: String?
-    ) async throws -> NotionDestinationSearchPage {
-        throw NotionAPIClientError.invalidResponse
-    }
-
-    func dataSourceTitleProperty(
-        dataSourceID: String
-    ) async throws -> NotionDataSourceTitleProperty {
-        throw NotionAPIClientError.invalidResponse
-    }
 }
 
 final class URLSessionNotionRequestTransport: NotionRequestTransport {
@@ -118,42 +98,7 @@ struct NotionPageSearchResult: Equatable, Sendable {
     let lastEditedTime: String
 }
 
-struct NotionDestinationSearchResult: Equatable, Sendable {
-    let destination: QuickCaptureDestination
-    let lastEditedTime: String
-}
-
-struct NotionDestinationSearchPage: Equatable, Sendable {
-    let results: [NotionDestinationSearchResult]
-    let nextCursor: String?
-}
-
-struct NotionDataSourceTitleProperty: Equatable, Sendable {
-    let name: String
-}
-
-enum NotionPageParent: Equatable, Sendable {
-    case pageID(String)
-    case dataSourceID(String)
-}
-
-struct NotionCreatedPage: Equatable, Sendable {
-    let id: String
-    let url: URL?
-}
-
-protocol NotionCapturePageAPI: Sendable {
-    func dataSourceTitleProperty(dataSourceID: String) async throws -> NotionDataSourceTitleProperty
-    func createPage(
-        parent: NotionPageParent,
-        titlePropertyName: String,
-        title: String,
-        children: [JSONValue]
-    ) async throws -> NotionCreatedPage
-    func appendBlockChildren(pageID: String, children: [JSONValue]) async throws
-}
-
-final class NotionAPIClient: NotionWorkspaceClient, NotionCapturePageAPI, Sendable {
+final class NotionAPIClient: NotionWorkspaceClient, Sendable {
     static let apiVersion = "2026-03-11"
     static let defaultRequestTimeout: TimeInterval = 15
     static let defaultMaximumResponseBytes = 1_048_576
@@ -200,84 +145,6 @@ final class NotionAPIClient: NotionWorkspaceClient, NotionCapturePageAPI, Sendab
         return try response.results.compactMap(pageSearchResult)
     }
 
-    func searchDestinations(
-        query: String,
-        startCursor: String?
-    ) async throws -> NotionDestinationSearchPage {
-        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let body = NotionSearchRequestDTO(
-            filter: nil,
-            sort: .init(direction: "descending", timestamp: "last_edited_time"),
-            pageSize: 25,
-            query: normalizedQuery.isEmpty ? nil : normalizedQuery,
-            startCursor: startCursor
-        )
-        let response: NotionSearchResponseDTO = try await post(path: "/v1/search", body: body)
-        let nextCursor: String?
-        if response.hasMore {
-            guard let cursor = response.nextCursor,
-                  !cursor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            else {
-                throw NotionAPIClientError.malformedResponse
-            }
-            nextCursor = cursor
-        } else {
-            nextCursor = nil
-        }
-        return NotionDestinationSearchPage(
-            results: try response.results.compactMap(destinationSearchResult),
-            nextCursor: nextCursor
-        )
-    }
-
-    func dataSourceTitleProperty(
-        dataSourceID: String
-    ) async throws -> NotionDataSourceTitleProperty {
-        let response: NotionDataSourceResponseDTO = try await get(
-            path: "/v1/data_sources/\(dataSourceID)"
-        )
-        guard let property = response.properties.first(where: { $0.value.type == "title" }) else {
-            throw NotionAPIClientError.malformedResponse
-        }
-        return NotionDataSourceTitleProperty(name: property.key)
-    }
-
-    func createPage(
-        parent: NotionPageParent,
-        titlePropertyName: String,
-        title: String,
-        children: [JSONValue]
-    ) async throws -> NotionCreatedPage {
-        let response: NotionCreatedPageResponseDTO = try await post(
-            path: "/v1/pages",
-            body: NotionCreatePageRequestDTO(
-                parent: .init(parent),
-                properties: [
-                    titlePropertyName: .init(
-                        title: [
-                            .init(
-                                type: "text",
-                                text: .init(content: title)
-                            ),
-                        ]
-                    ),
-                ],
-                children: children
-            )
-        )
-        return NotionCreatedPage(
-            id: response.id,
-            url: response.url.flatMap(URL.init(string:))
-        )
-    }
-
-    func appendBlockChildren(pageID: String, children: [JSONValue]) async throws {
-        let _: NotionAppendChildrenResponseDTO = try await patch(
-            path: "/v1/blocks/\(pageID)/children",
-            body: NotionAppendChildrenRequestDTO(children: children)
-        )
-    }
-
     private func get<Response: Decodable>(path: String) async throws -> Response {
         try await request(path: path, method: "GET", body: nil)
     }
@@ -287,13 +154,6 @@ final class NotionAPIClient: NotionWorkspaceClient, NotionCapturePageAPI, Sendab
         body: Body
     ) async throws -> Response {
         try await request(path: path, method: "POST", body: try JSONEncoder().encode(body))
-    }
-
-    private func patch<Response: Decodable, Body: Encodable>(
-        path: String,
-        body: Body
-    ) async throws -> Response {
-        try await request(path: path, method: "PATCH", body: try JSONEncoder().encode(body))
     }
 
     private func request<Response: Decodable>(
@@ -383,33 +243,6 @@ final class NotionAPIClient: NotionWorkspaceClient, NotionCapturePageAPI, Sendab
         return nil
     }
 
-    private func destinationSearchResult(
-        _ value: NotionSearchResultDTO
-    ) throws -> NotionDestinationSearchResult? {
-        let title: String
-        let destination: QuickCaptureDestination
-        switch value.object {
-        case "page":
-            guard let id = value.id, !id.isEmpty else {
-                throw NotionAPIClientError.malformedResponse
-            }
-            title = pageTitle(from: value) ?? "Untitled page"
-            destination = .pageParent(pageID: id, title: title)
-        case "data_source":
-            guard let id = value.id, !id.isEmpty else {
-                throw NotionAPIClientError.malformedResponse
-            }
-            let decodedTitle = (value.title ?? []).compactMap(\.plainText).joined()
-            title = decodedTitle.isEmpty ? "Untitled data source" : decodedTitle
-            destination = .dataSource(dataSourceID: id, title: title)
-        default:
-            return nil
-        }
-        return NotionDestinationSearchResult(
-            destination: destination,
-            lastEditedTime: value.lastEditedTime ?? ""
-        )
-    }
 }
 
 private struct NotionUserResponseDTO: Decodable {
@@ -452,31 +285,19 @@ private struct NotionSearchRequestDTO: Encodable {
 
 private struct NotionSearchResponseDTO: Decodable {
     let results: [NotionSearchResultDTO]
-    let hasMore: Bool
-    let nextCursor: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case results
-        case hasMore = "has_more"
-        case nextCursor = "next_cursor"
-    }
 }
 
 private struct NotionSearchResultDTO: Decodable {
     let object: String
-    let id: String?
     let url: String?
     let lastEditedTime: String?
     let properties: [String: NotionPropertyDTO]?
-    let title: [NotionRichTextDTO]?
 
     private enum CodingKeys: String, CodingKey {
         case object
-        case id
         case url
         case lastEditedTime = "last_edited_time"
         case properties
-        case title
     }
 }
 
@@ -492,65 +313,6 @@ private struct NotionRichTextDTO: Decodable {
         case plainText = "plain_text"
     }
 }
-
-private struct NotionDataSourceResponseDTO: Decodable {
-    let properties: [String: NotionDataSourcePropertyDTO]
-}
-
-private struct NotionDataSourcePropertyDTO: Decodable {
-    let type: String
-}
-
-private struct NotionCreatePageRequestDTO: Encodable {
-    let parent: Parent
-    let properties: [String: TitleProperty]
-    let children: [JSONValue]
-
-    struct Parent: Encodable {
-        let pageID: String?
-        let dataSourceID: String?
-
-        init(_ parent: NotionPageParent) {
-            switch parent {
-            case let .pageID(id):
-                pageID = id
-                dataSourceID = nil
-            case let .dataSourceID(id):
-                pageID = nil
-                dataSourceID = id
-            }
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case pageID = "page_id"
-            case dataSourceID = "data_source_id"
-        }
-    }
-
-    struct TitleProperty: Encodable {
-        let title: [RichText]
-    }
-
-    struct RichText: Encodable {
-        let type: String
-        let text: Text
-    }
-
-    struct Text: Encodable {
-        let content: String
-    }
-}
-
-private struct NotionCreatedPageResponseDTO: Decodable {
-    let id: String
-    let url: String?
-}
-
-private struct NotionAppendChildrenRequestDTO: Encodable {
-    let children: [JSONValue]
-}
-
-private struct NotionAppendChildrenResponseDTO: Decodable {}
 
 private struct NotionAPIErrorResponseDTO: Decodable {
     let object: String

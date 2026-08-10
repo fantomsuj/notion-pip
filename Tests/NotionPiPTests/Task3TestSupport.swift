@@ -1,11 +1,7 @@
 import Foundation
 @testable import NotionPiP
 
-func jsonData(_ object: Any) -> Data {
-    try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-}
-
-final class TestCaptureClock: CaptureClock, @unchecked Sendable {
+final class TestDateProvider: DateProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var value: Date
 

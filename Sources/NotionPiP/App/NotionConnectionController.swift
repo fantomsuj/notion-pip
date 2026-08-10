@@ -117,11 +117,6 @@ final class NotionConnectionController: ObservableObject {
         await searchTask?.value
     }
 
-    func hasUsableToken() -> Bool {
-        guard isConnected else { return false }
-        return (try? credentialVault.load()) != nil
-    }
-
     func workspaceClientLease() throws -> NotionWorkspaceClientLease? {
         guard let token = try credentialVault.load() else {
             return nil

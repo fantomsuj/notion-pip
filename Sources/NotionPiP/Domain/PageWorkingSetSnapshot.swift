@@ -6,6 +6,7 @@ enum PageRepositoryError: Error, Equatable, Sendable {
     case blankRole
     case duplicateRole
     case roleRequiresPinnedPage
+    case invalidStoredValue(String)
 }
 
 struct DurablePageRestoration: Equatable, Sendable {

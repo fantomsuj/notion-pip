@@ -13,7 +13,6 @@ func makeRuntime(
     pageURLInputPresenter: RuntimePageURLInputPresenter = RuntimePageURLInputPresenter(),
     pageRepository: (any PageWorkingSetPersisting)? = nil,
     client: any NotionWorkspaceClient = RuntimeNotionClient(),
-    destinationSearchDebounceDuration: Duration = .milliseconds(300),
     shortcutHoldDuration: Duration = .milliseconds(300),
     shortcutGestureScheduler: any ShortcutGestureScheduling =
         TaskShortcutGestureScheduler(),
@@ -49,7 +48,6 @@ func makeRuntime(
         pageRepository: pageRepository,
         credentialVault: vault,
         notionClientFactory: { _ in client },
-        destinationSearchDebounceDuration: destinationSearchDebounceDuration,
         shortcutHoldDuration: shortcutHoldDuration,
         shortcutGestureScheduler: shortcutGestureScheduler,
         accessibilityAnnouncementPoster: accessibilityAnnouncementPoster,

@@ -42,10 +42,7 @@ user approves the change.
   Line Tools alone are not sufficient.
 - The build produces a native executable for the current Mac, so either Apple
   silicon or Intel is acceptable when building from source.
-- Node.js is not required for a fresh clone merely to run the app. The generated
-  Quick Capture editor assets are checked into the repository. If
-  `node_modules` already exists, the build script rebuilds those assets and
-  therefore requires Node and npm.
+- Node.js is not required to build or run the app.
 - No `.env` file, Notion token, signing certificate, or other secret is required
   to build and launch the app.
 
@@ -92,8 +89,8 @@ prints `Verified .../dist/NotionPiP.app` with a process ID.
 - The user signs in to their own Notion account inside the app. Never ask them
   to paste a Notion password, session cookie, or integration token into chat or
   the terminal.
-- A personal integration token is optional and should be entered only through
-  the app's own settings UI.
+- A personal integration token is optional, enables workspace page search, and
+  should be entered only through the app's own settings UI.
 - Local builds use a configured Apple Development or Notion PiP local-development
   identity when available, and otherwise fall back to ad-hoc signing. The optional
   `./script/setup_local_signing.sh` helper creates a machine-local identity to keep
@@ -124,24 +121,10 @@ prints `Verified .../dist/NotionPiP.app` with a process ID.
   `dist/NotionPiP.app`. If it requires approval, use the button in Settings and
   allow Notion PiP under General → Login Items & Extensions; returning to the
   app refreshes the displayed state.
-- If the script unexpectedly invokes or fails at npm, an existing
-  `node_modules` directory triggered the optional editor rebuild. Explain that
-  condition before installing Node, replacing dependencies, or moving the
-  directory.
 - For a clean source validation, run:
 
   ```sh
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
-  ```
-
-- Only when working on `Web/QuickCaptureEditor`, install the pinned JavaScript
-  dependencies and run its checks:
-
-  ```sh
-  npm ci
-  npm test
-  npm run typecheck
-  npm run build:editor
   ```
 
 Keep setup fixes minimal and explain any remaining manual action clearly.
