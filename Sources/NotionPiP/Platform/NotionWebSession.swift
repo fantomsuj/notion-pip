@@ -5,6 +5,15 @@ import WebKit
 typealias NotionWebRequestLoader = @MainActor (WKWebView, URLRequest) -> Void
 typealias NotionWebViewFactory = @MainActor () -> WKWebView
 typealias NotionWebScrollRestorer = @MainActor (WKWebView, DurablePageRestoration) -> Void
+typealias NotionWebScrollJavaScriptCaller = @MainActor (
+    WKWebView,
+    String,
+    [String: Any]
+) async throws -> Any?
+typealias NotionUsefulContentDocumentIdentifierReader = @MainActor (
+    WKWebView,
+    @escaping @MainActor (UUID?) -> Void
+) -> Void
 typealias NotionWebEvictionScheduler = @MainActor (
     TimeInterval,
     @escaping @MainActor () -> Void
@@ -71,7 +80,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     var state: NotionWebSessionState { lifecycleController.state }
     @Published private(set) var browserLoginState: NotionBrowserLoginState = .idle
     @Published private(set) var isTypingInPage = false
-    @Published private(set) var editorCaretGeometry: NotionEditorCaretGeometry?
     private(set) var activePage: NotionPageReference?
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
     private let openURL: @MainActor (URL) -> Void
@@ -97,6 +105,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let scheduleAfterAttachment: NotionWebAttachmentScheduler
     private let focusWebView: @MainActor (WKWebView) -> Void
     private let invalidateURLObservation: NotionWebURLObservationInvalidator
+    private let usefulContentDocumentIdentifierReader:
+        NotionUsefulContentDocumentIdentifierReader
     private let scriptMessageCoordinator: NotionWebScriptMessageCoordinator
     private let performanceSignposter: (any PerformanceSignposting)?
     private var urlObservation: NSKeyValueObservation?
@@ -107,6 +117,13 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var loadedRequestURL: URL?
     private var webContentRecoveryState = WebContentRecoveryState.ready
     private var restorationToken: PerformanceIntervalToken?
+    private var navigationRequestToCommitToken: PerformanceIntervalToken?
+    private var commitToUsefulContentToken: PerformanceIntervalToken?
+    private var interactionStateRestoreToUsefulContentToken: PerformanceIntervalToken?
+    private var rendererRecoveryToUsefulContentToken: PerformanceIntervalToken?
+    private var usefulContentMeasurementGeneration: UInt = 0
+    private var pendingUsefulContentMessage: NotionUsefulContentMessage?
+    private var completedUsefulContentDocumentID: UUID?
     private var shortcutPresentationMeasurement: (
         signposter: any PerformanceSignposting,
         token: PerformanceIntervalToken?,
@@ -292,11 +309,22 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
                 contentWorld: .page
             )
             $0.removeScriptMessageHandler(
-                forName: NotionEditorCaretBridge.handlerName,
+                forName: NotionUsefulContentBridge.handlerName,
                 contentWorld: .page
             )
             $0.removeAllUserScripts()
         },
+        usefulContentDocumentIdentifierReader:
+            @escaping NotionUsefulContentDocumentIdentifierReader = { webView, completion in
+                webView.evaluateJavaScript(
+                    NotionUsefulContentBridge.documentIdentifierExpression
+                ) { value, _ in
+                    MainActor.assumeIsolated {
+                        let documentID = (value as? String).flatMap(UUID.init(uuidString:))
+                        completion(documentID)
+                    }
+                }
+            },
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
         self.webView = nil
@@ -321,6 +349,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.scheduleAfterAttachment = scheduleAfterAttachment
         self.focusWebView = focusWebView
         self.invalidateURLObservation = invalidateURLObservation
+        self.usefulContentDocumentIdentifierReader =
+            usefulContentDocumentIdentifierReader
         self.scriptMessageCoordinator = NotionWebScriptMessageCoordinator(
             removeBridges: removeActivityBridge
         )
@@ -354,6 +384,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
                     from: webView,
                     generation: generation
                 )
+                self?.retryPendingUsefulContentMessage()
             }
         }
     }
@@ -373,8 +404,10 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         if let webView {
             return webView
         }
+        let constructionToken = performanceSignposter?.begin(.webViewConstruction)
         let webView = webViewFactory()
         configure(webView)
+        performanceSignposter?.end(constructionToken, outcome: .success)
         return webView
     }
 
@@ -427,6 +460,14 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         let wasHidden = !panelIsVisible
         let retainedWebView = webView
         let retainedPageID = loadedPageID
+        let warmResumeSignposter = performanceSignposter
+        let measuresWarmResume = wasHidden
+            && retainedWebView != nil
+            && retainedPageID != nil
+            && retainedPageID == activePage?.pageID
+        let warmResumeToken = measuresWarmResume
+            ? warmResumeSignposter?.begin(.hiddenPanelWarmResume)
+            : nil
         selectionCaptureGeneration &+= 1
         let resumeCommand = lifecycleController.panelDidShow(
             hasWebView: webView != nil,
@@ -449,6 +490,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
                 in: retainedWebView,
                 pageID: retainedPageID
             )
+        }
+        if let warmResumeToken {
+            scheduleAfterAttachment {
+                warmResumeSignposter?.end(warmResumeToken, outcome: .success)
+            }
         }
         if shortcutPresentationMeasurement?.retention == .warm {
             switch state {
@@ -492,7 +538,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         loadedPageID = pageID
         loadedRequestURL = url
         lifecycleController.setState(.loading)
-        loadRequest(ensureWebView(), URLRequest(url: url))
+        let webView = ensureWebView()
+        beginNavigationRequestMeasurement()
+        loadRequest(webView, URLRequest(url: url))
     }
 
     func reload() {
@@ -510,6 +558,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         }
         if let webView {
             lifecycleController.setState(.loading)
+            beginNavigationRequestMeasurement()
             webView.reload()
         } else {
             restoreOrLoad(page: activePage)
@@ -785,33 +834,59 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         handleScrollSnapshot(snapshot)
     }
 
-    func handleEditorCaretUpdate(
-        _ update: NotionEditorCaretUpdate,
-        from webView: WKWebView?
-    ) {
-        handleEditorCaretUpdate(
-            update,
-            from: webView,
-            generation: scriptMessageCoordinator.generation
-        )
-    }
-
-    func handleEditorCaretUpdate(
-        _ update: NotionEditorCaretUpdate,
+    func handleUsefulContent(
+        _ message: NotionUsefulContentMessage,
         from webView: WKWebView?,
         generation: UInt
     ) {
         guard let webView, isCurrent(webView, generation: generation) else {
             return
         }
-        switch update {
-        case let .visible(geometry):
-            if editorCaretGeometry != geometry {
-                editorCaretGeometry = geometry
+        guard completedUsefulContentDocumentID != message.documentID else { return }
+        let measurementGeneration = usefulContentMeasurementGeneration
+        usefulContentDocumentIdentifierReader(webView) { [weak self, weak webView] documentID in
+            guard let self,
+                  let webView,
+                  self.isCurrent(webView, generation: generation),
+                  self.usefulContentMeasurementGeneration == measurementGeneration,
+                  self.completedUsefulContentDocumentID != message.documentID,
+                  documentID == message.documentID
+            else {
+                return
             }
-        case .hidden:
-            clearEditorCaretGeometry()
+            self.processUsefulContentMessage(message, from: webView)
         }
+    }
+
+    private func processUsefulContentMessage(
+        _ message: NotionUsefulContentMessage,
+        from webView: WKWebView
+    ) {
+        guard completedUsefulContentDocumentID != message.documentID else { return }
+        switch message.state {
+        case .ready:
+            guard finishedNavigationMatchesLoadedPage(
+                at: webView.url ?? loadedRequestURL
+            ) else {
+                pendingUsefulContentMessage = message
+                return
+            }
+            completedUsefulContentDocumentID = message.documentID
+            finishUsefulContentMeasurements(outcome: .success)
+        case .timedOut:
+            completedUsefulContentDocumentID = message.documentID
+            finishUsefulContentMeasurements(outcome: .failure)
+        }
+    }
+
+    private func retryPendingUsefulContentMessage() {
+        guard let webView, let message = pendingUsefulContentMessage else { return }
+        processUsefulContentMessage(message, from: webView)
+    }
+
+    private func invalidateUsefulContentDocumentTracking() {
+        usefulContentMeasurementGeneration &+= 1
+        pendingUsefulContentMessage = nil
     }
 
     func evictInteractionSnapshots(retaining pageIDs: Set<String>) {
@@ -879,6 +954,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             return false
         }
 
+        finishNavigationRequestMeasurement(outcome: .cancelled)
+        finishUsefulContentMeasurements(outcome: .cancelled)
+
         popupCoordinator.close()
         lifecycleController.cancelWarmRetention()
         self.webView = nil
@@ -940,14 +1018,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private func invalidateEditorSelection() {
         selectionCaptureGeneration &+= 1
         savedEditorSelection = nil
-        clearEditorCaretGeometry()
         onQuickCopyTargetInvalidated?()
-    }
-
-    private func clearEditorCaretGeometry() {
-        if editorCaretGeometry != nil {
-            editorCaretGeometry = nil
-        }
     }
 
     private func invalidateEditorSelectionAndSuspendIfHidden() {
@@ -1016,6 +1087,10 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         let webView = ensureWebView()
         switch pageStateRestoration.restorationPlan(for: page) {
         case let .interactionState(interactionState):
+            finishNavigationUsefulContentMeasurements(outcome: .cancelled)
+            interactionStateRestoreToUsefulContentToken = performanceSignposter?.begin(
+                .interactionStateRestoreToUsefulContent
+            )
             interactionStateWriter(webView, interactionState)
             loadedPageID = page.pageID
             lifecycleController.setState(.loading)
@@ -1026,6 +1101,59 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
                 isDurableRestoration: isDurableRestoration
             )
         }
+    }
+
+    private func beginNavigationRequestMeasurement(
+        preservingUsefulContentContext: Bool = false
+    ) {
+        invalidateUsefulContentDocumentTracking()
+        finishNavigationRequestMeasurement(outcome: .cancelled)
+        if preservingUsefulContentContext {
+            if commitToUsefulContentToken != nil {
+                performanceSignposter?.end(commitToUsefulContentToken, outcome: .cancelled)
+                commitToUsefulContentToken = nil
+            }
+        } else {
+            finishNavigationUsefulContentMeasurements(outcome: .cancelled)
+        }
+        navigationRequestToCommitToken = performanceSignposter?.begin(
+            .navigationRequestToCommit
+        )
+    }
+
+    private func finishNavigationRequestMeasurement(outcome: PerformanceOutcome) {
+        guard navigationRequestToCommitToken != nil else { return }
+        performanceSignposter?.end(navigationRequestToCommitToken, outcome: outcome)
+        navigationRequestToCommitToken = nil
+    }
+
+    private func finishNavigationUsefulContentMeasurements(
+        outcome: PerformanceOutcome
+    ) {
+        if commitToUsefulContentToken != nil {
+            performanceSignposter?.end(commitToUsefulContentToken, outcome: outcome)
+            commitToUsefulContentToken = nil
+        }
+        if interactionStateRestoreToUsefulContentToken != nil {
+            performanceSignposter?.end(
+                interactionStateRestoreToUsefulContentToken,
+                outcome: outcome
+            )
+            interactionStateRestoreToUsefulContentToken = nil
+        }
+        if rendererRecoveryToUsefulContentToken != nil {
+            performanceSignposter?.end(
+                rendererRecoveryToUsefulContentToken,
+                outcome: outcome
+            )
+            rendererRecoveryToUsefulContentToken = nil
+        }
+    }
+
+    private func finishUsefulContentMeasurements(outcome: PerformanceOutcome) {
+        finishNavigationUsefulContentMeasurements(outcome: outcome)
+        finishShortcutPresentationMeasurement(outcome: outcome)
+        invalidateUsefulContentDocumentTracking()
     }
 
     private func captureAndTearDown(
@@ -1073,33 +1201,63 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         return ExternalDropActivatingWebView(frame: .zero, configuration: configuration)
     }
 
-    private static func restoreScroll(
+    static func restoreScroll(
         in webView: WKWebView,
-        restoration: DurablePageRestoration
+        restoration: DurablePageRestoration,
+        callAsyncJavaScript: @escaping NotionWebScrollJavaScriptCaller = {
+            webView,
+            script,
+            arguments in
+            try await webView.callAsyncJavaScript(
+                script,
+                arguments: arguments,
+                in: nil,
+                contentWorld: .page
+            )
+        }
     ) {
         Task { @MainActor [weak webView] in
             guard let webView else { return }
-            let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: .seconds(2))
-            while clock.now < deadline {
-                let script = """
-                    (() => {
-                      const root = document.scrollingElement || document.documentElement;
-                      if (!root) return false;
+            let script = """
+                return await new Promise((resolve) => {
+                  const deadline = performance.now() + timeoutMilliseconds;
+                  const apply = () => {
+                    const root = document.scrollingElement || document.documentElement;
+                    if (root) {
                       const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
                       const target = maximum > 0
-                        ? Math.max(\(restoration.scrollY), maximum * \(restoration.scrollProgress))
-                        : \(restoration.scrollY);
-                      window.scrollTo(\(restoration.scrollX), target);
-                      return Math.abs(window.scrollY - target) < 4 || maximum === 0;
-                    })()
-                    """
-                if let applied = try? await webView.evaluateJavaScript(script) as? Bool,
-                   applied == true {
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(100))
-            }
+                        ? Math.max(scrollY, maximum * scrollProgress)
+                        : scrollY;
+                      window.scrollTo(scrollX, target);
+                      if (Math.abs(window.scrollY - target) < tolerancePixels || maximum === 0) {
+                        resolve(true);
+                        return;
+                      }
+                    }
+                    if (performance.now() >= deadline) {
+                      resolve(false);
+                      return;
+                    }
+                    window.setTimeout(
+                      () => window.requestAnimationFrame(apply),
+                      retryDelayMilliseconds
+                    );
+                  };
+                  apply();
+                });
+                """
+            _ = try? await callAsyncJavaScript(
+                webView,
+                script,
+                [
+                    "scrollX": restoration.scrollX,
+                    "scrollY": restoration.scrollY,
+                    "scrollProgress": restoration.scrollProgress,
+                    "timeoutMilliseconds": 2_000,
+                    "tolerancePixels": 4,
+                    "retryDelayMilliseconds": 100,
+                ]
+            )
         }
     }
 }
@@ -1145,12 +1303,25 @@ extension NotionWebSession: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         guard isCurrent(webView) else { return }
         if case .failed = webContentRecoveryState { return }
+        invalidateUsefulContentDocumentTracking()
+        if navigationRequestToCommitToken == nil {
+            beginNavigationRequestMeasurement(preservingUsefulContentContext: true)
+        }
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(.loading)
         if !panelIsVisible {
             suspendWebViewIfNeeded()
         }
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard isCurrent(webView) else { return }
+        finishNavigationRequestMeasurement(outcome: .success)
+        if commitToUsefulContentToken != nil {
+            performanceSignposter?.end(commitToUsefulContentToken, outcome: .cancelled)
+        }
+        commitToUsefulContentToken = performanceSignposter?.begin(.commitToUsefulContent)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -1172,9 +1343,6 @@ extension NotionWebSession: WKNavigationDelegate {
         }
         invalidateEditorSelection()
         publishNavigationState(.active)
-        if finishedLoadedPage {
-            finishShortcutPresentationMeasurement(outcome: .success)
-        }
         if restorationToken != nil {
             performanceSignposter?.end(restorationToken, outcome: .success)
         }
@@ -1189,6 +1357,10 @@ extension NotionWebSession: WKNavigationDelegate {
         )
         browserLoginRouteDidChange(to: webView.url)
         finishBrowserLoginRestorationIfNeeded(at: webView.url)
+        retryPendingUsefulContentMessage()
+        if pendingUsefulContentMessage != nil {
+            finishUsefulContentMeasurements(outcome: .failure)
+        }
         if finishedLoadedPage,
            let restoration = pageStateRestoration.takePendingScrollRestoration(
             for: loadedPageID
@@ -1265,6 +1437,7 @@ extension NotionWebSession: WKNavigationDelegate {
             pageStateRestoration.discardPendingScrollRestoration()
         }
         onPageResolved?(resolvedPage)
+        retryPendingUsefulContentMessage()
     }
 
     func webView(
@@ -1274,7 +1447,8 @@ extension NotionWebSession: WKNavigationDelegate {
     ) {
         guard isCurrent(webView) else { return }
         guard !isCancellation(error) else {
-            finishShortcutPresentationMeasurement(outcome: .cancelled)
+            finishNavigationRequestMeasurement(outcome: .cancelled)
+            finishUsefulContentMeasurements(outcome: .cancelled)
             if restorationToken != nil {
                 performanceSignposter?.end(restorationToken, outcome: .cancelled)
                 restorationToken = nil
@@ -1294,7 +1468,8 @@ extension NotionWebSession: WKNavigationDelegate {
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(navigationFailureState(for: error))
-        finishShortcutPresentationMeasurement(outcome: .failure)
+        finishNavigationRequestMeasurement(outcome: .failure)
+        finishUsefulContentMeasurements(outcome: .failure)
         if restorationToken != nil {
             performanceSignposter?.end(restorationToken, outcome: .failure)
         }
@@ -1307,7 +1482,8 @@ extension NotionWebSession: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         guard isCurrent(webView) else { return }
         guard !isCancellation(error) else {
-            finishShortcutPresentationMeasurement(outcome: .cancelled)
+            finishNavigationRequestMeasurement(outcome: .cancelled)
+            finishUsefulContentMeasurements(outcome: .cancelled)
             if restorationToken != nil {
                 performanceSignposter?.end(restorationToken, outcome: .cancelled)
                 restorationToken = nil
@@ -1327,7 +1503,8 @@ extension NotionWebSession: WKNavigationDelegate {
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(navigationFailureState(for: error))
-        finishShortcutPresentationMeasurement(outcome: .failure)
+        finishNavigationRequestMeasurement(outcome: .failure)
+        finishUsefulContentMeasurements(outcome: .failure)
         if restorationToken != nil {
             performanceSignposter?.end(restorationToken, outcome: .failure)
         }
@@ -1359,6 +1536,8 @@ extension NotionWebSession: WKNavigationDelegate {
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         guard isCurrent(webView) else { return }
         popupCoordinator.close()
+        finishNavigationRequestMeasurement(outcome: .failure)
+        finishUsefulContentMeasurements(outcome: .failure)
 
         if restorationToken != nil {
             performanceSignposter?.end(restorationToken, outcome: .failure)
@@ -1391,6 +1570,10 @@ extension NotionWebSession: WKNavigationDelegate {
         loadedPageID = page.pageID
         loadedRequestURL = page.canonicalURL
         publishNavigationState(.loading)
+        rendererRecoveryToUsefulContentToken = performanceSignposter?.begin(
+            .rendererRecoveryToUsefulContent
+        )
+        beginNavigationRequestMeasurement(preservingUsefulContentContext: true)
         loadRequest(webView, URLRequest(url: page.canonicalURL))
     }
 

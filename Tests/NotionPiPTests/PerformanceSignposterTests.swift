@@ -33,13 +33,18 @@ final class PerformanceSignposterTests: XCTestCase {
 final class PerformanceSignposterSpy: PerformanceSignposting {
     private let tokenSource = AppPerformanceSignposter()
     private(set) var beginCalls: [PerformanceOperation] = []
+    private(set) var beginRecords: [
+        (operation: PerformanceOperation, token: PerformanceIntervalToken?)
+    ] = []
     private(set) var endCalls: [
         (token: PerformanceIntervalToken?, outcome: PerformanceOutcome, metadata: PerformanceMetadata)
     ] = []
 
     func begin(_ operation: PerformanceOperation) -> PerformanceIntervalToken? {
         beginCalls.append(operation)
-        return tokenSource.begin(operation)
+        let token = tokenSource.begin(operation)
+        beginRecords.append((operation, token))
+        return token
     }
 
     func end(
