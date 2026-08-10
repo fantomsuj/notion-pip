@@ -9,6 +9,7 @@ extension AppRuntime {
             try shortcutRegistrar.register(shortcut: shortcut) { [weak self] event in
                 self?.handleGlobalShortcut(event)
             }
+            cancelShortcutGesture(restashTransientPanel: true)
             publishShortcutConfiguration(candidate)
             shortcutStore.save(shortcut)
             shortcutConfigurationDidChange()
@@ -27,7 +28,7 @@ extension AppRuntime {
 
     func setHoldToPeekEnabled(_ enabled: Bool) {
         guard enabled != holdToPeekEnabled else { return }
-        cancelShortcutHold()
+        cancelShortcutGesture(restashTransientPanel: true)
         holdToPeekPreferenceStore.save(enabled)
         publishHoldToPeekEnabled(enabled)
     }
@@ -78,6 +79,9 @@ extension AppRuntime {
             issue: .globalShortcutUnavailable,
             failure: panelFailure
         )
+        if panelFailure != nil {
+            cancelShortcutGesture(restashTransientPanel: true)
+        }
         updateShortcutHealth(
             issue: .quickCaptureShortcutUnavailable,
             failure: quickCaptureFailure
@@ -96,6 +100,7 @@ extension AppRuntime {
     }
 
     func performStatusMenuContextCommand(_ command: StatusMenuContextCommand) {
+        cancelShortcutGesture(restashTransientPanel: false)
         switch command {
         case .openSettings:
             settingsWindowPresenter?.show()
@@ -109,6 +114,7 @@ extension AppRuntime {
     }
 
     func handleMenuBarActivation() {
+        cancelShortcutGesture(restashTransientPanel: false)
         guard pinCoordinator.stashOrRestoreCurrentPage() else {
             settingsWindowPresenter?.show()
             return
@@ -177,6 +183,7 @@ extension AppRuntime {
         persist: Bool,
         restoration: DurablePageRestoration? = nil
     ) {
+        cancelShortcutGesture(restashTransientPanel: false)
         pageSelectionGeneration &+= 1
         if persist {
             restorePinnedPageTask?.cancel()
@@ -194,57 +201,136 @@ extension AppRuntime {
         switch event {
         case .pressed:
             guard holdToPeekEnabled else {
-                handleGlobalShortcutTap()
+                handleImmediateShortcutPress()
                 return
             }
-            guard shortcutHoldTask == nil else { return }
-            shortcutHoldTriggered = false
-            shortcutPeekRestoredPanel = false
-            shortcutHoldTask = Task { [weak self, shortcutHoldDuration] in
-                do {
-                    try await Task.sleep(for: shortcutHoldDuration)
-                } catch {
-                    return
-                }
-                guard let self else { return }
-                shortcutHoldTriggered = true
-                if pinCoordinator.presentationState == .stashed {
-                    peekFocusRestorer.beginPeek()
-                    shortcutPeekRestoredPanel = pinCoordinator.stashOrRestoreCurrentPage()
-                    if !shortcutPeekRestoredPanel {
-                        peekFocusRestorer.cancelPeek()
-                    }
-                }
-            }
+            handlePeekShortcutPress()
         case .released:
-            guard holdToPeekEnabled else { return }
-            guard let holdTask = shortcutHoldTask else { return }
-            shortcutHoldTask = nil
-            if shortcutHoldTriggered {
-                shortcutHoldTriggered = false
-                if shortcutPeekRestoredPanel {
-                    shortcutPeekRestoredPanel = false
-                    _ = pinCoordinator.stashOrRestoreCurrentPage()
-                    peekFocusRestorer.finishPeek()
-                }
-            } else {
-                holdTask.cancel()
-                handleGlobalShortcutTap()
-            }
+            handleShortcutRelease()
         }
     }
 
-    private func cancelShortcutHold() {
-        shortcutHoldTask?.cancel()
-        shortcutHoldTask = nil
-        shortcutHoldTriggered = false
-        if shortcutPeekRestoredPanel {
-            shortcutPeekRestoredPanel = false
-            _ = pinCoordinator.stashOrRestoreCurrentPage()
+    private func handlePeekShortcutPress() {
+        switch shortcutGestureState {
+        case let .awaitingSecondPress(generation):
+            shortcutGestureTimer?.cancel()
+            shortcutGestureTimer = nil
+            shortcutGestureState = .persistent(generation: generation)
+            peekFocusRestorer.cancelPeek()
+            accessibilityAnnouncementPoster.announce("Notion PiP will stay open")
+        case .idle:
+            switch pinCoordinator.presentationState {
+            case .unavailable:
+                handleImmediateShortcutPress()
+            case .visible:
+                beginSuppressingRelease()
+                _ = pinCoordinator.stashOrRestoreCurrentPage()
+            case .stashed:
+                beginTransientPeek()
+            }
+        case .peeking, .persistent, .suppressingRelease:
+            break
+        }
+    }
+
+    private func beginTransientPeek() {
+        shortcutGestureGeneration &+= 1
+        let generation = shortcutGestureGeneration
+        let measurement = ShortcutPresentationMeasurement(
+            signposter: performanceSignposter,
+            requestToken: performanceSignposter.begin(.shortcutPressToPresentationRequest),
+            usefulContentToken: performanceSignposter.begin(.shortcutPressToUsefulContent)
+        )
+        peekFocusRestorer.beginPeek()
+        guard pinCoordinator.showCurrentPageFromShortcut(measurement: measurement) else {
+            peekFocusRestorer.cancelPeek()
+            shortcutGestureState = .idle
+            return
+        }
+        shortcutGestureState = .peeking(
+            generation: generation,
+            deadlineElapsed: false
+        )
+        shortcutGestureTimer = shortcutGestureScheduler.schedule(
+            after: shortcutHoldDuration
+        ) { [weak self] in
+            self?.shortcutGestureDeadlineReached(generation: generation)
+        }
+    }
+
+    private func handleShortcutRelease() {
+        switch shortcutGestureState {
+        case let .peeking(generation, deadlineElapsed):
+            if deadlineElapsed {
+                finishTransientPeek(generation: generation)
+            } else {
+                shortcutGestureState = .awaitingSecondPress(generation: generation)
+            }
+        case .persistent, .suppressingRelease:
+            shortcutGestureState = .idle
+        case .idle, .awaitingSecondPress:
+            break
+        }
+    }
+
+    private func shortcutGestureDeadlineReached(generation: UInt) {
+        switch shortcutGestureState {
+        case let .peeking(activeGeneration, _) where activeGeneration == generation:
+            shortcutGestureTimer = nil
+            shortcutGestureState = .peeking(
+                generation: generation,
+                deadlineElapsed: true
+            )
+        case let .awaitingSecondPress(activeGeneration) where activeGeneration == generation:
+            shortcutGestureTimer = nil
+            finishTransientPeek(generation: generation)
+        default:
+            break
+        }
+    }
+
+    private func finishTransientPeek(generation: UInt) {
+        guard shortcutGestureState.generation == generation else { return }
+        shortcutGestureTimer?.cancel()
+        shortcutGestureTimer = nil
+        shortcutGestureState = .idle
+        if pinCoordinator.presentationState == .visible,
+           pinCoordinator.stashCurrentPageImmediately()
+        {
             peekFocusRestorer.finishPeek()
         } else {
             peekFocusRestorer.cancelPeek()
         }
+    }
+
+    func cancelShortcutGesture(restashTransientPanel: Bool) {
+        let wasTransient = shortcutGestureState.isTransient
+        shortcutGestureGeneration &+= 1
+        shortcutGestureTimer?.cancel()
+        shortcutGestureTimer = nil
+        shortcutGestureState = .idle
+        guard wasTransient else { return }
+        guard restashTransientPanel,
+              pinCoordinator.presentationState == .visible,
+              pinCoordinator.stashCurrentPageImmediately()
+        else {
+            peekFocusRestorer.cancelPeek()
+            return
+        }
+        peekFocusRestorer.finishPeek()
+    }
+
+    private func beginSuppressingRelease() {
+        shortcutGestureGeneration &+= 1
+        shortcutGestureState = .suppressingRelease(
+            generation: shortcutGestureGeneration
+        )
+    }
+
+    private func handleImmediateShortcutPress() {
+        guard shortcutGestureState == .idle else { return }
+        beginSuppressingRelease()
+        handleGlobalShortcutTap()
     }
 
     private func handleGlobalShortcutTap() {
@@ -259,6 +345,7 @@ extension AppRuntime {
     }
 
     private func shortcutConfigurationDidChange() {
+        cancelShortcutGesture(restashTransientPanel: true)
         shortcutConfigurationGeneration &+= 1
         shortcutLifecycleCoordinator?.invalidatePendingRecovery()
     }
@@ -284,6 +371,29 @@ extension AppRuntime {
             resolveServiceIssue(issue)
         } else {
             reportServiceIssue(issue)
+        }
+    }
+}
+
+private extension ShortcutPeekGestureState {
+    var generation: UInt? {
+        switch self {
+        case .idle:
+            nil
+        case let .peeking(generation, _),
+             let .awaitingSecondPress(generation),
+             let .persistent(generation),
+             let .suppressingRelease(generation):
+            generation
+        }
+    }
+
+    var isTransient: Bool {
+        switch self {
+        case .peeking, .awaitingSecondPress:
+            true
+        case .idle, .persistent, .suppressingRelease:
+            false
         }
     }
 }

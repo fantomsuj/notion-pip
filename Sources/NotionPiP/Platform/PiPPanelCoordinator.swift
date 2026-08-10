@@ -58,12 +58,17 @@ enum PiPPresentationState: Equatable, Sendable {
 
 @MainActor
 protocol PiPPanelCoordinating: AnyObject {
+    var onExternalPresentationAction: (@MainActor () -> Void)? { get set }
     var currentPage: NotionPageReference? { get }
     var presentationState: PiPPresentationState { get }
     func show(page: NotionPageReference)
     func show(page: NotionPageReference, restoration: DurablePageRestoration?)
     func reloadPinnedPage(_ page: NotionPageReference)
     func showCurrentPage() -> Bool
+    func showCurrentPageFromShortcut(
+        measurement: ShortcutPresentationMeasurement
+    ) -> Bool
+    func stashCurrentPageImmediately() -> Bool
     func stashOrRestoreCurrentPage() -> Bool
     func performGlobalShortcutAction() -> Bool
     func replace(page: NotionPageReference)
@@ -71,6 +76,11 @@ protocol PiPPanelCoordinating: AnyObject {
 }
 
 extension PiPPanelCoordinating {
+    var onExternalPresentationAction: (@MainActor () -> Void)? {
+        get { nil }
+        set {}
+    }
+
     func show(page: NotionPageReference, restoration: DurablePageRestoration?) {
         show(page: page)
     }
@@ -80,6 +90,29 @@ extension PiPPanelCoordinating {
     }
 
     func performGlobalShortcutAction() -> Bool {
+        stashOrRestoreCurrentPage()
+    }
+
+    func showCurrentPageFromShortcut(
+        measurement: ShortcutPresentationMeasurement
+    ) -> Bool {
+        let result = showCurrentPage()
+        let outcome: PerformanceOutcome = result ? .success : .failure
+        let metadata = PerformanceMetadata(webViewRetention: .unknown)
+        measurement.signposter.end(
+            measurement.requestToken,
+            outcome: outcome,
+            metadata: metadata
+        )
+        measurement.signposter.end(
+            measurement.usefulContentToken,
+            outcome: outcome,
+            metadata: metadata
+        )
+        return result
+    }
+
+    func stashCurrentPageImmediately() -> Bool {
         stashOrRestoreCurrentPage()
     }
 }
@@ -116,6 +149,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
     var onManualResizeCompletion: (@MainActor (CGSize) -> Void)?
     var onPinnedPageAvailabilityChange: (@MainActor () -> Void)?
     var onGeometryPersistenceFailure: (@MainActor () -> Void)?
+    var onExternalPresentationAction: (@MainActor () -> Void)?
 
     var presentationState: PiPPresentationState {
         guard currentPage != nil else { return .unavailable }
@@ -258,6 +292,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
                 quickCopyController: quickCopyController,
                 onReloadSavedPin: onReloadSavedPin,
                 onStash: { [weak self] in
+                    self?.onExternalPresentationAction?()
                     _ = self?.stashOrRestoreCurrentPage()
                 },
                 onPageSwitcherSelection: onPageSwitcherSelection
@@ -345,6 +380,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
             }
         }
         panel.onClose = { [weak self] in
+            self?.onExternalPresentationAction?()
             _ = self?.stashOrRestoreCurrentPage()
         }
     }
@@ -417,6 +453,37 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         return true
     }
 
+    func showCurrentPageFromShortcut(
+        measurement: ShortcutPresentationMeasurement
+    ) -> Bool {
+        guard currentPage != nil else {
+            measurement.signposter.end(measurement.requestToken, outcome: .failure)
+            measurement.signposter.end(measurement.usefulContentToken, outcome: .failure)
+            return false
+        }
+        let retention = pageLoader.webViewRetention
+        pageLoader.beginShortcutPresentationMeasurement(
+            signposter: measurement.signposter,
+            token: measurement.usefulContentToken,
+            retention: retention
+        )
+        let firstPresentationMeasurement = beginFirstPresentation()
+        cancelPendingStashDismissal()
+        prepareInitialFrameIfNeeded()
+        restoreCommittedPanelFrame()
+        panel.present()
+        measurement.signposter.end(
+            measurement.requestToken,
+            outcome: .success,
+            metadata: PerformanceMetadata(webViewRetention: retention)
+        )
+        dismissStashHandle()
+        endFirstPresentation(firstPresentationMeasurement)
+        pageLoader.panelDidShow()
+        logger.notice("Existing panel show requested from shortcut")
+        return true
+    }
+
     func stashOrRestoreCurrentPage() -> Bool {
         guard currentPage != nil else { return false }
         switch presentationState {
@@ -450,6 +517,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 
     @discardableResult
     func applyPanelContentSize(_ contentSize: CGSize) -> Bool {
+        onExternalPresentationAction?()
         guard currentPage != nil else { return false }
 
         cancelPendingStashDismissal()
@@ -491,6 +559,13 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         )
     }
 
+    func stashCurrentPageImmediately() -> Bool {
+        let token = performanceSignposter?.begin(.peekRestash)
+        let result = stashImmediately(topology: currentTopology())
+        performanceSignposter?.end(token, outcome: result ? .success : .failure)
+        return result
+    }
+
     @discardableResult
     private func stash(topology: DisplayTopology) -> Bool {
         guard currentPage != nil,
@@ -520,7 +595,33 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
         return true
     }
 
+    private func stashImmediately(topology: DisplayTopology) -> Bool {
+        guard currentPage != nil,
+            let stashHandle,
+            let placement = PanelStashPolicy.placement(
+                for: panel.frame,
+                visibleFrames: topology.visibleFrames
+            )
+        else {
+            return false
+        }
+
+        latestTopology = topology
+        commitCurrentGeometry(
+            desiredContentSize: committedGeometry?.desiredContentSize.cgSize,
+            topology: topology
+        )
+        activeStashIntent = PanelStashPolicy.intent(for: placement, topology: topology)
+        presentStashHandle(stashHandle, placement: placement)
+        cancelPendingStashDismissal()
+        panel.orderOut()
+        pageLoader.panelDidHide()
+        logger.notice("Temporary peek stashed immediately")
+        return true
+    }
+
     func restoreFromStash() {
+        onExternalPresentationAction?()
         guard currentPage != nil else {
             dismissStashHandle()
             return
