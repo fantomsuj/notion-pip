@@ -130,9 +130,6 @@ private final class ShortcutRecoveryRuntimeHarness {
             shortcutRegistrar: registrar,
             shortcutStore: shortcutStore,
             menuBarIconPreferenceStore: menuStore,
-            credentialVault: PersonalTokenCredentialVault(
-                store: ShortcutRecoverySecretStore()
-            ),
             initialServiceHealth: initialHealth,
             shortcutLifecycleCoordinatorFactory: { [center, scheduler] onRecovery in
                 ShortcutLifecycleCoordinator(
@@ -224,10 +221,4 @@ private final class RuntimeScheduledRecovery: ShortcutRecoveryCancellation {
         didRun = true
         operation()
     }
-}
-
-private final class ShortcutRecoverySecretStore: SecretStoring {
-    func read() throws -> Data? { nil }
-    func write(_ data: Data) throws {}
-    func delete() throws {}
 }

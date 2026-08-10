@@ -13,6 +13,7 @@ This checklist defines the minimum bar for giving Notion PiP 0.1 to people outsi
   real login, disabled again, and checked after relaunch using that distributed
   archive.
 - [ ] No test account, Notion token, session cookie, signing credential, or notarization credential is committed.
+- [ ] Upgrading deletes the retired personal-token Keychain item without reading it and leaves the embedded Notion session intact.
 - [ ] Five to ten testers have an owner, contact method, and feedback deadline.
 - [ ] Known limitations and recovery steps are included with the beta.
 

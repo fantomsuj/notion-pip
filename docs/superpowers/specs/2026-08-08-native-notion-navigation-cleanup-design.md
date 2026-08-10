@@ -1,9 +1,10 @@
 # Native Notion Navigation and Legacy Feature Removal Design
 
-> **Superseded scope:** The approved implementation removes Quick Capture's UI,
-> runtime, and delivery machinery while retaining the existing page-management
-> features and personal-token search. Legacy capture data remains inert in the
-> migrated store so upgrading cannot silently destroy user-authored drafts.
+> **Implementation status:** Quick Capture's UI, runtime, and delivery machinery
+> were removed first while page management remained. Personal-token search and
+> Notion REST API access were removed later, with exact legacy Keychain cleanup.
+> The broader page-management removal described below remains historical design
+> work rather than current implementation.
 
 ## Goal
 

@@ -220,18 +220,6 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
     }
 
-    func testSearchResultActivationUsesUnifiedRuntimePath() throws {
-        let panel = RuntimePanelCoordinator()
-        let runtime = makeRuntime(panel: panel)
-        let page = try makePage(id: firstPageID, title: "Search result")
-
-        runtime.activate(page: page, source: .notionSearch)
-
-        XCTAssertEqual(runtime.activePage, page)
-        XCTAssertEqual(runtime.lastActivationSource, .notionSearch)
-        XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
-    }
-
     func testEmbeddedWebSessionPageUsesUnifiedRuntimePath() throws {
         let panel = RuntimePanelCoordinator()
         let runtime = makeRuntime(panel: panel)
