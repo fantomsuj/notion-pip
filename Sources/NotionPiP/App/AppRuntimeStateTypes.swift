@@ -43,7 +43,6 @@ enum PageActivationSource: Equatable, Sendable {
     case typedURL
     case clipboard
     case externalRoute(ExternalURLSource)
-    case notionSearch
     case notionWebSession
     case pagePicker
     case pageSwitcher
@@ -55,11 +54,4 @@ enum ShortcutPeekGestureState: Equatable, Sendable {
     case awaitingSecondPress(generation: UInt)
     case persistent(generation: UInt)
     case suppressingRelease(generation: UInt)
-}
-
-enum PersonalTokenConnectionState: Equatable {
-    case disconnected
-    case connecting
-    case connected(workspaceName: String)
-    case failed(String)
 }

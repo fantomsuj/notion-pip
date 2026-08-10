@@ -55,7 +55,7 @@ final class RuntimeTerminationTests: XCTestCase {
         }
         XCTAssertTrue(terminationReplies.isEmpty)
 
-        runtime.activate(page: second, source: .notionSearch)
+        runtime.activate(page: second, source: .pagePicker)
         await repository.finishSave(pageID: firstPageID)
         try await repository.waitUntilSaveCount(2)
         for _ in 0 ..< 3 {

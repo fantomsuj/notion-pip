@@ -5,7 +5,6 @@ struct SettingsView: View {
     @ObservedObject var runtime: AppRuntime
     @ObservedObject var panelSizeController: PanelSizeController
     @ObservedObject var launchAtLoginService: LaunchAtLoginService
-    @State private var personalToken = ""
 
     var body: some View {
         ScrollView {
@@ -19,9 +18,6 @@ struct SettingsView: View {
                         state: runtime.pageURLInputState,
                         onSubmit: runtime.validatePageURL
                     )
-                    if runtime.isNotionConnected {
-                        NotionWorkspaceSearchView(runtime: runtime)
-                    }
                     if let activePage = runtime.activePage {
                         LabeledContent(
                             "Active page",
@@ -112,38 +108,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Personal Notion Access") {
-                    switch runtime.connectionState {
-                    case .disconnected, .failed:
-                        SecureField("Personal access token", text: $personalToken)
-                            .textFieldStyle(.roundedBorder)
-                        Button(isReconnectNeeded ? "Reconnect to Notion" : "Connect to Notion") {
-                            let token = personalToken
-                            personalToken = ""
-                            Task { await runtime.connectPersonalToken(token) }
-                        }
-                    case .connecting:
-                        LabeledContent("Status") { ProgressView("Connecting") }
-                    case .connected(let workspaceName):
-                        LabeledContent("Workspace", value: workspaceName)
-                        Button("Disconnect", role: .destructive) {
-                            runtime.disconnectPersonalToken()
-                        }
-                    }
-
-                    if case .failed(let message) = runtime.connectionState {
-                        Label(message, systemImage: "exclamationmark.circle")
-                            .font(.caption)
-                            .foregroundStyle(DesignTokens.Colors.error)
-                    }
-
-                    Text(
-                        "A personal access token enables workspace page search. It is stored only in this Mac’s Keychain, acts with your own Notion permissions, and is never exposed to the Notion web view."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Colors.secondaryText)
-                }
-
                 if !runtime.serviceHealth.isHealthy {
                     Section("Service Health") {
                         ServiceHealthView(runtime: runtime)
@@ -182,13 +146,5 @@ struct SettingsView: View {
         ) { _ in
             launchAtLoginService.refresh()
         }
-        .onDisappear {
-            personalToken = ""
-        }
-    }
-
-    private var isReconnectNeeded: Bool {
-        if case .failed = runtime.connectionState { return true }
-        return false
     }
 }

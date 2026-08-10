@@ -67,9 +67,18 @@ private final class AppComposition {
         let actionRelay = AppCommandActionRelay()
         let onboardingPreferenceStore = OnboardingPreferenceStore()
         let webSession = NotionWebSession()
-        let credentialVault = PersonalTokenCredentialVault()
         let pageRepository: PageRepository?
         let initialServiceHealth: ServiceHealthState
+
+        do {
+            try LegacyPersonalTokenRemover().remove()
+        } catch let LegacyPersonalTokenRemovalError.unexpectedStatus(status) {
+            Logger(subsystem: "com.fantomsuj.NotionPiP", category: "cleanup")
+                .error("Legacy personal-token cleanup failed status=\(status, privacy: .public)")
+        } catch {
+            Logger(subsystem: "com.fantomsuj.NotionPiP", category: "cleanup")
+                .error("Legacy personal-token cleanup failed")
+        }
 
         do {
             let container = try NotionPiPPersistence.makeContainer()
@@ -109,7 +118,6 @@ private final class AppComposition {
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
             pageRepository: pageRepository,
-            credentialVault: credentialVault,
             initialServiceHealth: initialServiceHealth,
             automaticSettingsPresentationAllowed: {
                 !onboardingPreferenceStore.shouldPresent(

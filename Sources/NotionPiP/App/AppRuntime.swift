@@ -25,10 +25,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     var validationFailed: Bool { pageURLInputState.validationFailed }
     var pageURLFocusRequest: Int { pageURLInputState.focusRequest }
 
-    var connectionState: PersonalTokenConnectionState { connectionController.state }
-    var searchResults: [NotionPageSearchResult] { connectionController.searchResults }
-    var searchError: String? { connectionController.searchError }
-    var isNotionConnected: Bool { connectionController.isConnected }
     var pipPresentationState: PiPPresentationState { pinCoordinator.presentationState }
 
     var statusMenuContextCommand: StatusMenuContextCommand {
@@ -46,10 +42,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let pageURLInputPresenter: any PageURLInputPresenting
     let pageRepository: (any PageWorkingSetPersisting)?
     let automaticSettingsPresentationAllowed: @MainActor () -> Bool
-    private let connectionController: NotionConnectionController
     weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
-    private var connectionObservation: AnyCancellable?
-    private var bootstrapTask: Task<Void, Never>?
     var restorePinnedPageTask: Task<Void, Never>?
     var persistPinnedPageTask: Task<Void, Never>?
     var firstPageHandoffTask: Task<Void, Never>?
@@ -79,10 +72,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
         pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
         pageRepository: (any PageWorkingSetPersisting)? = nil,
-        credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
-        notionClientFactory: @escaping (PersonalIntegrationToken) -> any NotionWorkspaceClient = { token in
-            NotionAPIClient(token: token)
-        },
         shortcutHoldDuration: Duration = .milliseconds(300),
         shortcutGestureScheduler: any ShortcutGestureScheduling = TaskShortcutGestureScheduler(),
         accessibilityAnnouncementPoster: any AccessibilityAnnouncementPosting =
@@ -120,10 +109,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.shortcutGestureScheduler = shortcutGestureScheduler
         self.accessibilityAnnouncementPoster = accessibilityAnnouncementPoster
         self.shortcutLifecycleCoordinatorFactory = shortcutLifecycleCoordinatorFactory
-        connectionController = NotionConnectionController(
-            credentialVault: credentialVault,
-            notionClientFactory: notionClientFactory
-        )
         serviceHealth = initialServiceHealth
         globalShortcut = shortcutStore.load()
         holdToPeekEnabled = holdToPeekPreferenceStore.load()
@@ -134,7 +119,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         savedMenuBarIconVisibility = iconState.saved
         effectiveMenuBarIconVisibility = iconState.effective
         isMenuBarIconVisibilityForced = iconState.forced
-        observeConnectionController()
         pinCoordinator.onExternalPresentationAction = { [weak self] in
             self?.cancelShortcutGesture(restashTransientPanel: false)
         }
@@ -153,9 +137,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         }
         self.shortcutLifecycleCoordinator = shortcutLifecycleCoordinator
         shortcutLifecycleCoordinator.start()
-        bootstrapTask = Task { [weak self] in
-            await self?.bootstrapPersonalTokenConnection()
-        }
         restorePinnedPageFromRepository()
     }
 
@@ -176,27 +157,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         case .persistentStoreUnavailable:
             break
         }
-    }
-
-    func connectPersonalToken(_ rawValue: String) async {
-        bootstrapTask?.cancel()
-        bootstrapTask = nil
-        await connectionController.connect(rawValue)
-    }
-
-    func bootstrapPersonalTokenConnection() async {
-        await connectionController.bootstrapSavedToken()
-    }
-
-    func disconnectPersonalToken() {
-        connectionController.disconnect()
-        guard connectionController.state == .disconnected else { return }
-        bootstrapTask?.cancel()
-        bootstrapTask = nil
-    }
-
-    func searchNotionPages(query: String) async {
-        await connectionController.searchPages(query: query)
     }
 
     func publishActivation(
@@ -240,12 +200,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             && !savedMenuBarIconVisibility
         isMenuBarIconVisibilityForced = isForced
         effectiveMenuBarIconVisibility = savedMenuBarIconVisibility || isForced
-    }
-
-    private func observeConnectionController() {
-        connectionObservation = connectionController.objectWillChange.sink { [weak self] in
-            self?.objectWillChange.send()
-        }
     }
 
     private static func menuBarIconState(
