@@ -6,6 +6,26 @@ import XCTest
 
 @MainActor
 final class PiPPanelGeometryTests: XCTestCase {
+    func testStashAnimationMovesTowardChosenEdgeWithoutChangingPanelSize() {
+        let frame = CGRect(x: 120, y: 80, width: 480, height: 720)
+
+        let leftTarget = KeyCapablePiPPanel.stashAnimationTargetFrame(
+            from: frame,
+            toward: .left
+        )
+        let rightTarget = KeyCapablePiPPanel.stashAnimationTargetFrame(
+            from: frame,
+            toward: .right
+        )
+
+        XCTAssertLessThan(leftTarget.minX, frame.minX)
+        XCTAssertGreaterThan(rightTarget.minX, frame.minX)
+        XCTAssertEqual(leftTarget.size, frame.size)
+        XCTAssertEqual(rightTarget.size, frame.size)
+        XCTAssertEqual(leftTarget.minY, frame.minY)
+        XCTAssertEqual(rightTarget.minY, frame.minY)
+    }
+
     func testHorizontalFrameSurvivesRealPanelStashRestore() throws {
         try assertRealPanelStashRestore(
             requestedSize: CGSize(width: 760, height: 520)
