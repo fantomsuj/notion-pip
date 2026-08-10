@@ -97,4 +97,22 @@ final class WindowRolePolicyTests: XCTestCase {
         XCTAssertEqual(window.contentRect(forFrameRect: window.frame).size, .zero)
         XCTAssertEqual(window.contentMinSize, .zero)
     }
+
+    func testStashShelfRoleCreatesRetainedNonactivatingOverlayPanel() {
+        let window = WindowRole.stashShelf.makeWindow()
+
+        XCTAssertTrue(type(of: window) == NSPanel.self)
+        XCTAssertEqual(window.styleMask, [.borderless, .nonactivatingPanel])
+        XCTAssertEqual(window.level, .floating)
+        XCTAssertEqual(
+            window.collectionBehavior,
+            [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
+        )
+        XCTAssertFalse(window.hidesOnDeactivate)
+        XCTAssertFalse(window.isReleasedWhenClosed)
+        XCTAssertFalse(window.canBecomeKey)
+        XCTAssertFalse(window.isOpaque)
+        XCTAssertEqual(window.backgroundColor, .clear)
+        XCTAssertTrue(window.hasShadow)
+    }
 }

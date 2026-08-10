@@ -4,15 +4,24 @@ struct PiPStashHandleView: View {
     let side: PanelStashSide
     let onRestore: @MainActor () -> Void
     let onDragEnded: @MainActor (CGRect) -> Void
+    let onDragStarted: @MainActor () -> Void
+    let onHoverChanged: @MainActor (Bool) -> Void
+    let onShowRecentPages: @MainActor () -> Void
 
     init(
         side: PanelStashSide,
         onRestore: @escaping @MainActor () -> Void,
-        onDragEnded: @escaping @MainActor (CGRect) -> Void = { _ in }
+        onDragEnded: @escaping @MainActor (CGRect) -> Void = { _ in },
+        onDragStarted: @escaping @MainActor () -> Void = {},
+        onHoverChanged: @escaping @MainActor (Bool) -> Void = { _ in },
+        onShowRecentPages: @escaping @MainActor () -> Void = {}
     ) {
         self.side = side
         self.onRestore = onRestore
         self.onDragEnded = onDragEnded
+        self.onDragStarted = onDragStarted
+        self.onHoverChanged = onHoverChanged
+        self.onShowRecentPages = onShowRecentPages
     }
 
     var body: some View {
@@ -32,7 +41,10 @@ struct PiPStashHandleView: View {
 
             PiPStashHandleInteractionSurface(
                 onActivate: onRestore,
-                onDragEnded: onDragEnded
+                onDragEnded: onDragEnded,
+                onDragStarted: onDragStarted,
+                onHoverChanged: onHoverChanged,
+                onShowRecentPages: onShowRecentPages
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -43,18 +55,27 @@ struct PiPStashHandleView: View {
 private struct PiPStashHandleInteractionSurface: NSViewRepresentable {
     let onActivate: @MainActor () -> Void
     let onDragEnded: @MainActor (CGRect) -> Void
+    let onDragStarted: @MainActor () -> Void
+    let onHoverChanged: @MainActor (Bool) -> Void
+    let onShowRecentPages: @MainActor () -> Void
 
     func makeNSView(context: Context) -> PiPStashHandleInteractionView {
         PiPStashHandleInteractionView(
             onActivate: onActivate,
-            onDragEnded: onDragEnded
+            onDragEnded: onDragEnded,
+            onDragStarted: onDragStarted,
+            onHoverChanged: onHoverChanged,
+            onShowRecentPages: onShowRecentPages
         )
     }
 
     func updateNSView(_ nsView: PiPStashHandleInteractionView, context: Context) {
         nsView.configure(
             onActivate: onActivate,
-            onDragEnded: onDragEnded
+            onDragEnded: onDragEnded,
+            onDragStarted: onDragStarted,
+            onHoverChanged: onHoverChanged,
+            onShowRecentPages: onShowRecentPages
         )
     }
 }
@@ -66,6 +87,9 @@ final class PiPStashHandleInteractionView: NSView {
     private let pointerLocation: @MainActor () -> CGPoint
     private var onActivate: @MainActor () -> Void
     private var onDragEnded: @MainActor (CGRect) -> Void
+    private var onDragStarted: @MainActor () -> Void
+    private var onHoverChanged: @MainActor (Bool) -> Void
+    private var onShowRecentPages: @MainActor () -> Void
     private var initialPointerLocation: CGPoint?
     private var initialWindowOrigin: CGPoint?
     private var isDragging = false
@@ -73,17 +97,29 @@ final class PiPStashHandleInteractionView: NSView {
     init(
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
         onActivate: @escaping @MainActor () -> Void,
-        onDragEnded: @escaping @MainActor (CGRect) -> Void
+        onDragEnded: @escaping @MainActor (CGRect) -> Void,
+        onDragStarted: @escaping @MainActor () -> Void = {},
+        onHoverChanged: @escaping @MainActor (Bool) -> Void = { _ in },
+        onShowRecentPages: @escaping @MainActor () -> Void = {}
     ) {
         self.pointerLocation = pointerLocation
         self.onActivate = onActivate
         self.onDragEnded = onDragEnded
+        self.onDragStarted = onDragStarted
+        self.onHoverChanged = onHoverChanged
+        self.onShowRecentPages = onShowRecentPages
         super.init(frame: .zero)
 
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel("Restore Notion PiP")
         setAccessibilityHelp("Bring the stashed Notion PiP back from the side.")
+        setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: "Show recent PiP pages") { [weak self] in
+                self?.onShowRecentPages()
+                return self != nil
+            }
+        ])
         toolTip = "Drag to move; click to restore Notion PiP"
     }
 
@@ -94,10 +130,31 @@ final class PiPStashHandleInteractionView: NSView {
 
     func configure(
         onActivate: @escaping @MainActor () -> Void,
-        onDragEnded: @escaping @MainActor (CGRect) -> Void
+        onDragEnded: @escaping @MainActor (CGRect) -> Void,
+        onDragStarted: @escaping @MainActor () -> Void = {},
+        onHoverChanged: @escaping @MainActor (Bool) -> Void = { _ in },
+        onShowRecentPages: @escaping @MainActor () -> Void = {}
     ) {
         self.onActivate = onActivate
         self.onDragEnded = onDragEnded
+        self.onDragStarted = onDragStarted
+        self.onHoverChanged = onHoverChanged
+        self.onShowRecentPages = onShowRecentPages
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for trackingArea in trackingAreas {
+            removeTrackingArea(trackingArea)
+        }
+        addTrackingArea(
+            NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+        )
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
@@ -126,6 +183,8 @@ final class PiPStashHandleInteractionView: NSView {
         if !isDragging {
             guard hypot(delta.x, delta.y) >= Self.dragThreshold else { return }
             isDragging = true
+            onHoverChanged(false)
+            onDragStarted()
         }
 
         window.setFrameOrigin(
@@ -144,6 +203,18 @@ final class PiPStashHandleInteractionView: NSView {
         } else {
             onActivate()
         }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChanged(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHoverChanged(false)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        onShowRecentPages()
     }
 
     override func accessibilityPerformPress() -> Bool {

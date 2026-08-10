@@ -7,6 +7,7 @@ enum WindowRole {
     case pinPage
     case pictureInPicture
     case stashHandle
+    case stashShelf
 
     var policy: WindowRolePolicy {
         switch self {
@@ -52,7 +53,7 @@ enum WindowRole {
                 initialContentSize: CGSize(width: 480, height: 720),
                 minimumContentSize: CGSize(width: 360, height: 420)
             )
-        case .stashHandle:
+        case .stashHandle, .stashShelf:
             WindowRolePolicy(
                 kind: .nonactivatingPanel,
                 styleMask: [.borderless, .nonactivatingPanel],
@@ -70,7 +71,16 @@ enum WindowRole {
     }
 
     func makeWindow() -> NSWindow {
-        policy.makeWindow()
+        let window = policy.makeWindow()
+        switch self {
+        case .stashHandle, .stashShelf:
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.hasShadow = true
+        default:
+            break
+        }
+        return window
     }
 }
 
