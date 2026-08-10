@@ -8,7 +8,7 @@ final class ExternalURLRouteTests: XCTestCase {
     func testPercentEncodedPageURLParsesPinRoute() throws {
         let routeURL = try XCTUnwrap(
             URL(
-                string: "notion-pip://pin?url=https%3A%2F%2Fnotion.so%2FProject-\(pageID)%3Fview%3Dall%23notes&source=chrome-extension"
+                string: "notion-pip://pin?url=https%3A%2F%2Fnotion.com%2FProject-\(pageID)%3Fview%3Dall%23notes&source=chrome-extension"
             )
         )
 
@@ -18,7 +18,7 @@ final class ExternalURLRouteTests: XCTestCase {
             return XCTFail("Expected a pin route, got \(result)")
         }
         XCTAssertEqual(page.pageID, pageID)
-        XCTAssertEqual(page.canonicalURL.absoluteString, "https://www.notion.so/Project-\(pageID)")
+        XCTAssertEqual(page.canonicalURL.absoluteString, "https://www.notion.com/Project-\(pageID)")
         XCTAssertEqual(source, .chromeExtension)
     }
 
@@ -51,7 +51,7 @@ final class ExternalURLRouteTests: XCTestCase {
         components.queryItems = [
             URLQueryItem(
                 name: "url",
-                value: "https://www.notion.so/acme/Project-\(pageID)?view=all#notes"
+                value: "https://www.notion.com/acme/Project-\(pageID)?view=all#notes"
             ),
             URLQueryItem(name: "source", value: "chrome-extension"),
         ]
@@ -65,7 +65,7 @@ final class ExternalURLRouteTests: XCTestCase {
         XCTAssertEqual(page.pageID, pageID)
         XCTAssertEqual(
             page.canonicalURL.absoluteString,
-            "https://www.notion.so/acme/Project-\(pageID)"
+            "https://www.notion.com/acme/Project-\(pageID)"
         )
         XCTAssertEqual(source, .chromeExtension)
     }

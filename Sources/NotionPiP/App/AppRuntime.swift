@@ -41,6 +41,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let shortcutStore: GlobalShortcutStore
     let holdToPeekPreferenceStore: HoldToPeekPreferenceStore
     let peekFocusRestorer: any PeekFocusRestoring
+    let performanceSignposter: any PerformanceSignposting
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
     let pageURLInputPresenter: any PageURLInputPresenting
     let pageRepository: (any PageWorkingSetPersisting)?
@@ -56,13 +57,15 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     var persistenceGeneration = 0
     var pageSelectionGeneration = 0
     let shortcutHoldDuration: Duration
+    let shortcutGestureScheduler: any ShortcutGestureScheduling
+    let accessibilityAnnouncementPoster: any AccessibilityAnnouncementPosting
     let shortcutLifecycleCoordinatorFactory:
         (@escaping @MainActor (ShortcutRecoveryTrigger) -> Void) -> ShortcutLifecycleCoordinator
     var shortcutLifecycleCoordinator: ShortcutLifecycleCoordinator?
     var shortcutConfigurationGeneration: UInt = 0
-    var shortcutHoldTask: Task<Void, Never>?
-    var shortcutHoldTriggered = false
-    var shortcutPeekRestoredPanel = false
+    var shortcutGestureTimer: (any ShortcutGestureTimer)?
+    var shortcutGestureState = ShortcutPeekGestureState.idle
+    var shortcutGestureGeneration: UInt = 0
     private var started = false
 
     init(
@@ -73,6 +76,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         menuBarIconPreferenceStore: MenuBarIconPreferenceStore = MenuBarIconPreferenceStore(),
         holdToPeekPreferenceStore: HoldToPeekPreferenceStore = HoldToPeekPreferenceStore(),
         peekFocusRestorer: any PeekFocusRestoring = PeekFocusRestorer(),
+        performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
         pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
         pageRepository: (any PageWorkingSetPersisting)? = nil,
         credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
@@ -80,6 +84,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             NotionAPIClient(token: token)
         },
         shortcutHoldDuration: Duration = .milliseconds(300),
+        shortcutGestureScheduler: any ShortcutGestureScheduling = TaskShortcutGestureScheduler(),
+        accessibilityAnnouncementPoster: any AccessibilityAnnouncementPosting =
+            AppAccessibilityAnnouncementPoster(),
         initialServiceHealth: ServiceHealthState = .healthy,
         automaticSettingsPresentationAllowed: @escaping @MainActor () -> Bool = { true },
         shortcutLifecycleCoordinatorFactory:
@@ -105,10 +112,13 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.shortcutStore = shortcutStore
         self.holdToPeekPreferenceStore = holdToPeekPreferenceStore
         self.peekFocusRestorer = peekFocusRestorer
+        self.performanceSignposter = performanceSignposter
         self.menuBarIconPreferenceStore = menuBarIconPreferenceStore
         self.pageRepository = pageRepository
         self.automaticSettingsPresentationAllowed = automaticSettingsPresentationAllowed
         self.shortcutHoldDuration = shortcutHoldDuration
+        self.shortcutGestureScheduler = shortcutGestureScheduler
+        self.accessibilityAnnouncementPoster = accessibilityAnnouncementPoster
         self.shortcutLifecycleCoordinatorFactory = shortcutLifecycleCoordinatorFactory
         connectionController = NotionConnectionController(
             credentialVault: credentialVault,
@@ -125,6 +135,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         effectiveMenuBarIconVisibility = iconState.effective
         isMenuBarIconVisibilityForced = iconState.forced
         observeConnectionController()
+        pinCoordinator.onExternalPresentationAction = { [weak self] in
+            self?.cancelShortcutGesture(restashTransientPanel: false)
+        }
         submissionRelay.handler = { [weak self] in
             self?.validatePageURL()
         }

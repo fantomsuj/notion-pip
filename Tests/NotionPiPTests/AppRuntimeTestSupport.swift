@@ -14,6 +14,10 @@ func makeRuntime(
     pageRepository: (any PageWorkingSetPersisting)? = nil,
     client: any NotionWorkspaceClient = RuntimeNotionClient(),
     shortcutHoldDuration: Duration = .milliseconds(300),
+    shortcutGestureScheduler: any ShortcutGestureScheduling =
+        TaskShortcutGestureScheduler(),
+    accessibilityAnnouncementPoster: any AccessibilityAnnouncementPosting =
+        RuntimeAccessibilityAnnouncementPoster(),
     holdToPeekPreferenceStore: HoldToPeekPreferenceStore? = nil,
     peekFocusRestorer: any PeekFocusRestoring = PeekFocusRestorer(),
     initialServiceHealth: ServiceHealthState = .healthy,
@@ -45,6 +49,8 @@ func makeRuntime(
         credentialVault: vault,
         notionClientFactory: { _ in client },
         shortcutHoldDuration: shortcutHoldDuration,
+        shortcutGestureScheduler: shortcutGestureScheduler,
+        accessibilityAnnouncementPoster: accessibilityAnnouncementPoster,
         initialServiceHealth: initialServiceHealth,
         automaticSettingsPresentationAllowed: automaticSettingsPresentationAllowed
     )
@@ -81,6 +87,7 @@ func waitUntilRuntimeCondition(
 
 @MainActor
 final class RuntimePanelCoordinator: PiPPanelCoordinating {
+    var onExternalPresentationAction: (@MainActor () -> Void)?
     private(set) var currentPage: NotionPageReference?
     private(set) var shownPages: [NotionPageReference] = []
     private(set) var reloadedPages: [NotionPageReference] = []
@@ -89,6 +96,8 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     private(set) var isStashed = false
     private(set) var isExpanded = false
     private(set) var globalShortcutActionCount = 0
+    private(set) var shortcutShowCount = 0
+    private(set) var immediateStashCount = 0
 
     var presentationState: PiPPresentationState {
         guard currentPage != nil else { return .unavailable }
@@ -123,6 +132,25 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         return true
     }
 
+    func showCurrentPageFromShortcut(
+        measurement: ShortcutPresentationMeasurement
+    ) -> Bool {
+        shortcutShowCount += 1
+        let result = showCurrentPage()
+        let outcome: PerformanceOutcome = result ? .success : .failure
+        measurement.signposter.end(measurement.requestToken, outcome: outcome)
+        measurement.signposter.end(measurement.usefulContentToken, outcome: outcome)
+        return result
+    }
+
+    func stashCurrentPageImmediately() -> Bool {
+        immediateStashCount += 1
+        guard currentPage != nil, isVisible else { return false }
+        isVisible = false
+        isStashed = true
+        return true
+    }
+
     func hide() {
         isVisible = false
         isStashed = false
@@ -135,6 +163,12 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
 
     func simulateExpandedState() {
         isExpanded = currentPage != nil && isVisible
+    }
+
+    func simulateExternalPersistentShow() {
+        onExternalPresentationAction?()
+        isVisible = currentPage != nil
+        isStashed = false
     }
 
     func performGlobalShortcutAction() -> Bool {
@@ -163,6 +197,70 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         isVisible = false
         isStashed = false
         isExpanded = false
+    }
+}
+
+@MainActor
+final class RuntimeShortcutGestureScheduler: ShortcutGestureScheduling {
+    private final class Timer: ShortcutGestureTimer {
+        var isCancelled = false
+
+        func cancel() {
+            isCancelled = true
+        }
+    }
+
+    private var scheduled: [(timer: Timer, action: @MainActor () -> Void)] = []
+
+    var pendingCount: Int {
+        scheduled.filter { !$0.timer.isCancelled }.count
+    }
+
+    func schedule(
+        after duration: Duration,
+        action: @escaping @MainActor () -> Void
+    ) -> any ShortcutGestureTimer {
+        let timer = Timer()
+        scheduled.append((timer, action))
+        return timer
+    }
+
+    func fireNext() {
+        guard !scheduled.isEmpty else { return }
+        let next = scheduled.removeFirst()
+        guard !next.timer.isCancelled else {
+            fireNext()
+            return
+        }
+        next.action()
+    }
+}
+
+@MainActor
+final class RuntimeAccessibilityAnnouncementPoster: AccessibilityAnnouncementPosting {
+    private(set) var messages: [String] = []
+
+    func announce(_ message: String) {
+        messages.append(message)
+    }
+}
+
+@MainActor
+final class RuntimePeekFocusRestorer: PeekFocusRestoring {
+    private(set) var beginCount = 0
+    private(set) var finishCount = 0
+    private(set) var cancelCount = 0
+
+    func beginPeek() {
+        beginCount += 1
+    }
+
+    func finishPeek() {
+        finishCount += 1
+    }
+
+    func cancelPeek() {
+        cancelCount += 1
     }
 }
 

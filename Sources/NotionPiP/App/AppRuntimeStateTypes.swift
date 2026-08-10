@@ -49,6 +49,14 @@ enum PageActivationSource: Equatable, Sendable {
     case pageSwitcher
 }
 
+enum ShortcutPeekGestureState: Equatable, Sendable {
+    case idle
+    case peeking(generation: UInt, deadlineElapsed: Bool)
+    case awaitingSecondPress(generation: UInt)
+    case persistent(generation: UInt)
+    case suppressingRelease(generation: UInt)
+}
+
 enum PersonalTokenConnectionState: Equatable {
     case disconnected
     case connecting

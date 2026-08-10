@@ -18,7 +18,8 @@ enum NotionEditorActivityBridge {
     ) -> NotionEditorActivity? {
         guard isMainFrame,
               scheme.lowercased() == "https",
-              ["app.notion.com", "notion.so", "www.notion.so"].contains(host.lowercased()),
+              ["app.notion.com", "notion.com", "www.notion.com", "notion.so", "www.notion.so"]
+                  .contains(host.lowercased()),
               let rawActivity = body as? String
         else {
             return nil
@@ -45,7 +46,8 @@ enum NotionScrollBridge {
     ) -> NotionScrollSnapshot? {
         guard isMainFrame,
               scheme.lowercased() == "https",
-              ["app.notion.com", "notion.so", "www.notion.so"].contains(host.lowercased()),
+              ["app.notion.com", "notion.com", "www.notion.com", "notion.so", "www.notion.so"]
+                  .contains(host.lowercased()),
               let values = body as? [String: Any],
               Set(values.keys) == ["x", "y", "progress"],
               let x = (values["x"] as? NSNumber)?.doubleValue,

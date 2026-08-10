@@ -9,6 +9,8 @@ final class NotionBrowserHandoffRouteTests: XCTestCase {
     func testRecognizesOnlyExactTrustedNotionLoginRoutes() throws {
         for rawURL in [
             "https://app.notion.com/login",
+            "https://www.notion.com/login?from=redirect",
+            "https://notion.com/login/mail",
             "https://www.notion.so/login?from=redirect",
             "https://notion.so/login/mail",
         ] {
@@ -22,6 +24,8 @@ final class NotionBrowserHandoffRouteTests: XCTestCase {
         for rawURL in [
             "http://app.notion.com/login",
             "https://app.notion.com.evil.example/login",
+            "https://notion.com.evil.example/login",
+            "https://www.notion.com.evil.example/login",
             "https://user@app.notion.com/login",
             "https://app.notion.com/logins",
             "https://app.notion.com/workspace",
@@ -37,6 +41,8 @@ final class NotionBrowserHandoffRouteTests: XCTestCase {
     func testParsesCurrentAndLegacyCallbacksOnlyForTrustedNotionAuthorities() throws {
         for rawURL in [
             "notion://app.notion.com/desktopwithbrowserlogincallback?code=one-time",
+            "notion://www.notion.com/browser-session-handoff-to-desktop/callback?code=current-code",
+            "notion://notion.com/desktopwithbrowserlogincallback?code=current-host",
             "notion://www.notion.so/browser-session-handoff-to-desktop/callback?code=new-code",
             "notion://notion.so/desktopwithbrowserlogincallback?code=legacy-host",
         ] {
@@ -60,6 +66,7 @@ final class NotionBrowserHandoffRouteTests: XCTestCase {
             "notion://app.notion.com/desktopwithbrowserlogincallback?code=value&next=https://evil.example",
             "notion://app.notion.com/desktopwithbrowserlogincallback?code=value#fragment",
             "notion://desktop/desktopwithbrowserlogincallback?code=value",
+            "notion://notion.com.evil.example/desktopwithbrowserlogincallback?code=value",
             "notion://notion.so.evil.example/desktopwithbrowserlogincallback?code=value",
             "notion:///desktopwithbrowserlogincallback?code=value",
         ] {

@@ -90,10 +90,10 @@ final class PersonalTokenCredentialVaultTests: XCTestCase {
 
         XCTAssertEqual(copyQueries.count, 2)
         XCTAssertEqual(
-            copyQueries[0][kSecUseDataProtectionKeychain as String] as? Bool,
+            copyQueries.first?[kSecUseDataProtectionKeychain as String] as? Bool,
             true
         )
-        XCTAssertNil(copyQueries[1][kSecUseDataProtectionKeychain as String])
+        XCTAssertNil(copyQueries.last?[kSecUseDataProtectionKeychain as String])
         XCTAssertEqual(
             insertedQuery?[kSecUseDataProtectionKeychain as String] as? Bool,
             true
@@ -104,6 +104,91 @@ final class PersonalTokenCredentialVaultTests: XCTestCase {
         )
         XCTAssertEqual(deleteQueries.count, 1)
         XCTAssertNil(deleteQueries[0][kSecUseDataProtectionKeychain as String])
+    }
+
+    func testReadingFallsBackToLegacyKeychainWhenDataProtectionIsUnavailable() throws {
+        var copyQueries: [[String: Any]] = []
+        var updateQueries: [[String: Any]] = []
+        let legacyData = Data("ntn_legacy-token-1234".utf8)
+        let client = KeychainClient(
+            copyMatching: { query in
+                copyQueries.append(query)
+                if query[kSecUseDataProtectionKeychain as String] as? Bool == true {
+                    return (errSecMissingEntitlement, nil)
+                }
+                return (errSecSuccess, legacyData)
+            },
+            update: { query, _ in
+                updateQueries.append(query)
+                return errSecMissingEntitlement
+            },
+            add: { _ in
+                XCTFail("An unavailable data-protection keychain should not be written")
+                return errSecSuccess
+            },
+            delete: { _ in
+                XCTFail("The legacy item must remain when migration is unavailable")
+                return errSecSuccess
+            }
+        )
+        let store = KeychainSecretStore(
+            service: "test.service",
+            account: "test-account",
+            client: client
+        )
+
+        XCTAssertEqual(try store.read(), legacyData)
+
+        XCTAssertEqual(copyQueries.count, 2)
+        XCTAssertEqual(
+            copyQueries.first?[kSecUseDataProtectionKeychain as String] as? Bool,
+            true
+        )
+        XCTAssertNil(copyQueries.last?[kSecUseDataProtectionKeychain as String])
+        XCTAssertTrue(updateQueries.isEmpty)
+    }
+
+    func testWritingFallsBackToLegacyKeychainWhenDataProtectionIsUnavailable() throws {
+        var updateQueries: [[String: Any]] = []
+        var updatedLegacyData: Data?
+        let tokenData = Data("ntn_updated-token-5678".utf8)
+        let client = KeychainClient(
+            copyMatching: { _ in
+                XCTFail("Writing should not perform a read")
+                return (errSecItemNotFound, nil)
+            },
+            update: { query, attributes in
+                updateQueries.append(query)
+                if query[kSecUseDataProtectionKeychain as String] as? Bool == true {
+                    return errSecMissingEntitlement
+                }
+                updatedLegacyData = attributes[kSecValueData as String] as? Data
+                return errSecSuccess
+            },
+            add: { _ in
+                XCTFail("The existing legacy item should be updated")
+                return errSecSuccess
+            },
+            delete: { _ in
+                XCTFail("Saving to the legacy keychain should not delete the item")
+                return errSecSuccess
+            }
+        )
+        let store = KeychainSecretStore(
+            service: "test.service",
+            account: "test-account",
+            client: client
+        )
+
+        try store.write(tokenData)
+
+        XCTAssertEqual(updateQueries.count, 2)
+        XCTAssertEqual(
+            updateQueries.first?[kSecUseDataProtectionKeychain as String] as? Bool,
+            true
+        )
+        XCTAssertNil(updateQueries.last?[kSecUseDataProtectionKeychain as String])
+        XCTAssertEqual(updatedLegacyData, tokenData)
     }
 
     func testSavingTokenReplacesExistingCredential() throws {

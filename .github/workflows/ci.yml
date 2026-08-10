@@ -30,6 +30,9 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Test build scripts
+        run: bash Tests/ScriptTests/sign_app_tests.sh
+
       - name: Run Swift tests without WebKit process state
         run: >-
           swift test

@@ -77,11 +77,12 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
             interactionMonitor: PeekInteractionMonitorSpy()
         )
         let repository = RuntimePinnedPageRepository()
+        let gestureScheduler = RuntimeShortcutGestureScheduler()
         let runtime = makeRuntime(
             panel: panel,
             shortcutRegistrar: shortcut,
             pageRepository: repository,
-            shortcutHoldDuration: .zero,
+            shortcutGestureScheduler: gestureScheduler,
             peekFocusRestorer: focusRestorer
         )
         let storedPage = try makeStoredPage(id: firstPageID, title: "Restored")
@@ -93,8 +94,9 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertTrue(panel.isStashed)
 
         shortcut.eventHandler?(.pressed)
-        await waitUntilRuntimeCondition { panel.isVisible }
+        XCTAssertTrue(panel.isVisible)
         frontmost.application = notionPiP.application
+        gestureScheduler.fireNext()
 
         shortcut.eventHandler?(.released)
         XCTAssertTrue(panel.isStashed)
@@ -133,15 +135,14 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertEqual(panel.globalShortcutActionCount, 1)
     }
 
-    func testHoldingShortcutPreservesAlreadyVisiblePanelOnRelease() async throws {
+    func testPressingShortcutWhileVisibleStashesAndSuppressesRelease() async throws {
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
         let repository = RuntimePinnedPageRepository()
         let runtime = makeRuntime(
             panel: panel,
             shortcutRegistrar: shortcut,
-            pageRepository: repository,
-            shortcutHoldDuration: .zero
+            pageRepository: repository
         )
         runtime.start()
         try await repository.waitUntilRestoreRequested()
@@ -151,11 +152,11 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         await waitUntilRuntimeCondition { runtime.activePage?.pageID == firstPageID }
 
         shortcut.eventHandler?(.pressed)
-        await waitUntilRuntimeCondition { runtime.shortcutHoldTriggered }
+        XCTAssertTrue(panel.isStashed)
         shortcut.eventHandler?(.released)
 
-        XCTAssertTrue(panel.isVisible)
-        XCTAssertFalse(panel.isStashed)
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(panel.isStashed)
     }
 
     func testStartWithNoSavedPageLeavesPanelHidden() async throws {

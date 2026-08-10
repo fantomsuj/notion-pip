@@ -6,12 +6,17 @@ enum PerformanceOperation: String, CaseIterable, Sendable {
     case firstPiPPresentation = "FirstPiPPresentation"
     case notionSessionRestoration = "NotionSessionRestoration"
     case webViewEviction = "WebViewEviction"
+    case shortcutPressToPresentationRequest = "ShortcutPressToPresentationRequest"
+    case shortcutPressToUsefulContent = "ShortcutPressToUsefulContent"
+    case peekRestash = "PeekRestash"
 
     var isFirstOnly: Bool {
         switch self {
         case .coldLaunchToReady, .firstPiPPresentation:
             true
-        case .notionSessionRestoration, .webViewEviction:
+        case .notionSessionRestoration, .webViewEviction,
+             .shortcutPressToPresentationRequest, .shortcutPressToUsefulContent,
+             .peekRestash:
             false
         }
     }
@@ -29,10 +34,21 @@ struct PerformanceIntervalToken: Hashable, Sendable {
 
 struct PerformanceMetadata: Equatable, Sendable {
     var cacheEntryCount: Int?
+    var webViewRetention: WebViewRetention?
 
-    init(cacheEntryCount: Int? = nil) {
+    init(
+        cacheEntryCount: Int? = nil,
+        webViewRetention: WebViewRetention? = nil
+    ) {
         self.cacheEntryCount = cacheEntryCount
+        self.webViewRetention = webViewRetention
     }
+}
+
+enum WebViewRetention: String, Equatable, Sendable {
+    case warm
+    case evicted
+    case unknown
 }
 
 @MainActor
@@ -44,6 +60,13 @@ protocol PerformanceSignposting: AnyObject {
         outcome: PerformanceOutcome,
         metadata: PerformanceMetadata
     )
+}
+
+@MainActor
+struct ShortcutPresentationMeasurement {
+    let signposter: any PerformanceSignposting
+    let requestToken: PerformanceIntervalToken?
+    let usefulContentToken: PerformanceIntervalToken?
 }
 
 extension PerformanceSignposting {
@@ -92,6 +115,12 @@ final class AppPerformanceSignposter: PerformanceSignposting {
             state = webViewSignposter.beginInterval("NotionSessionRestoration")
         case .webViewEviction:
             state = webViewSignposter.beginInterval("WebViewEviction")
+        case .shortcutPressToPresentationRequest:
+            state = presentationSignposter.beginInterval("ShortcutPressToPresentationRequest")
+        case .shortcutPressToUsefulContent:
+            state = presentationSignposter.beginInterval("ShortcutPressToUsefulContent")
+        case .peekRestash:
+            state = presentationSignposter.beginInterval("PeekRestash")
         }
 
         let token = PerformanceIntervalToken(id: UUID())
@@ -107,6 +136,8 @@ final class AppPerformanceSignposter: PerformanceSignposting {
         guard let token, let interval = activeIntervals.removeValue(forKey: token) else {
             return
         }
+        let retention = metadata.webViewRetention?.rawValue
+            ?? WebViewRetention.unknown.rawValue
 
         switch interval.operation {
         case .coldLaunchToReady:
@@ -132,6 +163,24 @@ final class AppPerformanceSignposter: PerformanceSignposting {
                 "WebViewEviction",
                 interval.state,
                 "outcome=\(outcome.rawValue, privacy: .public) cache_entries=\(metadata.cacheEntryCount ?? 0, privacy: .public)"
+            )
+        case .shortcutPressToPresentationRequest:
+            presentationSignposter.endInterval(
+                "ShortcutPressToPresentationRequest",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public) retention=\(retention, privacy: .public)"
+            )
+        case .shortcutPressToUsefulContent:
+            presentationSignposter.endInterval(
+                "ShortcutPressToUsefulContent",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public) retention=\(retention, privacy: .public)"
+            )
+        case .peekRestash:
+            presentationSignposter.endInterval(
+                "PeekRestash",
+                interval.state,
+                "outcome=\(outcome.rawValue, privacy: .public)"
             )
         }
     }

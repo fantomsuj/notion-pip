@@ -43,7 +43,7 @@ struct SettingsView: View {
                     )
                     Text(
                         runtime.holdToPeekEnabled
-                            ? "Release after a peek to return focus to the app you were using."
+                            ? "Hold to peek. Double-press to keep the panel open."
                             : "Show or hide the panel as soon as the shortcut is pressed."
                     )
                     .font(.caption)

@@ -91,13 +91,16 @@ prints `Verified .../dist/NotionPiP.app` with a process ID.
   the terminal.
 - A personal integration token is optional, enables workspace page search, and
   should be entered only through the app's own settings UI.
-- The locally built app is ad-hoc signed for development. This is expected and
-  is different from a Developer ID-signed, notarized distribution build.
+- Local builds use a configured Apple Development or Notion PiP local-development
+  identity when available, and otherwise fall back to ad-hoc signing. The optional
+  `./script/setup_local_signing.sh` helper creates a machine-local identity to keep
+  Keychain authorization stable across rebuilds. None of these development paths
+  replace a Developer ID-signed, notarized distribution build.
 - Launch at Login works only from the staged `dist/NotionPiP.app`, not by
   running the SwiftPM executable directly. Its toggle reflects the current
   macOS ServiceManagement registration and may direct the user to System
   Settings when approval is required.
-- Rebuilding replaces and ad-hoc signs the staged bundle again. macOS may ask
+- Rebuilding replaces and signs the staged bundle again. macOS may ask
   for login-item approval again or retain a stale entry after a rebuild, so
   local results do not replace testing a stable Developer ID-signed beta.
 

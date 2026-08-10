@@ -11,17 +11,20 @@ struct QuickCopyButtonPresentation: Equatable {
     }
 
     let systemImage: String
+    let title: String
     let statusMessage: String?
     let appearance: Appearance
     let showsProgress: Bool
 
     init(
         systemImage: String,
+        title: String,
         statusMessage: String?,
         appearance: Appearance,
         showsProgress: Bool
     ) {
         self.systemImage = systemImage
+        self.title = title
         self.statusMessage = statusMessage
         self.appearance = appearance
         self.showsProgress = showsProgress
@@ -32,6 +35,7 @@ struct QuickCopyButtonPresentation: Equatable {
         case .off:
             self.init(
                 systemImage: "text.append",
+                title: "Quick Copy to Notion",
                 statusMessage: nil,
                 appearance: .off,
                 showsProgress: false
@@ -39,34 +43,39 @@ struct QuickCopyButtonPresentation: Equatable {
         case .requestingPermission:
             self.init(
                 systemImage: "hourglass",
-                statusMessage: "Turning Quick Copy on…",
+                title: "Getting ready…",
+                statusMessage: "Saving your Notion cursor…",
                 appearance: .requesting,
                 showsProgress: true
             )
         case .permissionNeeded:
             self.init(
                 systemImage: "lock.trianglebadge.exclamationmark",
-                statusMessage: "Allow Accessibility, then click to retry.",
+                title: "Allow Access",
+                statusMessage: "Grant Accessibility access, then try again.",
                 appearance: .permissionNeeded,
                 showsProgress: false
             )
         case .armed:
             self.init(
-                systemImage: "bolt.fill",
-                statusMessage: "Quick Copy on",
+                systemImage: "checkmark",
+                title: "Quick Copy on",
+                statusMessage: nil,
                 appearance: .active,
                 showsProgress: false
             )
         case .inserting:
             self.init(
                 systemImage: "text.insert",
-                statusMessage: "Adding selection…",
+                title: "Adding selection…",
+                statusMessage: nil,
                 appearance: .active,
                 showsProgress: true
             )
         case let .warning(message):
             self.init(
                 systemImage: "exclamationmark.triangle.fill",
+                title: "Quick Copy on",
                 statusMessage: message,
                 appearance: .warning,
                 showsProgress: false
@@ -74,6 +83,7 @@ struct QuickCopyButtonPresentation: Equatable {
         case let .failed(message):
             self.init(
                 systemImage: "cursorarrow.rays",
+                title: "Try Quick Copy Again",
                 statusMessage: message,
                 appearance: .failed,
                 showsProgress: false
@@ -85,9 +95,9 @@ struct QuickCopyButtonPresentation: Equatable {
 struct QuickCopyButton: View {
     static let controlSize: CGFloat = 30
     static let edgeInset: CGFloat = 8
-    static let accessibilityLabel = "Turn Quick Copy on or off"
+    static let accessibilityLabel = "Quick Copy selections to Notion"
     static let helpText =
-        "Insert selected text from other apps at the saved Notion cursor"
+        "Place the cursor in Notion, turn on Quick Copy, then select text in another app"
 
     @ObservedObject var controller: QuickCopyController
 
@@ -95,31 +105,34 @@ struct QuickCopyButton: View {
         let presentation = QuickCopyButtonPresentation(state: controller.state)
         HStack(spacing: DesignTokens.Spacing.compact) {
             Button(action: controller.toggle) {
-                Group {
+                HStack(spacing: DesignTokens.Spacing.compact) {
                     if presentation.showsProgress {
                         ProgressView()
                             .controlSize(.mini)
+                            .frame(width: 14, height: 14)
                     } else {
                         Image(systemName: presentation.systemImage)
+                            .frame(width: 14, height: 14)
                     }
+
+                    Text(presentation.title)
+                        .font(.caption.weight(.medium))
                 }
-                .frame(
-                    width: Self.controlSize,
-                    height: Self.controlSize
-                )
-                .contentShape(Circle())
+                .padding(.horizontal, DesignTokens.Spacing.control)
+                .frame(minHeight: Self.controlSize)
+                .contentShape(Capsule())
             }
             .buttonStyle(.plain)
             .foregroundStyle(foregroundStyle(for: presentation.appearance))
             .background {
-                Circle().fill(backgroundStyle(for: presentation.appearance))
+                Capsule().fill(backgroundStyle(for: presentation.appearance))
             }
             .overlay {
-                Circle().strokeBorder(.primary.opacity(0.12))
+                Capsule().strokeBorder(.primary.opacity(0.12))
             }
             .help(Self.helpText)
             .accessibilityLabel(Self.accessibilityLabel)
-            .accessibilityValue(presentation.statusMessage ?? "Off")
+            .accessibilityValue(presentation.statusMessage ?? presentation.title)
 
             if let statusMessage = presentation.statusMessage {
                 Text(statusMessage)

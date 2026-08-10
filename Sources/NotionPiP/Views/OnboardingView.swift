@@ -283,7 +283,7 @@ private struct PinPageArtwork: View {
                 .font(.headline)
 
             HStack(spacing: DesignTokens.Spacing.control) {
-                Text("notion.so/Project-Roadmap-…")
+                Text("notion.com/Project-Roadmap-…")
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -388,7 +388,7 @@ private struct ShortcutsArtwork: View {
     var body: some View {
         ShortcutRow(
             title: "Show or hide the panel",
-            detail: "Press and hold to peek",
+            detail: "Hold to peek. Double-press to keep the panel open.",
             shortcut: globalShortcut.displayString
         )
         .frame(maxWidth: 440)

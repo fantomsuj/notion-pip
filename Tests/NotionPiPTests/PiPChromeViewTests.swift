@@ -3,16 +3,17 @@ import XCTest
 
 @MainActor
 final class PiPChromeViewTests: XCTestCase {
-    func testQuickCopyButtonUsesFixedBottomLeftSizingAndAccessibleCopy() {
+    func testQuickCopyButtonUsesCompactBottomLeftSizingAndAccessibleCopy() {
         XCTAssertEqual(QuickCopyButton.controlSize, 30)
         XCTAssertEqual(QuickCopyButton.edgeInset, 8)
         XCTAssertEqual(
             QuickCopyButton.accessibilityLabel,
-            "Turn Quick Copy on or off"
+            "Quick Copy selections to Notion"
         )
         XCTAssertEqual(
             QuickCopyButton.helpText,
-            "Insert selected text from other apps at the saved Notion cursor"
+            "Place the cursor in Notion, turn on Quick Copy, "
+                + "then select text in another app"
         )
     }
 
@@ -21,13 +22,14 @@ final class PiPChromeViewTests: XCTestCase {
             QuickCopyButtonPresentation(state: .off),
             QuickCopyButtonPresentation(
                 systemImage: "text.append",
+                title: "Quick Copy to Notion",
                 statusMessage: nil,
                 appearance: .off,
                 showsProgress: false
             )
         )
         XCTAssertEqual(
-            QuickCopyButtonPresentation(state: .armed).statusMessage,
+            QuickCopyButtonPresentation(state: .armed).title,
             "Quick Copy on"
         )
         XCTAssertEqual(
