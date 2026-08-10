@@ -55,7 +55,9 @@ enum WindowRole {
             )
         case .stashHandle, .stashShelf:
             WindowRolePolicy(
-                kind: .nonactivatingPanel,
+                kind: self == .stashShelf
+                    ? .focusableNonactivatingPanel
+                    : .nonactivatingPanel,
                 styleMask: [.borderless, .nonactivatingPanel],
                 level: .floating,
                 collectionBehavior: [
@@ -90,6 +92,7 @@ struct WindowRolePolicy {
         case keyWindow
         case keyPanel
         case nonactivatingPanel
+        case focusableNonactivatingPanel
     }
 
     let kind: Kind
@@ -143,6 +146,13 @@ struct WindowRolePolicy {
                 backing: .buffered,
                 defer: false
             )
+        case .focusableNonactivatingPanel:
+            window = KeyCapableStashShelfPanel(
+                contentRect: contentRect,
+                styleMask: styleMask,
+                backing: .buffered,
+                defer: false
+            )
         }
         apply(to: window)
         if let panel = window as? KeyCapablePiPPanel {
@@ -162,4 +172,9 @@ struct WindowRolePolicy {
             window.contentMaxSize = maximumContentSize
         }
     }
+}
+
+@MainActor
+final class KeyCapableStashShelfPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
 }

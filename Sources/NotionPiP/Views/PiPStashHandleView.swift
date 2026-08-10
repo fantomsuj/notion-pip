@@ -93,6 +93,7 @@ final class PiPStashHandleInteractionView: NSView {
     private var initialPointerLocation: CGPoint?
     private var initialWindowOrigin: CGPoint?
     private var isDragging = false
+    private var hoverTrackingArea: NSTrackingArea?
 
     init(
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
@@ -144,17 +145,17 @@ final class PiPStashHandleInteractionView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        for trackingArea in trackingAreas {
-            removeTrackingArea(trackingArea)
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
         }
-        addTrackingArea(
-            NSTrackingArea(
-                rect: .zero,
-                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                owner: self,
-                userInfo: nil
-            )
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
         )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {

@@ -252,10 +252,14 @@ final class PiPStashHandleController: PiPStashHandle {
             guard let self,
                   !Task.isCancelled,
                   generation == self.shelfRequestGeneration,
-                  self.handlePanel.isVisible,
-                  recentPagesController.isAvailable,
+                  self.handlePanel.isVisible
+            else {
+                return
+            }
+            guard recentPagesController.isAvailable,
                   recentPagesController.items.count > 1
             else {
+                self.dismissShelf()
                 return
             }
             self.presentShelf(requestsFocus: requestsFocus)
