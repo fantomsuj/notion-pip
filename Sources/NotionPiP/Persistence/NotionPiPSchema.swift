@@ -59,19 +59,6 @@ enum NotionPiPSchemaV4: VersionedSchema {
     }
 }
 
-enum NotionPiPSchemaV5: VersionedSchema {
-    static let versionIdentifier = Schema.Version(5, 0, 0)
-
-    static var models: [any PersistentModel.Type] {
-        [
-            PinnedPageModel.self,
-            RecentPageModel.self,
-            ActivePageModel.self,
-            PageRestorationModel.self,
-        ]
-    }
-}
-
 enum NotionPiPMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [
@@ -79,7 +66,6 @@ enum NotionPiPMigrationPlan: SchemaMigrationPlan {
             NotionPiPSchemaV2.self,
             NotionPiPSchemaV3.self,
             NotionPiPSchemaV4.self,
-            NotionPiPSchemaV5.self,
         ]
     }
 
@@ -96,10 +82,6 @@ enum NotionPiPMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: NotionPiPSchemaV3.self,
                 toVersion: NotionPiPSchemaV4.self
-            ),
-            .lightweight(
-                fromVersion: NotionPiPSchemaV4.self,
-                toVersion: NotionPiPSchemaV5.self
             ),
         ]
     }

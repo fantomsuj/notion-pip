@@ -5,7 +5,7 @@ import XCTest
 
 final class SchemaMigrationTests: XCTestCase {
     func testV1StoreTraversesAllMigrationsWithoutLosingPageState() async throws {
-        let (directory, storeURL) = try makeStore(named: "V1-to-V5.store")
+        let (directory, storeURL) = try makeStore(named: "V1-to-V4.store")
         defer { try? FileManager.default.removeItem(at: directory) }
         let schema = Schema(versionedSchema: NotionPiPSchemaV1.self)
         let pageID = "0123456789abcdef0123456789abcdef"
@@ -44,11 +44,11 @@ final class SchemaMigrationTests: XCTestCase {
 
         XCTAssertEqual(workingSet.activePage?.pageID, pageID)
         XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [pageID])
-        XCTAssertEqual(NotionPiPSchemaV5.versionIdentifier, Schema.Version(5, 0, 0))
+        XCTAssertEqual(NotionPiPSchemaV4.versionIdentifier, Schema.Version(4, 0, 0))
     }
 
     func testV2PinnedPageBecomesV3ActivePageAndFirstFavorite() async throws {
-        let (directory, storeURL) = try makeStore(named: "V2-to-V5.store")
+        let (directory, storeURL) = try makeStore(named: "V2-to-V4.store")
         defer { try? FileManager.default.removeItem(at: directory) }
         let schema = Schema(versionedSchema: NotionPiPSchemaV2.self)
         let pageID = "0123456789abcdef0123456789abcdef"
@@ -77,11 +77,11 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(workingSet.activePage?.pageID, pageID)
         XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [pageID])
         XCTAssertEqual(NotionPiPSchemaV3.versionIdentifier, Schema.Version(3, 0, 0))
-        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 5)
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 4)
     }
 
-    func testV3PinsMigrateToV5WithNilRolesAndPreservedWorkingSetOrder() async throws {
-        let (directory, storeURL) = try makeStore(named: "V3-to-V5.store")
+    func testV3PinsMigrateToV4WithNilRolesAndPreservedWorkingSetOrder() async throws {
+        let (directory, storeURL) = try makeStore(named: "V3-to-V4.store")
         defer { try? FileManager.default.removeItem(at: directory) }
         let schema = Schema(versionedSchema: NotionPiPSchemaV3.self)
         let olderID = "0123456789abcdef0123456789abcdef"
@@ -127,12 +127,12 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [newerID, olderID])
         XCTAssertEqual(workingSet.pinnedPages.map(\.role), [nil, nil])
         XCTAssertEqual(workingSet.recentPages.map(\.pageID), [recentID])
-        XCTAssertEqual(NotionPiPSchemaV5.versionIdentifier, Schema.Version(5, 0, 0))
-        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 5)
+        XCTAssertEqual(NotionPiPSchemaV4.versionIdentifier, Schema.Version(4, 0, 0))
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 4)
     }
 
-    func testV4StoreDropsLegacyCaptureEntitiesWithoutLosingPageState() async throws {
-        let (directory, storeURL) = try makeStore(named: "V4-to-V5.store")
+    func testV4StorePreservesLegacyCaptureEntitiesAndPageState() async throws {
+        let (directory, storeURL) = try makeStore(named: "V4-current.store")
         defer { try? FileManager.default.removeItem(at: directory) }
         let schema = Schema(versionedSchema: NotionPiPSchemaV4.self)
         let pageID = "0123456789abcdef0123456789abcdef"
@@ -168,12 +168,15 @@ final class SchemaMigrationTests: XCTestCase {
 
         let migratedContainer = try NotionPiPPersistence.makeContainer(storeURL: storeURL)
         let workingSet = try await PageRepository(container: migratedContainer).workingSet()
+        let migratedContext = ModelContext(migratedContainer)
+        let legacyDrafts = try migratedContext.fetch(FetchDescriptor<CaptureDraftModel>())
 
         XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [pageID])
-        XCTAssertEqual(NotionPiPSchemaV5.models.count, 4)
-        XCTAssertFalse(NotionPiPSchemaV5.models.contains { $0 == CaptureDraftModel.self })
-        XCTAssertFalse(NotionPiPSchemaV5.models.contains { $0 == CaptureRecordModel.self })
-        XCTAssertFalse(NotionPiPSchemaV5.models.contains { $0 == QuickCaptureSettingsModel.self })
+        XCTAssertEqual(legacyDrafts.map(\.stableID), ["retired-draft"])
+        XCTAssertEqual(NotionPiPSchemaV4.models.count, 7)
+        XCTAssertTrue(NotionPiPSchemaV4.models.contains { $0 == CaptureDraftModel.self })
+        XCTAssertTrue(NotionPiPSchemaV4.models.contains { $0 == CaptureRecordModel.self })
+        XCTAssertTrue(NotionPiPSchemaV4.models.contains { $0 == QuickCaptureSettingsModel.self })
     }
 
     private func makeStore(named name: String) throws -> (URL, URL) {
