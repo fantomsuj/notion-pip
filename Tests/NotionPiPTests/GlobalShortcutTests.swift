@@ -11,21 +11,6 @@ final class GlobalShortcutTests: XCTestCase {
             modifiers: UInt32(cmdKey | shiftKey)
         ))
         XCTAssertTrue(GlobalShortcut.default.isValid)
-        XCTAssertEqual(GlobalShortcut.defaultQuickCapture, GlobalShortcut(
-            keyCode: UInt32(kVK_ANSI_N), modifiers: UInt32(cmdKey | shiftKey)
-        ))
-    }
-
-    func testQuickCaptureShortcutUsesIndependentPersistenceKey() throws {
-        let defaults = try makeDefaults()
-        let panelStore = GlobalShortcutStore(defaults: defaults)
-        let captureStore = QuickCaptureShortcutStore(defaults: defaults)
-        let capture = GlobalShortcut(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(cmdKey | optionKey))
-
-        captureStore.save(capture)
-
-        XCTAssertEqual(captureStore.load(), capture)
-        XCTAssertEqual(panelStore.load(), .default)
     }
 
     func testShortcutRejectsEmptyAndUnsupportedModifierCombinations() {

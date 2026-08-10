@@ -34,22 +34,11 @@ jobs:
         run: >-
           swift test
           --skip
-          '(CaptureEditorFlowTests|CaptureEditorResourceTests|CaptureWebView.*Tests|ExternalDropActivatingWebViewTests|NotionEditorSelectionTests|NotionWebSessionTests|PiPChromeViewTests|PiPPanelGeometryTests|WebNavigationDestinationTests)'
+          '(ExternalDropActivatingWebViewTests|NotionEditorSelectionTests|NotionWebSessionTests|PiPChromeViewTests|PiPPanelGeometryTests|WebNavigationDestinationTests)'
 
       - name: Run WebKit-dependent suites in isolated processes
         run: |
           suites=(
-            CaptureEditorFlowTests
-            CaptureEditorResourceTests
-            CaptureWebViewAutosaveTests
-            CaptureWebViewConflictTests
-            CaptureWebViewFocusTests
-            CaptureWebViewLifecycleTests
-            CaptureWebViewNavigationTests
-            CaptureWebViewRecoveryTests
-            CaptureWebViewRichTextTests
-            CaptureWebViewSlashMenuTests
-            CaptureWebViewToolbarTests
             ExternalDropActivatingWebViewTests
             NotionEditorSelectionTests
             NotionWebSessionTests
@@ -66,32 +55,3 @@ jobs:
       - name: Build release configuration
         if: github.event_name == 'push'
         run: swift build --configuration release
-
-  web:
-    name: Web editor
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run web tests
-        run: npm test
-
-      - name: Type-check
-        run: npm run typecheck
-
-      - name: Build editor
-        run: npm run build:editor
-
-      - name: Verify committed editor assets
-        run: git diff --exit-code -- Sources/NotionPiP/Resources/QuickCapture/editor.js

@@ -4,18 +4,14 @@ import OSLog
 enum PerformanceOperation: String, CaseIterable, Sendable {
     case coldLaunchToReady = "ColdLaunchToReady"
     case firstPiPPresentation = "FirstPiPPresentation"
-    case firstQuickCapturePresentation = "FirstQuickCapturePresentation"
-    case quickCaptureReadyToEdit = "QuickCaptureReadyToEdit"
-    case quickCaptureAutosave = "QuickCaptureAutosave"
     case notionSessionRestoration = "NotionSessionRestoration"
     case webViewEviction = "WebViewEviction"
 
     var isFirstOnly: Bool {
         switch self {
-        case .coldLaunchToReady, .firstPiPPresentation, .firstQuickCapturePresentation:
+        case .coldLaunchToReady, .firstPiPPresentation:
             true
-        case .quickCaptureReadyToEdit, .quickCaptureAutosave,
-             .notionSessionRestoration, .webViewEviction:
+        case .notionSessionRestoration, .webViewEviction:
             false
         }
     }
@@ -32,11 +28,9 @@ struct PerformanceIntervalToken: Hashable, Sendable {
 }
 
 struct PerformanceMetadata: Equatable, Sendable {
-    var documentByteCount: Int?
     var cacheEntryCount: Int?
 
-    init(documentByteCount: Int? = nil, cacheEntryCount: Int? = nil) {
-        self.documentByteCount = documentByteCount
+    init(cacheEntryCount: Int? = nil) {
         self.cacheEntryCount = cacheEntryCount
     }
 }
@@ -75,10 +69,6 @@ final class AppPerformanceSignposter: PerformanceSignposting {
         subsystem: "com.fantomsuj.NotionPiP",
         category: "performance.presentation"
     )
-    private let captureSignposter = OSSignposter(
-        subsystem: "com.fantomsuj.NotionPiP",
-        category: "performance.capture"
-    )
     private let webViewSignposter = OSSignposter(
         subsystem: "com.fantomsuj.NotionPiP",
         category: "performance.webview"
@@ -98,12 +88,6 @@ final class AppPerformanceSignposter: PerformanceSignposting {
             state = lifecycleSignposter.beginInterval("ColdLaunchToReady")
         case .firstPiPPresentation:
             state = presentationSignposter.beginInterval("FirstPiPPresentation")
-        case .firstQuickCapturePresentation:
-            state = presentationSignposter.beginInterval("FirstQuickCapturePresentation")
-        case .quickCaptureReadyToEdit:
-            state = captureSignposter.beginInterval("QuickCaptureReadyToEdit")
-        case .quickCaptureAutosave:
-            state = captureSignposter.beginInterval("QuickCaptureAutosave")
         case .notionSessionRestoration:
             state = webViewSignposter.beginInterval("NotionSessionRestoration")
         case .webViewEviction:
@@ -136,24 +120,6 @@ final class AppPerformanceSignposter: PerformanceSignposting {
                 "FirstPiPPresentation",
                 interval.state,
                 "outcome=\(outcome.rawValue, privacy: .public)"
-            )
-        case .firstQuickCapturePresentation:
-            presentationSignposter.endInterval(
-                "FirstQuickCapturePresentation",
-                interval.state,
-                "outcome=\(outcome.rawValue, privacy: .public)"
-            )
-        case .quickCaptureReadyToEdit:
-            captureSignposter.endInterval(
-                "QuickCaptureReadyToEdit",
-                interval.state,
-                "outcome=\(outcome.rawValue, privacy: .public)"
-            )
-        case .quickCaptureAutosave:
-            captureSignposter.endInterval(
-                "QuickCaptureAutosave",
-                interval.state,
-                "outcome=\(outcome.rawValue, privacy: .public) document_bytes=\(metadata.documentByteCount ?? 0, privacy: .public)"
             )
         case .notionSessionRestoration:
             webViewSignposter.endInterval(

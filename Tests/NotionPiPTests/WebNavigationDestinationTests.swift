@@ -96,25 +96,6 @@ final class WebNavigationDestinationTests: XCTestCase {
     }
 
     @MainActor
-    func testQuickCaptureCancelsWebNavigationAndOpensEachSupportedWebURLOnce() throws {
-        var openedURLs: [URL] = []
-        let session = CaptureEditorSession(
-            repository: try CaptureRepository(inMemory: true),
-            openURL: { openedURLs.append($0) }
-        )
-        let trustedURL = try XCTUnwrap(URL(string: "https://app.notion.com/workspace"))
-        let externalURL = try XCTUnwrap(URL(string: "http://example.com/path"))
-
-        XCTAssertEqual(session.handleNavigation(to: trustedURL), .cancel)
-        XCTAssertEqual(session.handleNavigation(to: externalURL), .cancel)
-        XCTAssertEqual(
-            session.handleNavigation(to: URL(string: "javascript:alert(1)")),
-            .cancel
-        )
-        XCTAssertEqual(openedURLs, [trustedURL, externalURL])
-    }
-
-    @MainActor
     func testNotionSessionAllowsTrustedNavigationAndOpensExternalOnce() throws {
         var openedURLs: [URL] = []
         let session = NotionWebSession(openURL: { openedURLs.append($0) })

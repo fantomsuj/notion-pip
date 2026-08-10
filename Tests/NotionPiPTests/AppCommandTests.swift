@@ -11,19 +11,19 @@ final class AppCommandTests: XCTestCase {
         XCTAssertEqual(
             model.groups.map { $0.commands.map(\.id) },
             [
-                [.quickCapture],
+                [.newNotionPage],
                 [.settings, .gettingStarted],
                 [.quit],
             ])
         XCTAssertEqual(
             model.commands.map(\.title),
             [
-                "Quick Capture",
+                "New Notion Page",
                 "Settings…",
                 "Getting Started…",
                 "Quit Notion PiP",
             ])
-        XCTAssertEqual(model.command(for: .quickCapture)?.keyEquivalent, "n")
+        XCTAssertEqual(model.command(for: .newNotionPage)?.keyEquivalent, "n")
         XCTAssertEqual(model.command(for: .settings)?.keyEquivalent, ",")
         XCTAssertEqual(model.command(for: .gettingStarted)?.keyEquivalent, "")
         XCTAssertEqual(model.command(for: .quit)?.keyEquivalent, "q")
@@ -57,8 +57,9 @@ final class AppCommandTests: XCTestCase {
 
         XCTAssertEqual(toolbarMenu.commandIDs, AppCommandID.allCases)
         XCTAssertEqual(toolbarMenu.symbolName, "ellipsis.circle")
-        XCTAssertEqual(PiPChromeView.primaryActionID, .quickCapture)
-        XCTAssertEqual(PiPChromeView.primaryActionAccessibilityLabel, "Quick Capture")
+        XCTAssertEqual(PiPChromeView.primaryActionID, .newNotionPage)
+        XCTAssertEqual(PiPChromeView.primaryActionAccessibilityLabel, "New Notion Page")
+        XCTAssertEqual(PiPChromeView.primaryActionHelp, "Create a page in the Notion app")
     }
 
     func testPanelSizeSubmenuUsesSharedOrientationRowsAndDisabledApplyState() throws {
@@ -174,7 +175,7 @@ final class AppCommandTests: XCTestCase {
 
     private func makeModel(events: @escaping (AppCommandID) -> Void) -> AppCommandModel {
         AppCommandModel(
-            quickCapture: { events(.quickCapture) },
+            newNotionPage: { events(.newNotionPage) },
             settings: { events(.settings) },
             gettingStarted: { events(.gettingStarted) },
             quit: { events(.quit) }

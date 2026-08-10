@@ -4,27 +4,62 @@ import XCTest
 @testable import NotionPiP
 
 final class SchemaMigrationTests: XCTestCase {
-    func testV2PinnedPageBecomesV3ActivePageAndFirstFavorite() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    func testV1StoreTraversesAllMigrationsWithoutLosingPageState() async throws {
+        let (directory, storeURL) = try makeStore(named: "V1-to-V5.store")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let storeURL = directory.appendingPathComponent("V2-to-V3.store")
-        let v2Schema = Schema(versionedSchema: NotionPiPSchemaV2.self)
-        let v2Configuration = ModelConfiguration(
-            schema: v2Schema,
-            url: storeURL,
-            cloudKitDatabase: .none
-        )
+        let schema = Schema(versionedSchema: NotionPiPSchemaV1.self)
+        let pageID = "0123456789abcdef0123456789abcdef"
+
+        do {
+            let container = try ModelContainer(
+                for: schema,
+                configurations: configuration(schema: schema, storeURL: storeURL)
+            )
+            let context = ModelContext(container)
+            context.insert(
+                PinnedPageSchemaV3.PinnedPageModel(
+                    stableID: pageID,
+                    canonicalURL: "https://www.notion.so/Original-\(pageID)",
+                    displayTitle: "Original",
+                    pinnedAt: Date(timeIntervalSince1970: 1_000)
+                )
+            )
+            context.insert(
+                CaptureDraftModel(
+                    stableID: "original-draft",
+                    revision: 1,
+                    title: "Retired",
+                    editorDocument: Data("{}".utf8),
+                    sourceDocument: nil,
+                    dispositionRawValue: "active",
+                    createdAt: Date(timeIntervalSince1970: 1_000),
+                    updatedAt: Date(timeIntervalSince1970: 1_000)
+                )
+            )
+            try context.save()
+        }
+
+        let migratedContainer = try NotionPiPPersistence.makeContainer(storeURL: storeURL)
+        let workingSet = try await PageRepository(container: migratedContainer).workingSet()
+
+        XCTAssertEqual(workingSet.activePage?.pageID, pageID)
+        XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [pageID])
+        XCTAssertEqual(NotionPiPSchemaV5.versionIdentifier, Schema.Version(5, 0, 0))
+    }
+
+    func testV2PinnedPageBecomesV3ActivePageAndFirstFavorite() async throws {
+        let (directory, storeURL) = try makeStore(named: "V2-to-V5.store")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let schema = Schema(versionedSchema: NotionPiPSchemaV2.self)
         let pageID = "0123456789abcdef0123456789abcdef"
         let pageURL = try XCTUnwrap(URL(string: "https://www.notion.so/Legacy-\(pageID)"))
 
         do {
-            let v2Container = try ModelContainer(
-                for: v2Schema,
-                configurations: v2Configuration
+            let container = try ModelContainer(
+                for: schema,
+                configurations: configuration(schema: schema, storeURL: storeURL)
             )
-            let context = ModelContext(v2Container)
+            let context = ModelContext(container)
             context.insert(
                 PinnedPageSchemaV3.PinnedPageModel(
                     stableID: pageID,
@@ -42,31 +77,23 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(workingSet.activePage?.pageID, pageID)
         XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [pageID])
         XCTAssertEqual(NotionPiPSchemaV3.versionIdentifier, Schema.Version(3, 0, 0))
-        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 4)
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 5)
     }
 
-    func testV3PinsMigrateToV4WithNilRolesAndPreservedWorkingSetOrder() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    func testV3PinsMigrateToV5WithNilRolesAndPreservedWorkingSetOrder() async throws {
+        let (directory, storeURL) = try makeStore(named: "V3-to-V5.store")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let storeURL = directory.appendingPathComponent("V3-to-V4.store")
-        let v3Schema = Schema(versionedSchema: NotionPiPSchemaV3.self)
-        let v3Configuration = ModelConfiguration(
-            schema: v3Schema,
-            url: storeURL,
-            cloudKitDatabase: .none
-        )
+        let schema = Schema(versionedSchema: NotionPiPSchemaV3.self)
         let olderID = "0123456789abcdef0123456789abcdef"
         let newerID = "fedcba9876543210fedcba9876543210"
         let recentID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
         do {
-            let v3Container = try ModelContainer(
-                for: v3Schema,
-                configurations: v3Configuration
+            let container = try ModelContainer(
+                for: schema,
+                configurations: configuration(schema: schema, storeURL: storeURL)
             )
-            let context = ModelContext(v3Container)
+            let context = ModelContext(container)
             context.insert(
                 PinnedPageSchemaV3.PinnedPageModel(
                     stableID: olderID,
@@ -100,37 +127,38 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [newerID, olderID])
         XCTAssertEqual(workingSet.pinnedPages.map(\.role), [nil, nil])
         XCTAssertEqual(workingSet.recentPages.map(\.pageID), [recentID])
-        XCTAssertEqual(NotionPiPSchemaV4.versionIdentifier, Schema.Version(4, 0, 0))
-        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 4)
+        XCTAssertEqual(NotionPiPSchemaV5.versionIdentifier, Schema.Version(5, 0, 0))
+        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 5)
     }
 
-    func testV1StoreMigratesToV2WithoutLosingExistingDraft() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    func testV4StoreDropsLegacyCaptureEntitiesWithoutLosingPageState() async throws {
+        let (directory, storeURL) = try makeStore(named: "V4-to-V5.store")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let storeURL = directory.appendingPathComponent("V1-to-V2.store")
-        let v1Schema = Schema(versionedSchema: NotionPiPSchemaV1.self)
-        let v1Configuration = ModelConfiguration(
-            schema: v1Schema,
-            url: storeURL,
-            cloudKitDatabase: .none
-        )
+        let schema = Schema(versionedSchema: NotionPiPSchemaV4.self)
+        let pageID = "0123456789abcdef0123456789abcdef"
 
         do {
-            let v1Container = try ModelContainer(
-                for: v1Schema,
-                configurations: v1Configuration
+            let container = try ModelContainer(
+                for: schema,
+                configurations: configuration(schema: schema, storeURL: storeURL)
             )
-            let context = ModelContext(v1Container)
+            let context = ModelContext(container)
+            context.insert(
+                PinnedPageModel(
+                    stableID: pageID,
+                    canonicalURL: "https://www.notion.so/Preserved-\(pageID)",
+                    displayTitle: "Preserved",
+                    pinnedAt: Date(timeIntervalSince1970: 1_000)
+                )
+            )
             context.insert(
                 CaptureDraftModel(
-                    stableID: "legacy-draft",
+                    stableID: "retired-draft",
                     revision: 1,
-                    title: "Preserved",
-                    editorDocument: jsonData(["type": "doc", "content": []]),
+                    title: "Retired",
+                    editorDocument: Data("{}".utf8),
                     sourceDocument: nil,
-                    dispositionRawValue: DraftDisposition.active.rawValue,
+                    dispositionRawValue: "active",
                     createdAt: Date(timeIntervalSince1970: 1_000),
                     updatedAt: Date(timeIntervalSince1970: 1_000)
                 )
@@ -139,100 +167,26 @@ final class SchemaMigrationTests: XCTestCase {
         }
 
         let migratedContainer = try NotionPiPPersistence.makeContainer(storeURL: storeURL)
-        let captureRepository = CaptureRepository(container: migratedContainer)
-        let destinationRepository = QuickCaptureDestinationRepository(
-            container: migratedContainer
-        )
+        let workingSet = try await PageRepository(container: migratedContainer).workingSet()
 
-        let migratedDraft = try await captureRepository.draft(id: "legacy-draft")
-        let migratedDestination = try await destinationRepository.defaultDestination()
-        XCTAssertEqual(migratedDraft?.title, "Preserved")
-        XCTAssertNil(migratedDestination)
-        XCTAssertEqual(NotionPiPSchemaV2.versionIdentifier, Schema.Version(2, 0, 0))
-        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 4)
+        XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [pageID])
+        XCTAssertEqual(NotionPiPSchemaV5.models.count, 4)
+        XCTAssertFalse(NotionPiPSchemaV5.models.contains { $0 == CaptureDraftModel.self })
+        XCTAssertFalse(NotionPiPSchemaV5.models.contains { $0 == CaptureRecordModel.self })
+        XCTAssertFalse(NotionPiPSchemaV5.models.contains { $0 == QuickCaptureSettingsModel.self })
     }
 
-    func testV1SchemaCanReopenAPersistedDraft() async throws {
+    private func makeStore(named name: String) throws -> (URL, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-
-        let storeURL = directory.appendingPathComponent("NotionPiP.store")
-        let clock = TestCaptureClock(Date(timeIntervalSince1970: 1_000))
-        var repository: CaptureRepository? = try CaptureRepository(storeURL: storeURL, clock: clock)
-        _ = try await repository?.saveDraft(
-            DraftMutation(
-                id: "capture-reopen",
-                title: "Persisted",
-                editorDocument: jsonData(["type": "doc", "content": []]),
-                sourceDocument: nil,
-                disposition: .active
-            ),
-            expectedRevision: 0
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
         )
-        repository = nil
-
-        let reopened = try CaptureRepository(storeURL: storeURL, clock: clock)
-        let draft = try await reopened.draft(id: "capture-reopen")
-
-        XCTAssertEqual(draft?.title, "Persisted")
-        XCTAssertEqual(draft?.revision, 1)
-        XCTAssertEqual(NotionPiPSchemaV1.versionIdentifier, Schema.Version(1, 0, 0))
-        XCTAssertEqual(NotionPiPMigrationPlan.schemas.count, 4)
+        return (directory, directory.appendingPathComponent(name))
     }
 
-    func testDeliveryStateRawValuesAreStable() {
-        XCTAssertEqual(DeliveryState.queued.rawValue, "queued")
-        XCTAssertEqual(DeliveryState.inFlight.rawValue, "inFlight")
-        XCTAssertEqual(DeliveryState.delivered.rawValue, "delivered")
-        XCTAssertEqual(DeliveryState.retrying.rawValue, "retrying")
-        XCTAssertEqual(DeliveryState.blockedConflict.rawValue, "blockedConflict")
-        XCTAssertEqual(DeliveryState.uncertain.rawValue, "uncertain")
-    }
-
-    func testReturnDraftRelationshipSurvivesReopenAndCanBeConsumed() async throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-
-        let storeURL = directory.appendingPathComponent("ReturnDraft.store")
-        let clock = TestCaptureClock(Date(timeIntervalSince1970: 2_000))
-        do {
-            let initial = try CaptureRepository(storeURL: storeURL, clock: clock)
-            _ = try await initial.saveDraft(
-                DraftMutation(
-                    id: "capture-a",
-                    title: "A",
-                    editorDocument: jsonData(["type": "doc", "content": []]),
-                    sourceDocument: nil,
-                    disposition: .active
-                ),
-                expectedRevision: 0
-            )
-            _ = try await initial.saveDraft(
-                DraftMutation(
-                    id: "capture-b",
-                    title: "B",
-                    editorDocument: jsonData(["type": "doc", "content": []]),
-                    sourceDocument: nil,
-                    disposition: .active
-                ),
-                expectedRevision: 0
-            )
-        }
-
-        let reopened = try CaptureRepository(storeURL: storeURL, clock: clock)
-        let fetchedSecond = try await reopened.draft(id: "capture-b")
-        let second = try XCTUnwrap(fetchedSecond)
-        XCTAssertEqual(second.returnDraftID, "capture-a")
-        _ = try await reopened.enqueue(
-            draftID: second.id,
-            expectedRevision: second.revision,
-            destination: .manual(pageID: "page-1")
-        )
-        let returned = try await reopened.draft(id: "capture-a")
-        XCTAssertEqual(returned?.disposition, .active)
+    private func configuration(schema: Schema, storeURL: URL) -> ModelConfiguration {
+        ModelConfiguration(schema: schema, url: storeURL, cloudKitDatabase: .none)
     }
 }

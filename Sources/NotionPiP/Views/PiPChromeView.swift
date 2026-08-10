@@ -2,9 +2,9 @@ import AppKit
 import SwiftUI
 
 struct PiPChromeView: View {
-    static let primaryActionID = AppCommandID.quickCapture
-    static let primaryActionAccessibilityLabel = "Quick Capture"
-    static let primaryActionHelp = "Capture a note for Notion"
+    static let primaryActionID = AppCommandID.newNotionPage
+    static let primaryActionAccessibilityLabel = "New Notion Page"
+    static let primaryActionHelp = "Create a page in the Notion app"
     static let reloadAccessibilityLabel = "Re-pin current Notion page"
     static let reloadHelp = "Re-pin the current Notion page"
     static let stashAccessibilityLabel = "Stash Notion PiP to Side"
@@ -88,15 +88,6 @@ struct PiPChromeView: View {
         onStash()
     }
 
-    func enterOfflineCaptureMode() {
-        guard webSession.state == .offline,
-              commandModel.command(for: Self.primaryActionID)?.isEnabled == true
-        else {
-            return
-        }
-        commandModel.perform(Self.primaryActionID)
-    }
-
     func continueLoginInBrowser() {
         webSession.performBrowserLoginAction()
     }
@@ -126,14 +117,8 @@ struct PiPChromeView: View {
                 Divider()
             } else if webSession.state == .offline {
                 HStack(spacing: DesignTokens.Spacing.control) {
-                    Label("You're offline. Quick Capture saves notes on this Mac and sends them when Notion reconnects.", systemImage: "wifi.slash")
+                    Label("You're offline. Notion will reconnect when the network is available.", systemImage: "wifi.slash")
                         .font(.caption)
-                    Spacer()
-                    Button("Write Offline Note") {
-                        commandModel.perform(Self.primaryActionID)
-                    }
-                    .disabled(!(commandModel.command(for: Self.primaryActionID)?.isEnabled ?? false))
-                    .accessibilityLabel("Write an offline note")
                 }
                 .padding(.horizontal, DesignTokens.Spacing.control)
                 .padding(.vertical, DesignTokens.Spacing.compact)
@@ -223,10 +208,6 @@ struct PiPChromeView: View {
         )
         .onDisappear {
             topControlsHover.cancel()
-        }
-        .onAppear(perform: enterOfflineCaptureMode)
-        .onChange(of: webSession.state) {
-            enterOfflineCaptureMode()
         }
     }
 

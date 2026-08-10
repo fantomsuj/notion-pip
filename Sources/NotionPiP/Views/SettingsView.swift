@@ -32,10 +32,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Quick Capture Destination") {
-                    QuickCaptureDestinationSettingsView(runtime: runtime)
-                }
-
                 Section("Global Shortcut") {
                     GlobalShortcutRecorderView(runtime: runtime)
                     Toggle(
@@ -52,26 +48,6 @@ struct SettingsView: View {
                     )
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
-                }
-
-                Section("Trusted Quick Capture") {
-                    QuickCaptureShortcutRecorderView(runtime: runtime)
-                    Text("This shortcut is separate from panel Show/Hide.")
-                        .font(.caption).foregroundStyle(DesignTokens.Colors.secondaryText)
-                    Toggle("Pre-fill Quick Capture from the clipboard", isOn: Binding(
-                        get: { runtime.quickCapturePrefillsClipboard },
-                        set: { enabled in
-                            runtime.setQuickCapturePrefillsClipboard(enabled)
-                        }
-                    ))
-                    Toggle("Insert at the saved Notion cursor when possible", isOn: Binding(
-                        get: { runtime.quickCaptureInsertsAtNotionCursor },
-                        set: { enabled in
-                            runtime.setQuickCaptureInsertsAtNotionCursor(enabled)
-                        }
-                    ))
-                    Text("Clipboard content is read only when you invoke Quick Capture. If the saved cursor is no longer valid, the content opens in Quick Capture instead.")
-                        .font(.caption).foregroundStyle(DesignTokens.Colors.secondaryText)
                 }
 
                 Section("Quick Copy") {
@@ -162,7 +138,7 @@ struct SettingsView: View {
                     }
 
                     Text(
-                        "Use a personal access token (ntn_…). It is stored only in this Mac’s Keychain and acts with your own Notion permissions. It is never exposed to the Notion web view."
+                        "A personal access token enables workspace page search. It is stored only in this Mac’s Keychain, acts with your own Notion permissions, and is never exposed to the Notion web view."
                     )
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
@@ -175,7 +151,6 @@ struct SettingsView: View {
                 }
 
                 Section("Service Status") {
-                    CaptureOutboxStatusView(runtime: runtime)
                     LabeledContent(
                         "Pinned-page sync",
                         value: runtime.serviceHealth.issues.contains(.pinnedPagePersistenceUnavailable)

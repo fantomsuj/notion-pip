@@ -1890,8 +1890,8 @@ final class NotionWebSessionTests: XCTestCase {
 
         _ = chrome.body
 
-        XCTAssertEqual(PiPChromeView.primaryActionAccessibilityLabel, "Quick Capture")
-        XCTAssertEqual(PiPChromeView.primaryActionHelp, "Capture a note for Notion")
+        XCTAssertEqual(PiPChromeView.primaryActionAccessibilityLabel, "New Notion Page")
+        XCTAssertEqual(PiPChromeView.primaryActionHelp, "Create a page in the Notion app")
         XCTAssertEqual(PiPChromeView.reloadAccessibilityLabel, "Re-pin current Notion page")
         XCTAssertEqual(PiPChromeView.reloadHelp, "Re-pin the current Notion page")
         XCTAssertEqual(PiPChromeView.stashAccessibilityLabel, "Stash Notion PiP to Side")

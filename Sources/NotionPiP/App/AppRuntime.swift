@@ -1,4 +1,3 @@
-import AppKit
 import Combine
 import Foundation
 import OSLog
@@ -8,19 +7,12 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var pendingPage: NotionPageReference?
     @Published private(set) var activePage: NotionPageReference?
     @Published private(set) var lastActivationSource: PageActivationSource?
-    @Published private(set) var captureRecords: [CaptureRecordSummary] = []
-    @Published private(set) var captureRecoveryMessage: String?
     @Published private(set) var serviceHealth: ServiceHealthState
-    @Published private(set) var shortcutConfiguration: ShortcutConfiguration
+    @Published private(set) var globalShortcut: GlobalShortcut
     @Published private(set) var holdToPeekEnabled: Bool
-    @Published private(set) var quickCapturePrefillsClipboard: Bool
-    @Published private(set) var quickCaptureInsertsAtNotionCursor: Bool
     @Published private(set) var savedMenuBarIconVisibility: Bool
     @Published private(set) var effectiveMenuBarIconVisibility: Bool
     @Published private(set) var isMenuBarIconVisibilityForced: Bool
-
-    var globalShortcut: GlobalShortcut { shortcutConfiguration.panel }
-    var quickCaptureShortcut: GlobalShortcut { shortcutConfiguration.quickCapture }
 
     let pageURLInputState: PageURLInputState
 
@@ -37,14 +29,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     var searchResults: [NotionPageSearchResult] { connectionController.searchResults }
     var searchError: String? { connectionController.searchError }
     var isNotionConnected: Bool { connectionController.isConnected }
-    var quickCaptureDestination: QuickCaptureDestination? { destinationController.destination }
-    var destinationSearchResults: [NotionDestinationSearchResult] {
-        destinationController.searchResults
-    }
-    var destinationSearchError: String? { destinationController.searchError }
-    var isSearchingDestinations: Bool { destinationController.isSearching }
-    var canLoadMoreDestinations: Bool { destinationController.canLoadMore }
-    var isDestinationSearchCapped: Bool { destinationController.isSearchCapped }
     var pipPresentationState: PiPPresentationState { pinCoordinator.presentationState }
 
     var statusMenuContextCommand: StatusMenuContextCommand {
@@ -57,22 +41,13 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let shortcutStore: GlobalShortcutStore
     let holdToPeekPreferenceStore: HoldToPeekPreferenceStore
     let peekFocusRestorer: any PeekFocusRestoring
-    let quickCaptureShortcutRegistrar: any GlobalShortcutRegistering
-    let quickCaptureShortcutStore: QuickCaptureShortcutStore
-    let trustedCapturePreferenceStore: TrustedCapturePreferenceStore
-    let pasteboard: any PasteboardReading
-    var quickCaptureAction: (_ prefill: String?, _ insertAtCursor: Bool) -> Void = { _, _ in }
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
     let pageURLInputPresenter: any PageURLInputPresenting
     let pageRepository: (any PageWorkingSetPersisting)?
     let automaticSettingsPresentationAllowed: @MainActor () -> Bool
-    private let captureRepository: CaptureRepository?
-    private let deliveryScheduler: DeliveryScheduler?
     private let connectionController: NotionConnectionController
-    private let destinationController: QuickCaptureDestinationController
     weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
     private var connectionObservation: AnyCancellable?
-    private var destinationObservation: AnyCancellable?
     private var bootstrapTask: Task<Void, Never>?
     var restorePinnedPageTask: Task<Void, Never>?
     var persistPinnedPageTask: Task<Void, Never>?
@@ -95,22 +70,15 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         pasteboard: any PasteboardReading = SystemPasteboardReader(),
         shortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar(),
         shortcutStore: GlobalShortcutStore = GlobalShortcutStore(),
-        quickCaptureShortcutRegistrar: any GlobalShortcutRegistering = CarbonGlobalShortcutRegistrar(),
-        quickCaptureShortcutStore: QuickCaptureShortcutStore = QuickCaptureShortcutStore(),
-        trustedCapturePreferenceStore: TrustedCapturePreferenceStore = TrustedCapturePreferenceStore(),
         menuBarIconPreferenceStore: MenuBarIconPreferenceStore = MenuBarIconPreferenceStore(),
         holdToPeekPreferenceStore: HoldToPeekPreferenceStore = HoldToPeekPreferenceStore(),
         peekFocusRestorer: any PeekFocusRestoring = PeekFocusRestorer(),
         pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
         pageRepository: (any PageWorkingSetPersisting)? = nil,
-        destinationRepository: (any QuickCaptureDestinationPersisting)? = nil,
-        captureRepository: CaptureRepository? = nil,
-        deliveryScheduler: DeliveryScheduler? = nil,
         credentialVault: PersonalTokenCredentialVault = PersonalTokenCredentialVault(),
         notionClientFactory: @escaping (PersonalIntegrationToken) -> any NotionWorkspaceClient = { token in
             NotionAPIClient(token: token)
         },
-        destinationSearchDebounceDuration: Duration = .milliseconds(300),
         shortcutHoldDuration: Duration = .milliseconds(300),
         initialServiceHealth: ServiceHealthState = .healthy,
         automaticSettingsPresentationAllowed: @escaping @MainActor () -> Bool = { true },
@@ -137,44 +105,18 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.shortcutStore = shortcutStore
         self.holdToPeekPreferenceStore = holdToPeekPreferenceStore
         self.peekFocusRestorer = peekFocusRestorer
-        self.quickCaptureShortcutRegistrar = quickCaptureShortcutRegistrar
-        self.quickCaptureShortcutStore = quickCaptureShortcutStore
-        self.trustedCapturePreferenceStore = trustedCapturePreferenceStore
-        self.pasteboard = pasteboard
         self.menuBarIconPreferenceStore = menuBarIconPreferenceStore
         self.pageRepository = pageRepository
         self.automaticSettingsPresentationAllowed = automaticSettingsPresentationAllowed
-        self.captureRepository = captureRepository
-        self.deliveryScheduler = deliveryScheduler
         self.shortcutHoldDuration = shortcutHoldDuration
         self.shortcutLifecycleCoordinatorFactory = shortcutLifecycleCoordinatorFactory
-        let connectionController = NotionConnectionController(
+        connectionController = NotionConnectionController(
             credentialVault: credentialVault,
-            notionClientFactory: notionClientFactory,
-            onReconnect: {
-                await deliveryScheduler?.trigger(reconnected: true)
-            }
-        )
-        self.connectionController = connectionController
-        destinationController = QuickCaptureDestinationController(
-            connectionController: connectionController,
-            repository: destinationRepository,
-            searchDebounceDuration: destinationSearchDebounceDuration
+            notionClientFactory: notionClientFactory
         )
         serviceHealth = initialServiceHealth
-        let panelShortcut = shortcutStore.load()
-        let loadedQuickCaptureShortcut = quickCaptureShortcutStore.load()
-        let quickCaptureShortcut = Self.distinctQuickCaptureShortcut(
-            loadedQuickCaptureShortcut,
-            panelShortcut: panelShortcut
-        )
-        shortcutConfiguration = ShortcutConfiguration(
-            panel: panelShortcut,
-            quickCapture: quickCaptureShortcut
-        )
+        globalShortcut = shortcutStore.load()
         holdToPeekEnabled = holdToPeekPreferenceStore.load()
-        quickCapturePrefillsClipboard = trustedCapturePreferenceStore.prefillsClipboard
-        quickCaptureInsertsAtNotionCursor = trustedCapturePreferenceStore.insertsAtNotionCursor
         let iconState = Self.menuBarIconState(
             store: menuBarIconPreferenceStore,
             serviceHealth: initialServiceHealth
@@ -182,20 +124,17 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         savedMenuBarIconVisibility = iconState.saved
         effectiveMenuBarIconVisibility = iconState.effective
         isMenuBarIconVisibilityForced = iconState.forced
-        observeControllers()
+        observeConnectionController()
         submissionRelay.handler = { [weak self] in
             self?.validatePageURL()
         }
     }
 
     func start() {
-        guard !started else {
-            return
-        }
+        guard !started else { return }
         started = true
 
         registerGlobalShortcut()
-        registerQuickCaptureShortcut()
         let shortcutLifecycleCoordinator = shortcutLifecycleCoordinatorFactory { [weak self] trigger in
             self?.recoverShortcuts(trigger: trigger)
         }
@@ -203,10 +142,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         shortcutLifecycleCoordinator.start()
         bootstrapTask = Task { [weak self] in
             await self?.bootstrapPersonalTokenConnection()
-        }
-        Task { [weak self] in
-            await self?.destinationController.loadSavedDestination()
-            await self?.deliveryScheduler?.trigger()
         }
         restorePinnedPageFromRepository()
     }
@@ -219,8 +154,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         switch issue {
         case .globalShortcutUnavailable:
             registerGlobalShortcut()
-        case .quickCaptureShortcutUnavailable:
-            registerQuickCaptureShortcut()
         case .pinnedPagePersistenceUnavailable:
             if let activePage {
                 enqueuePersistence(of: activePage)
@@ -247,37 +180,10 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         guard connectionController.state == .disconnected else { return }
         bootstrapTask?.cancel()
         bootstrapTask = nil
-        destinationController.resetAfterDisconnect()
     }
 
     func searchNotionPages(query: String) async {
         await connectionController.searchPages(query: query)
-    }
-
-    func searchQuickCaptureDestinations(query: String) async {
-        await destinationController.search(query: query)
-    }
-
-    func scheduleQuickCaptureDestinationSearch(query: String) {
-        destinationController.scheduleSearch(query: query)
-    }
-
-    func loadMoreQuickCaptureDestinations() async {
-        await destinationController.loadMore()
-    }
-
-    func selectQuickCaptureDestination(
-        _ destination: QuickCaptureDestination
-    ) async {
-        await destinationController.select(destination)
-    }
-
-    func clearQuickCaptureDestination() async {
-        await destinationController.clear()
-    }
-
-    func hasUsablePersonalToken() -> Bool {
-        connectionController.hasUsableToken()
     }
 
     func publishActivation(
@@ -293,21 +199,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         holdToPeekEnabled = enabled
     }
 
-    func publishShortcutConfiguration(_ configuration: ShortcutConfiguration) {
-        shortcutConfiguration = configuration
-    }
-
-    func publishQuickCapturePrefillsClipboard(_ enabled: Bool) {
-        quickCapturePrefillsClipboard = enabled
-    }
-
-    func publishQuickCaptureInsertsAtNotionCursor(_ enabled: Bool) {
-        quickCaptureInsertsAtNotionCursor = enabled
-    }
-
-    func handleQuickCaptureShortcut() {
-        let prefill = quickCapturePrefillsClipboard ? pasteboard.readString() : nil
-        quickCaptureAction(prefill, quickCaptureInsertsAtNotionCursor)
+    func publishGlobalShortcut(_ shortcut: GlobalShortcut) {
+        globalShortcut = shortcut
     }
 
     func publishMenuBarIconVisibility(_ isVisible: Bool) {
@@ -336,11 +229,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         effectiveMenuBarIconVisibility = savedMenuBarIconVisibility || isForced
     }
 
-    private func observeControllers() {
+    private func observeConnectionController() {
         connectionObservation = connectionController.objectWillChange.sink { [weak self] in
-            self?.objectWillChange.send()
-        }
-        destinationObservation = destinationController.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }
     }
@@ -354,50 +244,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         return MenuBarIconState(saved: saved, effective: saved || forced, forced: forced)
     }
 
-    private static func distinctQuickCaptureShortcut(
-        _ shortcut: GlobalShortcut,
-        panelShortcut: GlobalShortcut
-    ) -> GlobalShortcut {
-        guard shortcut == panelShortcut else { return shortcut }
-        return panelShortcut == .defaultQuickCapture ? .default : .defaultQuickCapture
-    }
-
     isolated deinit {
         shortcutLifecycleCoordinator?.stop()
-    }
-}
-
-extension AppRuntime {
-    func refreshCaptureRecords() async {
-        guard let captureRepository else { return }
-        do {
-            captureRecords = try await captureRepository.recentRecordSummaries(limit: 10)
-            captureRecoveryMessage = nil
-        } catch {
-            captureRecoveryMessage = "Could not load Quick Capture delivery history."
-        }
-    }
-
-    func openLocalCapture(recordID: String) async {
-        guard let captureRepository else {
-            captureRecoveryMessage = "Local capture recovery is unavailable."
-            return
-        }
-        do {
-            guard let record = try await captureRepository.record(id: recordID) else {
-                captureRecoveryMessage = "The local capture could not be found."
-                return
-            }
-            let markdown = try CaptureExport.markdown(records: [record], drafts: [])
-            let safeID = record.id.filter { $0.isLetter || $0.isNumber }.prefix(24)
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("NotionPiP-Recovery-\(safeID).md")
-            try Data(markdown.utf8).write(to: url, options: .atomic)
-            NSWorkspace.shared.open(url)
-            captureRecoveryMessage = nil
-        } catch {
-            captureRecoveryMessage = "Could not open the local capture export."
-        }
     }
 }
 

@@ -10,11 +10,6 @@ struct GlobalShortcut: Codable, Equatable, Hashable, Sendable {
         modifiers: UInt32(cmdKey | shiftKey)
     )
 
-    static let defaultQuickCapture = GlobalShortcut(
-        keyCode: UInt32(kVK_ANSI_N),
-        modifiers: UInt32(cmdKey | shiftKey)
-    )
-
     private static let supportedModifierFlags = UInt32(cmdKey | shiftKey | optionKey | controlKey)
 
     var isValid: Bool {
@@ -75,26 +70,6 @@ final class GlobalShortcutStore {
     }
 }
 
-final class QuickCaptureShortcutStore {
-    static let key = "quickCaptureShortcut"
-    private let defaults: UserDefaults
-
-    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
-
-    func load() -> GlobalShortcut {
-        guard let data = defaults.data(forKey: Self.key),
-              let shortcut = try? JSONDecoder().decode(GlobalShortcut.self, from: data),
-              shortcut.isValid
-        else { return .defaultQuickCapture }
-        return shortcut
-    }
-
-    func save(_ shortcut: GlobalShortcut) {
-        guard shortcut.isValid, let data = try? JSONEncoder().encode(shortcut) else { return }
-        defaults.set(data, forKey: Self.key)
-    }
-}
-
 struct HoldToPeekPreferenceStore {
     static let key = "holdToPeekEnabled"
 
@@ -112,16 +87,4 @@ struct HoldToPeekPreferenceStore {
     func save(_ isEnabled: Bool) {
         defaults.set(isEnabled, forKey: Self.key)
     }
-}
-
-final class TrustedCapturePreferenceStore {
-    static let prefillKey = "quickCapturePrefillsClipboard"
-    static let insertAtCursorKey = "quickCaptureInsertsAtNotionCursor"
-    private let defaults: UserDefaults
-
-    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
-    var prefillsClipboard: Bool { defaults.bool(forKey: Self.prefillKey) }
-    var insertsAtNotionCursor: Bool { defaults.bool(forKey: Self.insertAtCursorKey) }
-    func setPrefillsClipboard(_ value: Bool) { defaults.set(value, forKey: Self.prefillKey) }
-    func setInsertsAtNotionCursor(_ value: Bool) { defaults.set(value, forKey: Self.insertAtCursorKey) }
 }

@@ -5,34 +5,29 @@ import XCTest
 
 @MainActor
 final class ShortcutRecoveryRuntimeTests: XCTestCase {
-    func testLifecycleRecoveryRevalidatesBothShortcutsAndClearsHealth() throws {
+    func testLifecycleRecoveryRevalidatesShortcutAndClearsHealth() throws {
         let harness = try makeHarness(
-            initialHealth: ServiceHealthState(issues: [
-                .globalShortcutUnavailable,
-                .quickCaptureShortcutUnavailable,
-            ])
+            initialHealth: ServiceHealthState(issues: [.globalShortcutUnavailable])
         )
         harness.runtime.start()
         harness.runtime.reportServiceIssue(.globalShortcutUnavailable)
-        harness.runtime.reportServiceIssue(.quickCaptureShortcutUnavailable)
 
         harness.postLifecycleEvent()
         harness.scheduler.runNextActive()
 
-        XCTAssertEqual(harness.panelRegistrar.revalidationCount, 1)
-        XCTAssertEqual(harness.captureRegistrar.revalidationCount, 1)
+        XCTAssertEqual(harness.registrar.revalidationCount, 1)
         XCTAssertTrue(harness.runtime.serviceHealth.isHealthy)
     }
 
     func testPersistentConflictReportsHealthWithoutRetrying() throws {
         let harness = try makeHarness()
-        harness.panelRegistrar.revalidationResults = [.failure(.conflict)]
+        harness.registrar.revalidationResults = [.failure(.conflict)]
         harness.runtime.start()
 
         harness.postLifecycleEvent()
         harness.scheduler.runNextActive()
 
-        XCTAssertEqual(harness.panelRegistrar.revalidationCount, 1)
+        XCTAssertEqual(harness.registrar.revalidationCount, 1)
         XCTAssertTrue(
             harness.runtime.serviceHealth.issues.contains(.globalShortcutUnavailable)
         )
@@ -41,7 +36,7 @@ final class ShortcutRecoveryRuntimeTests: XCTestCase {
 
     func testTransientFailureRetriesOnceAndClearsHealthAfterSuccess() throws {
         let harness = try makeHarness()
-        harness.panelRegistrar.revalidationResults = [
+        harness.registrar.revalidationResults = [
             .failure(.transient),
             .success(()),
         ]
@@ -53,29 +48,11 @@ final class ShortcutRecoveryRuntimeTests: XCTestCase {
 
         harness.scheduler.runNextActive()
 
-        XCTAssertEqual(harness.panelRegistrar.revalidationCount, 2)
+        XCTAssertEqual(harness.registrar.revalidationCount, 2)
         XCTAssertFalse(
             harness.runtime.serviceHealth.issues.contains(.globalShortcutUnavailable)
         )
         XCTAssertEqual(harness.scheduler.activeCount, 0)
-    }
-
-    func testQuickCaptureOnlyFailureDoesNotForceMenuBarFallback() throws {
-        let harness = try makeHarness(savedMenuBarVisibility: false)
-        harness.captureRegistrar.revalidationResults = [.failure(.conflict)]
-        harness.runtime.start()
-
-        harness.postLifecycleEvent()
-        harness.scheduler.runNextActive()
-
-        XCTAssertFalse(
-            harness.runtime.serviceHealth.issues.contains(.globalShortcutUnavailable)
-        )
-        XCTAssertTrue(
-            harness.runtime.serviceHealth.issues.contains(.quickCaptureShortcutUnavailable)
-        )
-        XCTAssertFalse(harness.runtime.effectiveMenuBarIconVisibility)
-        XCTAssertFalse(harness.runtime.isMenuBarIconVisibilityForced)
     }
 
     func testSettingsChangeInvalidatesPendingLifecycleRecovery() throws {
@@ -92,41 +69,19 @@ final class ShortcutRecoveryRuntimeTests: XCTestCase {
         staleRecovery.runEvenIfCancelled()
 
         XCTAssertEqual(harness.runtime.globalShortcut, replacement)
-        XCTAssertEqual(harness.panelRegistrar.revalidationCount, 0)
-        XCTAssertEqual(harness.captureRegistrar.revalidationCount, 0)
+        XCTAssertEqual(harness.registrar.revalidationCount, 0)
     }
 
-    func testFailedSettingsRegistrationLeavesBothSurfacesAndStoresUnchanged() throws {
-        let harness = try makeHarness()
+    func testGlobalShortcutFailureForcesMenuBarFallback() throws {
+        let harness = try makeHarness(savedMenuBarVisibility: false)
+        harness.registrar.revalidationResults = [.failure(.conflict)]
         harness.runtime.start()
-        let replacement = GlobalShortcut(
-            keyCode: UInt32(kVK_ANSI_C),
-            modifiers: UInt32(cmdKey | optionKey)
-        )
-        harness.captureRegistrar.failingRegistrations.insert(replacement)
 
-        XCTAssertFalse(harness.runtime.applyQuickCaptureShortcut(replacement))
+        harness.postLifecycleEvent()
+        harness.scheduler.runNextActive()
 
-        XCTAssertEqual(harness.runtime.globalShortcut, .default)
-        XCTAssertEqual(harness.runtime.quickCaptureShortcut, .defaultQuickCapture)
-        XCTAssertEqual(harness.panelStore.load(), .default)
-        XCTAssertEqual(harness.captureStore.load(), .defaultQuickCapture)
-    }
-
-    func testDuplicateChordIsRejectedWithoutRegistrationOrPersistence() throws {
-        let harness = try makeHarness()
-        harness.runtime.start()
-        let registrationCount = harness.captureRegistrar.registeredShortcuts.count
-
-        XCTAssertFalse(harness.runtime.applyQuickCaptureShortcut(.default))
-
-        XCTAssertEqual(
-            harness.captureRegistrar.registeredShortcuts.count,
-            registrationCount
-        )
-        XCTAssertEqual(harness.runtime.globalShortcut, .default)
-        XCTAssertEqual(harness.runtime.quickCaptureShortcut, .defaultQuickCapture)
-        XCTAssertEqual(harness.captureStore.load(), .defaultQuickCapture)
+        XCTAssertTrue(harness.runtime.effectiveMenuBarIconVisibility)
+        XCTAssertTrue(harness.runtime.isMenuBarIconVisibilityForced)
     }
 
     func testRuntimeTeardownRemovesLifecycleObservers() throws {
@@ -156,10 +111,8 @@ final class ShortcutRecoveryRuntimeTests: XCTestCase {
 private final class ShortcutRecoveryRuntimeHarness {
     let center = NotificationCenter()
     let scheduler = RuntimeRecoverySchedulerSpy()
-    let panelRegistrar = LifecycleShortcutRegistrarSpy()
-    let captureRegistrar = LifecycleShortcutRegistrarSpy()
-    let panelStore: GlobalShortcutStore
-    let captureStore: QuickCaptureShortcutStore
+    let registrar = LifecycleShortcutRegistrarSpy()
+    let shortcutStore: GlobalShortcutStore
     private(set) var runtime: AppRuntime!
 
     init(
@@ -169,16 +122,13 @@ private final class ShortcutRecoveryRuntimeHarness {
         let suiteName = "ShortcutRecoveryRuntimeTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
-        panelStore = GlobalShortcutStore(defaults: defaults)
-        captureStore = QuickCaptureShortcutStore(defaults: defaults)
+        shortcutStore = GlobalShortcutStore(defaults: defaults)
         let menuStore = MenuBarIconPreferenceStore(defaults: defaults)
         menuStore.save(savedMenuBarVisibility)
         runtime = AppRuntime(
             panelCoordinator: RuntimePanelCoordinator(),
-            shortcutRegistrar: panelRegistrar,
-            shortcutStore: panelStore,
-            quickCaptureShortcutRegistrar: captureRegistrar,
-            quickCaptureShortcutStore: captureStore,
+            shortcutRegistrar: registrar,
+            shortcutStore: shortcutStore,
             menuBarIconPreferenceStore: menuStore,
             credentialVault: PersonalTokenCredentialVault(
                 store: ShortcutRecoverySecretStore()
@@ -212,7 +162,6 @@ private extension Notification.Name {
 
 @MainActor
 private final class LifecycleShortcutRegistrarSpy: GlobalShortcutRegistering {
-    var failingRegistrations: Set<GlobalShortcut> = []
     var revalidationResults: [Result<Void, GlobalShortcutRegistrationFailure>] = []
     private(set) var registeredShortcuts: [GlobalShortcut] = []
     private(set) var revalidationCount = 0
@@ -221,9 +170,6 @@ private final class LifecycleShortcutRegistrarSpy: GlobalShortcutRegistering {
         shortcut: GlobalShortcut,
         handler: @escaping @MainActor () -> Void
     ) throws {
-        guard !failingRegistrations.contains(shortcut) else {
-            throw GlobalShortcutRegistrationFailure.conflict
-        }
         registeredShortcuts.append(shortcut)
     }
 

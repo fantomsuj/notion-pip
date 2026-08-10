@@ -2,7 +2,6 @@ import SwiftUI
 
 struct OnboardingView: View {
     let globalShortcut: GlobalShortcut
-    let quickCaptureShortcut: GlobalShortcut
     let onComplete: @MainActor () -> Void
     let onOpenSettings: @MainActor () -> Void
 
@@ -150,10 +149,7 @@ struct OnboardingView: View {
         case .appMenu:
             AppMenuArtwork(globalShortcut: globalShortcut)
         case .shortcuts:
-            ShortcutsArtwork(
-                globalShortcut: globalShortcut,
-                quickCaptureShortcut: quickCaptureShortcut
-            )
+            ShortcutsArtwork(globalShortcut: globalShortcut)
         }
     }
 }
@@ -209,9 +205,9 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
         case .pinPage:
             "Paste a Notion page link in Settings to pin it. The page keeps its navigation and session as you move between other apps."
         case .appMenu:
-            "Click the Notion PiP icon in the menu bar for Show, Stash, Quick Capture, Settings, and this guide. The ellipsis inside the panel opens the same app commands."
+            "Click the Notion PiP icon in the menu bar for Show, Stash, New Notion Page, Settings, and this guide. The ellipsis inside the panel opens the same app commands."
         case .shortcuts:
-            "Use the global shortcuts from any app. You can change both shortcuts—and whether the menu-bar icon is visible—in Settings."
+            "Use the global shortcut from any app. You can change it—and whether the menu-bar icon is visible—in Settings."
         }
     }
 
@@ -348,7 +344,7 @@ private struct AppMenuArtwork: View {
             VStack(alignment: .leading, spacing: 0) {
                 MenuPreviewRow(title: "Show Notion PiP", shortcut: globalShortcut.displayString)
                 Divider()
-                MenuPreviewRow(title: "Quick Capture", shortcut: "⌘N")
+                MenuPreviewRow(title: "New Notion Page", shortcut: "⌘N")
                 Divider()
                 MenuPreviewRow(title: "Settings…", shortcut: "⌘,")
                 MenuPreviewRow(title: "Getting Started…")
@@ -388,21 +384,13 @@ private struct MenuPreviewRow: View {
 
 private struct ShortcutsArtwork: View {
     let globalShortcut: GlobalShortcut
-    let quickCaptureShortcut: GlobalShortcut
 
     var body: some View {
-        VStack(spacing: DesignTokens.Spacing.section) {
-            ShortcutRow(
-                title: "Show or hide the panel",
-                detail: "Press and hold to peek",
-                shortcut: globalShortcut.displayString
-            )
-            ShortcutRow(
-                title: "Open Quick Capture",
-                detail: "Save a thought without losing your place",
-                shortcut: quickCaptureShortcut.displayString
-            )
-        }
+        ShortcutRow(
+            title: "Show or hide the panel",
+            detail: "Press and hold to peek",
+            shortcut: globalShortcut.displayString
+        )
         .frame(maxWidth: 440)
     }
 }
