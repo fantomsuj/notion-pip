@@ -122,7 +122,7 @@ layer. Later lectures unpack each path.
 | Floating notebook | An editable Notion page in a floating, all-Spaces panel | [`WindowRolePolicy.swift`](../../Sources/NotionPiP/Platform/WindowRolePolicy.swift), [`PiPChromeView.swift`](../../Sources/NotionPiP/Views/PiPChromeView.swift) |
 | Page entry | A validated Notion page URL can be entered; an allowlisted external handoff can activate a page | [`AppRuntime+Activation.swift`](../../Sources/NotionPiP/App/AppRuntime+Activation.swift), [handoff protocol](../HANDOFF_PROTOCOL.md) |
 | Page switcher | Up to seven favorites and seven nonfavorite recent pages, with local subsequence search, keyboard selection, and an explicit pin/unpin control | [`PageWorkingSetPolicy.swift`](../../Sources/NotionPiP/Domain/PageWorkingSetPolicy.swift), [`PageSwitcherView.swift`](../../Sources/NotionPiP/Views/PageSwitcherView.swift) |
-| Edge stash | The full panel gives way to a slim handle on the nearest edge; restoring returns the retained panel | [`PiPPanelCoordinator.swift`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift), [`PanelStashPolicy.swift`](../../Sources/NotionPiP/Platform/PanelStashPolicy.swift) |
+| Edge stash | The full panel gives way to a slim handle on the nearest edge; a contextual recent-pages shelf can extend inward while the PiP remains retained | [`PiPPanelCoordinator.swift`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift), [`PiPStashHandleController.swift`](../../Sources/NotionPiP/Platform/PiPStashHandleController.swift) |
 | Panel size | Built-in and custom presets resize the retained panel without intentionally reloading Notion | [`PanelSizeController.swift`](../../Sources/NotionPiP/App/PanelSizeController.swift), [`PanelSizeSettingsView.swift`](../../Sources/NotionPiP/Views/PanelSizeSettingsView.swift) |
 | Quick Capture | The `+` control or capture command opens a focused local editor whose draft is saved before delivery | [`AppCommandModel.swift`](../../Sources/NotionPiP/App/AppCommandModel.swift), [`QuickCaptureView.swift`](../../Sources/NotionPiP/Views/QuickCaptureView.swift) |
 | Optional Notion API access | Settings accepts a personal token for destination search and delivery; the token stays in Keychain and never enters the live Notion view | [`SettingsView.swift`](../../Sources/NotionPiP/Views/SettingsView.swift), [`PersonalTokenCredentialVault.swift`](../../Sources/NotionPiP/Platform/PersonalTokenCredentialVault.swift) |
@@ -184,10 +184,15 @@ untrusted metadata; URL validation, not the source label, grants entry.
 2. Stashing records the logical panel frame, chooses the nearest edge, presents
    the handle, notifies the browser lifecycle that the panel hid, and removes
    the full panel from view.
-3. Clicking the handle, choosing **Show Notion PiP**, or tapping the shortcut
+3. Hovering the handle opens a contextual **Recent in PiP** shelf with up to
+   five visit-ordered pages. The shelf is an extension of the handle, not a
+   second persistent PiP: it contains page identity and recency only.
+4. Clicking the handle, choosing **Show Notion PiP**, or tapping the shortcut
    restores the retained panel. Holding the panel shortcut while stashed
    temporarily peeks the panel and stashes it again on release.
-4. Applying a built-in or custom size asks the panel coordinator to resize the
+5. Choosing the current shelf row restores without reloading; choosing another
+   row follows normal page-switcher activation with its saved restoration.
+6. Applying a built-in or custom size asks the panel coordinator to resize the
    existing panel. A stashed panel is restored to apply the size. The saved
    preferred dimensions remain distinct from temporary clamping on a small
    display.
@@ -248,6 +253,7 @@ usually moves inward.
 | Switch pages | Page-switcher popover | `PageSwitcherController`/matcher → runtime activation → WebKit session | Active/recent order and durable restoration are saved |
 | Pin or unpin a favorite | Pin control or accessibility action on a switcher row | `PageSwitcherView` → `PageSwitcherController.setPinned` → page repository | The row moves between pinned favorites and recents; the active page need not change |
 | Stash or restore | Panel control, shortcut, status menu, or handle | Runtime/pin coordinator → `PiPPanelCoordinator` → stash policy and handle controller | Presentation geometry/preferences remain local |
+| Restore a recent stashed page | Contextual handle shelf | Recent visit history → `PiPRecentPagesShelfController` → runtime page-switcher activation → retained panel | The selected visit is recorded; available durable restoration is reused |
 | Apply a size | PiP/status menu or Settings | `PanelSizeController` → panel coordinator | Presets and last explicit working size use local preferences |
 | Press toolbar `+` or choose the app command | PiP control or app command | App command → capture presenter → local editor session → capture repository | A nonempty configured capture enters the outbox, then API delivery |
 | Press the global capture shortcut | Registered shortcut | Runtime reads trusted settings and optional clipboard text → saved-cursor WebKit insertion attempt → capture presenter fallback | Successful insertion edits the live page directly; fallback creates a local draft that may later enter the outbox |
