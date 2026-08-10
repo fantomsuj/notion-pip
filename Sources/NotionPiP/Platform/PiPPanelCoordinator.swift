@@ -200,9 +200,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
         onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in },
+        stashHandle: (any PiPStashHandle)? = nil,
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
-        let stashHandle = PiPStashHandleController()
+        let stashHandle = stashHandle ?? PiPStashHandleController()
         let quickCopyController = quickCopyController ?? QuickCopyController(
             monitor: AccessibilitySelectionMonitor(),
             target: webSession

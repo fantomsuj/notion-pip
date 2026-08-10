@@ -92,6 +92,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     private(set) var globalShortcutActionCount = 0
     private(set) var shortcutShowCount = 0
     private(set) var immediateStashCount = 0
+    private(set) var lastRestoration: DurablePageRestoration?
 
     var presentationState: PiPPresentationState {
         guard currentPage != nil else { return .unavailable }
@@ -99,8 +100,13 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     }
 
     func show(page: NotionPageReference) {
+        show(page: page, restoration: nil)
+    }
+
+    func show(page: NotionPageReference, restoration: DurablePageRestoration?) {
         currentPage = page
         shownPages.append(page)
+        lastRestoration = restoration
         isVisible = true
         isStashed = false
     }
@@ -113,8 +119,13 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     }
 
     func replace(page: NotionPageReference) {
+        replace(page: page, restoration: nil)
+    }
+
+    func replace(page: NotionPageReference, restoration: DurablePageRestoration?) {
         currentPage = page
         replacedPages.append(page)
+        lastRestoration = restoration
         isVisible = true
         isStashed = false
     }

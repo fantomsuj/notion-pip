@@ -4,6 +4,32 @@ import XCTest
 
 @MainActor
 final class RuntimeActivationAndMenuBarTests: XCTestCase {
+    func testRecentShelfSelectionUsesRestorationAndUnifiedActivationPath() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let page = try makePage(id: secondPageID, title: "Design-system")
+        let restoration = try DurablePageRestoration(
+            pageID: page.pageID,
+            validatingLastURL: page.canonicalURL,
+            scrollX: 0,
+            scrollY: 620,
+            scrollProgress: 0.62,
+            updatedAt: Date(timeIntervalSince1970: 10_000)
+        )
+
+        runtime.activate(
+            page: page,
+            source: .pageSwitcher,
+            restoration: restoration
+        )
+        try await repository.waitUntilSaveCount(1)
+
+        XCTAssertEqual(panel.currentPage, page)
+        XCTAssertEqual(panel.lastRestoration, restoration)
+        XCTAssertEqual(runtime.lastActivationSource, .pageSwitcher)
+    }
+
     func testPageSwitcherActivationUsesUnifiedRuntimePathAndSource() async throws {
         let panel = RuntimePanelCoordinator()
         let repository = RuntimePinnedPageRepository()

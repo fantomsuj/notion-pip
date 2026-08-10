@@ -104,6 +104,12 @@ private final class AppComposition {
         )
         let pageSwitcherController = PageSwitcherController(store: pageRepository)
         let pageSwitcherRelay = PageSwitcherSelectionRelay()
+        let recentPagesController = PiPRecentPagesShelfController(store: pageRepository)
+        let recentPageSelectionRelay = PiPRecentPageSelectionRelay()
+        let stashHandle = PiPStashHandleController(
+            recentPagesController: recentPagesController,
+            onSelectRecentPage: recentPageSelectionRelay.perform
+        )
         let quickCopyController = QuickCopyController(
             monitor: AccessibilitySelectionMonitor(),
             target: webSession
@@ -116,7 +122,8 @@ private final class AppComposition {
             onReloadSavedPin: { actionRelay.reloadSavedPin() },
             panelSizeController: panelSizeController,
             panelPositionController: panelPositionController,
-            onPageSwitcherSelection: pageSwitcherRelay.perform
+            onPageSwitcherSelection: pageSwitcherRelay.perform,
+            stashHandle: stashHandle
         )
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
@@ -156,6 +163,13 @@ private final class AppComposition {
                 page: page,
                 source: .pageSwitcher,
                 restoration: restoration
+            )
+        }
+        recentPageSelectionRelay.handler = { [weak runtime] selection in
+            runtime?.activate(
+                page: selection.page,
+                source: .pageSwitcher,
+                restoration: selection.restoration
             )
         }
 
@@ -212,6 +226,15 @@ private final class PageSwitcherSelectionRelay {
     var handler: (PageSwitcherSelection) -> Void = { _ in }
 
     func perform(_ selection: PageSwitcherSelection) {
+        handler(selection)
+    }
+}
+
+@MainActor
+private final class PiPRecentPageSelectionRelay {
+    var handler: (PiPRecentPageSelection) -> Void = { _ in }
+
+    func perform(_ selection: PiPRecentPageSelection) {
         handler(selection)
     }
 }
