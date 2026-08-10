@@ -173,8 +173,7 @@ final class GlobalShortcutTests: XCTestCase {
         AppRuntime(
             panelCoordinator: ShortcutTestPanelCoordinator(),
             shortcutRegistrar: registrar,
-            shortcutStore: GlobalShortcutStore(defaults: defaults),
-            credentialVault: PersonalTokenCredentialVault(store: ShortcutTestSecretStore())
+            shortcutStore: GlobalShortcutStore(defaults: defaults)
         )
     }
 
@@ -249,10 +248,4 @@ private final class ShortcutTestPanelCoordinator: PiPPanelCoordinating {
     func replace(page: NotionPageReference) {}
     func showCurrentPage() -> Bool { false }
     func stashOrRestoreCurrentPage() -> Bool { false }
-}
-
-private final class ShortcutTestSecretStore: SecretStoring {
-    func read() throws -> Data? { nil }
-    func write(_ data: Data) throws {}
-    func delete() throws {}
 }
