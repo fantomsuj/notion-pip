@@ -70,11 +70,11 @@ Commit only the two Task 1 files with `feat: add quick capture interaction model
 ### Task 2: Notion-like page shell and launch focus
 
 **Files:**
-- Modify: `Sources/NotionPiP/Resources/QuickCapture/index.html`
-- Modify: `Sources/NotionPiP/Resources/QuickCapture/composer.css`
+- Modify: `Sources/Perch/Resources/QuickCapture/index.html`
+- Modify: `Sources/Perch/Resources/QuickCapture/composer.css`
 - Modify: `Web/QuickCaptureEditor/editor.ts`
-- Modify: `Tests/NotionPiPTests/CaptureWebViewIntegrationTests.swift`
-- Modify: `Sources/NotionPiP/Views/QuickCaptureView.swift`
+- Modify: `Tests/PerchTests/CaptureWebViewIntegrationTests.swift`
+- Modify: `Sources/Perch/Views/QuickCaptureView.swift`
 
 **Interfaces:**
 - Consumes: title routing helpers from Task 1.
@@ -117,9 +117,9 @@ Commit the Task 2 files plus generated `editor.js` with `feat: make quick captur
 - Modify: `package-lock.json`
 - Modify: `Web/QuickCaptureEditor/editor.ts`
 - Modify: `Web/QuickCaptureEditor/editor.test.ts`
-- Modify: `Sources/NotionPiP/Resources/QuickCapture/composer.css`
-- Modify: `Sources/NotionPiP/Resources/QuickCapture/editor.js`
-- Modify: `Tests/NotionPiPTests/CaptureWebViewIntegrationTests.swift`
+- Modify: `Sources/Perch/Resources/QuickCapture/composer.css`
+- Modify: `Sources/Perch/Resources/QuickCapture/editor.js`
+- Modify: `Tests/PerchTests/CaptureWebViewIntegrationTests.swift`
 
 **Interfaces:**
 - Consumes: `BLOCK_COMMANDS`, `filterBlockCommands`, overlay key routing.
@@ -160,10 +160,10 @@ Commit Task 3 files with `feat: add quick capture slash commands`.
 **Files:**
 - Modify: `Web/QuickCaptureEditor/editor.ts`
 - Modify: `Web/QuickCaptureEditor/editor.test.ts`
-- Modify: `Sources/NotionPiP/Resources/QuickCapture/index.html`
-- Modify: `Sources/NotionPiP/Resources/QuickCapture/composer.css`
-- Modify: `Sources/NotionPiP/Resources/QuickCapture/editor.js`
-- Modify: `Tests/NotionPiPTests/CaptureWebViewIntegrationTests.swift`
+- Modify: `Sources/Perch/Resources/QuickCapture/index.html`
+- Modify: `Sources/Perch/Resources/QuickCapture/composer.css`
+- Modify: `Sources/Perch/Resources/QuickCapture/editor.js`
+- Modify: `Tests/PerchTests/CaptureWebViewIntegrationTests.swift`
 
 **Interfaces:**
 - Produces: `FormattingCommand`, `formattingState(editor)`, `isLinkPaste(selection, text)`, contextual `#format-toolbar`.
@@ -199,12 +199,12 @@ Commit Task 4 files with `feat: add contextual quick capture formatting`.
 **Files:**
 - Modify: `Web/QuickCaptureEditor/editor.ts`
 - Modify: `Web/QuickCaptureEditor/editor.test.ts`
-- Modify: `Sources/NotionPiP/Resources/QuickCapture/index.html`
-- Modify: `Sources/NotionPiP/Resources/QuickCapture/composer.css`
-- Modify: `Sources/NotionPiP/Resources/QuickCapture/editor.js`
-- Modify: `Sources/NotionPiP/Domain/CaptureExport.swift`
-- Modify: `Tests/NotionPiPTests/CaptureExportTests.swift`
-- Modify: `Tests/NotionPiPTests/CaptureWebViewIntegrationTests.swift`
+- Modify: `Sources/Perch/Resources/QuickCapture/index.html`
+- Modify: `Sources/Perch/Resources/QuickCapture/composer.css`
+- Modify: `Sources/Perch/Resources/QuickCapture/editor.js`
+- Modify: `Sources/Perch/Domain/CaptureExport.swift`
+- Modify: `Tests/PerchTests/CaptureExportTests.swift`
+- Modify: `Tests/PerchTests/CaptureWebViewIntegrationTests.swift`
 
 **Interfaces:**
 - Consumes: existing `EditorTransitionGate` and `stash` bridge request.
@@ -253,7 +253,7 @@ npm ci
 npm test
 npm run typecheck
 npm run build:editor
-git diff --exit-code -- Sources/NotionPiP/Resources/QuickCapture/editor.js
+git diff --exit-code -- Sources/Perch/Resources/QuickCapture/editor.js
 ```
 
 If the generated-file diff exists only because the rebuilt bundle has not yet been committed, inspect it, commit it with the owning task, and rerun the diff check.

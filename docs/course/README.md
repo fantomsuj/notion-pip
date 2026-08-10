@@ -1,4 +1,4 @@
-# Notion PiP Repository Course
+# Perch Repository Course
 
 > **Historical course snapshot:** This course documents earlier product
 > architecture, including Quick Capture and personal-token API access, that is
@@ -12,7 +12,7 @@
 > capture-related links and implementation tours do not describe the current
 > checkout.
 
-This course teaches Notion PiP as a complete system: the product experience,
+This course teaches Perch as a complete system: the product experience,
 the native macOS shell, the embedded Notion session, durable state, Quick
 Capture, delivery, testing, and the workflow for making safe changes. It is
 written for a mixed audience, so each lecture moves from a foundation through
@@ -59,7 +59,7 @@ Helpful, but taught or recapped where needed:
   are not required merely to build a fresh clone and run the app.
 
 No `.env` file, Notion token, signing certificate, or other secret is required
-to build and launch Notion PiP.
+to build and launch Perch.
 
 ## Choose a learning path
 
@@ -155,7 +155,7 @@ Build, stage, ad-hoc sign, launch, and verify the native app with:
 ./script/build_and_run.sh --verify
 ```
 
-The verified development bundle is staged at `dist/NotionPiP.app`. Run the full
+The verified development bundle is staged at `dist/Perch.app`. Run the full
 Swift suite with:
 
 ```sh
@@ -179,16 +179,16 @@ web editor and review the generated diff.
 
 - Inspect `git status --short` before making changes. Preserve unrelated work,
   follow nearby source and test patterns, and stage only the intended files.
-- Save active work and quit Notion PiP before running
+- Save active work and quit Perch before running
   `./script/build_and_run.sh --verify`; the script terminates any running
-  `NotionPiP` process before rebuilding.
+  `Perch` process before rebuilding.
 - A pre-existing `node_modules` directory makes the build script regenerate
   Quick Capture editor assets and therefore requires Node.js and npm. A fresh
   clone uses the checked-in generated assets without Node.
 - Do not change product code, dependencies, generated assets, signing,
   entitlements, or system configuration merely to follow the course.
 - The all-Spaces floating panel and accessory activation policy are intentional.
-  Notion PiP does not appear in the Dock; its menu-bar icon is visible by
+  Perch does not appear in the Dock; its menu-bar icon is visible by
   default and can be hidden.
 - Treat window-server, Spaces, focus, login-session, and Launch Services
   behavior as manual verification. Unit tests do not prove those integrations.

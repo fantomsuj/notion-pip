@@ -2,7 +2,7 @@
 
 ## Goal
 
-Persist the active Notion page across application termination. When Notion PiP launches and a valid page was previously pinned, it automatically restores that page into the existing floating panel and shows the panel.
+Persist the active Notion page across application termination. When Perch launches and a valid page was previously pinned, it automatically restores that page into the existing floating panel and shows the panel.
 
 Durability applies to the canonical pinned page reference. The app does not attempt to serialize transient WebView state such as scroll position, history, or an in-progress navigation. The existing default WebKit data store continues to manage browser cookies and website data independently.
 

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add an always-visible, one-click four-corner position capsule to Notion PiP while preserving the existing hover-revealed toolbar.
+**Goal:** Add an always-visible, one-click four-corner position capsule to Perch while preserving the existing hover-revealed toolbar.
 
 **Architecture:** A pure `PanelCorner` model and `PanelFramePolicy` operations calculate and detect explicit corner placement. A main-actor `PanelPositionController` binds SwiftUI intent and selected state to `PiPPanelCoordinator`, which remains the only owner of panel geometry and persistence. `PiPChromeView` renders a focused persistent capsule separately from the existing transient actions.
 
@@ -20,26 +20,26 @@
 
 ## File Map
 
-- Create `Sources/NotionPiP/Platform/PanelCorner.swift`: corner identity and anchor mapping only.
-- Modify `Sources/NotionPiP/Platform/PanelFramePolicy.swift`: pure explicit-corner placement and detection.
-- Create `Sources/NotionPiP/App/PanelPositionController.swift`: observable UI/controller bridge and narrow `PanelPositioning` protocol.
-- Modify `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift`: execute explicit moves, commit geometry, and publish selected-corner changes.
-- Modify `Sources/NotionPiP/App/NotionPiPApp.swift`: create and inject the position controller.
-- Create `Sources/NotionPiP/Views/PanelCornerControls.swift`: persistent four-button SwiftUI capsule.
-- Modify `Sources/NotionPiP/Views/PiPChromeView.swift`: compose persistent and transient top-control layers.
-- Modify `Tests/NotionPiPTests/PanelFramePolicyTests.swift`: pure placement and detection coverage.
-- Create `Tests/NotionPiPTests/PanelPositionControllerTests.swift`: binding, routing, and selected-state coverage.
-- Modify `Tests/NotionPiPTests/PinCoordinatorTests.swift`: retained-panel movement and geometry persistence coverage.
-- Modify `Tests/NotionPiPTests/PiPChromeViewTests.swift`: stable capsule presentation and accessibility contracts.
+- Create `Sources/Perch/Platform/PanelCorner.swift`: corner identity and anchor mapping only.
+- Modify `Sources/Perch/Platform/PanelFramePolicy.swift`: pure explicit-corner placement and detection.
+- Create `Sources/Perch/App/PanelPositionController.swift`: observable UI/controller bridge and narrow `PanelPositioning` protocol.
+- Modify `Sources/Perch/Platform/PiPPanelCoordinator.swift`: execute explicit moves, commit geometry, and publish selected-corner changes.
+- Modify `Sources/Perch/App/PerchApp.swift`: create and inject the position controller.
+- Create `Sources/Perch/Views/PanelCornerControls.swift`: persistent four-button SwiftUI capsule.
+- Modify `Sources/Perch/Views/PiPChromeView.swift`: compose persistent and transient top-control layers.
+- Modify `Tests/PerchTests/PanelFramePolicyTests.swift`: pure placement and detection coverage.
+- Create `Tests/PerchTests/PanelPositionControllerTests.swift`: binding, routing, and selected-state coverage.
+- Modify `Tests/PerchTests/PinCoordinatorTests.swift`: retained-panel movement and geometry persistence coverage.
+- Modify `Tests/PerchTests/PiPChromeViewTests.swift`: stable capsule presentation and accessibility contracts.
 
 ---
 
 ### Task 1: Explicit Corner Geometry
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/PanelCorner.swift`
-- Modify: `Sources/NotionPiP/Platform/PanelFramePolicy.swift`
-- Test: `Tests/NotionPiPTests/PanelFramePolicyTests.swift`
+- Create: `Sources/Perch/Platform/PanelCorner.swift`
+- Modify: `Sources/Perch/Platform/PanelFramePolicy.swift`
+- Test: `Tests/PerchTests/PanelFramePolicyTests.swift`
 
 **Interfaces:**
 - Consumes: `PanelFrameAnchor`, `PanelFramePlacement`, `PanelFramePolicy.cornerInset`, and `PanelFramePolicy.targetVisibleFrame(for:from:)`.
@@ -161,7 +161,7 @@ Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filt
 Expected: PASS.
 
 ```bash
-git add Sources/NotionPiP/Platform/PanelCorner.swift Sources/NotionPiP/Platform/PanelFramePolicy.swift Tests/NotionPiPTests/PanelFramePolicyTests.swift
+git add Sources/Perch/Platform/PanelCorner.swift Sources/Perch/Platform/PanelFramePolicy.swift Tests/PerchTests/PanelFramePolicyTests.swift
 git commit -m "Add explicit panel corner geometry"
 ```
 
@@ -170,11 +170,11 @@ git commit -m "Add explicit panel corner geometry"
 ### Task 2: Position Controller and Retained Panel Integration
 
 **Files:**
-- Create: `Sources/NotionPiP/App/PanelPositionController.swift`
-- Modify: `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift`
-- Modify: `Sources/NotionPiP/App/NotionPiPApp.swift`
-- Create: `Tests/NotionPiPTests/PanelPositionControllerTests.swift`
-- Modify: `Tests/NotionPiPTests/PinCoordinatorTests.swift`
+- Create: `Sources/Perch/App/PanelPositionController.swift`
+- Modify: `Sources/Perch/Platform/PiPPanelCoordinator.swift`
+- Modify: `Sources/Perch/App/PerchApp.swift`
+- Create: `Tests/PerchTests/PanelPositionControllerTests.swift`
+- Modify: `Tests/PerchTests/PinCoordinatorTests.swift`
 
 **Interfaces:**
 - Consumes: Task 1's `PanelCorner` and `PanelFramePolicy.cornerPlacement`/`corner(for:)` operations.
@@ -281,7 +281,7 @@ Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filt
 Expected: PASS.
 
 ```bash
-git add Sources/NotionPiP/App/PanelPositionController.swift Sources/NotionPiP/App/NotionPiPApp.swift Sources/NotionPiP/Platform/PiPPanelCoordinator.swift Tests/NotionPiPTests/PanelPositionControllerTests.swift Tests/NotionPiPTests/PinCoordinatorTests.swift
+git add Sources/Perch/App/PanelPositionController.swift Sources/Perch/App/PerchApp.swift Sources/Perch/Platform/PiPPanelCoordinator.swift Tests/PerchTests/PanelPositionControllerTests.swift Tests/PerchTests/PinCoordinatorTests.swift
 git commit -m "Add retained panel positioning controls"
 ```
 
@@ -290,10 +290,10 @@ git commit -m "Add retained panel positioning controls"
 ### Task 3: Persistent SwiftUI Corner Capsule
 
 **Files:**
-- Create: `Sources/NotionPiP/Views/PanelCornerControls.swift`
-- Modify: `Sources/NotionPiP/Views/PiPChromeView.swift`
-- Modify: `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift`
-- Test: `Tests/NotionPiPTests/PiPChromeViewTests.swift`
+- Create: `Sources/Perch/Views/PanelCornerControls.swift`
+- Modify: `Sources/Perch/Views/PiPChromeView.swift`
+- Modify: `Sources/Perch/Platform/PiPPanelCoordinator.swift`
+- Test: `Tests/PerchTests/PiPChromeViewTests.swift`
 
 **Interfaces:**
 - Consumes: Task 2's `PanelPositionController` with `selectedCorner`, `canPosition`, and `move(to:)`.
@@ -307,7 +307,7 @@ Assert stable order, exact symbols and labels, minimum hit target, and that pers
 func testCornerControlsExposeStableOneClickDestinations() {
     XCTAssertEqual(PanelCorner.allCases, [.topLeft, .topRight, .bottomLeft, .bottomRight])
     XCTAssertEqual(PanelCorner.topLeft.symbolName, "arrow.up.left")
-    XCTAssertEqual(PanelCorner.topRight.accessibilityLabel, "Move Notion PiP to top right")
+    XCTAssertEqual(PanelCorner.topRight.accessibilityLabel, "Move Perch to top right")
     XCTAssertEqual(PanelCornerControls.minimumHitTarget, 24)
 }
 
@@ -357,7 +357,7 @@ Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filt
 Expected: PASS, including all existing delayed hover behavior tests.
 
 ```bash
-git add Sources/NotionPiP/Views/PanelCornerControls.swift Sources/NotionPiP/Views/PiPChromeView.swift Sources/NotionPiP/Platform/PiPPanelCoordinator.swift Tests/NotionPiPTests/PiPChromeViewTests.swift
+git add Sources/Perch/Views/PanelCornerControls.swift Sources/Perch/Views/PiPChromeView.swift Sources/Perch/Platform/PiPPanelCoordinator.swift Tests/PerchTests/PiPChromeViewTests.swift
 git commit -m "Add persistent corner action capsule"
 ```
 
@@ -370,7 +370,7 @@ git commit -m "Add persistent corner action capsule"
 
 **Interfaces:**
 - Consumes: Tasks 1–3 as an integrated feature.
-- Produces: a verified staged `dist/NotionPiP.app` with persistent one-click corner controls.
+- Produces: a verified staged `dist/Perch.app` with persistent one-click corner controls.
 
 - [ ] **Step 1: Run the complete Swift test suite**
 
@@ -392,11 +392,11 @@ Confirm that no signing, entitlement, WebKit content, persistence schema, or unr
 
 - [ ] **Step 3: Build, stage, launch, and verify the app**
 
-Before running the build script, check `pgrep -x NotionPiP`. If the app is active, preserve the user's work and quit it before invoking the script because the script terminates the process.
+Before running the build script, check `pgrep -x Perch`. If the app is active, preserve the user's work and quit it before invoking the script because the script terminates the process.
 
 Run: `./script/build_and_run.sh --verify`
 
-Expected: output ends with `Verified .../dist/NotionPiP.app` and a live process ID.
+Expected: output ends with `Verified .../dist/Perch.app` and a live process ID.
 
 - [ ] **Step 4: Perform the focused manual interaction check**
 
@@ -407,6 +407,6 @@ Confirm the four-button capsule is visible before hover; each corner action move
 If Tasks 1–3 already produced a clean tree, do not create an empty commit. Otherwise stage only in-scope fixes and tests:
 
 ```bash
-git add Sources/NotionPiP Tests/NotionPiPTests
+git add Sources/Perch Tests/PerchTests
 git commit -m "Polish persistent corner actions"
 ```

@@ -1,6 +1,6 @@
 # External Beta Readiness
 
-This checklist defines the minimum bar for giving Notion PiP 0.1 to people outside the development team. It intentionally separates repository readiness from Developer ID signing and notarization, which belong in the distribution PR.
+This checklist defines the minimum bar for giving Perch 0.1 to people outside the development team. It intentionally separates repository readiness from Developer ID signing and notarization, which belong in the distribution PR.
 
 ## Release gate
 
@@ -36,7 +36,7 @@ Record full observations in [the complete manual test matrix](MANUAL_TEST_MATRIX
 
 ## Tester handoff
 
-Ask each beta tester to use Notion PiP during a normal workday and complete three jobs:
+Ask each beta tester to use Perch during a normal workday and complete three jobs:
 
 1. Pin the Notion page they use most.
 2. Stash and restore the panel at least five times while editing.
@@ -47,7 +47,7 @@ Collect whether they could install and sign in unaided, understood pin/stash/new
 ## Launch at Login development limitation
 
 The repository build can validate the public ServiceManagement flow only from
-`dist/NotionPiP.app`; a bare SwiftPM executable has no app-bundle registration
+`dist/Perch.app`; a bare SwiftPM executable has no app-bundle registration
 identity. The staged app is deleted, recreated, and ad-hoc signed on each build,
 which can cause macOS to request approval again or leave a stale Login Items
 entry. Treat that as development feedback, not release evidence. The beta gate

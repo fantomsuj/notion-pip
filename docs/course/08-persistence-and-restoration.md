@@ -4,7 +4,7 @@
 > repository tour, 15 minutes runtime trace, 15 minutes deep dive, 5 minutes
 > knowledge check, and 10 minutes exercise)
 
-Notion PiP persists two kinds of continuity: the page working set that brings
+Perch persists two kinds of continuity: the page working set that brings
 the user's context back, and the Quick Capture records that prevent an edit or
 delivery attempt from disappearing. Both use one versioned SwiftData
 container, but their repositories enforce different invariants. A small set of
@@ -22,7 +22,7 @@ working file differs, inspect the taught baseline with
 
 By the end of this lecture, you will be able to:
 
-1. explain how `NotionPiPPersistence` opens the current V3 schema and applies
+1. explain how `PerchPersistence` opens the current V3 schema and applies
    the V1→V2→V3 migration plan;
 2. map every SwiftData model to its repository-owned snapshot and lifecycle;
 3. explain why `@ModelActor`, a private `ModelContext`, explicit save, and
@@ -84,8 +84,8 @@ SwiftData maps annotated Swift reference types to durable records:
 - `@ModelActor` gives a repository a serial executor associated with its model
   context.
 
-Notion PiP opens a `Schema` for `NotionPiPSchemaV3` through
-[`NotionPiPPersistence.swift`](../../Sources/NotionPiP/Persistence/NotionPiPPersistence.swift).
+Perch opens a `Schema` for `PerchSchemaV3` through
+[`PerchPersistence.swift`](../../Sources/Perch/Persistence/PerchPersistence.swift).
 Production uses SwiftData's normal local store location unless a test supplies
 an explicit URL. Tests may request an in-memory-only configuration. CloudKit
 is explicitly `.none` in every path.
@@ -145,22 +145,22 @@ Every committed Persistence basename appears below.
 
 | File | Owns | Key invariants and consumers | Focused evidence |
 |---|---|---|---|
-| [`ActivePageModel.swift`](../../Sources/NotionPiP/Persistence/ActivePageModel.swift) | Singleton-like current page row | Unique `stableID` defaults to `active`; page ID, canonical URL, title, update time | [`PageRepositoryTests.swift`](../../Tests/NotionPiPTests/PageRepositoryTests.swift), [`SchemaMigrationTests.swift`](../../Tests/NotionPiPTests/SchemaMigrationTests.swift) |
-| [`CaptureDraftModel.swift`](../../Sources/NotionPiP/Persistence/CaptureDraftModel.swift) | Mutable editor draft row | Unique ID, optimistic revision, canonical editor/source JSON, raw disposition, record/return-draft links | [`CaptureRepositoryTests.swift`](../../Tests/NotionPiPTests/CaptureRepositoryTests.swift) |
-| [`CaptureRecordModel.swift`](../../Sources/NotionPiP/Persistence/CaptureRecordModel.swift) | Durable delivery outbox row | Enqueued revision, destination/state raw values, scheduling timestamps, safe error, journal, remote identity | capture, delivery, scheduler, and retention tests |
-| [`CaptureRepository.swift`](../../Sources/NotionPiP/Persistence/CaptureRepository.swift) | Draft and outbox model actor | Revision checks, explicit draft transitions, enqueue reconciliation, atomic claim, recovery, delivery writes, journals, retention, rollback | [`CaptureRepositoryTests.swift`](../../Tests/NotionPiPTests/CaptureRepositoryTests.swift), [`DeliverySchedulerTests.swift`](../../Tests/NotionPiPTests/DeliverySchedulerTests.swift), [`RetentionPolicyTests.swift`](../../Tests/NotionPiPTests/RetentionPolicyTests.swift) |
-| [`NotionPiPPersistence.swift`](../../Sources/NotionPiP/Persistence/NotionPiPPersistence.swift) | Container factory | Current V3 schema, migration plan, disk/explicit-URL/in-memory configurations, no CloudKit | migration and shared-container tests |
-| [`NotionPiPSchema.swift`](../../Sources/NotionPiP/Persistence/NotionPiPSchema.swift) | V1/V2/V3 schemas and migration stages | Ordered lightweight migration path | [`SchemaMigrationTests.swift`](../../Tests/NotionPiPTests/SchemaMigrationTests.swift) |
-| [`PageRepository.swift`](../../Sources/NotionPiP/Persistence/PageRepository.swift) | Page working-set model actor and `StoredPageSnapshot` | Validated URL/page-ID match, seven pins, seven unpinned recents, active page, restoration pruning, rollback | [`PageRepositoryTests.swift`](../../Tests/NotionPiPTests/PageRepositoryTests.swift) |
-| [`PageRestorationModel.swift`](../../Sources/NotionPiP/Persistence/PageRestorationModel.swift) | Per-page durable URL/scroll row | Repository deduplicates by canonical page ID and deletes invalid/out-of-working-set rows | page repository and WebKit restoration tests |
-| [`PageWorkingSetStore.swift`](../../Sources/NotionPiP/Persistence/PageWorkingSetStore.swift) | `PageWorkingSetPersisting` port and in-memory actor | Shared async API; in-memory adapter applies the same pure policy but does not survive launch | page-switcher and runtime tests |
-| [`PanelSizePreferencesStore.swift`](../../Sources/NotionPiP/Persistence/PanelSizePreferencesStore.swift) | Versioned panel preferences in `UserDefaults` | Missing value returns `nil` for legacy frame authority; corrupt/unsupported value returns safe defaults | [`PanelSizePreferencesStoreTests.swift`](../../Tests/NotionPiPTests/PanelSizePreferencesStoreTests.swift) |
-| [`PinnedPageModel.swift`](../../Sources/NotionPiP/Persistence/PinnedPageModel.swift) | Favorite-page row | Unique canonical page ID plus URL, title, pin time | page repository and migration tests |
-| [`QuickCaptureDestinationRepository.swift`](../../Sources/NotionPiP/Persistence/QuickCaptureDestinationRepository.swift) | Selected destination model actor and protocol | Saves/replaces/clears one stable destination; removes extras; save-or-rollback | [`QuickCaptureDestinationRepositoryTests.swift`](../../Tests/NotionPiPTests/QuickCaptureDestinationRepositoryTests.swift) |
-| [`QuickCaptureSettingsModel.swift`](../../Sources/NotionPiP/Persistence/QuickCaptureSettingsModel.swift) | Default Quick Capture destination row | Unique `default` ID, destination kind/ID, display title, update time; no token or content | destination repository and migration tests |
-| [`RecentPageModel.swift`](../../Sources/NotionPiP/Persistence/RecentPageModel.swift) | Visited-page row | Unique canonical page ID plus URL, title, visit time; pinned pages are excluded in returned recents | page repository tests |
+| [`ActivePageModel.swift`](../../Sources/Perch/Persistence/ActivePageModel.swift) | Singleton-like current page row | Unique `stableID` defaults to `active`; page ID, canonical URL, title, update time | [`PageRepositoryTests.swift`](../../Tests/PerchTests/PageRepositoryTests.swift), [`SchemaMigrationTests.swift`](../../Tests/PerchTests/SchemaMigrationTests.swift) |
+| [`CaptureDraftModel.swift`](../../Sources/Perch/Persistence/CaptureDraftModel.swift) | Mutable editor draft row | Unique ID, optimistic revision, canonical editor/source JSON, raw disposition, record/return-draft links | [`CaptureRepositoryTests.swift`](../../Tests/PerchTests/CaptureRepositoryTests.swift) |
+| [`CaptureRecordModel.swift`](../../Sources/Perch/Persistence/CaptureRecordModel.swift) | Durable delivery outbox row | Enqueued revision, destination/state raw values, scheduling timestamps, safe error, journal, remote identity | capture, delivery, scheduler, and retention tests |
+| [`CaptureRepository.swift`](../../Sources/Perch/Persistence/CaptureRepository.swift) | Draft and outbox model actor | Revision checks, explicit draft transitions, enqueue reconciliation, atomic claim, recovery, delivery writes, journals, retention, rollback | [`CaptureRepositoryTests.swift`](../../Tests/PerchTests/CaptureRepositoryTests.swift), [`DeliverySchedulerTests.swift`](../../Tests/PerchTests/DeliverySchedulerTests.swift), [`RetentionPolicyTests.swift`](../../Tests/PerchTests/RetentionPolicyTests.swift) |
+| [`PerchPersistence.swift`](../../Sources/Perch/Persistence/PerchPersistence.swift) | Container factory | Current V3 schema, migration plan, disk/explicit-URL/in-memory configurations, no CloudKit | migration and shared-container tests |
+| [`PerchSchema.swift`](../../Sources/Perch/Persistence/PerchSchema.swift) | V1/V2/V3 schemas and migration stages | Ordered lightweight migration path | [`SchemaMigrationTests.swift`](../../Tests/PerchTests/SchemaMigrationTests.swift) |
+| [`PageRepository.swift`](../../Sources/Perch/Persistence/PageRepository.swift) | Page working-set model actor and `StoredPageSnapshot` | Validated URL/page-ID match, seven pins, seven unpinned recents, active page, restoration pruning, rollback | [`PageRepositoryTests.swift`](../../Tests/PerchTests/PageRepositoryTests.swift) |
+| [`PageRestorationModel.swift`](../../Sources/Perch/Persistence/PageRestorationModel.swift) | Per-page durable URL/scroll row | Repository deduplicates by canonical page ID and deletes invalid/out-of-working-set rows | page repository and WebKit restoration tests |
+| [`PageWorkingSetStore.swift`](../../Sources/Perch/Persistence/PageWorkingSetStore.swift) | `PageWorkingSetPersisting` port and in-memory actor | Shared async API; in-memory adapter applies the same pure policy but does not survive launch | page-switcher and runtime tests |
+| [`PanelSizePreferencesStore.swift`](../../Sources/Perch/Persistence/PanelSizePreferencesStore.swift) | Versioned panel preferences in `UserDefaults` | Missing value returns `nil` for legacy frame authority; corrupt/unsupported value returns safe defaults | [`PanelSizePreferencesStoreTests.swift`](../../Tests/PerchTests/PanelSizePreferencesStoreTests.swift) |
+| [`PinnedPageModel.swift`](../../Sources/Perch/Persistence/PinnedPageModel.swift) | Favorite-page row | Unique canonical page ID plus URL, title, pin time | page repository and migration tests |
+| [`QuickCaptureDestinationRepository.swift`](../../Sources/Perch/Persistence/QuickCaptureDestinationRepository.swift) | Selected destination model actor and protocol | Saves/replaces/clears one stable destination; removes extras; save-or-rollback | [`QuickCaptureDestinationRepositoryTests.swift`](../../Tests/PerchTests/QuickCaptureDestinationRepositoryTests.swift) |
+| [`QuickCaptureSettingsModel.swift`](../../Sources/Perch/Persistence/QuickCaptureSettingsModel.swift) | Default Quick Capture destination row | Unique `default` ID, destination kind/ID, display title, update time; no token or content | destination repository and migration tests |
+| [`RecentPageModel.swift`](../../Sources/Perch/Persistence/RecentPageModel.swift) | Visited-page row | Unique canonical page ID plus URL, title, visit time; pinned pages are excluded in returned recents | page repository tests |
 
-[`RepositoryModelActorTests.swift`](../../Tests/NotionPiPTests/RepositoryModelActorTests.swift)
+[`RepositoryModelActorTests.swift`](../../Tests/PerchTests/RepositoryModelActorTests.swift)
 provides a compile-time generic check that the page and capture repositories
 conform to `ModelActor`; the destination repository is also declared
 `@ModelActor` in committed source.
@@ -233,7 +233,7 @@ sequence.
 
 ### Trace 1: open the shared container or degrade
 
-1. `AppComposition` calls `NotionPiPPersistence.makeContainer()` once.
+1. `AppComposition` calls `PerchPersistence.makeContainer()` once.
 2. The factory selects V3, the ordered migration plan, local storage, and no
    CloudKit.
 3. On success, composition creates `PageRepository`, `CaptureRepository`, and
@@ -331,7 +331,7 @@ A lightweight schema migration can add optional/new model tables without
 inventing product meaning. Choosing the active page from legacy pins is product
 policy, so `PageRepository.bootstrapActivePageIfNeeded` performs it when the
 V3 working set is first read. This split keeps schema mechanics in
-`NotionPiPMigrationPlan` and page semantics in the page repository. It also
+`PerchMigrationPlan` and page semantics in the page repository. It also
 means a migration test must read through the repository, not merely assert that
 the container opened.
 
@@ -430,8 +430,8 @@ a copy.
 
 ### Code-tour cues
 
-1. Start with `NotionPiPPersistence.makeContainer`, then compare the three
-   versioned model lists in `NotionPiPSchema.swift`.
+1. Start with `PerchPersistence.makeContainer`, then compare the three
+   versioned model lists in `PerchSchema.swift`.
 2. Open each repository initializer side by side: point out the shared
    container, separate context, disabled autosave, and serial executor.
 3. In `PageRepository.recordVisit`, highlight explicit save/rollback and the
@@ -544,8 +544,8 @@ Write down:
 
 ## Recap
 
-Notion PiP's durable state is one versioned SwiftData graph with explicit
-ownership. `NotionPiPPersistence` opens V3 and its lightweight migration path;
+Perch's durable state is one versioned SwiftData graph with explicit
+ownership. `PerchPersistence` opens V3 and its lightweight migration path;
 model actors keep context-bound rows inside; page, capture, and destination
 repositories return validated snapshots; explicit save/rollback boundaries
 make compound local mutations reliable; journals and idempotent reconciliation

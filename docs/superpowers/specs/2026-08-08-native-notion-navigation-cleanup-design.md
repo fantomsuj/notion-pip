@@ -8,7 +8,7 @@
 
 ## Goal
 
-Make Notion PiP a focused shell around Notion's native information architecture. Remove the personal-token connection, Quick Capture, delivery, and app-owned page-management systems. Users organize and find pages with Notion Home, Favorites, Recents, Search, Teamspaces, and the native new-page flow. Quick Copy remains as the sole capture helper.
+Make Perch a focused shell around Notion's native information architecture. Remove the personal-token connection, Quick Capture, delivery, and app-owned page-management systems. Users organize and find pages with Notion Home, Favorites, Recents, Search, Teamspaces, and the native new-page flow. Quick Copy remains as the sole capture helper.
 
 ## Decisions
 
@@ -202,7 +202,7 @@ Normal runtime components never reference historical models, token service names
 
 ### SwiftData
 
-Introduce `NotionPiPSchemaV5` with an empty model list and a lightweight V4-to-V5 migration stage. V1 through V4 schemas remain frozen in a migration-only source file so users can upgrade directly from any supported historical store.
+Introduce `PerchSchemaV5` with an empty model list and a lightweight V4-to-V5 migration stage. V1 through V4 schemas remain frozen in a migration-only source file so users can upgrade directly from any supported historical store.
 
 Opening the V5 container performs structural deletion of:
 
@@ -374,7 +374,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 ./script/build_and_run.sh --verify
 ```
 
-Only run the build-and-launch script after confirming that no active NotionPiP process contains unsaved work, because the script terminates the running process.
+Only run the build-and-launch script after confirming that no active Perch process contains unsaved work, because the script terminates the running process.
 
 ## Documentation Changes
 

@@ -6,7 +6,7 @@
 - Pinned commit: `72cd9d194bb4478adbf072188e6388bd9a8f8ab6`
 - License: MIT
 
-The upstream extension is a historical behavioral reference for Notion page URL handling. It is not a source package, binary, submodule, runtime dependency, or statement of current product direction for Notion PiP.
+The upstream extension is a historical behavioral reference for Notion page URL handling. It is not a source package, binary, submodule, runtime dependency, or statement of current product direction for Perch.
 
 ## Reused in this slice
 

@@ -23,13 +23,13 @@
 ### Task 1: Single-current-page persistence boundary
 
 **Files:**
-- Create: `Sources/NotionPiP/Persistence/NotionPiPPersistence.swift`
-- Modify: `Sources/NotionPiP/Persistence/CaptureRepository.swift`
-- Modify: `Sources/NotionPiP/Persistence/PageRepository.swift`
-- Modify: `Tests/NotionPiPTests/PageRepositoryTests.swift`
+- Create: `Sources/Perch/Persistence/PerchPersistence.swift`
+- Modify: `Sources/Perch/Persistence/CaptureRepository.swift`
+- Modify: `Sources/Perch/Persistence/PageRepository.swift`
+- Modify: `Tests/PerchTests/PageRepositoryTests.swift`
 
 **Interfaces:**
-- Produces: `NotionPiPPersistence.makeContainer(storeURL:inMemory:) throws -> ModelContainer`
+- Produces: `PerchPersistence.makeContainer(storeURL:inMemory:) throws -> ModelContainer`
 - Produces: `PinnedPagePersisting.currentPinnedPage() async throws -> StoredPageSnapshot?`
 - Produces: `PinnedPagePersisting.replaceCurrent(with:) async throws -> StoredPageSnapshot`
 - Produces: `CaptureRepository.init(container:clock:beforeHelperFetch:)`
@@ -59,21 +59,21 @@ Run:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter PageRepositoryTests
 ```
 
-Expected: compilation fails because `replaceCurrent(with:)`, `currentPinnedPage()`, and `NotionPiPPersistence` do not exist.
+Expected: compilation fails because `replaceCurrent(with:)`, `currentPinnedPage()`, and `PerchPersistence` do not exist.
 
 - [ ] **Step 3: Add the shared container factory and repository interface**
 
-Create `NotionPiPPersistence.swift`:
+Create `PerchPersistence.swift`:
 
 ```swift
 import SwiftData
 
-enum NotionPiPPersistence {
+enum PerchPersistence {
     static func makeContainer(
         storeURL: URL? = nil,
         inMemory: Bool = false
     ) throws -> ModelContainer {
-        let schema = Schema(versionedSchema: NotionPiPSchemaV1.self)
+        let schema = Schema(versionedSchema: PerchSchemaV1.self)
         let configuration: ModelConfiguration
         if inMemory {
             configuration = ModelConfiguration(
@@ -88,7 +88,7 @@ enum NotionPiPPersistence {
         }
         return try ModelContainer(
             for: schema,
-            migrationPlan: NotionPiPMigrationPlan.self,
+            migrationPlan: PerchMigrationPlan.self,
             configurations: configuration
         )
     }
@@ -97,7 +97,7 @@ enum NotionPiPPersistence {
 
 Add an async `PinnedPagePersisting: Sendable` protocol in `PageRepository.swift`. Make `PageRepository` conform. Implement `replaceCurrent(with:)` by updating/inserting the matching model, deleting every other `PinnedPageModel`, calling `beforeSave`, and saving once so replacement is atomic. Implement `currentPinnedPage()` by fetching newest-first with a fetch limit of one. Validate the stored URL with `NotionPageReference(validating:)` and ensure its page ID matches `stableID`; otherwise throw `.invalidStoredValue`.
 
-Add `CaptureRepository.init(container:clock:beforeHelperFetch:)` and replace its duplicated model-container construction with `NotionPiPPersistence.makeContainer(storeURL:inMemory:)`.
+Add `CaptureRepository.init(container:clock:beforeHelperFetch:)` and replace its duplicated model-container construction with `PerchPersistence.makeContainer(storeURL:inMemory:)`.
 
 - [ ] **Step 4: Run focused persistence tests and verify GREEN**
 
@@ -112,15 +112,15 @@ Expected: all `PageRepositoryTests` pass, including on-disk reopen, atomic repla
 - [ ] **Step 5: Commit the persistence boundary**
 
 ```bash
-git add Sources/NotionPiP/Persistence/NotionPiPPersistence.swift Sources/NotionPiP/Persistence/CaptureRepository.swift Sources/NotionPiP/Persistence/PageRepository.swift Tests/NotionPiPTests/PageRepositoryTests.swift
+git add Sources/Perch/Persistence/PerchPersistence.swift Sources/Perch/Persistence/CaptureRepository.swift Sources/Perch/Persistence/PageRepository.swift Tests/PerchTests/PageRepositoryTests.swift
 git commit -m "feat: persist the current pinned page"
 ```
 
 ### Task 2: Runtime restoration and ordered writes
 
 **Files:**
-- Modify: `Sources/NotionPiP/App/AppRuntime.swift`
-- Modify: `Tests/NotionPiPTests/RuntimeActivationTests.swift`
+- Modify: `Sources/Perch/App/AppRuntime.swift`
+- Modify: `Tests/PerchTests/RuntimeActivationTests.swift`
 
 **Interfaces:**
 - Consumes: `PinnedPagePersisting.currentPinnedPage()` and `replaceCurrent(with:)`
@@ -208,25 +208,25 @@ Expected: all runtime activation, restore-race, ordering, failure-isolation, and
 - [ ] **Step 5: Commit runtime durability**
 
 ```bash
-git add Sources/NotionPiP/App/AppRuntime.swift Tests/NotionPiPTests/RuntimeActivationTests.swift
+git add Sources/Perch/App/AppRuntime.swift Tests/PerchTests/RuntimeActivationTests.swift
 git commit -m "feat: restore the pinned page at launch"
 ```
 
 ### Task 3: Application composition and release verification
 
 **Files:**
-- Modify: `Sources/NotionPiP/App/NotionPiPApp.swift`
-- Modify: `Sources/NotionPiP/Platform/AppWindowFactory.swift`
-- Test: `Tests/NotionPiPTests/PageRepositoryTests.swift`
-- Test: `Tests/NotionPiPTests/RuntimeActivationTests.swift`
+- Modify: `Sources/Perch/App/PerchApp.swift`
+- Modify: `Sources/Perch/Platform/AppWindowFactory.swift`
+- Test: `Tests/PerchTests/PageRepositoryTests.swift`
+- Test: `Tests/PerchTests/RuntimeActivationTests.swift`
 
 **Interfaces:**
-- Consumes: `NotionPiPPersistence.makeContainer()`, `PageRepository.init(container:)`, and `CaptureRepository.init(container:)`
+- Consumes: `PerchPersistence.makeContainer()`, `PageRepository.init(container:)`, and `CaptureRepository.init(container:)`
 - Produces: one shared persistent store for runtime page state and Quick Capture
 
 - [ ] **Step 1: Wire one shared container at the composition root**
 
-In `AppComposition.init()`, attempt `NotionPiPPersistence.makeContainer()` once. On success, construct `PageRepository` and `CaptureRepository` from that container. Inject the page repository into `AppRuntime` and the capture repository into `AppWindowFactory.makeQuickCapture(repository:openInNotion:)`.
+In `AppComposition.init()`, attempt `PerchPersistence.makeContainer()` once. On success, construct `PageRepository` and `CaptureRepository` from that container. Inject the page repository into `AppRuntime` and the capture repository into `AppWindowFactory.makeQuickCapture(repository:openInNotion:)`.
 
 On store-open failure, log only `"Persistent store unavailable"`, pass `nil` repositories, and keep the status item, in-memory PiP activation, Settings, and the existing Quick Capture unavailable view functional.
 
@@ -285,12 +285,12 @@ Expected: all Swift tests, web tests, TypeScript checks, bundle signing, launch,
 
 - [ ] **Step 3: Verify durability through a real app restart**
 
-With `dist/NotionPiP.app` running, activate a canonical test Notion page through the existing URL route, quit through the app menu, relaunch with `/usr/bin/open -n dist/NotionPiP.app`, and confirm the PiP automatically opens the same canonical page. Repeat after replacing the page and confirm the replacement is restored. Do not print or record private workspace URLs in logs or the plan.
+With `dist/Perch.app` running, activate a canonical test Notion page through the existing URL route, quit through the app menu, relaunch with `/usr/bin/open -n dist/Perch.app`, and confirm the PiP automatically opens the same canonical page. Repeat after replacing the page and confirm the replacement is restored. Do not print or record private workspace URLs in logs or the plan.
 
 - [ ] **Step 4: Commit composition wiring**
 
 ```bash
-git add Sources/NotionPiP/App/NotionPiPApp.swift Sources/NotionPiP/Platform/AppWindowFactory.swift
+git add Sources/Perch/App/PerchApp.swift Sources/Perch/Platform/AppWindowFactory.swift
 git commit -m "feat: wire durable page restoration"
 ```
 

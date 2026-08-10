@@ -21,8 +21,8 @@
 ### Task 1: Registrar revalidation and failure classification
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/GlobalShortcutRegistrar.swift`
-- Test: `Tests/NotionPiPTests/GlobalShortcutTests.swift`
+- Modify: `Sources/Perch/Platform/GlobalShortcutRegistrar.swift`
+- Test: `Tests/PerchTests/GlobalShortcutTests.swift`
 
 **Interfaces:**
 - Produces: `GlobalShortcutRegistrationFailure: Error, Equatable` with `.conflict` and `.transient`
@@ -54,15 +54,15 @@ Run the same filtered command and require exit code 0.
 - [ ] **Step 5: Commit the registrar cycle**
 
 ```sh
-git add Sources/NotionPiP/Platform/GlobalShortcutRegistrar.swift Tests/NotionPiPTests/GlobalShortcutTests.swift
+git add Sources/Perch/Platform/GlobalShortcutRegistrar.swift Tests/PerchTests/GlobalShortcutTests.swift
 git commit -m "feat: revalidate Carbon shortcuts"
 ```
 
 ### Task 2: Deterministic lifecycle coordinator
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/ShortcutLifecycleCoordinator.swift`
-- Create: `Tests/NotionPiPTests/ShortcutLifecycleCoordinatorTests.swift`
+- Create: `Sources/Perch/Platform/ShortcutLifecycleCoordinator.swift`
+- Create: `Tests/PerchTests/ShortcutLifecycleCoordinatorTests.swift`
 
 **Interfaces:**
 - Produces: `ShortcutRecoveryScheduling.schedule(after:operation:) -> ShortcutRecoveryCancellation`
@@ -92,21 +92,21 @@ Run the filtered command and require exit code 0.
 - [ ] **Step 5: Commit the coordinator cycle**
 
 ```sh
-git add Sources/NotionPiP/Platform/ShortcutLifecycleCoordinator.swift Tests/NotionPiPTests/ShortcutLifecycleCoordinatorTests.swift
+git add Sources/Perch/Platform/ShortcutLifecycleCoordinator.swift Tests/PerchTests/ShortcutLifecycleCoordinatorTests.swift
 git commit -m "feat: coordinate shortcut lifecycle recovery"
 ```
 
 ### Task 3: Atomic runtime configuration and recovery health
 
 **Files:**
-- Modify: `Sources/NotionPiP/App/AppRuntime.swift`
-- Modify: `Sources/NotionPiP/App/AppRuntime+Activation.swift`
-- Modify: `Sources/NotionPiP/App/AppRuntimeStateTypes.swift`
-- Modify: `Sources/NotionPiP/Views/ServiceHealthView.swift`
-- Modify: `Sources/NotionPiP/Views/GlobalShortcutRecorderView.swift`
-- Test: `Tests/NotionPiPTests/GlobalShortcutTests.swift`
-- Test: `Tests/NotionPiPTests/RuntimeActivationAndMenuBarTests.swift`
-- Test: `Tests/NotionPiPTests/AppRuntimeTestSupport.swift`
+- Modify: `Sources/Perch/App/AppRuntime.swift`
+- Modify: `Sources/Perch/App/AppRuntime+Activation.swift`
+- Modify: `Sources/Perch/App/AppRuntimeStateTypes.swift`
+- Modify: `Sources/Perch/Views/ServiceHealthView.swift`
+- Modify: `Sources/Perch/Views/GlobalShortcutRecorderView.swift`
+- Test: `Tests/PerchTests/GlobalShortcutTests.swift`
+- Test: `Tests/PerchTests/RuntimeActivationAndMenuBarTests.swift`
+- Test: `Tests/PerchTests/AppRuntimeTestSupport.swift`
 
 **Interfaces:**
 - Produces: `ShortcutConfiguration(panel:quickCapture:)` as the runtime's single published shortcut value
@@ -145,7 +145,7 @@ Run both filtered commands and require exit code 0.
 - [ ] **Step 7: Commit runtime integration**
 
 ```sh
-git add Sources/NotionPiP/App Sources/NotionPiP/Views Tests/NotionPiPTests
+git add Sources/Perch/App Sources/Perch/Views Tests/PerchTests
 git commit -m "feat: self-heal shortcuts after lifecycle changes"
 ```
 
@@ -173,11 +173,11 @@ Expected: exit code 0 with zero failed tests.
 - [ ] **Step 3: Build and run for manual verification when the app is not already running**
 
 ```sh
-pgrep -x NotionPiP
+pgrep -x Perch
 ./script/build_and_run.sh --verify
 ```
 
-If `NotionPiP` is already running, do not invoke the build script because it terminates the app; record the manual run as not performed. Otherwise verify sleep/wake behavior and a conflicting registration to the extent supported by the non-interactive environment, documenting anything that still requires the user's physical session.
+If `Perch` is already running, do not invoke the build script because it terminates the app; record the manual run as not performed. Otherwise verify sleep/wake behavior and a conflicting registration to the extent supported by the non-interactive environment, documenting anything that still requires the user's physical session.
 
 - [ ] **Step 4: Commit any manual test documentation**
 

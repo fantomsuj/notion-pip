@@ -1,6 +1,6 @@
 # Documentation map
 
-Notion PiP's documentation serves several different purposes. Use this map to
+Perch's documentation serves several different purposes. Use this map to
 choose the right source and to understand how much authority it carries.
 
 When documents disagree, the checked-out source and tests are authoritative.
