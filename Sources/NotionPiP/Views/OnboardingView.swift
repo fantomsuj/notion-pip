@@ -146,6 +146,8 @@ struct OnboardingView: View {
             OverlayArtwork()
         case .pinPage:
             PinPageArtwork()
+        case .panelControls:
+            PanelControlsArtwork()
         case .appMenu:
             AppMenuArtwork(globalShortcut: globalShortcut)
         case .shortcuts:
@@ -154,9 +156,10 @@ struct OnboardingView: View {
     }
 }
 
-private enum OnboardingStep: Int, CaseIterable, Identifiable {
+enum OnboardingStep: Int, CaseIterable, Identifiable {
     case welcome
     case pinPage
+    case panelControls
     case appMenu
     case shortcuts
 
@@ -166,6 +169,7 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome: "Welcome"
         case .pinPage: "Pin a page"
+        case .panelControls: "Panel controls"
         case .appMenu: "Menu & settings"
         case .shortcuts: "Work faster"
         }
@@ -175,6 +179,7 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome: "rectangle.on.rectangle"
         case .pinPage: "pin"
+        case .panelControls: "slider.horizontal.3"
         case .appMenu: "menubar.rectangle"
         case .shortcuts: "keyboard"
         }
@@ -184,6 +189,7 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome: "Always within reach"
         case .pinPage: "Your page"
+        case .panelControls: "The essentials"
         case .appMenu: "Controls"
         case .shortcuts: "Keyboard"
         }
@@ -193,6 +199,7 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome: "Keep one Notion page close"
         case .pinPage: "Choose the page that matters now"
+        case .panelControls: "Everything you need is at the top"
         case .appMenu: "Know where the controls live"
         case .shortcuts: "Bring it back without breaking focus"
         }
@@ -204,6 +211,8 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
             "Notion PiP is a floating panel that follows you across desktop Spaces and full-screen apps. It stays out of the Dock so your workspace remains uncluttered."
         case .pinPage:
             "Paste a Notion page link in Settings to pin it. The page keeps its navigation and session as you move between other apps."
+        case .panelControls:
+            "Move the pointer to the top edge of the PiP to reveal its controls. Double-click the title bar above them to maximize the PiP, then double-click again to restore it."
         case .appMenu:
             "Click the Notion PiP icon in the menu bar for Show, Stash, New Notion Page, Settings, and this guide. The ellipsis inside the panel opens the same app commands."
         case .shortcuts:
@@ -218,6 +227,27 @@ private enum OnboardingStep: Int, CaseIterable, Identifiable {
     var previous: OnboardingStep {
         OnboardingStep(rawValue: max(rawValue - 1, 0)) ?? self
     }
+}
+
+struct OnboardingToolbarControl: Identifiable, Equatable {
+    enum Icon: Equatable {
+        case system(String)
+        case notion
+    }
+
+    let title: String
+    let icon: Icon
+
+    var id: String { title }
+
+    static let all: [Self] = [
+        Self(title: "New Notion page", icon: .system("plus")),
+        Self(title: "Switch page", icon: .system("rectangle.stack")),
+        Self(title: "Reload pinned page", icon: .system("arrow.clockwise")),
+        Self(title: "Open in browser", icon: .notion),
+        Self(title: "App menu & sizes", icon: .system("ellipsis.circle")),
+        Self(title: "Stash to edge", icon: .system("arrow.down.right.and.arrow.up.left")),
+    ]
 }
 
 private struct OverlayArtwork: View {
@@ -314,6 +344,120 @@ private struct PinPageArtwork: View {
         .frame(maxWidth: 440)
         .background(DesignTokens.Colors.surface, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.card))
         .accessibilityHidden(true)
+    }
+}
+
+private struct PanelControlsArtwork: View {
+    var body: some View {
+        VStack(spacing: DesignTokens.Spacing.section) {
+            VStack(spacing: 0) {
+                titleBar
+                Divider()
+                toolbar
+            }
+            .background(
+                DesignTokens.Colors.surface,
+                in: RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
+                    .stroke(DesignTokens.Colors.border)
+            }
+
+            Grid(
+                alignment: .leading,
+                horizontalSpacing: DesignTokens.Spacing.container,
+                verticalSpacing: DesignTokens.Spacing.control
+            ) {
+                ForEach(
+                    Array(stride(from: 0, to: OnboardingToolbarControl.all.count, by: 2)),
+                    id: \.self
+                ) { index in
+                    GridRow {
+                        controlLabel(OnboardingToolbarControl.all[index])
+                        controlLabel(OnboardingToolbarControl.all[index + 1])
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, DesignTokens.Spacing.compact)
+        }
+        .frame(maxWidth: 440)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilitySummary)
+    }
+
+    private var titleBar: some View {
+        HStack(spacing: 6) {
+            Circle().fill(.red.opacity(0.75)).frame(width: 8, height: 8)
+            Circle().fill(.yellow.opacity(0.75)).frame(width: 8, height: 8)
+            Circle().fill(.green.opacity(0.75)).frame(width: 8, height: 8)
+            Spacer()
+            Label("Double-click to maximize", systemImage: "arrow.up.left.and.arrow.down.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tint)
+            Spacer()
+            Color.clear.frame(width: 36, height: 1)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: DesignTokens.Spacing.container) {
+            Text("Hover at the top edge")
+                .font(.caption)
+                .foregroundStyle(DesignTokens.Colors.secondaryText)
+            Spacer()
+            ForEach(OnboardingToolbarControl.all) { control in
+                controlIcon(control)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(DesignTokens.Colors.background)
+    }
+
+    private func controlLabel(_ control: OnboardingToolbarControl) -> some View {
+        Label {
+            Text(control.title)
+                .font(.caption)
+                .foregroundStyle(DesignTokens.Colors.secondaryText)
+        } icon: {
+            controlIcon(control)
+                .frame(width: 16)
+                .foregroundStyle(DesignTokens.Colors.primaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func controlIcon(_ control: OnboardingToolbarControl) -> some View {
+        switch control.icon {
+        case let .system(symbolName):
+            Image(systemName: symbolName)
+        case .notion:
+            OnboardingNotionMark()
+        }
+    }
+
+    private var accessibilitySummary: String {
+        "Panel controls. Hover at the top edge to reveal: "
+            + OnboardingToolbarControl.all.map(\.title).joined(separator: ", ")
+            + ". Double-click the title bar to maximize or restore the PiP."
+    }
+}
+
+private struct OnboardingNotionMark: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 1.5)
+                .stroke(lineWidth: 1.1)
+            Text("N")
+                .font(.system(size: 9, weight: .black, design: .serif))
+                .offset(y: -0.2)
+        }
+        .frame(width: 13, height: 13)
     }
 }
 

@@ -31,24 +31,34 @@ final class NotionWebSessionTests: XCTestCase {
 
     func testSessionMeasuresRestorationAndWebViewEvictionWithCacheCount() throws {
         let signposter = PerformanceSignposterSpy()
+        let documentID = UUID()
         let session = NotionWebSession(
             loadRequest: { _, _ in },
             interactionStateReader: { _ in "saved" },
+            usefulContentDocumentIdentifierReader: { _, completion in
+                completion(documentID)
+            },
             performanceSignposter: signposter
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         session.activate(page: page)
         let webView = try XCTUnwrap(session.webView)
 
+        session.webView(webView, didCommit: nil)
         session.webView(webView, didFinish: nil)
+        session.handleUsefulContent(
+            NotionUsefulContentMessage(state: .ready, documentID: documentID),
+            from: webView,
+            generation: 1
+        )
         session.panelDidHide()
         session.handleMemoryPressure()
 
-        XCTAssertEqual(
-            signposter.beginCalls,
-            [.notionSessionRestoration, .webViewEviction]
-        )
-        XCTAssertEqual(signposter.endCalls.map(\.outcome), [.success, .success])
+        XCTAssertTrue(signposter.beginCalls.contains(.notionSessionRestoration))
+        XCTAssertTrue(signposter.beginCalls.contains(.webViewConstruction))
+        XCTAssertTrue(signposter.beginCalls.contains(.navigationRequestToCommit))
+        XCTAssertTrue(signposter.beginCalls.contains(.commitToUsefulContent))
+        XCTAssertEqual(signposter.endCalls.filter { $0.outcome == .failure }.count, 0)
         XCTAssertEqual(signposter.endCalls.last?.metadata.cacheEntryCount, 1)
     }
 
@@ -80,9 +90,13 @@ final class NotionWebSessionTests: XCTestCase {
 
     func testEvictedShortcutPresentationWaitsForNavigationReadiness() throws {
         let signposter = PerformanceSignposterSpy()
+        let documentID = UUID()
         let session = NotionWebSession(
             loadRequest: { _, _ in },
             interactionStateReader: { _ in "saved" },
+            usefulContentDocumentIdentifierReader: { _, completion in
+                completion(documentID)
+            },
             performanceSignposter: signposter
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
@@ -97,17 +111,236 @@ final class NotionWebSessionTests: XCTestCase {
             token: token,
             retention: .evicted
         )
-        let endCountBeforeShow = signposter.endCalls.count
-
         session.panelDidShow()
 
-        XCTAssertEqual(signposter.endCalls.count, endCountBeforeShow)
-        session.webView(try XCTUnwrap(session.webView), didFinish: nil)
+        XCTAssertNil(signposter.endCalls.first { $0.token == token })
+        let restoredWebView = try XCTUnwrap(session.webView)
+        session.webView(restoredWebView, didFinish: nil)
+        XCTAssertNil(signposter.endCalls.first { $0.token == token })
+        session.handleUsefulContent(
+            NotionUsefulContentMessage(state: .ready, documentID: documentID),
+            from: restoredWebView,
+            generation: 3
+        )
         let shortcutEnd = try XCTUnwrap(
             signposter.endCalls.first { $0.token == token }
         )
         XCTAssertEqual(shortcutEnd.outcome, .success)
         XCTAssertEqual(shortcutEnd.metadata.webViewRetention, .evicted)
+    }
+
+    func testInteractionStateRestorationMeasuresThroughUsefulContent() throws {
+        let signposter = PerformanceSignposterSpy()
+        let documentID = UUID()
+        let first = try makePage(id: firstPageID, title: "First")
+        let second = try makePage(id: secondPageID, title: "Second")
+        var factoryURLs = [first.canonicalURL, second.canonicalURL, first.canonicalURL]
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            webViewFactory: { TrustedURLWebView(url: factoryURLs.removeFirst()) },
+            interactionStateReader: { _ in "saved-state" },
+            interactionStateWriter: { _, _ in },
+            usefulContentDocumentIdentifierReader: { _, completion in
+                completion(documentID)
+            },
+            performanceSignposter: signposter
+        )
+
+        session.activate(page: first)
+        session.activate(page: second)
+        session.activate(page: first)
+        let restoredWebView = try XCTUnwrap(session.webView)
+        let token = try XCTUnwrap(
+            signposter.beginRecords.last {
+                $0.operation == .interactionStateRestoreToUsefulContent
+            }?.token
+        )
+
+        session.handleUsefulContent(
+            NotionUsefulContentMessage(state: .ready, documentID: documentID),
+            from: restoredWebView,
+            generation: 5
+        )
+
+        XCTAssertEqual(
+            signposter.endCalls.first { $0.token == token }?.outcome,
+            .success
+        )
+    }
+
+    func testRendererRecoveryMeasuresThroughUsefulContent() throws {
+        let signposter = PerformanceSignposterSpy()
+        let documentID = UUID()
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            usefulContentDocumentIdentifierReader: { _, completion in
+                completion(documentID)
+            },
+            performanceSignposter: signposter
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        session.activate(page: page)
+        let webView = try XCTUnwrap(session.webView)
+
+        session.webViewWebContentProcessDidTerminate(webView)
+        let token = try XCTUnwrap(
+            signposter.beginRecords.last {
+                $0.operation == .rendererRecoveryToUsefulContent
+            }?.token
+        )
+        session.webView(webView, didCommit: nil)
+        session.handleUsefulContent(
+            NotionUsefulContentMessage(state: .ready, documentID: documentID),
+            from: webView,
+            generation: 3
+        )
+
+        XCTAssertEqual(
+            signposter.endCalls.first { $0.token == token }?.outcome,
+            .success
+        )
+    }
+
+    func testHiddenWarmResumeEndsAfterAttachmentWorkRuns() throws {
+        let signposter = PerformanceSignposterSpy()
+        var attachmentActions: [@MainActor () -> Void] = []
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            scheduleAfterAttachment: { attachmentActions.append($0) },
+            performanceSignposter: signposter
+        )
+        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let webView = try XCTUnwrap(session.webView)
+        session.webView(webView, didFinish: nil)
+        session.panelDidHide()
+
+        session.panelDidShow()
+        let token = try XCTUnwrap(
+            signposter.beginRecords.last { $0.operation == .hiddenPanelWarmResume }?.token
+        )
+        XCTAssertNil(signposter.endCalls.first { $0.token == token })
+        attachmentActions.forEach { $0() }
+
+        XCTAssertEqual(
+            signposter.endCalls.first { $0.token == token }?.outcome,
+            .success
+        )
+    }
+
+    func testShowingDifferentHiddenPageDoesNotMeasureWarmResume() throws {
+        let signposter = PerformanceSignposterSpy()
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            performanceSignposter: signposter
+        )
+        session.activate(page: try makePage(id: firstPageID, title: "First"))
+        session.panelDidHide()
+        session.activate(page: try makePage(id: secondPageID, title: "Second"))
+
+        session.panelDidShow()
+
+        XCTAssertFalse(signposter.beginCalls.contains(.hiddenPanelWarmResume))
+    }
+
+    func testUsefulContentTimeoutFailsCurrentMeasurementsExactlyOnce() throws {
+        let signposter = PerformanceSignposterSpy()
+        let documentID = UUID()
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            usefulContentDocumentIdentifierReader: { _, completion in
+                completion(documentID)
+            },
+            performanceSignposter: signposter
+        )
+        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let webView = try XCTUnwrap(session.webView)
+        session.webView(webView, didCommit: nil)
+        let token = try XCTUnwrap(
+            signposter.beginRecords.last { $0.operation == .commitToUsefulContent }?.token
+        )
+
+        let message = NotionUsefulContentMessage(
+            state: .timedOut,
+            documentID: documentID
+        )
+        session.handleUsefulContent(message, from: webView, generation: 1)
+        session.handleUsefulContent(message, from: webView, generation: 1)
+
+        let ends = signposter.endCalls.filter { $0.token == token }
+        XCTAssertEqual(ends.count, 1)
+        XCTAssertEqual(ends.first?.outcome, .failure)
+    }
+
+    func testStaleDocumentReadinessCannotEndReplacementNavigationMeasurement() throws {
+        let signposter = PerformanceSignposterSpy()
+        let staleDocumentID = UUID()
+        var currentDocumentID = staleDocumentID
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            usefulContentDocumentIdentifierReader: { _, completion in
+                completion(currentDocumentID)
+            },
+            performanceSignposter: signposter
+        )
+        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let webView = try XCTUnwrap(session.webView)
+        session.webView(webView, didCommit: nil)
+
+        session.reload()
+        currentDocumentID = UUID()
+        session.webView(webView, didCommit: nil)
+        let replacementToken = try XCTUnwrap(
+            signposter.beginRecords.last { $0.operation == .commitToUsefulContent }?.token
+        )
+
+        session.handleUsefulContent(
+            NotionUsefulContentMessage(state: .ready, documentID: staleDocumentID),
+            from: webView,
+            generation: 1
+        )
+        XCTAssertNil(signposter.endCalls.first { $0.token == replacementToken })
+
+        session.handleUsefulContent(
+            NotionUsefulContentMessage(state: .ready, documentID: currentDocumentID),
+            from: webView,
+            generation: 1
+        )
+        XCTAssertEqual(
+            signposter.endCalls.first { $0.token == replacementToken }?.outcome,
+            .success
+        )
+    }
+
+    func testReadinessWaitsForSameDocumentResolvedPageAdoption() throws {
+        let signposter = PerformanceSignposterSpy()
+        let documentID = UUID()
+        let first = try makePage(id: firstPageID, title: "First")
+        let resolved = try makePage(id: secondPageID, title: "Resolved")
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            webViewFactory: { TrustedURLWebView(url: resolved.canonicalURL) },
+            usefulContentDocumentIdentifierReader: { _, completion in
+                completion(documentID)
+            },
+            performanceSignposter: signposter
+        )
+        session.activate(page: first)
+        let webView = try XCTUnwrap(session.webView)
+        session.webView(webView, didCommit: nil)
+        let token = try XCTUnwrap(
+            signposter.beginRecords.last { $0.operation == .commitToUsefulContent }?.token
+        )
+
+        session.handleUsefulContent(
+            NotionUsefulContentMessage(state: .ready, documentID: documentID),
+            from: webView,
+            generation: 1
+        )
+        XCTAssertNil(signposter.endCalls.first { $0.token == token })
+
+        session.adoptResolvedPage(at: resolved.canonicalURL, from: webView)
+
+        XCTAssertEqual(signposter.endCalls.first { $0.token == token }?.outcome, .success)
     }
 
     func testSelectingPinnedPageCreatesAndLoadsLiveWebView() throws {
@@ -1110,69 +1343,6 @@ final class NotionWebSessionTests: XCTestCase {
         ])
     }
 
-    func testCurrentWebViewPublishesCaretGeometryAndRejectsStaleGeneration() throws {
-        let session = NotionWebSession(loadRequest: { _, _ in })
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        let webView = try XCTUnwrap(session.webView)
-        let currentGeometry = NotionEditorCaretGeometry(
-            left: 20,
-            top: 30,
-            bottom: 50,
-            viewportWidth: 800,
-            viewportHeight: 600
-        )
-
-        session.handleEditorCaretUpdate(.visible(currentGeometry), from: webView)
-        session.handleEditorCaretUpdate(.hidden, from: webView, generation: 0)
-
-        XCTAssertEqual(session.editorCaretGeometry, currentGeometry)
-    }
-
-    func testTerminatedDocumentGenerationCannotPublishCaretGeometry() throws {
-        let session = NotionWebSession(loadRequest: { _, _ in })
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        let liveWebView = try XCTUnwrap(session.webView)
-        session.webViewWebContentProcessDidTerminate(liveWebView)
-
-        session.handleEditorCaretUpdate(
-            .visible(
-                NotionEditorCaretGeometry(
-                    left: 20,
-                    top: 30,
-                    bottom: 50,
-                    viewportWidth: 800,
-                    viewportHeight: 600
-                )
-            ),
-            from: liveWebView,
-            generation: 1
-        )
-
-        XCTAssertNil(session.editorCaretGeometry)
-    }
-
-    func testInteractionInvalidationClearsCaretGeometry() throws {
-        let session = NotionWebSession(loadRequest: { _, _ in })
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
-        let webView = try XCTUnwrap(session.webView)
-        session.handleEditorCaretUpdate(
-            .visible(
-                NotionEditorCaretGeometry(
-                    left: 20,
-                    top: 30,
-                    bottom: 50,
-                    viewportWidth: 800,
-                    viewportHeight: 600
-                )
-            ),
-            from: webView
-        )
-
-        session.webView(webView, didStartProvisionalNavigation: nil)
-
-        XCTAssertNil(session.editorCaretGeometry)
-    }
-
     func testRendererTerminationRefreshesBridgeAndObservationGeneration() throws {
         var bridgeRemovalCount = 0
         var observationInvalidationCount = 0
@@ -1193,7 +1363,7 @@ final class NotionWebSessionTests: XCTestCase {
                     contentWorld: .page
                 )
                 controller.removeScriptMessageHandler(
-                    forName: NotionEditorCaretBridge.handlerName,
+                    forName: NotionUsefulContentBridge.handlerName,
                     contentWorld: .page
                 )
                 controller.removeAllUserScripts()
@@ -1966,6 +2136,42 @@ final class NotionWebSessionTests: XCTestCase {
             PiPChromeView.stashHelp,
             "Move the Notion PiP to the nearest screen edge"
         )
+    }
+
+    func testScrollRestorationUsesOneWebContentTransactionWithInternalRetryLoop() async throws {
+        let webView = WKWebView()
+        var calls: [(script: String, arguments: [String: Any])] = []
+        let restoration = try DurablePageRestoration(
+            pageID: firstPageID,
+            validatingLastURL: XCTUnwrap(
+                URL(string: "https://www.notion.com/Roadmap-\(firstPageID)")
+            ),
+            scrollX: 0,
+            scrollY: 2_000,
+            scrollProgress: 0.5,
+            updatedAt: Date()
+        )
+
+        NotionWebSession.restoreScroll(
+            in: webView,
+            restoration: restoration,
+            callAsyncJavaScript: { _, script, arguments in
+                calls.append((script, arguments))
+                return true
+            }
+        )
+
+        try await waitForCondition { calls.count == 1 }
+        let call = try XCTUnwrap(calls.first)
+        XCTAssertTrue(call.script.contains("new Promise"))
+        XCTAssertTrue(call.script.contains("requestAnimationFrame(apply)"))
+        XCTAssertTrue(call.script.contains("performance.now() + timeoutMilliseconds"))
+        XCTAssertEqual(call.arguments["scrollX"] as? Double, 0)
+        XCTAssertEqual(call.arguments["scrollY"] as? Double, 2_000)
+        XCTAssertEqual(call.arguments["scrollProgress"] as? Double, 0.5)
+        XCTAssertEqual(call.arguments["timeoutMilliseconds"] as? Int, 2_000)
+        XCTAssertEqual(call.arguments["tolerancePixels"] as? Int, 4)
+        XCTAssertEqual(call.arguments["retryDelayMilliseconds"] as? Int, 100)
     }
 
     private func makePage(id: String, title: String) throws -> NotionPageReference {
