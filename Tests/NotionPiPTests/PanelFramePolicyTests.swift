@@ -4,6 +4,97 @@ import XCTest
 @testable import NotionPiP
 
 final class PanelFramePolicyTests: XCTestCase {
+    func testExplicitCornerPlacementSupportsEveryCorner() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let expected: [PanelCorner: CGRect] = [
+            .topLeft: CGRect(x: 24, y: 276, width: 400, height: 500),
+            .topRight: CGRect(x: 576, y: 276, width: 400, height: 500),
+            .bottomLeft: CGRect(x: 24, y: 24, width: 400, height: 500),
+            .bottomRight: CGRect(x: 576, y: 24, width: 400, height: 500),
+        ]
+
+        for corner in PanelCorner.allCases {
+            let placement = try XCTUnwrap(
+                PanelFramePolicy.cornerPlacement(
+                    preferredContentSize: CGSize(width: 400, height: 500),
+                    at: corner,
+                    relativeTo: CGRect(x: 300, y: 150, width: 400, height: 500),
+                    visibleFrames: [screen],
+                    minimumContentSize: .zero,
+                    frameForContentRect: { $0 }
+                )
+            )
+
+            XCTAssertEqual(placement.frame, expected[corner])
+            XCTAssertEqual(placement.anchor, corner.anchor(inset: 24))
+        }
+    }
+
+    func testExplicitCornerPlacementUsesDisplayContainingMostOfPanel() throws {
+        let primary = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let secondary = CGRect(x: 1_000, y: 100, width: 1_200, height: 900)
+        let placement = try XCTUnwrap(
+            PanelFramePolicy.cornerPlacement(
+                preferredContentSize: CGSize(width: 400, height: 500),
+                at: .bottomRight,
+                relativeTo: CGRect(x: 1_200, y: 250, width: 400, height: 500),
+                visibleFrames: [primary, secondary],
+                minimumContentSize: .zero,
+                frameForContentRect: { $0 }
+            )
+        )
+
+        XCTAssertEqual(placement.frame, CGRect(x: 1_776, y: 124, width: 400, height: 500))
+    }
+
+    func testExplicitCornerPlacementFitsOversizedContentWithoutLosingPreference() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let placement = try XCTUnwrap(
+            PanelFramePolicy.cornerPlacement(
+                preferredContentSize: CGSize(width: 1_200, height: 900),
+                at: .topLeft,
+                relativeTo: CGRect(x: 100, y: 100, width: 1_200, height: 900),
+                visibleFrames: [screen],
+                minimumContentSize: .zero,
+                frameForContentRect: { $0 }
+            )
+        )
+
+        XCTAssertEqual(placement.frame, CGRect(x: 24, y: 0, width: 976, height: 776))
+        XCTAssertEqual(placement.preferredContentSize, CGSize(width: 1_200, height: 900))
+    }
+
+    func testExplicitCornerPlacementRequiresAVisibleDisplay() {
+        XCTAssertNil(
+            PanelFramePolicy.cornerPlacement(
+                preferredContentSize: CGSize(width: 400, height: 500),
+                at: .topLeft,
+                relativeTo: CGRect(x: 10, y: 20, width: 400, height: 500),
+                visibleFrames: [],
+                minimumContentSize: .zero,
+                frameForContentRect: { $0 }
+            )
+        )
+    }
+
+    func testCornerDetectionAllowsOnePointFractionalTolerance() {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+
+        XCTAssertEqual(
+            PanelFramePolicy.corner(
+                for: CGRect(x: 24.75, y: 275.25, width: 400, height: 500),
+                visibleFrames: [screen]
+            ),
+            .topLeft
+        )
+        XCTAssertNil(
+            PanelFramePolicy.corner(
+                for: CGRect(x: 40, y: 275, width: 400, height: 500),
+                visibleFrames: [screen]
+            )
+        )
+    }
+
     func testCornerSnapAlignsWindowNearTopRightCorner() {
         let screen = CGRect(x: 0, y: 0, width: 1_440, height: 875)
         let frame = CGRect(x: 870, y: 220, width: 520, height: 600)
