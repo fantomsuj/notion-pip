@@ -910,8 +910,12 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing {
 }
 
 final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
-    private static let stashAnimationDuration: TimeInterval = 0.12
+    static let stashCloseButtonLabel = "Stash Notion PiP to Side"
+    static let stashCloseButtonHelp = "Move the Notion PiP to the nearest screen edge"
+    private static let stashAnimationDuration: TimeInterval = 0.16
+    private static let stashAnimationTravel: CGFloat = 48
     private var stashAnimationGeneration = 0
+    private var pendingStashOriginalFrame: CGRect?
 
     var onClose: (@MainActor () -> Void)?
 
@@ -929,6 +933,26 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         } else {
             orderOut(nil)
         }
+    }
+
+    func configureCloseButtonForStash() {
+        guard let closeButton = standardWindowButton(.closeButton) else { return }
+        closeButton.toolTip = Self.stashCloseButtonLabel
+        closeButton.setAccessibilityLabel(Self.stashCloseButtonLabel)
+        closeButton.setAccessibilityHelp(Self.stashCloseButtonHelp)
+    }
+
+    static func stashAnimationTargetFrame(
+        from frame: CGRect,
+        toward side: PanelStashSide
+    ) -> CGRect {
+        let horizontalTravel = switch side {
+        case .left:
+            -stashAnimationTravel
+        case .right:
+            stashAnimationTravel
+        }
+        return frame.offsetBy(dx: horizontalTravel, dy: 0)
     }
 
     func present() {
@@ -950,7 +974,16 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
 
     func cancelPendingStashDismissal() {
         stashAnimationGeneration &+= 1
-        alphaValue = 1
+        guard let pendingStashOriginalFrame else {
+            alphaValue = 1
+            return
+        }
+        self.pendingStashOriginalFrame = nil
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            animator().setFrame(pendingStashOriginalFrame, display: true)
+            animator().alphaValue = 1
+        }
     }
 
     override func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
@@ -972,7 +1005,9 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         stashAnimationGeneration &+= 1
         let generation = stashAnimationGeneration
         let originalFrame = frame
+        pendingStashOriginalFrame = originalFrame
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            pendingStashOriginalFrame = nil
             orderOut()
             completion()
             return
@@ -981,6 +1016,10 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Self.stashAnimationDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().setFrame(
+                Self.stashAnimationTargetFrame(from: originalFrame, toward: side),
+                display: true
+            )
             animator().alphaValue = 0
         } completionHandler: { [weak self] in
             Task { @MainActor [weak self] in
@@ -989,6 +1028,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
                     self.alphaValue = 1
                     return
                 }
+                self.pendingStashOriginalFrame = nil
                 self.orderOut(nil)
                 self.setFrame(originalFrame, display: false)
                 self.alphaValue = 1
