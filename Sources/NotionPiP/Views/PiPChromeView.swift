@@ -24,6 +24,7 @@ struct PiPChromeView: View {
     @ObservedObject var pageSwitcherController: PageSwitcherController
     let commandModel: AppCommandModel
     let panelSizeController: PanelSizeController?
+    let panelPositionController: PanelPositionController?
     let onReloadSavedPin: () -> Void
     let onStash: () -> Void
     let onPageSwitcherSelection: (PageSwitcherSelection) -> Void
@@ -52,6 +53,13 @@ struct PiPChromeView: View {
         0
     }
 
+    static func shouldShowPersistentCornerControls(
+        hasPositionController: Bool,
+        showsTopControls _: Bool
+    ) -> Bool {
+        hasPositionController
+    }
+
     static func shouldHostNotionWebView(for session: NotionWebSession) -> Bool {
         session.shouldHostWebView
     }
@@ -61,6 +69,7 @@ struct PiPChromeView: View {
         pageSwitcherController: PageSwitcherController = PageSwitcherController(),
         commandModel: AppCommandModel = .noOp,
         panelSizeController: PanelSizeController? = nil,
+        panelPositionController: PanelPositionController? = nil,
         quickCopyController: QuickCopyController? = nil,
         onReloadSavedPin: @escaping () -> Void = {},
         onStash: @escaping () -> Void = {},
@@ -74,6 +83,7 @@ struct PiPChromeView: View {
         self.pageSwitcherController = pageSwitcherController
         self.commandModel = commandModel
         self.panelSizeController = panelSizeController
+        self.panelPositionController = panelPositionController
         self.onReloadSavedPin = onReloadSavedPin
         self.onStash = onStash
         self.onPageSwitcherSelection = onPageSwitcherSelection
@@ -170,7 +180,7 @@ struct PiPChromeView: View {
         }
         .background(DesignTokens.Colors.background)
         .overlay(alignment: .top) {
-            ZStack(alignment: .top) {
+            ZStack(alignment: .topLeading) {
                 if !showsTopControls {
                     Color.clear
                         .frame(height: Self.topControlsRevealHeight)
@@ -181,6 +191,16 @@ struct PiPChromeView: View {
                         .accessibilityHidden(true)
                 }
                 topControlsOverlay
+                if Self.shouldShowPersistentCornerControls(
+                    hasPositionController: panelPositionController != nil,
+                    showsTopControls: showsTopControls
+                ), let panelPositionController {
+                    PanelCornerControls(controller: panelPositionController)
+                        .padding(.leading, DesignTokens.Spacing.control)
+                        .onHover { isHovering in
+                            topControlsHover.setHovering(isHovering)
+                        }
+                }
             }
         }
         .overlay(alignment: .bottomLeading) {

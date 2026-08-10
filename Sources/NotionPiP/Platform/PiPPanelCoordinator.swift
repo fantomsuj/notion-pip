@@ -304,6 +304,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
                 pageSwitcherController: pageSwitcherController,
                 commandModel: commandModel,
                 panelSizeController: panelSizeController,
+                panelPositionController: panelPositionController,
                 quickCopyController: quickCopyController,
                 onReloadSavedPin: onReloadSavedPin,
                 onStash: { [weak self] in
