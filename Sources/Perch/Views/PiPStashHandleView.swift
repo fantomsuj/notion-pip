@@ -5,6 +5,8 @@ struct PiPStashHandleView: View {
     let onRestore: @MainActor () -> Void
     let onDragEnded: @MainActor (CGRect) -> Void
     let onDragStarted: @MainActor () -> Void
+    let onPullRevealChanged: @MainActor (CGFloat) -> Void
+    let onPullRevealEnded: @MainActor (CGFloat) -> Bool
     let onHoverChanged: @MainActor (Bool) -> Void
     let onShowRecentPages: @MainActor () -> Void
 
@@ -13,6 +15,8 @@ struct PiPStashHandleView: View {
         onRestore: @escaping @MainActor () -> Void,
         onDragEnded: @escaping @MainActor (CGRect) -> Void = { _ in },
         onDragStarted: @escaping @MainActor () -> Void = {},
+        onPullRevealChanged: @escaping @MainActor (CGFloat) -> Void = { _ in },
+        onPullRevealEnded: @escaping @MainActor (CGFloat) -> Bool = { _ in false },
         onHoverChanged: @escaping @MainActor (Bool) -> Void = { _ in },
         onShowRecentPages: @escaping @MainActor () -> Void = {}
     ) {
@@ -20,6 +24,8 @@ struct PiPStashHandleView: View {
         self.onRestore = onRestore
         self.onDragEnded = onDragEnded
         self.onDragStarted = onDragStarted
+        self.onPullRevealChanged = onPullRevealChanged
+        self.onPullRevealEnded = onPullRevealEnded
         self.onHoverChanged = onHoverChanged
         self.onShowRecentPages = onShowRecentPages
     }
@@ -40,9 +46,12 @@ struct PiPStashHandleView: View {
             .accessibilityHidden(true)
 
             PiPStashHandleInteractionSurface(
+                side: side,
                 onActivate: onRestore,
                 onDragEnded: onDragEnded,
                 onDragStarted: onDragStarted,
+                onPullRevealChanged: onPullRevealChanged,
+                onPullRevealEnded: onPullRevealEnded,
                 onHoverChanged: onHoverChanged,
                 onShowRecentPages: onShowRecentPages
             )
@@ -53,17 +62,23 @@ struct PiPStashHandleView: View {
 }
 
 private struct PiPStashHandleInteractionSurface: NSViewRepresentable {
+    let side: PanelStashSide
     let onActivate: @MainActor () -> Void
     let onDragEnded: @MainActor (CGRect) -> Void
     let onDragStarted: @MainActor () -> Void
+    let onPullRevealChanged: @MainActor (CGFloat) -> Void
+    let onPullRevealEnded: @MainActor (CGFloat) -> Bool
     let onHoverChanged: @MainActor (Bool) -> Void
     let onShowRecentPages: @MainActor () -> Void
 
     func makeNSView(context: Context) -> PiPStashHandleInteractionView {
         PiPStashHandleInteractionView(
+            side: side,
             onActivate: onActivate,
             onDragEnded: onDragEnded,
             onDragStarted: onDragStarted,
+            onPullRevealChanged: onPullRevealChanged,
+            onPullRevealEnded: onPullRevealEnded,
             onHoverChanged: onHoverChanged,
             onShowRecentPages: onShowRecentPages
         )
@@ -71,9 +86,12 @@ private struct PiPStashHandleInteractionSurface: NSViewRepresentable {
 
     func updateNSView(_ nsView: PiPStashHandleInteractionView, context: Context) {
         nsView.configure(
+            side: side,
             onActivate: onActivate,
             onDragEnded: onDragEnded,
             onDragStarted: onDragStarted,
+            onPullRevealChanged: onPullRevealChanged,
+            onPullRevealEnded: onPullRevealEnded,
             onHoverChanged: onHoverChanged,
             onShowRecentPages: onShowRecentPages
         )
@@ -85,28 +103,43 @@ final class PiPStashHandleInteractionView: NSView {
     private static let dragThreshold: CGFloat = 3
 
     private let pointerLocation: @MainActor () -> CGPoint
+    private var side: PanelStashSide
     private var onActivate: @MainActor () -> Void
     private var onDragEnded: @MainActor (CGRect) -> Void
     private var onDragStarted: @MainActor () -> Void
+    private var onPullRevealChanged: @MainActor (CGFloat) -> Void
+    private var onPullRevealEnded: @MainActor (CGFloat) -> Bool
     private var onHoverChanged: @MainActor (Bool) -> Void
     private var onShowRecentPages: @MainActor () -> Void
     private var initialPointerLocation: CGPoint?
     private var initialWindowOrigin: CGPoint?
-    private var isDragging = false
+    private var dragMode: DragMode?
+    private var latestInwardDistance: CGFloat = 0
     private var hoverTrackingArea: NSTrackingArea?
+
+    private enum DragMode {
+        case reposition
+        case pullReveal
+    }
 
     init(
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
+        side: PanelStashSide = .right,
         onActivate: @escaping @MainActor () -> Void,
         onDragEnded: @escaping @MainActor (CGRect) -> Void,
         onDragStarted: @escaping @MainActor () -> Void = {},
+        onPullRevealChanged: @escaping @MainActor (CGFloat) -> Void = { _ in },
+        onPullRevealEnded: @escaping @MainActor (CGFloat) -> Bool = { _ in false },
         onHoverChanged: @escaping @MainActor (Bool) -> Void = { _ in },
         onShowRecentPages: @escaping @MainActor () -> Void = {}
     ) {
         self.pointerLocation = pointerLocation
+        self.side = side
         self.onActivate = onActivate
         self.onDragEnded = onDragEnded
         self.onDragStarted = onDragStarted
+        self.onPullRevealChanged = onPullRevealChanged
+        self.onPullRevealEnded = onPullRevealEnded
         self.onHoverChanged = onHoverChanged
         self.onShowRecentPages = onShowRecentPages
         super.init(frame: .zero)
@@ -121,7 +154,7 @@ final class PiPStashHandleInteractionView: NSView {
                 return self != nil
             }
         ])
-        toolTip = "Drag to move; click to restore Perch"
+        toolTip = "Pull inward to reveal; drag along the edge to move"
     }
 
     @available(*, unavailable)
@@ -130,15 +163,21 @@ final class PiPStashHandleInteractionView: NSView {
     }
 
     func configure(
+        side: PanelStashSide,
         onActivate: @escaping @MainActor () -> Void,
         onDragEnded: @escaping @MainActor (CGRect) -> Void,
         onDragStarted: @escaping @MainActor () -> Void = {},
+        onPullRevealChanged: @escaping @MainActor (CGFloat) -> Void = { _ in },
+        onPullRevealEnded: @escaping @MainActor (CGFloat) -> Bool = { _ in false },
         onHoverChanged: @escaping @MainActor (Bool) -> Void = { _ in },
         onShowRecentPages: @escaping @MainActor () -> Void = {}
     ) {
+        self.side = side
         self.onActivate = onActivate
         self.onDragEnded = onDragEnded
         self.onDragStarted = onDragStarted
+        self.onPullRevealChanged = onPullRevealChanged
+        self.onPullRevealEnded = onPullRevealEnded
         self.onHoverChanged = onHoverChanged
         self.onShowRecentPages = onShowRecentPages
     }
@@ -165,7 +204,8 @@ final class PiPStashHandleInteractionView: NSView {
     override func mouseDown(with event: NSEvent) {
         initialPointerLocation = pointerLocation()
         initialWindowOrigin = window?.frame.origin
-        isDragging = false
+        dragMode = nil
+        latestInwardDistance = 0
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -181,25 +221,51 @@ final class PiPStashHandleInteractionView: NSView {
             x: currentPointerLocation.x - initialPointerLocation.x,
             y: currentPointerLocation.y - initialPointerLocation.y
         )
-        if !isDragging {
+        if dragMode == nil {
             guard hypot(delta.x, delta.y) >= Self.dragThreshold else { return }
-            isDragging = true
+            let inwardDistance = PanelPullRevealPolicy.inwardDistance(
+                forHorizontalDelta: delta.x,
+                side: side
+            )
+            dragMode = inwardDistance > 0 && abs(delta.x) >= abs(delta.y)
+                ? .pullReveal
+                : .reposition
             onHoverChanged(false)
             onDragStarted()
         }
 
-        window.setFrameOrigin(
-            CGPoint(
-                x: initialWindowOrigin.x + delta.x,
-                y: initialWindowOrigin.y + delta.y
+        switch dragMode {
+        case .reposition:
+            window.setFrameOrigin(
+                CGPoint(
+                    x: initialWindowOrigin.x + delta.x,
+                    y: initialWindowOrigin.y + delta.y
+                )
             )
-        )
+        case .pullReveal:
+            let inwardDistance = PanelPullRevealPolicy.inwardDistance(
+                forHorizontalDelta: delta.x,
+                side: side
+            )
+            latestInwardDistance = inwardDistance
+            window.setFrameOrigin(
+                CGPoint(
+                    x: initialWindowOrigin.x + (side == .left ? inwardDistance : -inwardDistance),
+                    y: initialWindowOrigin.y
+                )
+            )
+            onPullRevealChanged(inwardDistance)
+        case nil:
+            break
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
         defer { resetInteraction() }
 
-        if isDragging, let window {
+        if dragMode == .pullReveal {
+            _ = onPullRevealEnded(latestInwardDistance)
+        } else if dragMode == .reposition, let window {
             onDragEnded(window.frame)
         } else {
             onActivate()
@@ -226,7 +292,8 @@ final class PiPStashHandleInteractionView: NSView {
     private func resetInteraction() {
         initialPointerLocation = nil
         initialWindowOrigin = nil
-        isDragging = false
+        dragMode = nil
+        latestInwardDistance = 0
     }
 }
 

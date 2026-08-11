@@ -105,6 +105,29 @@ final class PanelFramePolicyTests: XCTestCase {
         )
     }
 
+    func testCornerSnapTargetIdentifiesBracketCornerAndLandingFrame() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 875)
+        let frame = CGRect(x: 870, y: 220, width: 520, height: 600)
+
+        let target = try XCTUnwrap(
+            PanelFramePolicy.cornerSnapTarget(for: frame, visibleFrames: [screen])
+        )
+
+        XCTAssertEqual(target.corner, .topRight)
+        XCTAssertEqual(target.frame, CGRect(x: 896, y: 251, width: 520, height: 600))
+    }
+
+    func testCornerSnapTargetIsAbsentOutsideBothAxisThresholds() {
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 875)
+
+        XCTAssertNil(
+            PanelFramePolicy.cornerSnapTarget(
+                for: CGRect(x: 500, y: 100, width: 400, height: 500),
+                visibleFrames: [screen]
+            )
+        )
+    }
+
     func testCornerSnapPreservesFreePlacementWhenOnlyOneAxisIsNearAnEdge() {
         let screen = CGRect(x: 0, y: 0, width: 1_440, height: 875)
         let frame = CGRect(x: 880, y: 100, width: 520, height: 600)

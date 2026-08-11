@@ -33,6 +33,11 @@ struct PanelFramePlacement: Equatable {
     let anchor: PanelFrameAnchor?
 }
 
+struct PanelCornerSnapTarget: Equatable {
+    let corner: PanelCorner
+    let frame: CGRect
+}
+
 enum PanelFramePolicy {
     static let cornerInset: CGFloat = 24
     static let cornerSnapThreshold: CGFloat = 72
@@ -114,16 +119,29 @@ enum PanelFramePolicy {
         inset: CGFloat = cornerInset,
         threshold: CGFloat = cornerSnapThreshold
     ) -> CGRect {
+        cornerSnapTarget(
+            for: frame,
+            visibleFrames: visibleFrames,
+            inset: inset,
+            threshold: threshold
+        )?.frame ?? frame
+    }
+
+    static func cornerSnapTarget(
+        for frame: CGRect,
+        visibleFrames: [CGRect],
+        inset: CGFloat = cornerInset,
+        threshold: CGFloat = cornerSnapThreshold
+    ) -> PanelCornerSnapTarget? {
         guard let visibleFrame = targetVisibleFrame(for: frame, from: visibleFrames) else {
-            return frame
+            return nil
         }
 
         let nearestAnchor = nearestAnchor(for: frame, in: visibleFrame)
-
         guard nearestAnchor.horizontalInset <= inset + threshold,
             nearestAnchor.verticalInset <= inset + threshold
         else {
-            return frame
+            return nil
         }
 
         let cornerAnchor = PanelFrameAnchor(
@@ -136,10 +154,13 @@ enum PanelFramePolicy {
             width: min(frame.width, max(visibleFrame.width - inset, 0)),
             height: min(frame.height, max(visibleFrame.height - inset, 0))
         )
-        return self.frame(
-            of: fittedSize,
-            anchoredBy: cornerAnchor,
-            in: visibleFrame
+        return PanelCornerSnapTarget(
+            corner: PanelCorner(anchor: cornerAnchor),
+            frame: self.frame(
+                of: fittedSize,
+                anchoredBy: cornerAnchor,
+                in: visibleFrame
+            )
         )
     }
 
