@@ -7,6 +7,7 @@ enum WindowRole {
     case pinPage
     case pictureInPicture
     case stashHandle
+    case stashShelf
 
     var policy: WindowRolePolicy {
         switch self {
@@ -52,9 +53,11 @@ enum WindowRole {
                 initialContentSize: CGSize(width: 480, height: 720),
                 minimumContentSize: CGSize(width: 360, height: 420)
             )
-        case .stashHandle:
+        case .stashHandle, .stashShelf:
             WindowRolePolicy(
-                kind: .nonactivatingPanel,
+                kind: self == .stashShelf
+                    ? .focusableNonactivatingPanel
+                    : .nonactivatingPanel,
                 styleMask: [.borderless, .nonactivatingPanel],
                 level: .floating,
                 collectionBehavior: [
@@ -70,7 +73,16 @@ enum WindowRole {
     }
 
     func makeWindow() -> NSWindow {
-        policy.makeWindow()
+        let window = policy.makeWindow()
+        switch self {
+        case .stashHandle, .stashShelf:
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.hasShadow = true
+        default:
+            break
+        }
+        return window
     }
 }
 
@@ -80,6 +92,7 @@ struct WindowRolePolicy {
         case keyWindow
         case keyPanel
         case nonactivatingPanel
+        case focusableNonactivatingPanel
     }
 
     let kind: Kind
@@ -133,6 +146,13 @@ struct WindowRolePolicy {
                 backing: .buffered,
                 defer: false
             )
+        case .focusableNonactivatingPanel:
+            window = KeyCapableStashShelfPanel(
+                contentRect: contentRect,
+                styleMask: styleMask,
+                backing: .buffered,
+                defer: false
+            )
         }
         apply(to: window)
         if let panel = window as? KeyCapablePiPPanel {
@@ -152,4 +172,9 @@ struct WindowRolePolicy {
             window.contentMaxSize = maximumContentSize
         }
     }
+}
+
+@MainActor
+final class KeyCapableStashShelfPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
 }

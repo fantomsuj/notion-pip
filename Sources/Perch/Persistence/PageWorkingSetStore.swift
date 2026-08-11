@@ -1,6 +1,6 @@
 import Foundation
 
-protocol PageWorkingSetPersisting: Sendable {
+protocol PageWorkingSetPersisting: PiPRecentPagesProviding, Sendable {
     func workingSet() async throws -> PageWorkingSetSnapshot
     func recordVisit(_ page: NotionPageReference) async throws -> StoredPageSnapshot
     func setPinned(
@@ -17,6 +17,7 @@ extension PageRepository: PageWorkingSetPersisting {}
 
 actor InMemoryPageWorkingSetStore: PageWorkingSetPersisting {
     private var snapshot: PageWorkingSetSnapshot
+    private var recentHistory: [StoredPageSnapshot]
     private let policy: PageWorkingSetPolicy
 
     init(
@@ -30,10 +31,27 @@ actor InMemoryPageWorkingSetStore: PageWorkingSetPersisting {
     ) {
         self.snapshot = snapshot
         self.policy = policy
+        recentHistory = Self.prunedRecentHistory(
+            [snapshot.activePage].compactMap { $0 }
+                + snapshot.pinnedPages
+                + snapshot.recentPages,
+            pinnedPages: snapshot.pinnedPages,
+            policy: policy
+        )
     }
 
     func workingSet() -> PageWorkingSetSnapshot {
         snapshot
+    }
+
+    func recentPiPPages(limit: Int) -> PiPRecentPagesSnapshot {
+        PiPRecentPagesSnapshot.assemble(
+            activePage: snapshot.activePage,
+            recentHistory: recentHistory,
+            restorations: snapshot.restorations,
+            limit: limit,
+            policy: policy
+        )
     }
 
     func recordVisit(_ page: NotionPageReference) -> StoredPageSnapshot {
@@ -43,6 +61,7 @@ actor InMemoryPageWorkingSetStore: PageWorkingSetPersisting {
             displayTitle: page.displayTitle,
             timestamp: Date()
         )
+        recentHistory = policy.orderedUnique([value] + recentHistory)
         apply(policy.recordVisit(value, in: snapshot))
         return value
     }
@@ -57,7 +76,9 @@ actor InMemoryPageWorkingSetStore: PageWorkingSetPersisting {
             displayTitle: page.displayTitle,
             timestamp: Date()
         )
-        apply(try policy.setPinned(isPinned, page: value, in: snapshot))
+        let mutation = try policy.setPinned(isPinned, page: value, in: snapshot)
+        upsertRecentHistory(value)
+        apply(mutation)
         return value
     }
 
@@ -119,6 +140,56 @@ actor InMemoryPageWorkingSetStore: PageWorkingSetPersisting {
             restorations: snapshot.restorations.filter {
                 mutation.retainedRestorationIDs.contains(policy.canonicalID($0.pageID))
             }
+        )
+        pruneRecentHistory()
+    }
+
+    private func upsertRecentHistory(_ page: StoredPageSnapshot) {
+        let pageID = policy.canonicalID(page.pageID)
+        if let current = recentHistory.first(where: {
+            policy.canonicalID($0.pageID) == pageID
+        }) {
+            recentHistory.removeAll {
+                policy.canonicalID($0.pageID) == pageID
+            }
+            recentHistory.append(
+                StoredPageSnapshot(
+                    pageID: page.pageID,
+                    canonicalURL: page.canonicalURL,
+                    displayTitle: page.displayTitle,
+                    role: current.role,
+                    timestamp: current.timestamp
+                )
+            )
+        } else {
+            recentHistory.append(page)
+        }
+        recentHistory = policy.orderedUnique(recentHistory)
+    }
+
+    private func pruneRecentHistory() {
+        recentHistory = Self.prunedRecentHistory(
+            recentHistory,
+            pinnedPages: snapshot.pinnedPages,
+            policy: policy
+        )
+    }
+
+    private static func prunedRecentHistory(
+        _ recentHistory: [StoredPageSnapshot],
+        pinnedPages: [StoredPageSnapshot],
+        policy: PageWorkingSetPolicy
+    ) -> [StoredPageSnapshot] {
+        let pinnedIDs = Set(pinnedPages.map { policy.canonicalID($0.pageID) })
+        let orderedHistory = policy.orderedUnique(recentHistory)
+        let pinnedHistory = orderedHistory.filter {
+            pinnedIDs.contains(policy.canonicalID($0.pageID))
+        }
+        let unpinnedHistory = orderedHistory.filter {
+            !pinnedIDs.contains(policy.canonicalID($0.pageID))
+        }
+        return policy.orderedUnique(
+            pinnedHistory + Array(unpinnedHistory.prefix(policy.recentLimit))
         )
     }
 }
