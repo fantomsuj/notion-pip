@@ -1869,6 +1869,24 @@ final class NotionWebSessionTests: XCTestCase {
             ),
             .editingEnded
         )
+        XCTAssertEqual(
+            NotionEditorActivityBridge.activity(
+                from: "scrollingStarted",
+                isMainFrame: true,
+                scheme: "https",
+                host: "app.notion.com"
+            ),
+            .scrollingStarted
+        )
+        XCTAssertEqual(
+            NotionEditorActivityBridge.activity(
+                from: "scrollingEnded",
+                isMainFrame: true,
+                scheme: "https",
+                host: "notion.so"
+            ),
+            .scrollingEnded
+        )
 
         XCTAssertNil(
             NotionEditorActivityBridge.activity(
@@ -1997,7 +2015,9 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertTrue(script.source.contains("scrollingStarted"))
         XCTAssertTrue(script.source.contains("scrollingEnded"))
         XCTAssertTrue(script.source.contains("document.addEventListener('scroll'"))
+        XCTAssertTrue(script.source.contains("window.setTimeout(publishEditingEnded, 800)"))
         XCTAssertTrue(script.source.contains("window.setTimeout(publishScrollingEnded, 500)"))
+        XCTAssertTrue(script.source.contains("'pageshow'"))
         XCTAssertTrue(
             script.source.contains(
                 "if (editableElement(event.target)) publishTypingStarted();"
@@ -2014,6 +2034,9 @@ final class NotionWebSessionTests: XCTestCase {
             <html>
               <body>
                 <input id="editor" type="text">
+                <div id="scroller" style="height: 40px; overflow: auto;">
+                  <div style="height: 400px;"></div>
+                </div>
                 <script>
                   window.__perchTestErrors = [];
                   window.addEventListener('error', (event) => {
@@ -2041,8 +2064,17 @@ final class NotionWebSessionTests: XCTestCase {
             """,
             in: webView
         )
-        try await waitForCondition { session.isTypingInPage }
+        try await waitForCondition {
+            session.isTypingInPage && session.isInteractingWithPage
+        }
+        try await waitForCondition {
+            !session.isTypingInPage && !session.isInteractingWithPage
+        }
 
+        try await beginTyping(in: webView)
+        try await waitForCondition {
+            session.isTypingInPage && session.isInteractingWithPage
+        }
         try await dispatchEditorActivity(
             "document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }));",
             in: webView
@@ -2071,6 +2103,46 @@ final class NotionWebSessionTests: XCTestCase {
             try await waitForCondition { !session.isTypingInPage }
         }
 
+        try await dispatchEditorActivity(
+            """
+            const scroller = document.querySelector('#scroller');
+            scroller.scrollTop = 40;
+            scroller.dispatchEvent(new Event('scroll'));
+            """,
+            in: webView
+        )
+        try await waitForCondition {
+            session.isInteractingWithPage && !session.isTypingInPage
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        try await dispatchEditorActivity(
+            """
+            const scroller = document.querySelector('#scroller');
+            scroller.scrollTop = 80;
+            scroller.dispatchEvent(new Event('scroll'));
+            """,
+            in: webView
+        )
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(session.isInteractingWithPage)
+        try await waitForCondition { !session.isInteractingWithPage }
+
+        try await beginTyping(in: webView)
+        try await waitForCondition { session.isTypingInPage }
+        try await dispatchEditorActivity(
+            """
+            window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+            window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+            """,
+            in: webView
+        )
+        session.revealTopControls()
+        try await beginTyping(in: webView)
+        try await waitForCondition {
+            session.isTypingInPage && session.isInteractingWithPage
+        }
+        session.revealTopControls()
+
         let errors = try await webView.evaluateJavaScript(
             "window.__perchTestErrors"
         ) as? [String]
@@ -2082,14 +2154,30 @@ final class NotionWebSessionTests: XCTestCase {
 
         session.handleEditorActivity(.typingStarted)
         XCTAssertTrue(session.isTypingInPage)
+        XCTAssertFalse(session.isScrollingInPage)
         XCTAssertTrue(session.isInteractingWithPage)
 
         session.handleEditorActivity(.scrollingStarted)
-        XCTAssertFalse(session.isTypingInPage)
+        XCTAssertTrue(session.isTypingInPage)
+        XCTAssertTrue(session.isScrollingInPage)
         XCTAssertTrue(session.isInteractingWithPage)
 
+        session.handleEditorActivity(.editingEnded)
+        XCTAssertFalse(session.isTypingInPage)
+        XCTAssertTrue(session.isScrollingInPage)
+        XCTAssertTrue(session.isInteractingWithPage)
+
+        session.handleEditorActivity(.typingStarted)
+        session.handleEditorActivity(.scrollingEnded)
+        XCTAssertTrue(session.isTypingInPage)
+        XCTAssertFalse(session.isScrollingInPage)
+        XCTAssertTrue(session.isInteractingWithPage)
+
+        session.handleEditorActivity(.editingEnded)
+        session.handleEditorActivity(.editingEnded)
         session.handleEditorActivity(.scrollingEnded)
         XCTAssertFalse(session.isTypingInPage)
+        XCTAssertFalse(session.isScrollingInPage)
         XCTAssertFalse(session.isInteractingWithPage)
     }
 
