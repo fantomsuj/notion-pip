@@ -13,6 +13,7 @@
 - Keep WebKit messages restricted to trusted Notion HTTPS main frames.
 - Do not depend on Notion private CSS classes.
 - Hide the complete toolbar, including corner arrows.
+- Typing returns to idle after 800 milliseconds without another edit event.
 - Scrolling returns to idle after 500 milliseconds without another scroll event.
 - Preserve zero reserved content height.
 - VoiceOver, Switch Control, and Full Keyboard Access keep controls visible.
@@ -31,21 +32,21 @@
 - Consumes: NotionWebSession.isInteractingWithPage
 - Produces: PiPChromeView.shouldShowTopControls(isInteractingWithPage:isHoveringTopEdge:isVoiceOverEnabled:isSwitchControlEnabled:isFullKeyboardAccessEnabled:) and hidden/expanded PiPTopToolbarPresentation behavior.
 
-- [ ] **Step 1: Write failing policy tests**
+- [x] **Step 1: Write failing policy tests**
 
 Add assertions that idle returns true; active interaction returns false; top-edge hover and each assistive-access flag override active interaction; and topToolbarPresentation returns hidden for active interaction even when a position controller exists.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter PiPChromeViewTests
 
 Expected: FAIL because the visibility policy lacks isInteractingWithPage and compact presentation still keeps corner arrows visible.
 
-- [ ] **Step 3: Implement the minimal view policy**
+- [x] **Step 3: Implement the minimal view policy**
 
 Make idle the default expanded state, suppress the entire toolbar while isInteractingWithPage is true, retain hover and accessibility overrides, add an opacity transition, and keep reduced-motion behavior.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run the focused PiPChromeViewTests and the legacy chrome-policy tests in NotionWebSessionTests. Expect zero failures.
 
@@ -59,23 +60,23 @@ Run the focused PiPChromeViewTests and the legacy chrome-policy tests in NotionW
 
 **Interfaces:**
 - Extends: NotionEditorActivity with scrollingStarted and scrollingEnded.
-- Produces: NotionWebSession.isInteractingWithPage.
+- Produces: independent NotionWebSession.isTypingInPage and isScrollingInPage state, plus derived isInteractingWithPage.
 
-- [ ] **Step 1: Write failing session and script tests**
+- [x] **Step 1: Write failing session and script tests**
 
-Assert typingStarted sets both isTypingInPage and isInteractingWithPage; editingEnded clears both; scrollingStarted clears typing and sets interaction; scrollingEnded clears interaction; navigation clears interaction. Assert the installed activity script contains capture-phase scroll handling, scrollingStarted, scrollingEnded, and a 500 millisecond timer.
+Assert typing and scrolling start/end independently across interleaved and duplicate messages; navigation clears both. Assert the installed activity script contains an 800 millisecond typing quiet timer, capture-phase nested-scroll handling, a resettable 500 millisecond scroll quiet timer, and reusable pagehide/pageshow resets. Execute these behaviors in a trusted WKWebView fixture.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter '(NotionWebSessionTests|NotionWebScriptMessageCoordinatorTests)'
 
 Expected: FAIL because scrolling activity cases and isInteractingWithPage do not exist.
 
-- [ ] **Step 3: Implement the minimal activity flow**
+- [x] **Step 3: Implement the minimal activity flow**
 
-Extend the existing activity enum and document-start script. On the first captured scroll event, end typing and send scrollingStarted. Reset a 500 millisecond timer on every scroll. Send scrollingEnded after the quiet period. In NotionWebSession, guard duplicate published assignments and reset both typing and interaction through existing reveal/navigation/lifecycle paths.
+Extend the existing activity enum and document-start script. Reset the 800 millisecond typing quiet timer on each edit. Capture main and nested scrolls, reset the 500 millisecond scroll quiet timer, and preserve continuous interaction when transitioning between activities. Track typing and scrolling independently in NotionWebSession, suppress duplicate published assignments, and reset both through existing navigation and lifecycle paths.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run the same focused suites and expect zero failures.
 
@@ -87,13 +88,13 @@ Run the same focused suites and expect zero failures.
 **Interfaces:**
 - Produces: User-facing and accessibility descriptions of the adaptive toolbar.
 
-- [ ] **Step 1: Update the existing onboarding copy**
+- [x] **Step 1: Update the existing onboarding copy**
 
 Replace the persistent-arrow and hover-only explanation with: the full toolbar stays visible while idle, hides while typing or scrolling, and can be revealed from the top edge. Update the artwork caption and accessibility summary consistently.
 
-- [ ] **Step 2: Verify onboarding coverage**
+- [x] **Step 2: Verify onboarding coverage**
 
-Run: DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter OnboardingViewTests
+Run: DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter OnboardingContentTests
 
 Expected: zero failures after updating any exact-copy expectations.
 
@@ -102,22 +103,24 @@ Expected: zero failures after updating any exact-copy expectations.
 **Files:**
 - Verify all changed source, test, onboarding, spec, and plan files.
 
-- [ ] **Step 1: Run the full Swift suite**
+- [x] **Step 1: Run the full Swift suite**
 
 Run: DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 
 Expected: zero failures.
 
-- [ ] **Step 2: Run script tests**
+- [x] **Step 2: Run script tests**
 
 Run: bash Tests/ScriptTests/sign_app_tests.sh
 
 Expected: zero failures.
 
-- [ ] **Step 3: Inspect the complete branch diff**
+- [x] **Step 3: Inspect the complete branch diff**
 
 Confirm only adaptive-toolbar files and their tests/docs changed, and confirm no placeholder text or whitespace errors.
 
-- [ ] **Step 4: Open a draft pull request**
+- [x] **Step 4: Open a draft pull request**
 
 Target master from agent/adaptive-toolbar-visibility. Summarize behavior, WebKit security, accessibility, and validation.
+
+Verification note: GitHub Actions CI run 152 passed script tests, 434 non-WebKit tests, and every isolated WebKit-dependent suite after the final source and test changes.
