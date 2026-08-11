@@ -6,6 +6,8 @@ typealias NotionWebActivityBridgeRemover = @MainActor (WKUserContentController) 
 enum NotionEditorActivity: String, Equatable {
     case typingStarted
     case editingEnded
+    case scrollingStarted
+    case scrollingEnded
 }
 
 private enum NotionScriptMessageOrigin {
@@ -329,6 +331,8 @@ final class NotionWebScriptMessageCoordinator {
           window.__perchChromeActivityInstalled = true;
 
           var isTyping = false;
+          var isScrolling = false;
+          var scrollingEndTimer = null;
 
           const editableElement = (node) => {
             const element = node instanceof Element ? node : node?.parentElement;
@@ -350,7 +354,16 @@ final class NotionWebScriptMessageCoordinator {
             window.webkit?.messageHandlers?.perchChromeActivity?.postMessage(activity);
           };
 
+          const cancelScrollingEndTimer = () => {
+            if (scrollingEndTimer === null) return;
+            window.clearTimeout(scrollingEndTimer);
+            scrollingEndTimer = null;
+          };
+
           const publishTypingStarted = () => {
+            cancelScrollingEndTimer();
+            isScrolling = false;
+            if (isTyping) return;
             isTyping = true;
             postActivity('typingStarted');
           };
@@ -359,6 +372,20 @@ final class NotionWebScriptMessageCoordinator {
             if (!isTyping) return;
             isTyping = false;
             postActivity('editingEnded');
+          };
+
+          const publishScrollingStarted = () => {
+            isTyping = false;
+            if (isScrolling) return;
+            isScrolling = true;
+            postActivity('scrollingStarted');
+          };
+
+          const publishScrollingEnded = () => {
+            scrollingEndTimer = null;
+            if (!isScrolling) return;
+            isScrolling = false;
+            postActivity('scrollingEnded');
           };
 
           document.addEventListener('beforeinput', (event) => {
@@ -380,6 +407,17 @@ final class NotionWebScriptMessageCoordinator {
           document.addEventListener('keydown', (event) => {
             if (event.key === 'Tab' || event.key === 'Escape') publishEditingEnded();
           }, true);
+
+          document.addEventListener('scroll', () => {
+            publishScrollingStarted();
+            cancelScrollingEndTimer();
+            scrollingEndTimer = window.setTimeout(publishScrollingEnded, 500);
+          }, { capture: true, passive: true });
+
+          window.addEventListener('pagehide', () => {
+            cancelScrollingEndTimer();
+            isScrolling = false;
+          }, { capture: true, once: true });
         })();
         """#
 
