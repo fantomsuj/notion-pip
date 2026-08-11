@@ -4,6 +4,83 @@ import XCTest
 @testable import Perch
 
 final class PageRepositoryTests: XCTestCase {
+    func testRecentPiPPagesIncludesRecentlyVisitedPinnedPageInVisitOrder() async throws {
+        let clock = TestDateProvider(Date(timeIntervalSince1970: 100))
+        let repository = PageRepository(container: try makeContainer(), clock: clock)
+        let pinned = try page(slug: "Pinned-project", id: firstPageID)
+        let recent = try page(slug: "Recent-notes", id: secondPageID)
+
+        _ = try await repository.setPinned(true, page: pinned)
+        _ = try await repository.recordVisit(recent)
+        clock.advance(by: 100)
+        _ = try await repository.recordVisit(pinned)
+
+        let result = try await repository.recentPiPPages(limit: 5)
+
+        XCTAssertEqual(result.pages.map(\.pageID), [pinned.pageID, recent.pageID])
+        XCTAssertEqual(result.activePageID, pinned.pageID)
+    }
+
+    func testRecentPiPPagesHonorsLimitAndRetainsMatchingRestorations() async throws {
+        let clock = TestDateProvider(Date(timeIntervalSince1970: 1_000))
+        let repository = PageRepository(container: try makeContainer(), clock: clock)
+        let older = try page(slug: "Older", id: firstPageID)
+        let newer = try page(slug: "Newer", id: secondPageID)
+        _ = try await repository.recordVisit(older)
+        let restoration = try DurablePageRestoration(
+            pageID: older.pageID,
+            validatingLastURL: older.canonicalURL,
+            scrollX: 4,
+            scrollY: 80,
+            scrollProgress: 0.25,
+            updatedAt: clock.now()
+        )
+        _ = try await repository.saveRestoration(restoration)
+        clock.advance(by: 100)
+        _ = try await repository.recordVisit(newer)
+
+        let limited = try await repository.recentPiPPages(limit: 1)
+        let complete = try await repository.recentPiPPages(limit: 5)
+
+        XCTAssertEqual(limited.pages.map(\.pageID), [newer.pageID])
+        XCTAssertEqual(complete.pages.map(\.pageID), [newer.pageID, older.pageID])
+        XCTAssertEqual(complete.restoration(for: older.pageID), restoration)
+        XCTAssertNil(complete.restoration(for: newer.pageID))
+        let workingSet = try await repository.workingSet()
+        XCTAssertEqual(workingSet.restorations, [restoration])
+    }
+
+    func testRecentPiPPagesDeduplicatesCaseInsensitivelyAndKeepsActiveFallback() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let active = try page(slug: "Active", id: firstPageID)
+        context.insert(
+            ActivePageModel(
+                pageID: active.pageID.uppercased(),
+                canonicalURL: active.canonicalURL.absoluteString,
+                displayTitle: active.displayTitle,
+                updatedAt: Date(timeIntervalSince1970: 2_000)
+            )
+        )
+        context.insert(
+            RecentPageModel(
+                stableID: active.pageID,
+                canonicalURL: active.canonicalURL.absoluteString,
+                displayTitle: active.displayTitle,
+                visitedAt: Date(timeIntervalSince1970: 1_000)
+            )
+        )
+        try context.save()
+
+        let repository = PageRepository(container: container)
+        let result = try await repository.recentPiPPages(limit: -1)
+        let fallback = try await repository.recentPiPPages(limit: 5)
+
+        XCTAssertTrue(result.pages.isEmpty)
+        XCTAssertEqual(fallback.pages.map(\.pageID), [active.pageID])
+        XCTAssertEqual(fallback.activePageID, active.pageID)
+    }
+
     func testRecordVisitUpdatesActivePageAndKeepsOnlySevenUnpinnedRecents() async throws {
         let repository = try PageRepository(container: makeContainer())
         let pages = try (0..<8).map(page(number:))

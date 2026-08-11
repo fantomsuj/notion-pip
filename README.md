@@ -26,6 +26,8 @@ Pin the Notion page you are living in and keep it close without turning it into 
   toggle reads macOS's current registration state and points you to Login Items
   settings when the system requires approval.
 
+Hover over the edge handle to see up to five pages you recently opened in Perch. Click a recent page to restore it where you left off, click the handle itself to restore the current page, or drag the handle to move it to another edge or display.
+
 The app intentionally runs as an accessory rather than appearing in the Dock. Its menu-bar icon is shown by default, and you can turn it off in Settings while continuing to use the edge handle and global shortcut.
 
 ## A native Mac app with a real Notion page inside
