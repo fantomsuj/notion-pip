@@ -41,7 +41,18 @@ final class NotionWebScriptMessageCoordinatorTests: XCTestCase {
         XCTAssertTrue(firstController.userScripts[0].source.contains("scrollingEnded"))
         XCTAssertTrue(
             firstController.userScripts[0].source.contains(
+                "window.setTimeout(publishEditingEnded, 800)"
+            )
+        )
+        XCTAssertTrue(
+            firstController.userScripts[0].source.contains(
                 "window.setTimeout(publishScrollingEnded, 500)"
+            )
+        )
+        XCTAssertTrue(firstController.userScripts[0].source.contains("'pageshow'"))
+        XCTAssertFalse(
+            firstController.userScripts[0].source.contains(
+                "{ capture: true, once: true }"
             )
         )
         XCTAssertTrue(firstController.userScripts[1].source.contains("pagehide"))
