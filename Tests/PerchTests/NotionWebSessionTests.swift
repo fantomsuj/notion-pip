@@ -1916,9 +1916,19 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertFalse(String(reflecting: chrome.body).contains("Page surface"))
     }
 
-    func testTopControlsAreHiddenUntilTopEdgeIsHovered() {
+    func testTopControlsStayVisibleWhilePageIsIdleAndHideDuringInteraction() {
+        XCTAssertTrue(
+            PiPChromeView.shouldShowTopControls(
+                isInteractingWithPage: false,
+                isHoveringTopEdge: false,
+                isVoiceOverEnabled: false,
+                isSwitchControlEnabled: false,
+                isFullKeyboardAccessEnabled: false
+            )
+        )
         XCTAssertFalse(
             PiPChromeView.shouldShowTopControls(
+                isInteractingWithPage: true,
                 isHoveringTopEdge: false,
                 isVoiceOverEnabled: false,
                 isSwitchControlEnabled: false,
@@ -1927,6 +1937,7 @@ final class NotionWebSessionTests: XCTestCase {
         )
         XCTAssertTrue(
             PiPChromeView.shouldShowTopControls(
+                isInteractingWithPage: true,
                 isHoveringTopEdge: true,
                 isVoiceOverEnabled: false,
                 isSwitchControlEnabled: false,
@@ -1940,17 +1951,10 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(PiPChromeView.topControlsReservedHeight(isVisible: true), 0)
     }
 
-    func testAccessibilityFeaturesKeepTopControlsVisibleWithoutHover() {
-        XCTAssertFalse(
-            PiPChromeView.shouldShowTopControls(
-                isHoveringTopEdge: false,
-                isVoiceOverEnabled: false,
-                isSwitchControlEnabled: false,
-                isFullKeyboardAccessEnabled: false
-            )
-        )
+    func testAccessibilityFeaturesKeepTopControlsVisibleDuringPageInteraction() {
         XCTAssertTrue(
             PiPChromeView.shouldShowTopControls(
+                isInteractingWithPage: true,
                 isHoveringTopEdge: false,
                 isVoiceOverEnabled: true,
                 isSwitchControlEnabled: false,
@@ -1959,6 +1963,7 @@ final class NotionWebSessionTests: XCTestCase {
         )
         XCTAssertTrue(
             PiPChromeView.shouldShowTopControls(
+                isInteractingWithPage: true,
                 isHoveringTopEdge: false,
                 isVoiceOverEnabled: false,
                 isSwitchControlEnabled: true,
@@ -1967,6 +1972,7 @@ final class NotionWebSessionTests: XCTestCase {
         )
         XCTAssertTrue(
             PiPChromeView.shouldShowTopControls(
+                isInteractingWithPage: true,
                 isHoveringTopEdge: false,
                 isVoiceOverEnabled: false,
                 isSwitchControlEnabled: false,
@@ -1988,6 +1994,10 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertTrue(script.source.contains("beforeinput"))
         XCTAssertTrue(script.source.contains("pointermove"))
         XCTAssertTrue(script.source.contains("focusout"))
+        XCTAssertTrue(script.source.contains("scrollingStarted"))
+        XCTAssertTrue(script.source.contains("scrollingEnded"))
+        XCTAssertTrue(script.source.contains("document.addEventListener('scroll'"))
+        XCTAssertTrue(script.source.contains("window.setTimeout(publishScrollingEnded, 500)"))
         XCTAssertTrue(
             script.source.contains(
                 "if (editableElement(event.target)) publishTypingStarted();"
@@ -2067,6 +2077,22 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(errors, [])
     }
 
+    func testPageInteractionTracksTypingAndScrollingIndependently() {
+        let session = NotionWebSession()
+
+        session.handleEditorActivity(.typingStarted)
+        XCTAssertTrue(session.isTypingInPage)
+        XCTAssertTrue(session.isInteractingWithPage)
+
+        session.handleEditorActivity(.scrollingStarted)
+        XCTAssertFalse(session.isTypingInPage)
+        XCTAssertTrue(session.isInteractingWithPage)
+
+        session.handleEditorActivity(.scrollingEnded)
+        XCTAssertFalse(session.isTypingInPage)
+        XCTAssertFalse(session.isInteractingWithPage)
+    }
+
     func testNavigationResetsTypingActivity() throws {
         let session = NotionWebSession()
         session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
@@ -2079,6 +2105,7 @@ final class NotionWebSessionTests: XCTestCase {
         )
 
         XCTAssertFalse(session.isTypingInPage)
+        XCTAssertFalse(session.isInteractingWithPage)
     }
 
     func testAdoptingResolvedSPAPageResetsTypingActivity() throws {
