@@ -332,6 +332,7 @@ final class NotionWebScriptMessageCoordinator {
 
           var isTyping = false;
           var isScrolling = false;
+          var typingEndTimer = null;
           var scrollingEndTimer = null;
 
           const editableElement = (node) => {
@@ -354,38 +355,55 @@ final class NotionWebScriptMessageCoordinator {
             window.webkit?.messageHandlers?.perchChromeActivity?.postMessage(activity);
           };
 
+          const cancelTypingEndTimer = () => {
+            if (typingEndTimer === null) return;
+            window.clearTimeout(typingEndTimer);
+            typingEndTimer = null;
+          };
+
           const cancelScrollingEndTimer = () => {
             if (scrollingEndTimer === null) return;
             window.clearTimeout(scrollingEndTimer);
             scrollingEndTimer = null;
           };
 
-          const publishTypingStarted = () => {
-            cancelScrollingEndTimer();
-            isScrolling = false;
-            if (isTyping) return;
-            isTyping = true;
-            postActivity('typingStarted');
-          };
-
           const publishEditingEnded = () => {
+            cancelTypingEndTimer();
             if (!isTyping) return;
             isTyping = false;
             postActivity('editingEnded');
           };
 
-          const publishScrollingStarted = () => {
-            isTyping = false;
-            if (isScrolling) return;
-            isScrolling = true;
-            postActivity('scrollingStarted');
-          };
-
           const publishScrollingEnded = () => {
-            scrollingEndTimer = null;
+            cancelScrollingEndTimer();
             if (!isScrolling) return;
             isScrolling = false;
             postActivity('scrollingEnded');
+          };
+
+          const publishTypingStarted = () => {
+            if (!isTyping) {
+              isTyping = true;
+              postActivity('typingStarted');
+            }
+            cancelTypingEndTimer();
+            typingEndTimer = window.setTimeout(publishEditingEnded, 800);
+            publishScrollingEnded();
+          };
+
+          const publishScrollingStarted = () => {
+            if (!isScrolling) {
+              isScrolling = true;
+              postActivity('scrollingStarted');
+            }
+            publishEditingEnded();
+          };
+
+          const resetActivityState = () => {
+            cancelTypingEndTimer();
+            cancelScrollingEndTimer();
+            isTyping = false;
+            isScrolling = false;
           };
 
           document.addEventListener('beforeinput', (event) => {
@@ -414,10 +432,8 @@ final class NotionWebScriptMessageCoordinator {
             scrollingEndTimer = window.setTimeout(publishScrollingEnded, 500);
           }, { capture: true, passive: true });
 
-          window.addEventListener('pagehide', () => {
-            cancelScrollingEndTimer();
-            isScrolling = false;
-          }, { capture: true, once: true });
+          window.addEventListener('pagehide', resetActivityState, { capture: true });
+          window.addEventListener('pageshow', resetActivityState, { capture: true });
         })();
         """#
 
