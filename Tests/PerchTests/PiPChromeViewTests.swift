@@ -50,14 +50,12 @@ final class PiPChromeViewTests: XCTestCase {
         )
         XCTAssertEqual(
             PiPChromeView.topToolbarPresentation(
-                hasPositionController: true,
                 showsTopControls: false
             ),
             .hidden
         )
         XCTAssertEqual(
             PiPChromeView.topToolbarPresentation(
-                hasPositionController: true,
                 showsTopControls: true
             ),
             .expanded
