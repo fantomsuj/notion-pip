@@ -6,6 +6,19 @@ import XCTest
 
 @MainActor
 final class PiPPanelGeometryTests: XCTestCase {
+    func testCornerLandingCurveIsMonotonicAndNeverOvershoots() {
+        let samples = stride(from: CGFloat.zero, through: 1, by: 0.05).map {
+            KeyCapablePiPPanel.criticallyDampedSpringProgress($0)
+        }
+
+        XCTAssertEqual(samples.first, 0)
+        XCTAssertTrue(zip(samples, samples.dropFirst()).allSatisfy { pair in
+            pair.0 <= pair.1
+        })
+        XCTAssertTrue(samples.allSatisfy { (0...1).contains($0) })
+        XCTAssertGreaterThan(samples.last ?? 0, 0.99)
+    }
+
     func testStashAnimationMovesTowardChosenEdgeWithoutChangingPanelSize() {
         let frame = CGRect(x: 120, y: 80, width: 480, height: 720)
 
@@ -166,7 +179,9 @@ private final class GeometryTestStashHandle: PiPStashHandle {
     func present(
         placement: PanelStashPlacement,
         onRestore: @escaping @MainActor () -> Void,
-        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void
+        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void,
+        onPullRevealChange: @escaping @MainActor (CGFloat) -> Void,
+        onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool
     ) {
         isVisible = true
         self.onRestore = onRestore

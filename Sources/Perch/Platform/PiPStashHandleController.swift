@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 
 @MainActor
@@ -18,6 +19,8 @@ final class PiPStashHandleController: PiPStashHandle {
     private var currentPlacement: PanelStashPlacement?
     private var onRestore: (@MainActor () -> Void)?
     private var onPlacementChange: (@MainActor (PanelStashPlacement) -> Void)?
+    private var onPullRevealChange: (@MainActor (CGFloat) -> Void)?
+    private var onPullRevealEnd: (@MainActor (CGFloat) -> Bool)?
     private var shelfLoadTask: Task<Void, Never>?
     private var shelfDismissTask: Task<Void, Never>?
     private var shelfRequestGeneration = 0
@@ -76,7 +79,9 @@ final class PiPStashHandleController: PiPStashHandle {
     func present(
         placement: PanelStashPlacement,
         onRestore: @escaping @MainActor () -> Void,
-        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void
+        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void,
+        onPullRevealChange: @escaping @MainActor (CGFloat) -> Void = { _ in },
+        onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool = { _ in false }
     ) {
         cancelShelfWork()
         shelfPanel.orderOut(nil)
@@ -89,6 +94,8 @@ final class PiPStashHandleController: PiPStashHandle {
         currentPlacement = placement
         self.onRestore = onRestore
         self.onPlacementChange = onPlacementChange
+        self.onPullRevealChange = onPullRevealChange
+        self.onPullRevealEnd = onPullRevealEnd
         installHandleContent(side: placement.side)
 
         guard shouldAnimateEntrance else {
@@ -121,6 +128,8 @@ final class PiPStashHandleController: PiPStashHandle {
         currentPlacement = nil
         onRestore = nil
         onPlacementChange = nil
+        onPullRevealChange = nil
+        onPullRevealEnd = nil
         isHandleHovered = false
         isShelfHovered = false
     }
@@ -166,6 +175,34 @@ final class PiPStashHandleController: PiPStashHandle {
         onPlacementChange?(placement)
     }
 
+    func updatePullReveal(inwardDistance: CGFloat) {
+        dismissShelf()
+        onPullRevealChange?(inwardDistance)
+        handlePanel.orderFrontRegardless()
+    }
+
+    @discardableResult
+    func finishPullReveal(inwardDistance: CGFloat) -> Bool {
+        dismissShelf()
+        let didRestore = onPullRevealEnd?(inwardDistance) ?? false
+        guard !didRestore, let currentPlacement else { return didRestore }
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            handlePanel.setFrame(currentPlacement.frame, display: true)
+            return false
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.20
+            context.timingFunction = CAMediaTimingFunction(
+                controlPoints: 0.22,
+                1,
+                0.36,
+                1
+            )
+            handlePanel.animator().setFrame(currentPlacement.frame, display: true)
+        }
+        return false
+    }
+
     func selectRecentPage(id: String) {
         guard let selection = recentPagesController?.selection(for: id) else { return }
         dismissShelf()
@@ -204,6 +241,12 @@ final class PiPStashHandleController: PiPStashHandle {
                 },
                 onDragStarted: { [weak self] in
                     self?.dismissShelf()
+                },
+                onPullRevealChanged: { [weak self] inwardDistance in
+                    self?.updatePullReveal(inwardDistance: inwardDistance)
+                },
+                onPullRevealEnded: { [weak self] inwardDistance in
+                    self?.finishPullReveal(inwardDistance: inwardDistance) ?? false
                 },
                 onHoverChanged: { [weak self] isHovering in
                     self?.handleHoverChanged(isHovering)

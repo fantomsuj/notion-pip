@@ -47,6 +47,37 @@ final class PiPStashHandleInteractionTests: XCTestCase {
         XCTAssertEqual(completedFrames, [window.frame])
     }
 
+    func testInwardDragScrubsRevealWithoutRepositionCompletionOrClick() throws {
+        let pointer = PointerLocation(CGPoint(x: 100, y: 10))
+        var activationCount = 0
+        var completedFrames: [CGRect] = []
+        var revealDistances: [CGFloat] = []
+        var endedDistances: [CGFloat] = []
+        let interaction = PiPStashHandleInteractionView(
+            pointerLocation: { pointer.value },
+            side: .right,
+            onActivate: { activationCount += 1 },
+            onDragEnded: { completedFrames.append($0) },
+            onPullRevealChanged: { revealDistances.append($0) },
+            onPullRevealEnded: {
+                endedDistances.append($0)
+                return true
+            }
+        )
+        let window = makeWindow(contentView: interaction)
+
+        interaction.mouseDown(with: try mouseEvent(.leftMouseDown))
+        pointer.value = CGPoint(x: 20, y: 12)
+        interaction.mouseDragged(with: try mouseEvent(.leftMouseDragged))
+        interaction.mouseUp(with: try mouseEvent(.leftMouseUp))
+
+        XCTAssertEqual(window.frame.origin, CGPoint(x: 20, y: 100))
+        XCTAssertEqual(revealDistances, [80])
+        XCTAssertEqual(endedDistances, [80])
+        XCTAssertEqual(activationCount, 0)
+        XCTAssertTrue(completedFrames.isEmpty)
+    }
+
     func testAccessibilityPressRestoresWithoutDragging() {
         var activationCount = 0
         let interaction = PiPStashHandleInteractionView(

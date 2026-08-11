@@ -38,4 +38,17 @@ enum PanelCorner: String, CaseIterable, Equatable, Hashable, Sendable {
             )
         }
     }
+
+    init(anchor: PanelFrameAnchor) {
+        switch (anchor.horizontalEdge, anchor.verticalEdge) {
+        case (.left, .top):
+            self = .topLeft
+        case (.right, .top):
+            self = .topRight
+        case (.left, .bottom):
+            self = .bottomLeft
+        case (.right, .bottom):
+            self = .bottomRight
+        }
+    }
 }

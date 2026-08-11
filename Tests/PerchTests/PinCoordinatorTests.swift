@@ -730,6 +730,110 @@ final class PinCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(loader.shortcutMeasurementRetentions, [.warm])
         XCTAssertEqual(signposter.endCalls.last?.metadata.webViewRetention, .warm)
+        XCTAssertEqual(panel.locateHaloCount, 1)
+    }
+
+    func testPullRevealScrubsRetainedPanelAndRestoresPastThreshold() throws {
+        let originalFrame = CGRect(x: 620, y: 100, width: 300, height: 400)
+        let panel = FakePanelWindow(frame: originalFrame)
+        let handle = FakeStashHandle()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: handle,
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.stashOrRestoreCurrentPage())
+
+        handle.pull(to: 75)
+
+        XCTAssertEqual(panel.pullRevealPresentationCount, 1)
+        XCTAssertEqual(panel.frame, CGRect(x: 810, y: 100, width: 300, height: 400))
+        XCTAssertTrue(handle.finishPull(at: 75))
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertFalse(handle.isVisible)
+        XCTAssertEqual(panel.animatedSetFrames.last, originalFrame)
+        XCTAssertEqual(loader.panelShowCount, 2)
+    }
+
+    func testPullRevealBelowThresholdReturnsPanelAndHandleToStashedState() throws {
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 620, y: 100, width: 300, height: 400)
+        )
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.stashOrRestoreCurrentPage())
+
+        handle.pull(to: 40)
+
+        XCTAssertFalse(handle.finishPull(at: 40))
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(handle.isVisible)
+        XCTAssertEqual(coordinator.presentationState, .stashed)
+    }
+
+    func testPullRevealDuringStashAnimationDoesNotDuplicateWebLifecycleShow() throws {
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 620, y: 100, width: 300, height: 400),
+            defersStashDismissal: true
+        )
+        let handle = FakeStashHandle()
+        let loader = FakePageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: loader,
+            stashHandle: handle,
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.stashOrRestoreCurrentPage())
+
+        handle.pull(to: 75)
+        XCTAssertTrue(handle.finishPull(at: 75))
+
+        XCTAssertEqual(loader.panelHideCount, 0)
+        XCTAssertEqual(loader.panelShowCount, 1)
+        panel.completeStashDismissal()
+        XCTAssertTrue(panel.isVisible)
+    }
+
+    func testDraggingNearCornerPresentsTargetOnlyWhileMouseIsPressed() throws {
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 870, y: 220, width: 520, height: 600)
+        )
+        let snapTargets = FakeSnapTargetPresenter()
+        let mouse = MutableBoolean(true)
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            snapTargetPresenter: snapTargets,
+            isPrimaryMouseButtonPressed: { mouse.value },
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_440, height: 875)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        coordinator.recordPanelMove()
+
+        XCTAssertEqual(snapTargets.presentedTargets.last?.corner, .topRight)
+        mouse.value = false
+        coordinator.recordPanelMove()
+        XCTAssertEqual(snapTargets.dismissCount, 1)
     }
 
     func testRedCloseRequestsTheSameStashTransition() throws {
@@ -1481,6 +1585,8 @@ private final class FakePanelWindow: PiPPanelWindow {
     private(set) var setFrames: [CGRect] = []
     private(set) var setFrameDisplays: [Bool] = []
     private(set) var animatedSetFrames: [CGRect] = []
+    private(set) var locateHaloCount = 0
+    private(set) var pullRevealPresentationCount = 0
     var onClose: (@MainActor () -> Void)?
     private let recordEvent: (String) -> Void
     private let defersStashDismissal: Bool
@@ -1502,6 +1608,16 @@ private final class FakePanelWindow: PiPPanelWindow {
         recordEvent("panel.present")
         presentCount += 1
         isVisible = true
+    }
+
+    func presentForPullReveal(at frame: CGRect) {
+        pullRevealPresentationCount += 1
+        self.frame = frame
+        isVisible = true
+    }
+
+    func pulseLocateHalo() {
+        locateHaloCount += 1
     }
 
     func orderOut() {
@@ -1639,6 +1755,8 @@ private final class FakeStashHandle: PiPStashHandle {
     private(set) var orderOutCount = 0
     private var onRestore: (@MainActor () -> Void)?
     private var onPlacementChange: (@MainActor (PanelStashPlacement) -> Void)?
+    private var onPullRevealChange: (@MainActor (CGFloat) -> Void)?
+    private var onPullRevealEnd: (@MainActor (CGFloat) -> Bool)?
     private let recordEvent: (String) -> Void
 
     init(recordEvent: @escaping (String) -> Void = { _ in }) {
@@ -1648,12 +1766,16 @@ private final class FakeStashHandle: PiPStashHandle {
     func present(
         placement: PanelStashPlacement,
         onRestore: @escaping @MainActor () -> Void,
-        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void
+        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void,
+        onPullRevealChange: @escaping @MainActor (CGFloat) -> Void,
+        onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool
     ) {
         recordEvent("handle.present")
         placements.append(placement)
         self.onRestore = onRestore
         self.onPlacementChange = onPlacementChange
+        self.onPullRevealChange = onPullRevealChange
+        self.onPullRevealEnd = onPullRevealEnd
         isVisible = true
     }
 
@@ -1663,6 +1785,8 @@ private final class FakeStashHandle: PiPStashHandle {
         isVisible = false
         onRestore = nil
         onPlacementChange = nil
+        onPullRevealChange = nil
+        onPullRevealEnd = nil
     }
 
     func restore() {
@@ -1671,6 +1795,38 @@ private final class FakeStashHandle: PiPStashHandle {
 
     func move(to placement: PanelStashPlacement) {
         onPlacementChange?(placement)
+    }
+
+    func pull(to inwardDistance: CGFloat) {
+        onPullRevealChange?(inwardDistance)
+    }
+
+    @discardableResult
+    func finishPull(at inwardDistance: CGFloat) -> Bool {
+        onPullRevealEnd?(inwardDistance) ?? false
+    }
+}
+
+@MainActor
+private final class FakeSnapTargetPresenter: PanelSnapTargetPresenting {
+    private(set) var presentedTargets: [PanelCornerSnapTarget] = []
+    private(set) var dismissCount = 0
+
+    func present(_ target: PanelCornerSnapTarget) {
+        presentedTargets.append(target)
+    }
+
+    func dismiss() {
+        dismissCount += 1
+    }
+}
+
+@MainActor
+private final class MutableBoolean {
+    var value: Bool
+
+    init(_ value: Bool) {
+        self.value = value
     }
 }
 
