@@ -72,6 +72,14 @@ struct QuickCopyButtonPresentation: Equatable {
                 appearance: .active,
                 showsProgress: true
             )
+        case .added:
+            self.init(
+                systemImage: "checkmark",
+                title: "Added",
+                statusMessage: nil,
+                appearance: .active,
+                showsProgress: false
+            )
         case let .warning(message):
             self.init(
                 systemImage: "exclamationmark.triangle.fill",
