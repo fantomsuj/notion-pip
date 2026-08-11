@@ -80,6 +80,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     var state: NotionWebSessionState { lifecycleController.state }
     @Published private(set) var browserLoginState: NotionBrowserLoginState = .idle
     @Published private(set) var isTypingInPage = false
+    @Published private(set) var isInteractingWithPage = false
     private(set) var activePage: NotionPageReference?
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
     private let openURL: @MainActor (URL) -> Void
@@ -814,9 +815,15 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     func handleEditorActivity(_ activity: NotionEditorActivity) {
         let isTyping = activity == .typingStarted
-        guard isTypingInPage != isTyping else { return }
-        isTypingInPage = isTyping
-        lifecycleController.setEvictionProtected(isTyping)
+        if isTypingInPage != isTyping {
+            isTypingInPage = isTyping
+            lifecycleController.setEvictionProtected(isTyping)
+        }
+
+        let isInteracting = activity == .typingStarted || activity == .scrollingStarted
+        if isInteractingWithPage != isInteracting {
+            isInteractingWithPage = isInteracting
+        }
     }
 
     func handleScrollSnapshot(_ snapshot: NotionScrollSnapshot) {
