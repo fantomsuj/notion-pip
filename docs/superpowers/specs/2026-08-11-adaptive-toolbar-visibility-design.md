@@ -9,7 +9,7 @@ Keep Perch's complete top toolbar visible while the embedded Notion page is idle
 Perch uses the existing origin-restricted WebKit activity bridge rather than observing private Notion CSS classes or treating all WebView focus as editing.
 
 - Idle page: show the complete toolbar.
-- Typing in an enabled text field, text area, or editable region: hide the complete toolbar.
+- Typing in an enabled text field, text area, or editable region: hide the complete toolbar and reveal it 800 milliseconds after the last edit event.
 - Scrolling the main document or a nested Notion scroller: hide the complete toolbar at the start of scrolling and reveal it after 500 milliseconds without another scroll event.
 - Pointer movement after typing, editable focus loss, Tab, or Escape: return to idle immediately.
 - Resting the pointer at Perch's top edge: reveal the toolbar through the existing delayed top-edge hover affordance.
@@ -39,6 +39,6 @@ Malformed, child-frame, non-HTTPS, and non-Notion messages remain ignored. If th
 ## Testing
 
 - Policy tests prove idle is expanded, typing/scrolling hides all controls, hover reveals, and accessibility overrides hiding.
-- Session tests prove typing and scrolling update interaction independently and navigation clears it.
-- Script tests prove scroll start/end hooks and the 500-millisecond quiet-period timer are installed.
+- Session tests prove typing and scrolling update independently across interleaved and duplicate messages, and navigation clears both.
+- Runtime WebKit tests prove the 800-millisecond typing quiet period, nested-scroll capture, repeated-scroll timer reset, 500-millisecond scroll quiet period, and page lifecycle reset.
 - Existing hover-delay, origin-validation, lifecycle, and full Swift suites remain regression coverage.
