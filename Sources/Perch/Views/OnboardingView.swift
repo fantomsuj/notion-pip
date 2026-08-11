@@ -212,7 +212,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         case .pinPage:
             "Paste a Notion page link in Settings to pin it. The page keeps its navigation and session as you move between other apps."
         case .panelControls:
-            "The four corner arrows stay visible. Hover over that toolbar or the top edge of the PiP to reveal the other controls. Double-click the title bar above them to maximize the PiP, then double-click again to restore it."
+            "The full toolbar stays visible while Notion is idle, then slips away while you type or scroll so the page stays clear. Rest your pointer at the top edge to bring it back. Double-click the title bar to maximize the PiP, then double-click again to restore it."
         case .appMenu:
             "Click the Perch icon in the menu bar for Show, Stash, New Notion Page, Settings, and this guide. The ellipsis inside the panel opens the same app commands."
         case .shortcuts:
@@ -413,7 +413,7 @@ private struct PanelControlsArtwork: View {
             Divider()
                 .frame(height: 14)
                 .padding(.horizontal, DesignTokens.Spacing.compact)
-            Text("Hover for more")
+            Text("Hides while typing or scrolling")
                 .font(.caption)
                 .foregroundStyle(DesignTokens.Colors.secondaryText)
             Spacer()
@@ -450,7 +450,9 @@ private struct PanelControlsArtwork: View {
     }
 
     private var accessibilitySummary: String {
-        "Panel controls. Four corner movement arrows remain visible. Hover to reveal: "
+        "Panel controls. The complete toolbar stays visible while Notion is idle and hides while typing or scrolling. Rest the pointer at the top edge to reveal: "
+            + PanelCorner.allCases.map(\.accessibilityLabel).joined(separator: ", ")
+            + ", "
             + OnboardingToolbarControl.all.map(\.title).joined(separator: ", ")
             + ". Double-click the title bar to maximize or restore the PiP."
     }
