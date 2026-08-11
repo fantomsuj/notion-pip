@@ -37,6 +37,13 @@ final class NotionWebScriptMessageCoordinatorTests: XCTestCase {
             }
         )
         XCTAssertTrue(firstController.userScripts[0].source.contains("beforeinput"))
+        XCTAssertTrue(firstController.userScripts[0].source.contains("scrollingStarted"))
+        XCTAssertTrue(firstController.userScripts[0].source.contains("scrollingEnded"))
+        XCTAssertTrue(
+            firstController.userScripts[0].source.contains(
+                "window.setTimeout(publishScrollingEnded, 500)"
+            )
+        )
         XCTAssertTrue(firstController.userScripts[1].source.contains("pagehide"))
         XCTAssertTrue(firstController.userScripts[2].source.contains("MutationObserver"))
         XCTAssertTrue(
