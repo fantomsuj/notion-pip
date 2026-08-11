@@ -67,6 +67,17 @@ actor PageRepository {
         )
     }
 
+    func recentPiPPages(limit: Int) throws -> PiPRecentPagesSnapshot {
+        let workingSet = try workingSet()
+        return PiPRecentPagesSnapshot.assemble(
+            activePage: workingSet.activePage,
+            recentHistory: validRecentPages(),
+            restorations: workingSet.restorations,
+            limit: limit,
+            policy: policy
+        )
+    }
+
     func recordVisit(_ page: NotionPageReference) throws -> StoredPageSnapshot {
         let now = clock.now()
         let pageID = policy.canonicalID(page.pageID)

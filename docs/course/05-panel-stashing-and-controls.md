@@ -116,8 +116,9 @@ the same as merely being visible or floating. The repository uses:
   Settings, Quick Capture, and page input;
 - `KeyCapablePiPPanel`, an `NSPanel` whose `canBecomeKey` is `true`, for the
   editable Notion overlay; and
-- a plain nonactivating `NSPanel` for the stash handle, so a small edge tab does
-  not seize keyboard focus.
+- plain nonactivating `NSPanel` instances for the stash handle and its
+  contextual recent-pages shelf, so passive hover does not seize keyboard
+  focus.
 
 Full panel presentation calls `NSApp.activate(ignoringOtherApps: true)` and
 `makeKeyAndOrderFront`. Handle presentation uses `orderFrontRegardless` on a
@@ -127,7 +128,7 @@ through its button semantics.
 
 ### Collection behavior is requested product policy
 
-The PiP and stash handle request:
+The PiP, stash handle, and contextual shelf request:
 
 ```text
 canJoinAllSpaces + fullScreenAuxiliary + transient + ignoresCycle
@@ -175,6 +176,7 @@ centralizes construction policy rather than scattering flags among presenters:
 | Pin Page | key-capable `NSWindow` | floating | 440×180 | 440×180, also maximum | move to active Space; full-screen auxiliary |
 | Picture in Picture | key-capable `NSPanel` | floating | 520×680 | 360×420 | all Spaces; full-screen auxiliary; transient; ignored by cycle |
 | Stash handle | nonactivating borderless `NSPanel` | floating | zero before placement | zero | same overlay collection behavior as PiP |
+| Stash shelf | nonactivating borderless `NSPanel` | floating | zero before attachment | zero | same overlay collection behavior as PiP |
 
 Every policy also sets `hidesOnDeactivate = false` and
 `isReleasedWhenClosed = false`. The PiP and application windows override
@@ -205,8 +207,10 @@ restores a saved frame if necessary, presents the retained panel, dismisses the
 handle, and reports `panelDidShow`. Re-selecting the same canonical URL does not
 activate a second page load.
 
-The convenience initializer constructs exactly one `KeyCapablePiPPanel`, one
-`PiPStashHandleController`, and one `NSHostingView` containing `PiPChromeView`.
+Composition constructs exactly one `KeyCapablePiPPanel` and one
+`PiPStashHandleController`. That controller owns the resting handle and the
+contextual shelf panel, while the panel coordinator remains unaware of shelf
+details. One `NSHostingView` contains `PiPChromeView`.
 [`PerchApp.swift`](../../Sources/Perch/App/PerchApp.swift) constructs
 that coordinator once with the one shared `NotionWebSession`, then retains the
 graph through `AppComposition` for the event-loop lifetime.
@@ -260,10 +264,13 @@ from the handle center, preserves the dragged vertical origin when possible,
 and clamps at the top or bottom.
 
 [`PiPStashHandleController.swift`](../../Sources/Perch/Platform/PiPStashHandleController.swift)
-turns that value into a real window. It installs a SwiftUI handle for the
-current side, presents the panel at the policy frame, and retains restore and
-placement-change callbacks only while visible. `orderOut()` clears the current
-placement and both callbacks.
+turns that value into real handle and shelf windows. It installs a SwiftUI
+handle for the current side, presents the handle at the policy frame, and
+retains restore and placement-change callbacks only while visible. Hover or a
+secondary click loads recent history and derives the shelf frame from
+`PanelStashShelfPolicy`; the larger shelf frame never participates in drag
+snapping. `orderOut()` cancels shelf work, hides both surfaces, and clears the
+current placement and presentation callbacks.
 
 [`PiPStashHandleView.swift`](../../Sources/Perch/Views/PiPStashHandleView.swift)
 combines SwiftUI appearance with an `NSViewRepresentable` interaction surface.
@@ -274,6 +281,20 @@ and `accessibilityPerformPress` so restore is not pointer-only. On drag end,
 the controller snaps to a valid display edge, reinstalls side-specific content,
 and reports the new placement to the panel coordinator. If no visible display
 can be resolved, it returns the handle to its previous frame.
+
+The recent-page data and selection flow is:
+
+```text
+RecentPageModel history → PiPRecentPagesShelfController → shelf row
+→ AppRuntime.activate(..., source: .pageSwitcher, restoration: ...)
+→ PinCoordinator → retained PiP panel
+```
+
+Hovering only reads page identity, visit time, and restoration metadata. It
+does not instantiate another WebView, activate the application, change the
+current page, move the handle, or alter saved stash placement. A failed or
+missing persistent store therefore suppresses only the shelf; the ordinary
+handle remains a click and drag recovery surface.
 
 Policy behavior is covered by
 [`PanelStashPolicyTests.swift`](../../Tests/PerchTests/PanelStashPolicyTests.swift);

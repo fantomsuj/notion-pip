@@ -149,6 +149,23 @@ final class PageWorkingSetPolicyTests: XCTestCase {
         XCTAssertEqual(result.restorations.map(\.pageID), [retained.pageID])
     }
 
+    func testInMemoryRecentPiPPagesIncludesPinnedVisitHistory() async throws {
+        let pinned = try snapshot(id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", time: 2)
+        let active = try snapshot(id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", time: 3)
+        let store = InMemoryPageWorkingSetStore(
+            snapshot: PageWorkingSetSnapshot(
+                activePage: active,
+                pinnedPages: [pinned],
+                recentPages: [active],
+                restorations: []
+            )
+        )
+
+        let recentPages = await store.recentPiPPages(limit: 5)
+
+        XCTAssertEqual(recentPages.pages.map(\.pageID), [active.pageID, pinned.pageID])
+    }
+
     private func snapshot(id: String, time: TimeInterval) throws -> StoredPageSnapshot {
         let page = try NotionPageReference(
             validating: XCTUnwrap(URL(string: "https://www.notion.so/Page-\(id)"))
