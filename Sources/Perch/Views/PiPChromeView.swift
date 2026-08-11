@@ -3,7 +3,6 @@ import SwiftUI
 
 enum PiPTopToolbarPresentation: Equatable {
     case hidden
-    case compact
     case expanded
 }
 
@@ -63,7 +62,6 @@ struct PiPChromeView: View {
     }
 
     static func topToolbarPresentation(
-        hasPositionController _: Bool,
         showsTopControls: Bool
     ) -> PiPTopToolbarPresentation {
         showsTopControls ? .expanded : .hidden
@@ -185,7 +183,6 @@ struct PiPChromeView: View {
                         .accessibilityHidden(true)
                 }
                 let toolbarPresentation = Self.topToolbarPresentation(
-                    hasPositionController: panelPositionController != nil,
                     showsTopControls: showsTopControls
                 )
                 if toolbarPresentation != .hidden {
