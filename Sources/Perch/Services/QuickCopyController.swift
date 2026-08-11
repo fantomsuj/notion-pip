@@ -1,18 +1,25 @@
 import Combine
 import Foundation
 
+typealias QuickCopyReceiptCancellation = @MainActor () -> Void
+typealias QuickCopyReceiptScheduler = @MainActor (
+    _ delay: Duration,
+    _ operation: @escaping @MainActor () -> Void
+) -> QuickCopyReceiptCancellation
+
 enum QuickCopyState: Equatable, Sendable {
     case off
     case requestingPermission
     case permissionNeeded
     case armed
     case inserting
+    case added
     case warning(String)
     case failed(String)
 
     var isSessionActive: Bool {
         switch self {
-        case .requestingPermission, .armed, .inserting, .warning:
+        case .requestingPermission, .armed, .inserting, .added, .warning:
             true
         case .off, .permissionNeeded, .failed:
             false
@@ -51,6 +58,7 @@ protocol QuickCopyInsertionTarget: AnyObject {
 
 @MainActor
 final class QuickCopyController: ObservableObject {
+    static let successReceiptDuration: Duration = .milliseconds(650)
     static let missingCursorMessage = "Click in the Notion page first."
     static let staleCursorMessage =
         "The Notion cursor changed. Click in the page, then retry."
@@ -62,20 +70,24 @@ final class QuickCopyController: ObservableObject {
     private let monitor: any QuickCopyMonitoring
     private weak var target: (any QuickCopyInsertionTarget)?
     private let policy: QuickCopyPolicy
+    private let receiptScheduler: QuickCopyReceiptScheduler
     private var pendingCandidates: QuickCopyCandidateBuffer
     private var failedCandidate: QuickCopyCandidate?
     private var lastAcceptedSequence: UInt64?
     private var deferredWarningMessage: String?
+    private var cancelSuccessReceipt: QuickCopyReceiptCancellation?
 
     init(
         monitor: any QuickCopyMonitoring,
         target: any QuickCopyInsertionTarget,
         policy: QuickCopyPolicy = QuickCopyPolicy(),
-        pendingCandidateCapacity: Int = QuickCopyCandidateBuffer.standardCapacity
+        pendingCandidateCapacity: Int = QuickCopyCandidateBuffer.standardCapacity,
+        receiptScheduler: @escaping QuickCopyReceiptScheduler = scheduleQuickCopyReceipt
     ) {
         self.monitor = monitor
         self.target = target
         self.policy = policy
+        self.receiptScheduler = receiptScheduler
         pendingCandidates = QuickCopyCandidateBuffer(capacity: pendingCandidateCapacity)
         monitor.onEvent = { [weak self] event in
             self?.handle(event)
@@ -94,6 +106,7 @@ final class QuickCopyController: ObservableObject {
     }
 
     func disable() {
+        cancelPendingSuccessReceipt()
         let wasActive = state.isSessionActive
         if wasActive {
             monitor.stop()
@@ -106,6 +119,7 @@ final class QuickCopyController: ObservableObject {
     }
 
     func prepareForTermination() {
+        cancelPendingSuccessReceipt()
         if state.isSessionActive {
             monitor.stop()
         }
@@ -163,6 +177,7 @@ final class QuickCopyController: ObservableObject {
         case .secureSource:
             showWarning("Quick Copy ignores secure text fields.")
         case .permissionRevoked:
+            cancelPendingSuccessReceipt()
             monitor.stop()
             pendingCandidates.removeAll()
             failedCandidate = nil
@@ -200,6 +215,7 @@ final class QuickCopyController: ObservableObject {
     }
 
     private func beginInsertion(of candidate: QuickCopyCandidate) {
+        cancelPendingSuccessReceipt()
         guard let target else {
             failInsertion(of: candidate)
             return
@@ -229,7 +245,13 @@ final class QuickCopyController: ObservableObject {
             self.deferredWarningMessage = nil
             state = .warning(deferredWarningMessage)
         } else {
-            state = .armed
+            state = .added
+            cancelSuccessReceipt = receiptScheduler(Self.successReceiptDuration) {
+                [weak self] in
+                guard let self, state == .added else { return }
+                cancelSuccessReceipt = nil
+                state = .armed
+            }
         }
     }
 
@@ -243,6 +265,7 @@ final class QuickCopyController: ObservableObject {
 
     private func targetDidInvalidate() {
         guard state.isSessionActive else { return }
+        cancelPendingSuccessReceipt()
         monitor.stop()
         pendingCandidates.removeAll()
         failedCandidate = nil
@@ -255,8 +278,14 @@ final class QuickCopyController: ObservableObject {
         if state == .inserting {
             deferredWarningMessage = message
         } else {
+            cancelPendingSuccessReceipt()
             state = .warning(message)
         }
+    }
+
+    private func cancelPendingSuccessReceipt() {
+        cancelSuccessReceipt?()
+        cancelSuccessReceipt = nil
     }
 
     private func message(for rejection: QuickCopyRejection) -> String {
@@ -276,4 +305,21 @@ final class QuickCopyController: ObservableObject {
         }
         return "This app doesn’t expose selected text."
     }
+}
+
+@MainActor
+private func scheduleQuickCopyReceipt(
+    after delay: Duration,
+    operation: @escaping @MainActor () -> Void
+) -> QuickCopyReceiptCancellation {
+    let task = Task { @MainActor in
+        do {
+            try await Task.sleep(for: delay)
+        } catch {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        operation()
+    }
+    return { task.cancel() }
 }

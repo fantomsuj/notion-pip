@@ -94,6 +94,16 @@ final class PiPChromeViewTests: XCTestCase {
             true
         )
         XCTAssertEqual(
+            QuickCopyButtonPresentation(state: .added),
+            QuickCopyButtonPresentation(
+                systemImage: "checkmark",
+                title: "Added",
+                statusMessage: nil,
+                appearance: .active,
+                showsProgress: false
+            )
+        )
+        XCTAssertEqual(
             QuickCopyButtonPresentation(state: .permissionNeeded).appearance,
             .permissionNeeded
         )

@@ -154,8 +154,88 @@ final class QuickCopyControllerTests: XCTestCase {
         XCTAssertEqual(target.insertionTexts, ["alpha", "beta"])
         target.completeNextInsertion(true)
 
-        XCTAssertEqual(controller.state, .armed)
+        XCTAssertEqual(controller.state, .added)
         XCTAssertEqual(monitor.startCount, 1)
+    }
+
+    func testSuccessfulInsertionShowsAReceiptBeforeReturningToArmed() {
+        let monitor = QuickCopyMonitorSpy(accessGranted: true)
+        let target = QuickCopyInsertionTargetSpy()
+        let scheduler = QuickCopyReceiptSchedulerSpy()
+        let controller = QuickCopyController(
+            monitor: monitor,
+            target: target,
+            receiptScheduler: scheduler.schedule
+        )
+        let source = QuickCopySource(processID: 7, applicationName: "Editor")
+        controller.toggle()
+        target.completeRemembering(true)
+        monitor.emit(
+            .candidate(QuickCopyCandidate(text: "alpha", source: source, sequence: 1))
+        )
+
+        target.completeNextInsertion(true)
+
+        XCTAssertEqual(
+            QuickCopyButtonPresentation(state: controller.state).title,
+            "Added"
+        )
+
+        scheduler.advance(by: .milliseconds(649))
+        XCTAssertEqual(controller.state, .added)
+
+        scheduler.advance(by: .milliseconds(1))
+
+        XCTAssertEqual(controller.state, .armed)
+    }
+
+    func testNewSelectionInterruptsReceiptWithoutBeingOverwrittenByItsDeadline() {
+        let monitor = QuickCopyMonitorSpy(accessGranted: true)
+        let target = QuickCopyInsertionTargetSpy()
+        let scheduler = QuickCopyReceiptSchedulerSpy()
+        let controller = QuickCopyController(
+            monitor: monitor,
+            target: target,
+            receiptScheduler: scheduler.schedule
+        )
+        let source = QuickCopySource(processID: 7, applicationName: "Editor")
+        controller.toggle()
+        target.completeRemembering(true)
+        monitor.emit(
+            .candidate(QuickCopyCandidate(text: "alpha", source: source, sequence: 1))
+        )
+        target.completeNextInsertion(true)
+
+        monitor.emit(
+            .candidate(QuickCopyCandidate(text: "beta", source: source, sequence: 2))
+        )
+        scheduler.advance(by: QuickCopyController.successReceiptDuration)
+
+        XCTAssertEqual(target.insertionTexts, ["alpha", "beta"])
+        XCTAssertEqual(controller.state, .inserting)
+    }
+
+    func testDisablingDuringReceiptKeepsQuickCopyOffAfterItsDeadline() {
+        let monitor = QuickCopyMonitorSpy(accessGranted: true)
+        let target = QuickCopyInsertionTargetSpy()
+        let scheduler = QuickCopyReceiptSchedulerSpy()
+        let controller = QuickCopyController(
+            monitor: monitor,
+            target: target,
+            receiptScheduler: scheduler.schedule
+        )
+        let source = QuickCopySource(processID: 7, applicationName: "Editor")
+        controller.toggle()
+        target.completeRemembering(true)
+        monitor.emit(
+            .candidate(QuickCopyCandidate(text: "alpha", source: source, sequence: 1))
+        )
+        target.completeNextInsertion(true)
+
+        controller.disable()
+        scheduler.advance(by: QuickCopyController.successReceiptDuration)
+
+        XCTAssertEqual(controller.state, .off)
     }
 
     func testFullBufferRejectsNewestCandidateDrainsAcceptedFIFOAndWarnsAfterDrain() {
@@ -188,7 +268,7 @@ final class QuickCopyControllerTests: XCTestCase {
         monitor.emit(.candidate(QuickCopyCandidate(text: "delta", source: source, sequence: 4)))
         XCTAssertEqual(target.insertionTexts, ["alpha", "beta", "delta"])
         target.completeNextInsertion(true)
-        XCTAssertEqual(controller.state, .armed)
+        XCTAssertEqual(controller.state, .added)
     }
 
     func testDisableClearsQueuedCandidateBeforeAStaleCompletionAndNextSession() {
@@ -356,5 +436,45 @@ private final class QuickCopyInsertionTargetSpy: QuickCopyInsertionTarget {
 
     func invalidate() {
         onQuickCopyTargetInvalidated?()
+    }
+}
+
+@MainActor
+private final class QuickCopyReceiptSchedulerSpy {
+    private final class CancellationState {
+        var isCancelled = false
+    }
+
+    private struct ScheduledOperation {
+        let deadline: Duration
+        let cancellationState: CancellationState
+        let operation: @MainActor () -> Void
+    }
+
+    private var elapsed: Duration = .zero
+    private var scheduledOperations: [ScheduledOperation] = []
+
+    func schedule(
+        after delay: Duration,
+        operation: @escaping @MainActor () -> Void
+    ) -> QuickCopyReceiptCancellation {
+        let cancellationState = CancellationState()
+        scheduledOperations.append(
+            ScheduledOperation(
+                deadline: elapsed + delay,
+                cancellationState: cancellationState,
+                operation: operation
+            )
+        )
+        return { cancellationState.isCancelled = true }
+    }
+
+    func advance(by duration: Duration) {
+        elapsed += duration
+        let ready = scheduledOperations.filter { $0.deadline <= elapsed }
+        scheduledOperations.removeAll { $0.deadline <= elapsed }
+        for scheduled in ready where !scheduled.cancellationState.isCancelled {
+            scheduled.operation()
+        }
     }
 }
