@@ -121,7 +121,7 @@ final class PiPStashHandleControllerTests: XCTestCase {
 
         controller.showRecentPages()
         controller.handleHoverChanged(true)
-        try await Task.sleep(for: .milliseconds(80))
+        await waitUntil { shelfPanel.isVisible }
 
         XCTAssertTrue(shelfPanel.isVisible)
         XCTAssertEqual(activationCount, 1)
@@ -277,7 +277,7 @@ final class PiPStashHandleControllerTests: XCTestCase {
     ) async {
         for _ in 0..<200 {
             if condition() { return }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(5))
         }
         XCTFail("Condition was not satisfied", file: file, line: line)
     }
