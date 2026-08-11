@@ -818,13 +818,21 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         let previousTypingState = isTypingInPage
         switch activity {
         case .typingStarted:
-            isTypingInPage = true
+            if !isTypingInPage {
+                isTypingInPage = true
+            }
         case .editingEnded:
-            isTypingInPage = false
+            if isTypingInPage {
+                isTypingInPage = false
+            }
         case .scrollingStarted:
-            isScrollingInPage = true
+            if !isScrollingInPage {
+                isScrollingInPage = true
+            }
         case .scrollingEnded:
-            isScrollingInPage = false
+            if isScrollingInPage {
+                isScrollingInPage = false
+            }
         }
 
         if isTypingInPage != previousTypingState {
