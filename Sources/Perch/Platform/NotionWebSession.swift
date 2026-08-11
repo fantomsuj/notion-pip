@@ -80,6 +80,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     var state: NotionWebSessionState { lifecycleController.state }
     @Published private(set) var browserLoginState: NotionBrowserLoginState = .idle
     @Published private(set) var isTypingInPage = false
+    @Published private(set) var isScrollingInPage = false
     @Published private(set) var isInteractingWithPage = false
     private(set) var activePage: NotionPageReference?
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
@@ -814,13 +815,23 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func handleEditorActivity(_ activity: NotionEditorActivity) {
-        let isTyping = activity == .typingStarted
-        if isTypingInPage != isTyping {
-            isTypingInPage = isTyping
-            lifecycleController.setEvictionProtected(isTyping)
+        let previousTypingState = isTypingInPage
+        switch activity {
+        case .typingStarted:
+            isTypingInPage = true
+        case .editingEnded:
+            isTypingInPage = false
+        case .scrollingStarted:
+            isScrollingInPage = true
+        case .scrollingEnded:
+            isScrollingInPage = false
         }
 
-        let isInteracting = activity == .typingStarted || activity == .scrollingStarted
+        if isTypingInPage != previousTypingState {
+            lifecycleController.setEvictionProtected(isTypingInPage)
+        }
+
+        let isInteracting = isTypingInPage || isScrollingInPage
         if isInteractingWithPage != isInteracting {
             isInteractingWithPage = isInteracting
         }
@@ -924,6 +935,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     func revealTopControls() {
         handleEditorActivity(.editingEnded)
+        handleEditorActivity(.scrollingEnded)
     }
 
     func handleMemoryPressure() {
