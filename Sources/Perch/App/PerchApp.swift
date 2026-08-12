@@ -190,6 +190,8 @@ private final class AppComposition {
             makeWindowPresenter: { completion, openSettings in
                 AppWindowFactory.makeOnboarding(
                     globalShortcut: runtime.globalShortcut,
+                    pageURLInputState: runtime.pageURLInputState,
+                    onPinPage: runtime.validatePageURL,
                     onComplete: completion,
                     onOpenSettings: openSettings
                 )

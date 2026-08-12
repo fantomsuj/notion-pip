@@ -14,7 +14,7 @@ extension AppRuntime {
                 firstPageHandoffTask = nil
             }
             guard !Task.isCancelled, activePage == nil else { return }
-            pageURLInputPresenter.presentAndFocus()
+            presentPageURLInput()
         }
     }
 
