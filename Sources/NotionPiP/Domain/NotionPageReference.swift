@@ -57,6 +57,17 @@ public struct NotionPageReference: Equatable, Hashable, Sendable {
         displayTitle = Self.displayTitle(from: extraction.titlePrefix)
     }
 
+    func resolvingDisplayTitle(_ rawTitle: String?) -> Self {
+        guard let title = Self.normalizedDocumentTitle(rawTitle) else { return self }
+        return Self(pageID: pageID, canonicalURL: canonicalURL, displayTitle: title)
+    }
+
+    private init(pageID: String, canonicalURL: URL, displayTitle: String?) {
+        self.pageID = pageID
+        self.canonicalURL = canonicalURL
+        self.displayTitle = displayTitle
+    }
+
     private static func extractPageID(from component: String) throws -> (pageID: String, titlePrefix: String) {
         guard !component.isEmpty else {
             throw NotionPageReferenceError.missingPageID
@@ -93,6 +104,24 @@ public struct NotionPageReference: Equatable, Hashable, Sendable {
             .replacingOccurrences(of: "-", with: " ")
             .split(whereSeparator: \Character.isWhitespace)
             .joined(separator: " ")
+        return title.isEmpty ? nil : title
+    }
+
+    private static func normalizedDocumentTitle(_ rawTitle: String?) -> String? {
+        guard var title = rawTitle?
+            .split(whereSeparator: \Character.isWhitespace)
+            .joined(separator: " "),
+            !title.isEmpty,
+            title.caseInsensitiveCompare("Notion") != .orderedSame
+        else {
+            return nil
+        }
+
+        for suffix in [" | Notion", " – Notion", " — Notion", " - Notion"]
+        where title.hasSuffix(suffix) {
+            title.removeLast(suffix.count)
+            break
+        }
         return title.isEmpty ? nil : title
     }
 }
