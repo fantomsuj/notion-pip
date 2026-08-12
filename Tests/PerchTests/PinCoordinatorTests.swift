@@ -746,6 +746,7 @@ final class PinCoordinatorTests: XCTestCase {
             panel: panel,
             pageLoader: loader,
             stashHandle: handle,
+            reducesMotion: { false },
             visibleFramesProvider: {
                 [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
             }

@@ -56,6 +56,7 @@ final class PiPStashHandleInteractionTests: XCTestCase {
         let interaction = PiPStashHandleInteractionView(
             pointerLocation: { pointer.value },
             side: .right,
+            reducesMotion: { false },
             onActivate: { activationCount += 1 },
             onDragEnded: { completedFrames.append($0) },
             onPullRevealChanged: { revealDistances.append($0) },

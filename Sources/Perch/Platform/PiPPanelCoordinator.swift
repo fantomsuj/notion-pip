@@ -229,6 +229,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     private let displayTopologyProvider: @MainActor () -> DisplayTopology
     private let snapTargetPresenter: (any PanelSnapTargetPresenting)?
     private let isPrimaryMouseButtonPressed: @MainActor () -> Bool
+    private let reducesMotion: @MainActor () -> Bool
     private let frameForContentRect: @MainActor (CGRect) -> CGRect
     private let contentRectForFrameRect: @MainActor (CGRect) -> CGRect
     private let geometryStore: any PanelGeometryPersisting
@@ -441,6 +442,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         isPrimaryMouseButtonPressed: @escaping @MainActor () -> Bool = {
             NSEvent.pressedMouseButtons & 1 != 0
         },
+        reducesMotion: @escaping @MainActor () -> Bool = {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        },
         visibleFramesProvider: @escaping @MainActor () -> [CGRect] = {
             NSScreen.screens.map(\.visibleFrame)
         },
@@ -470,6 +474,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             }
         self.snapTargetPresenter = snapTargetPresenter
         self.isPrimaryMouseButtonPressed = isPrimaryMouseButtonPressed
+        self.reducesMotion = reducesMotion
         latestTopology = initialTopology
         lastAcceptedTopologyRevision = initialTopology.revision
         self.initialFrameProvider = initialFrameProvider
@@ -984,7 +989,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         )
         let progress = PanelPullRevealPolicy.interactiveProgress(
             forRawProgress: rawProgress,
-            reducesMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            reducesMotion: reducesMotion()
         )
         setPanelFrame(
             PanelPullRevealPolicy.interpolatedFrame(
