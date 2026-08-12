@@ -1,0 +1,142 @@
+name: Release notarized DMG
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and notarize DMG
+    runs-on: macos-26
+    timeout-minutes: 45
+    environment: release
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag and version
+        id: release
+        run: |
+          # shellcheck disable=SC1091
+          source Support/Version.env
+          release_version="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF_NAME" != "v$PERCH_VERSION" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match PERCH_VERSION=$PERCH_VERSION" >&2
+            exit 1
+          fi
+          if [[ ! "$PERCH_BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "PERCH_BUILD_NUMBER must be a positive integer" >&2
+            exit 1
+          fi
+          echo "version=$release_version" >>"$GITHUB_OUTPUT"
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Run release gates
+        run: |
+          bash Tests/ScriptTests/sign_app_tests.sh
+          bash Tests/ScriptTests/package_release_tests.sh
+          swift test \
+            --skip \
+            '(ExternalDropActivatingWebViewTests|NotionEditorSelectionTests|NotionWebSessionTests|PiPChromeViewTests|PiPPanelGeometryTests|WebNavigationDestinationTests)'
+
+          suites=(
+            ExternalDropActivatingWebViewTests
+            NotionEditorSelectionTests
+            NotionWebSessionTests
+            PiPChromeViewTests
+            PiPPanelGeometryTests
+            WebNavigationDestinationTests
+          )
+          for suite in "${suites[@]}"; do
+            swift test --skip-build --filter "$suite"
+          done
+
+      - name: Install Developer ID certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          RELEASE_KEYCHAIN_PASSWORD: ${{ secrets.RELEASE_KEYCHAIN_PASSWORD }}
+        run: |
+          certificate_path="$RUNNER_TEMP/developer-id.p12"
+          keychain_path="$RUNNER_TEMP/perch-release.keychain-db"
+
+          printf '%s' "$CERTIFICATE_BASE64" | /usr/bin/base64 --decode -o "$certificate_path"
+          security create-keychain -p "$RELEASE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$RELEASE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -k "$RELEASE_KEYCHAIN_PASSWORD" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          security find-identity -p codesigning -v "$keychain_path"
+
+      - name: Install notarization API key
+        env:
+          NOTARY_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+        run: |
+          key_path="$RUNNER_TEMP/AuthKey_${NOTARY_KEY_ID}.p8"
+          printf '%s' "$NOTARY_KEY_BASE64" | /usr/bin/base64 --decode -o "$key_path"
+          chmod 600 "$key_path"
+          echo "PERCH_NOTARY_KEY_PATH=$key_path" >>"$GITHUB_ENV"
+
+      - name: Package and notarize release
+        env:
+          PERCH_NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          PERCH_NOTARY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: ./script/package_release.sh
+
+      - name: Preserve release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Perch-${{ steps.release.outputs.version }}
+          path: |
+            dist/Perch-${{ steps.release.outputs.version }}.dmg
+            dist/Perch-${{ steps.release.outputs.version }}.dmg.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/Perch-$RELEASE_VERSION.dmg" \
+            "dist/Perch-$RELEASE_VERSION.dmg.sha256" \
+            --draft \
+            --generate-notes \
+            --title "Perch $RELEASE_VERSION" \
+            --verify-tag
+
+      - name: Remove release credentials
+        if: ${{ always() }}
+        run: |
+          security delete-keychain "$RUNNER_TEMP/perch-release.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          if [[ -n "${PERCH_NOTARY_KEY_PATH:-}" ]]; then
+            rm -f "$PERCH_NOTARY_KEY_PATH"
+          fi

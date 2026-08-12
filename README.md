@@ -76,6 +76,19 @@ Run the tests with:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 ```
 
+## Direct distribution
+
+Public builds ship outside the Mac App Store as a Universal 2 DMG. They use a
+Developer ID Application signature, hardened runtime, a secure timestamp, and
+Apple notarization so Gatekeeper can validate the download. The development
+build above is not a distributable artifact.
+
+The complete certificate setup, local packaging command, GitHub release
+workflow, and clean-Mac validation checklist are documented in
+[`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md). Tagged release automation creates
+a draft GitHub Release for human approval; it never publishes a download
+directly.
+
 ### Set up with Codex
 
 After cloning the repository, open it in Codex and ask:
