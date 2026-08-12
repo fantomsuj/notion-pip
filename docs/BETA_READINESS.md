@@ -8,7 +8,7 @@ This checklist defines the minimum bar for giving Perch 0.1 to people outside th
 - [ ] `Support/Version.env` contains the intended user-facing version and a new build number.
 - [ ] The ten critical manual tests below pass on a clean macOS 14+ user account.
 - [ ] The app has a final icon, support URL, privacy policy, and installation instructions.
-- [ ] A Developer ID-signed and notarized archive installs on a Mac that did not build the app.
+- [ ] A Developer ID-signed, hardened-runtime, notarized DMG installs on a Mac that did not build the app.
 - [ ] Launch at Login is enabled, approved when required, exercised across a
   real login, disabled again, and checked after relaunch using that distributed
   archive.
@@ -51,7 +51,7 @@ The repository build can validate the public ServiceManagement flow only from
 identity. The staged app is deleted, recreated, and ad-hoc signed on each build,
 which can cause macOS to request approval again or leave a stale Login Items
 entry. Treat that as development feedback, not release evidence. The beta gate
-requires the Developer ID-signed, notarized archive installed at a stable path
+requires the Developer ID-signed, notarized DMG installed at a stable path
 on a clean account, including a real logout/login cycle.
 
 ## Stop-ship conditions
