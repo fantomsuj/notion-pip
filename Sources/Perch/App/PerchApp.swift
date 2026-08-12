@@ -4,25 +4,40 @@ import OSLog
 @main
 enum PerchApp {
     static func main() {
-        let coldLaunchToken = AppPerformanceSignposter.shared.begin(.coldLaunchToReady)
-        let composition = AppComposition()
-        let appDelegate = AppDelegate()
-        let application = NSApplication.shared
-        application.delegate = appDelegate
-        application.mainMenu = AppMainMenuFactory.make()
-        AppStartup.start(
-            runtime: composition.runtime,
-            appDelegate: appDelegate,
-            coldLaunchToken: coldLaunchToken,
-            applicationDidFinishLaunching: {
-                composition.onboardingCoordinator.showIfNeeded()
-            },
-            quickCopyTerminationAction: {
-                composition.quickCopyController.prepareForTermination()
-            }
-        )
-        withExtendedLifetime(composition) {
-            application.run()
+        do {
+            try ApplicationLaunch.run(
+                claimInstance: {
+                    try ApplicationInstanceCoordinator().claim()
+                },
+                prepareApplication: {
+                    let coldLaunchToken = AppPerformanceSignposter.shared.begin(
+                        .coldLaunchToReady
+                    )
+                    return (AppComposition(), coldLaunchToken)
+                },
+                runApplication: { preparedApplication, _ in
+                    let (composition, coldLaunchToken) = preparedApplication
+                    let appDelegate = AppDelegate()
+                    let application = NSApplication.shared
+                    application.delegate = appDelegate
+                    application.mainMenu = AppMainMenuFactory.make()
+                    AppStartup.start(
+                        runtime: composition.runtime,
+                        appDelegate: appDelegate,
+                        coldLaunchToken: coldLaunchToken,
+                        applicationDidFinishLaunching: {
+                            composition.onboardingCoordinator.showIfNeeded()
+                        },
+                        quickCopyTerminationAction: {
+                            composition.quickCopyController.prepareForTermination()
+                        }
+                    )
+                    application.run()
+                }
+            )
+        } catch {
+            Logger(subsystem: "com.fantomsuj.Perch", category: "lifecycle")
+                .fault("Unable to claim the application instance lock")
         }
     }
 }

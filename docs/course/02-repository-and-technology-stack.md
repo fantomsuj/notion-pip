@@ -44,9 +44,9 @@ Swift, macOS, or frontend experience.
 
 Before running any repository command, inspect `git status --short` and
 preserve unrelated work. In particular, the build script intentionally
-terminates every running process named `Perch`; save active edits and quit
-the app before using it. The operational guardrails and supported setup flow
-live in [`AGENTS.md`](../../AGENTS.md).
+terminates every running process named `Perch` or legacy `NotionPiP` before
+launch; save active edits and quit the app before using it. The operational
+guardrails and supported setup flow live in [`AGENTS.md`](../../AGENTS.md).
 
 ### Source-build requirements versus runtime requirements
 
@@ -203,7 +203,7 @@ Package.swift + Sources/Perch + copied QuickCapture resource directory
                  dist/Perch.app
                          │ entitlements + ad-hoc codesign
                          ▼
-                  open -n through Launch Services
+                    open through Launch Services
                          │
                          ▼
                  running Perch process
@@ -213,7 +213,7 @@ In concrete order, [`build_and_run.sh`](../../script/build_and_run.sh):
 
 1. Selects full Xcode through `DEVELOPER_DIR`, validates the version fields in
    [`Support/Version.env`](../../Support/Version.env), validates its mode, and
-   terminates an existing `Perch` process.
+   claims the shared cross-worktree build-and-run lock.
 2. Runs `npm run build:editor --if-present` only when both `package.json` and an
    existing `node_modules` directory are present.
 3. Runs `swift build --product Perch`, discovers SwiftPM's binary directory,
@@ -222,13 +222,14 @@ In concrete order, [`build_and_run.sh`](../../script/build_and_run.sh):
    `Contents/MacOS`, and copies every top-level SwiftPM `.bundle` into
    `Contents/Resources`.
 5. Generates `Contents/Info.plist` with bundle identity, version, the
-   `perch` URL scheme, macOS 14.0 minimum, and `LSUIElement = true` for the
-   accessory/no-Dock role.
+   `perch` URL scheme, macOS 14.0 minimum, `LSUIElement = true` for the
+   accessory/no-Dock role, and a single-instance launch policy.
 6. Ad-hoc signs with `codesign --sign - --timestamp=none`, applying
    [`Perch.entitlements`](../../Support/Perch.entitlements), then
    verifies the signature.
-7. Uses `open -n dist/Perch.app`, asking Launch Services to launch a new
-   instance rather than invoking the executable path directly.
+7. Terminates and waits for current `Perch` and legacy `NotionPiP` processes,
+   then uses `open dist/Perch.app` through Launch Services. Verification also
+   requires exactly one process using the newly staged executable.
 
 The five accepted modes share the same build, staging, and signing work:
 

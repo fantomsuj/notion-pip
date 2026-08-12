@@ -8,6 +8,17 @@ MIN_SYSTEM_VERSION="14.0"
 DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
 export DEVELOPER_DIR
 
+SWIFT_TOOL="${SWIFT_TOOL:-swift}"
+PKILL_TOOL="${PKILL_TOOL:-/usr/bin/pkill}"
+PGREP_TOOL="${PGREP_TOOL:-/usr/bin/pgrep}"
+OPEN_TOOL="${OPEN_TOOL:-/usr/bin/open}"
+PS_TOOL="${PS_TOOL:-/bin/ps}"
+SLEEP_TOOL="${SLEEP_TOOL:-/bin/sleep}"
+PROCESS_ALIVE_TOOL="${PROCESS_ALIVE_TOOL:-/bin/kill}"
+CODESIGN_TOOL="${CODESIGN_TOOL:-/usr/bin/codesign}"
+PLISTBUDDY_TOOL="${PLISTBUDDY_TOOL:-/usr/libexec/PlistBuddy}"
+LOG_TOOL="${LOG_TOOL:-/usr/bin/log}"
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
@@ -21,6 +32,22 @@ SIGN_SCRIPT="$ROOT_DIR/script/sign_app.sh"
 APP_ICON_SOURCE="$ROOT_DIR/Support/Perch.icns"
 
 VERSION_CONFIG="$ROOT_DIR/Support/Version.env"
+BUILD_AND_RUN_LOCK_DIR="${PERCH_BUILD_AND_RUN_LOCK_DIR:-${TMPDIR:-/tmp}/com.fantomsuj.Perch-build-and-run.lock}"
+BUILD_AND_RUN_LOCK_HELD=false
+
+release_build_and_run_lock() {
+    if [[ "$BUILD_AND_RUN_LOCK_HELD" == true ]]; then
+        /bin/rmdir "$BUILD_AND_RUN_LOCK_DIR" >/dev/null 2>&1 || true
+        BUILD_AND_RUN_LOCK_HELD=false
+    fi
+}
+
+cleanup_on_exit() {
+    if [[ "$(type -t cleanup_verification_log || true)" == "function" ]]; then
+        cleanup_verification_log
+    fi
+    release_build_and_run_lock
+}
 
 if [[ ! -f "$VERSION_CONFIG" ]]; then
     echo "error: missing release version configuration at $VERSION_CONFIG" >&2
@@ -57,12 +84,19 @@ if [[ ! -x "$DEVELOPER_DIR/usr/bin/xcodebuild" ]]; then
     exit 1
 fi
 
+if ! /bin/mkdir "$BUILD_AND_RUN_LOCK_DIR" 2>/dev/null; then
+    echo "error: another Perch build-and-run is already active" >&2
+    echo "error: shared lock: $BUILD_AND_RUN_LOCK_DIR" >&2
+    exit 1
+fi
+BUILD_AND_RUN_LOCK_HELD=true
+trap cleanup_on_exit EXIT
+trap 'exit 1' HUP INT TERM
+
 cd "$ROOT_DIR"
 
-/usr/bin/pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-
-swift build --product "$APP_NAME"
-BUILD_DIR="$(swift build --show-bin-path)"
+"$SWIFT_TOOL" build --product "$APP_NAME"
+BUILD_DIR="$("$SWIFT_TOOL" build --show-bin-path)"
 BUILD_BINARY="$BUILD_DIR/$APP_NAME"
 
 if [[ ! -x "$BUILD_BINARY" ]]; then
@@ -118,6 +152,8 @@ cat >"$INFO_PLIST" <<PLIST
     </array>
     <key>LSMinimumSystemVersion</key>
     <string>$MIN_SYSTEM_VERSION</string>
+    <key>LSMultipleInstancesProhibited</key>
+    <true/>
     <key>LSUIElement</key>
     <true/>
     <key>NSPrincipalClass</key>
@@ -128,41 +164,96 @@ PLIST
 
 /usr/bin/plutil -lint "$INFO_PLIST" >/dev/null
 "$SIGN_SCRIPT" "$APP_BUNDLE" "$ENTITLEMENTS"
-/usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
+"$CODESIGN_TOOL" --verify --deep --strict "$APP_BUNDLE"
 
 open_app() {
-    /usr/bin/open -n "$APP_BUNDLE"
+    terminate_existing_instances
+    "$OPEN_TOOL" "$APP_BUNDLE"
+}
+
+terminate_existing_instances() {
+    local attempt
+    local process_name
+    local processes_remain
+
+    for process_name in "$APP_NAME" NotionPiP; do
+        "$PKILL_TOOL" -x "$process_name" >/dev/null 2>&1 || true
+    done
+
+    for attempt in {1..50}; do
+        processes_remain=false
+        for process_name in "$APP_NAME" NotionPiP; do
+            if "$PGREP_TOOL" -x "$process_name" >/dev/null 2>&1; then
+                processes_remain=true
+            fi
+        done
+        if [[ "$processes_remain" == false ]]; then
+            return 0
+        fi
+        "$SLEEP_TOOL" 0.1
+    done
+
+    echo "error: existing Perch or NotionPiP processes did not exit before launch" >&2
+    return 1
 }
 
 wait_for_process() {
     local attempt
     local process_id
     for attempt in {1..50}; do
-        process_id="$(/usr/bin/pgrep -x "$APP_NAME" | /usr/bin/head -n 1 || true)"
+        process_id="$("$PGREP_TOOL" -x "$APP_NAME" | /usr/bin/head -n 1 || true)"
         if [[ -n "$process_id" ]]; then
             echo "$process_id"
             return 0
         fi
-        /bin/sleep 0.1
+        "$SLEEP_TOOL" 0.1
     done
     echo "error: $APP_NAME did not remain running after launch" >&2
     return 1
 }
 
 verify_bundle() {
-    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST")" == "$BUNDLE_ID" ]] || return 1
-    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$INFO_PLIST")" == "Perch.icns" ]] || return 1
-    [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$INFO_PLIST")" == "$MIN_SYSTEM_VERSION" ]] || return 1
-    [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$INFO_PLIST")" == "true" ]] || return 1
-    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$INFO_PLIST")" == "perch" ]] || return 1
+    [[ "$("$PLISTBUDDY_TOOL" -c 'Print :CFBundleIdentifier' "$INFO_PLIST")" == "$BUNDLE_ID" ]] || return 1
+    [[ "$("$PLISTBUDDY_TOOL" -c 'Print :CFBundleIconFile' "$INFO_PLIST")" == "Perch.icns" ]] || return 1
+    [[ "$("$PLISTBUDDY_TOOL" -c 'Print :LSMinimumSystemVersion' "$INFO_PLIST")" == "$MIN_SYSTEM_VERSION" ]] || return 1
+    [[ "$("$PLISTBUDDY_TOOL" -c 'Print :LSMultipleInstancesProhibited' "$INFO_PLIST")" == "true" ]] || return 1
+    [[ "$("$PLISTBUDDY_TOOL" -c 'Print :LSUIElement' "$INFO_PLIST")" == "true" ]] || return 1
+    [[ "$("$PLISTBUDDY_TOOL" -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$INFO_PLIST")" == "perch" ]] || return 1
     [[ -f "$APP_RESOURCES/Perch.icns" ]] || return 1
-    /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE" || return 1
+    "$CODESIGN_TOOL" --verify --deep --strict "$APP_BUNDLE" || return 1
+}
+
+verify_process_identity() {
+    local expected_process_id="$1"
+    local process_count
+    local process_executable
+    local process_ids
+
+    process_ids="$("$PGREP_TOOL" -x "$APP_NAME" || true)"
+    process_count="$(printf '%s\n' "$process_ids" | /usr/bin/awk 'NF { count++ } END { print count + 0 }')"
+    if [[ "$process_count" -ne 1 ]]; then
+        echo "error: expected exactly one $APP_NAME process, found $process_count" >&2
+        return 1
+    fi
+    if [[ "$process_ids" != "$expected_process_id" ]]; then
+        echo "error: the verified $APP_NAME process changed during startup" >&2
+        return 1
+    fi
+
+    process_executable="$("$PS_TOOL" -p "$expected_process_id" -o comm=)"
+    process_executable="${process_executable#"${process_executable%%[![:space:]]*}"}"
+    process_executable="${process_executable%"${process_executable##*[![:space:]]}"}"
+    if [[ "$process_executable" != "$APP_BINARY" ]]; then
+        echo "error: $APP_NAME process $expected_process_id does not use the staged executable" >&2
+        echo "error: expected $APP_BINARY, found $process_executable" >&2
+        return 1
+    fi
 }
 
 verify_process_stability() {
     local process_id="$1"
-    /bin/sleep 2
-    if ! /bin/kill -0 "$process_id" >/dev/null 2>&1; then
+    "$SLEEP_TOOL" 2
+    if ! "$PROCESS_ALIVE_TOOL" -0 "$process_id" >/dev/null 2>&1; then
         echo "error: $APP_NAME exited during the startup stability interval" >&2
         return 1
     fi
@@ -202,7 +293,7 @@ start_verification_log() {
     local attempt
 
     VERIFICATION_LOG_FILE="$(/usr/bin/mktemp /tmp/perch-verify.XXXXXX)"
-    /usr/bin/log stream --style compact --predicate "process == \"$APP_NAME\"" \
+    "$LOG_TOOL" stream --style compact --predicate "process == \"$APP_NAME\"" \
         >"$VERIFICATION_LOG_FILE" 2>&1 &
     VERIFICATION_LOG_PID=$!
 
@@ -216,7 +307,7 @@ start_verification_log() {
         if [[ -s "$VERIFICATION_LOG_FILE" ]]; then
             return 0
         fi
-        /bin/sleep 0.02
+        "$SLEEP_TOOL" 0.02
     done
 
     echo "error: unified log capture was not ready before launch" >&2
@@ -257,6 +348,14 @@ run_verification() {
 
     if [[ "$verification_status" -eq 0 ]]; then
         if PROCESS_ID="$(wait_for_process)"; then
+            :
+        else
+            verification_status=$?
+        fi
+    fi
+
+    if [[ "$verification_status" -eq 0 ]]; then
+        if verify_process_identity "$PROCESS_ID"; then
             :
         else
             verification_status=$?
@@ -324,15 +423,11 @@ case "$MODE" in
         /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
         ;;
     --verify|verify)
-        trap cleanup_verification_log EXIT
-        trap 'exit 1' HUP INT TERM
         start_verification_log
         if run_verification; then
-            trap - EXIT HUP INT TERM
             echo "Verified $APP_BUNDLE (pid $PROCESS_ID)"
         else
             VERIFICATION_STATUS=$?
-            trap - EXIT HUP INT TERM
             exit "$VERIFICATION_STATUS"
         fi
         ;;
