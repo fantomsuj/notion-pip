@@ -111,22 +111,24 @@ final class PiPStashHandleInteractionTests: XCTestCase {
         XCTAssertEqual(thresholdFeedbackCount, 1)
     }
 
-    func testAccessibilityPressRestoresWithoutDragging() {
+    func testAccessibilityPressRestoresAndCustomActionShowsRecentPages() throws {
         var activationCount = 0
+        var showRecentCount = 0
         let interaction = PiPStashHandleInteractionView(
             pointerLocation: { .zero },
             onActivate: { activationCount += 1 },
-            onDragEnded: { _ in }
+            onDragEnded: { _ in },
+            onShowRecentPages: { showRecentCount += 1 }
         )
 
         XCTAssertTrue(interaction.accessibilityPerformPress())
         XCTAssertEqual(activationCount, 1)
         XCTAssertEqual(interaction.accessibilityRole(), .button)
         XCTAssertEqual(interaction.accessibilityLabel(), "Restore Perch")
-        XCTAssertEqual(
-            interaction.accessibilityCustomActions()?.map(\.name),
-            ["Show recent PiP pages"]
-        )
+        let recentPagesAction = try XCTUnwrap(interaction.accessibilityCustomActions()?.first)
+        XCTAssertEqual(recentPagesAction.name, "Show recent PiP pages")
+        XCTAssertTrue(try XCTUnwrap(recentPagesAction.handler)())
+        XCTAssertEqual(showRecentCount, 1)
     }
 
     func testHoverAndSecondaryClickReportRecentPagesIntentWithoutRestoring() throws {

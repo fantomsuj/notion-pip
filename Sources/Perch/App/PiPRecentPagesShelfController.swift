@@ -10,9 +10,9 @@ struct PiPRecentPageShelfItem: Equatable, Identifiable, Sendable {
     var id: String { page.pageID }
 }
 
-struct PiPRecentPageSelection: Equatable, Sendable {
-    let page: NotionPageReference
-    let restoration: DurablePageRestoration?
+enum PiPRecentPageSelection: Equatable, Sendable {
+    case restoreCurrent
+    case activate(page: NotionPageReference, restoration: DurablePageRestoration?)
 }
 
 enum PiPRecentPageRecency: Equatable, Sendable {
@@ -95,16 +95,19 @@ final class PiPRecentPagesShelfController: ObservableObject {
     private let store: (any PiPRecentPagesProviding)?
     private let clock: any DateProviding
     private let calendarProvider: @MainActor () -> Calendar
+    private let currentPageProvider: @MainActor () -> NotionPageReference?
     private var loadGeneration = 0
 
     init(
         store: (any PiPRecentPagesProviding)? = nil,
         clock: any DateProviding = SystemDateProvider(),
         timeZone: TimeZone? = nil,
-        calendarProvider: (@MainActor () -> Calendar)? = nil
+        calendarProvider: (@MainActor () -> Calendar)? = nil,
+        currentPageProvider: @escaping @MainActor () -> NotionPageReference? = { nil }
     ) {
         self.store = store
         self.clock = clock
+        self.currentPageProvider = currentPageProvider
         if let calendarProvider {
             self.calendarProvider = calendarProvider
         } else if let timeZone {
@@ -131,7 +134,11 @@ final class PiPRecentPagesShelfController: ObservableObject {
                 limit: PiPRecentPagesSnapshot.maximumItems
             )
             guard generation == loadGeneration, !Task.isCancelled else { return }
-            items = makeItems(snapshot: snapshot, now: clock.now())
+            items = makeItems(
+                snapshot: snapshot,
+                currentPage: currentPageProvider(),
+                now: clock.now()
+            )
             isAvailable = items.count > 1
         } catch {
             guard generation == loadGeneration, !Task.isCancelled else { return }
@@ -145,20 +152,41 @@ final class PiPRecentPagesShelfController: ObservableObject {
             $0.page.pageID.caseInsensitiveCompare(pageID) == .orderedSame
         }),
         let page = try? NotionPageReference(validating: item.page.canonicalURL)
+            .resolvingDisplayTitle(item.page.displayTitle)
         else {
             return nil
         }
-        return PiPRecentPageSelection(page: page, restoration: item.restoration)
+        if item.isCurrent {
+            return .restoreCurrent
+        }
+        return .activate(page: page, restoration: item.restoration)
     }
 
     private func makeItems(
         snapshot: PiPRecentPagesSnapshot,
+        currentPage: NotionPageReference?,
         now: Date
     ) -> [PiPRecentPageShelfItem] {
         let calendar = calendarProvider()
-        return snapshot.pages.prefix(PiPRecentPagesSnapshot.maximumItems).map { page in
+        var pages = snapshot.pages
+        if let currentPage,
+           !pages.contains(where: {
+               $0.pageID.caseInsensitiveCompare(currentPage.pageID) == .orderedSame
+           }) {
+            pages.insert(
+                StoredPageSnapshot(
+                    pageID: currentPage.pageID,
+                    canonicalURL: currentPage.canonicalURL,
+                    displayTitle: currentPage.displayTitle,
+                    timestamp: now
+                ),
+                at: 0
+            )
+        }
+        let currentPageID = currentPage?.pageID ?? snapshot.activePageID
+        return pages.prefix(PiPRecentPagesSnapshot.maximumItems).map { page in
             let isCurrent = page.pageID.caseInsensitiveCompare(
-                snapshot.activePageID ?? ""
+                currentPageID ?? ""
             ) == .orderedSame
             return PiPRecentPageShelfItem(
                 page: page,

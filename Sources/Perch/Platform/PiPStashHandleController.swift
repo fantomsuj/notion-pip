@@ -27,6 +27,10 @@ final class PiPStashHandleController: PiPStashHandle {
     private var pendingShelfRequestsFocus = false
     private var isHandleHovered = false
     private var isShelfHovered = false
+    private var isShelfFocusOwned = false
+    private lazy var shelfPanelDelegate = StashShelfPanelDelegate { [weak self] in
+        self?.shelfDidResignKey()
+    }
 
     var isVisible: Bool {
         handlePanel.isVisible
@@ -112,6 +116,7 @@ final class PiPStashHandleController: PiPStashHandle {
         shelfPanel.orderOut(nil)
         isHandleHovered = false
         isShelfHovered = false
+        isShelfFocusOwned = false
         handlePanel.ignoresMouseEvents = false
 
         let shouldAnimateEntrance = animatesHandleEntrance
@@ -179,6 +184,7 @@ final class PiPStashHandleController: PiPStashHandle {
         onPullRevealEnd = nil
         isHandleHovered = false
         isShelfHovered = false
+        isShelfFocusOwned = false
     }
 
     func dismissForRestore() {
@@ -284,14 +290,25 @@ final class PiPStashHandleController: PiPStashHandle {
 
     func selectRecentPage(id: String) {
         guard let selection = recentPagesController?.selection(for: id) else { return }
-        dismissShelf()
-        onSelectRecentPage(selection)
+        switch selection {
+        case .restoreCurrent:
+            restoreCurrentPage()
+        case .activate:
+            dismissShelf()
+            onSelectRecentPage(selection)
+        }
     }
 
     func dismissShelf() {
         cancelShelfWork()
+        isShelfFocusOwned = false
         shelfPanel.orderOut(nil)
         isShelfHovered = false
+    }
+
+    func shelfDidResignKey() {
+        guard isShelfFocusOwned, shelfPanel.isVisible else { return }
+        dismissShelf()
     }
 
     private func configurePanels() {
@@ -306,6 +323,7 @@ final class PiPStashHandleController: PiPStashHandle {
         shelfPanel.hasShadow = true
         shelfPanel.hidesOnDeactivate = false
         shelfPanel.isReleasedWhenClosed = false
+        shelfPanel.delegate = shelfPanelDelegate
     }
 
     private func installHandleContent(side: PanelStashSide) {
@@ -412,8 +430,12 @@ final class PiPStashHandleController: PiPStashHandle {
         installShelfContent()
         shelfPanel.setFrame(frame, display: true)
         shelfPanel.alphaValue = 1
-        if requestsFocus {
-            activateApplication()
+        let shouldActivateApplication = requestsFocus && !isShelfFocusOwned
+        isShelfFocusOwned = isShelfFocusOwned || requestsFocus
+        if isShelfFocusOwned {
+            if shouldActivateApplication {
+                activateApplication()
+            }
             shelfPanel.becomesKeyOnlyIfNeeded = true
             shelfPanel.makeKeyAndOrderFront(nil)
         } else {
@@ -422,7 +444,13 @@ final class PiPStashHandleController: PiPStashHandle {
     }
 
     private func scheduleShelfDismissalIfNeeded() {
-        guard !isHandleHovered, !isShelfHovered else { return }
+        guard !isHandleHovered,
+              !isShelfHovered,
+              !pendingShelfRequestsFocus,
+              !isShelfFocusOwned
+        else {
+            return
+        }
         cancelShelfDismissal()
         let delay = shelfDismissDelay
         shelfDismissTask = Task { @MainActor [weak self] in
@@ -431,7 +459,14 @@ final class PiPStashHandleController: PiPStashHandle {
             } catch {
                 return
             }
-            guard let self, !self.isHandleHovered, !self.isShelfHovered else { return }
+            guard let self,
+                  !self.isHandleHovered,
+                  !self.isShelfHovered,
+                  !self.pendingShelfRequestsFocus,
+                  !self.isShelfFocusOwned
+            else {
+                return
+            }
             self.dismissShelf()
         }
     }
@@ -447,5 +482,18 @@ final class PiPStashHandleController: PiPStashHandle {
         shelfLoadTask?.cancel()
         shelfLoadTask = nil
         cancelShelfDismissal()
+    }
+}
+
+@MainActor
+private final class StashShelfPanelDelegate: NSObject, NSWindowDelegate {
+    private let onResignKey: @MainActor () -> Void
+
+    init(onResignKey: @escaping @MainActor () -> Void) {
+        self.onResignKey = onResignKey
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        onResignKey()
     }
 }

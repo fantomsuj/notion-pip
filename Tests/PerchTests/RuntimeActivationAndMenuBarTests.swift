@@ -18,10 +18,8 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
             updatedAt: Date(timeIntervalSince1970: 10_000)
         )
 
-        runtime.activate(
-            page: page,
-            source: .pageSwitcher,
-            restoration: restoration
+        runtime.activateRecentPage(
+            .activate(page: page, restoration: restoration)
         )
         try await repository.waitUntilSaveCount(1)
 

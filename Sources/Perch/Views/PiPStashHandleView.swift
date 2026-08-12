@@ -172,14 +172,16 @@ final class PiPStashHandleInteractionView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel("Restore Perch")
-        setAccessibilityHelp("Bring the stashed Perch back from the side.")
+        setAccessibilityHelp(
+            "Bring the stashed Perch back from the side, or show recently viewed PiP pages."
+        )
         setAccessibilityCustomActions([
             NSAccessibilityCustomAction(name: "Show recent PiP pages") { [weak self] in
                 self?.onShowRecentPages()
                 return self != nil
             }
         ])
-        toolTip = "Pull inward to reveal; drag along the edge to move"
+        toolTip = "Hover for recent pages; pull inward to reveal; drag along the edge to move"
     }
 
     @available(*, unavailable)
