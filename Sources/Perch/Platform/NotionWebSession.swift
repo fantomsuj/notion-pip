@@ -1,5 +1,5 @@
-import Combine
 import AppKit
+import Combine
 import WebKit
 
 typealias NotionWebRequestLoader = @MainActor (WKWebView, URLRequest) -> Void
@@ -40,17 +40,21 @@ protocol NotionPageLoading: AnyObject {
 }
 
 extension NotionPageLoading {
-    var webViewRetention: WebViewRetention { .unknown }
-    func activate(page: NotionPageReference, restoration: DurablePageRestoration?) {
+    var webViewRetention: WebViewRetention {
+        .unknown
+    }
+
+    func activate(page: NotionPageReference, restoration _: DurablePageRestoration?) {
         activate(page: page)
     }
-    func reselect(page: NotionPageReference) {}
+
+    func reselect(page _: NotionPageReference) {}
     func panelDidShow() {}
     func panelDidHide() {}
     func beginShortcutPresentationMeasurement(
-        signposter: any PerformanceSignposting,
-        token: PerformanceIntervalToken?,
-        retention: WebViewRetention
+        signposter _: any PerformanceSignposting,
+        token _: PerformanceIntervalToken?,
+        retention _: WebViewRetention
     ) {}
 }
 
@@ -64,6 +68,11 @@ enum NotionWebSessionState: Equatable {
     case failed(String)
 }
 
+enum NotionMemoryPressureLevel: Equatable {
+    case warning
+    case critical
+}
+
 @MainActor
 final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     NotionWebScriptMessageHandling, QuickCopyInsertionTarget
@@ -74,10 +83,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         case failed(pageID: String)
     }
 
-    static let warmRetentionInterval = NotionWebLifecycleController.defaultWarmRetentionInterval
-
     @Published private(set) var webView: WKWebView?
-    var state: NotionWebSessionState { lifecycleController.state }
+    var state: NotionWebSessionState {
+        lifecycleController.state
+    }
+
     @Published private(set) var browserLoginState: NotionBrowserLoginState = .idle
     @Published private(set) var isTypingInPage = false
     private(set) var activePage: NotionPageReference?
@@ -113,7 +123,10 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var titleObservation: NSKeyValueObservation?
     private var lifecycleObservation: AnyCancellable?
     private var memoryPressureSource: DispatchSourceMemoryPressure?
-    private var panelIsVisible: Bool { lifecycleController.isVisible }
+    private var panelIsVisible: Bool {
+        lifecycleController.isVisible
+    }
+
     private var loadedPageID: String?
     private var loadedRequestURL: URL?
     private var webContentRecoveryState = WebContentRecoveryState.ready
@@ -244,14 +257,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         },
         popupCoordinator: (any NotionWebPopupCoordinating)? = nil,
         webViewFactory: @escaping NotionWebViewFactory = { NotionWebSession.makeWebView() },
-        scheduleEviction: @escaping NotionWebEvictionScheduler = { interval, action in
-            let task = Task { @MainActor in
-                try? await Task.sleep(for: .seconds(interval))
-                guard !Task.isCancelled else { return }
-                action()
-            }
-            return AnyCancellable { task.cancel() }
-        },
         pauseMedia: @escaping @MainActor (WKWebView) -> Void = { webView in
             Task { @MainActor in
                 await webView.pauseAllMediaPlayback()
@@ -339,7 +344,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.popupCoordinator = popupCoordinator
             ?? NotionWebPopupCoordinator(openURL: openURL)
         self.webViewFactory = webViewFactory
-        self.lifecycleController = NotionWebLifecycleController(scheduleEviction: scheduleEviction)
+        lifecycleController = NotionWebLifecycleController()
         self.pauseMedia = pauseMedia
         self.stopLoading = stopLoading
         self.interactionStateReader = interactionStateReader
@@ -352,7 +357,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.invalidateURLObservation = invalidateURLObservation
         self.usefulContentDocumentIdentifierReader =
             usefulContentDocumentIdentifierReader
-        self.scriptMessageCoordinator = NotionWebScriptMessageCoordinator(
+        scriptMessageCoordinator = NotionWebScriptMessageCoordinator(
             removeBridges: removeActivityBridge
         )
         self.performanceSignposter = performanceSignposter
@@ -512,7 +517,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         if shortcutPresentationMeasurement?.retention == .warm {
             switch state {
             case .active, .suspended:
-                finishShortcutPresentationMeasurement(outcome: .success)
+                scheduleAfterAttachment { [weak self] in
+                    self?.finishShortcutPresentationMeasurement(outcome: .success)
+                }
             case .offline, .failed:
                 finishShortcutPresentationMeasurement(outcome: .failure)
             case .unloaded, .loading:
@@ -594,7 +601,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
               let anchor = browserLoginPresentationAnchor(webView),
               let pageID = activePage?.pageID
         else {
-            if browserLoginState != .openingBrowser && browserLoginState != .redeeming {
+            if browserLoginState != .openingBrowser, browserLoginState != .redeeming {
                 browserLoginState = .failed(
                     "Browser sign-in could not open. Continue with email or SSO below."
                 )
@@ -933,8 +940,12 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         handleEditorActivity(.editingEnded)
     }
 
-    func handleMemoryPressure() {
-        if lifecycleController.requestEvictionIfEligible() {
+    func handleMemoryPressure(_ level: NotionMemoryPressureLevel) {
+        guard level == .critical else { return }
+        if !panelIsVisible, webView != nil {
+            suspendWebViewIfNeeded()
+        }
+        if lifecycleController.requestEvictionIfEligible(ignoringProtection: true) {
             pageStateRestoration.removeAllInteractionStates()
         }
     }
@@ -972,7 +983,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         finishUsefulContentMeasurements(outcome: .cancelled)
 
         popupCoordinator.close()
-        lifecycleController.cancelWarmRetention()
         self.webView = nil
         loadedPageID = nil
         loadedRequestURL = nil
@@ -1203,11 +1213,13 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         )
         source.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
-                self?.handleMemoryPressure()
+                guard let self else { return }
+                let event = self.memoryPressureSource?.data ?? []
+                self.handleMemoryPressure(event.contains(.critical) ? .critical : .warning)
             }
         }
-        source.resume()
         memoryPressureSource = source
+        source.resume()
     }
 
     private static func makeWebView() -> WKWebView {
@@ -1269,7 +1281,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
                     "scrollX": restoration.scrollX,
                     "scrollY": restoration.scrollY,
                     "scrollProgress": restoration.scrollProgress,
-                    "timeoutMilliseconds": 2_000,
+                    "timeoutMilliseconds": 2000,
                     "tolerancePixels": 4,
                     "retryDelayMilliseconds": 100,
                 ]
@@ -1316,7 +1328,7 @@ extension NotionWebSession: WKNavigationDelegate {
         }
     }
 
-    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation _: WKNavigation!) {
         guard isCurrent(webView) else { return }
         if case .failed = webContentRecoveryState { return }
         invalidateUsefulContentDocumentTracking()
@@ -1331,7 +1343,7 @@ extension NotionWebSession: WKNavigationDelegate {
         }
     }
 
-    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+    func webView(_ webView: WKWebView, didCommit _: WKNavigation!) {
         guard isCurrent(webView) else { return }
         finishNavigationRequestMeasurement(outcome: .success)
         if commitToUsefulContentToken != nil {
@@ -1340,7 +1352,7 @@ extension NotionWebSession: WKNavigationDelegate {
         commitToUsefulContentToken = performanceSignposter?.begin(.commitToUsefulContent)
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
         guard isCurrent(webView) else { return }
         switch webContentRecoveryState {
         case let .attempting(pageID):
@@ -1471,7 +1483,7 @@ extension NotionWebSession: WKNavigationDelegate {
 
     func webView(
         _ webView: WKWebView,
-        didFailProvisionalNavigation navigation: WKNavigation!,
+        didFailProvisionalNavigation _: WKNavigation!,
         withError error: Error
     ) {
         guard isCurrent(webView) else { return }
@@ -1508,7 +1520,7 @@ extension NotionWebSession: WKNavigationDelegate {
         }
     }
 
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError error: Error) {
         guard isCurrent(webView) else { return }
         guard !isCancellation(error) else {
             finishNavigationRequestMeasurement(outcome: .cancelled)
@@ -1629,7 +1641,7 @@ extension NotionWebSession: WKUIDelegate {
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
-        windowFeatures: WKWindowFeatures
+        windowFeatures _: WKWindowFeatures
     ) -> WKWebView? {
         guard isCurrent(webView) else { return nil }
         return handleNewWindowRequest(

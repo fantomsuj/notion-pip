@@ -1,8 +1,8 @@
 import AppKit
 import Combine
+@testable import Perch
 import WebKit
 import XCTest
-@testable import Perch
 
 @MainActor
 final class NotionWebSessionTests: XCTestCase {
@@ -52,7 +52,7 @@ final class NotionWebSessionTests: XCTestCase {
             generation: 1
         )
         session.panelDidHide()
-        session.handleMemoryPressure()
+        session.handleMemoryPressure(.critical)
 
         XCTAssertTrue(signposter.beginCalls.contains(.notionSessionRestoration))
         XCTAssertTrue(signposter.beginCalls.contains(.webViewConstruction))
@@ -62,10 +62,12 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(signposter.endCalls.last?.metadata.cacheEntryCount, 1)
     }
 
-    func testWarmShortcutPresentationEndsWhenRetainedContentIsShown() throws {
+    func testWarmShortcutPresentationEndsAfterRetainedContentIsAttached() throws {
         let signposter = PerformanceSignposterSpy()
+        var attachmentActions: [@MainActor () -> Void] = []
         let session = NotionWebSession(
             loadRequest: { _, _ in },
+            scheduleAfterAttachment: { attachmentActions.append($0) },
             performanceSignposter: signposter
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
@@ -73,7 +75,6 @@ final class NotionWebSessionTests: XCTestCase {
         let webView = try XCTUnwrap(session.webView)
         session.webView(webView, didFinish: nil)
         session.panelDidHide()
-        let endCountBeforeShortcut = signposter.endCalls.count
         let token = signposter.begin(.shortcutPressToUsefulContent)
         session.beginShortcutPresentationMeasurement(
             signposter: signposter,
@@ -83,9 +84,14 @@ final class NotionWebSessionTests: XCTestCase {
 
         session.panelDidShow()
 
-        XCTAssertEqual(signposter.endCalls.count, endCountBeforeShortcut + 1)
-        XCTAssertEqual(signposter.endCalls.last?.outcome, .success)
-        XCTAssertEqual(signposter.endCalls.last?.metadata.webViewRetention, .warm)
+        XCTAssertNil(signposter.endCalls.first { $0.token == token })
+        attachmentActions.forEach { $0() }
+
+        let shortcutEnd = try XCTUnwrap(
+            signposter.endCalls.first { $0.token == token }
+        )
+        XCTAssertEqual(shortcutEnd.outcome, .success)
+        XCTAssertEqual(shortcutEnd.metadata.webViewRetention, .warm)
     }
 
     func testEvictedShortcutPresentationWaitsForNavigationReadiness() throws {
@@ -101,9 +107,9 @@ final class NotionWebSessionTests: XCTestCase {
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         session.activate(page: page)
-        session.webView(try XCTUnwrap(session.webView), didFinish: nil)
+        try session.webView(XCTUnwrap(session.webView), didFinish: nil)
         session.panelDidHide()
-        session.handleMemoryPressure()
+        session.handleMemoryPressure(.critical)
         XCTAssertEqual(session.webViewRetention, .evicted)
         let token = signposter.begin(.shortcutPressToUsefulContent)
         session.beginShortcutPresentationMeasurement(
@@ -209,7 +215,7 @@ final class NotionWebSessionTests: XCTestCase {
             scheduleAfterAttachment: { attachmentActions.append($0) },
             performanceSignposter: signposter
         )
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
         session.webView(webView, didFinish: nil)
         session.panelDidHide()
@@ -233,9 +239,9 @@ final class NotionWebSessionTests: XCTestCase {
             loadRequest: { _, _ in },
             performanceSignposter: signposter
         )
-        session.activate(page: try makePage(id: firstPageID, title: "First"))
+        try session.activate(page: makePage(id: firstPageID, title: "First"))
         session.panelDidHide()
-        session.activate(page: try makePage(id: secondPageID, title: "Second"))
+        try session.activate(page: makePage(id: secondPageID, title: "Second"))
 
         session.panelDidShow()
 
@@ -252,7 +258,7 @@ final class NotionWebSessionTests: XCTestCase {
             },
             performanceSignposter: signposter
         )
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
         session.webView(webView, didCommit: nil)
         let token = try XCTUnwrap(
@@ -282,7 +288,7 @@ final class NotionWebSessionTests: XCTestCase {
             },
             performanceSignposter: signposter
         )
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
         session.webView(webView, didCommit: nil)
 
@@ -472,7 +478,7 @@ final class NotionWebSessionTests: XCTestCase {
             scrollX: 3,
             scrollY: 400,
             scrollProgress: 0.6,
-            updatedAt: Date(timeIntervalSince1970: 1_000)
+            updatedAt: Date(timeIntervalSince1970: 1000)
         )
         let session = NotionWebSession(
             loadRequest: { _, request in requests.append(request) },
@@ -614,7 +620,7 @@ final class NotionWebSessionTests: XCTestCase {
 
     func testOfflineNavigationFailureEntersOfflineMode() throws {
         let session = NotionWebSession()
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
 
         session.webView(
@@ -659,25 +665,20 @@ final class NotionWebSessionTests: XCTestCase {
     func testLivePageUsesPersistentStoreAndSuspendsInactiveScheduling() throws {
         let session = NotionWebSession(loadRequest: { _, _ in })
 
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
 
         let configuration = try XCTUnwrap(session.webView).configuration
         XCTAssertTrue(configuration.websiteDataStore === WKWebsiteDataStore.default())
         XCTAssertEqual(configuration.preferences.inactiveSchedulingPolicy, .suspend)
     }
 
-    func testHidingPanelEndsEditingPausesDetachesAndSchedulesSixtySecondWarmPeriod() throws {
-        var scheduledInterval: TimeInterval?
+    func testHidingPanelEndsEditingPausesDetachesAndKeepsWebViewWarm() throws {
         var pausedWebViews: [WKWebView] = []
         let session = NotionWebSession(
             loadRequest: { _, _ in },
-            scheduleEviction: { interval, _ in
-                scheduledInterval = interval
-                return AnyCancellable {}
-            },
             pauseMedia: { pausedWebViews.append($0) }
         )
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
         let container = NSView()
         container.addSubview(webView)
@@ -689,7 +690,6 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertFalse(session.isTypingInPage)
         XCTAssertNil(webView.superview)
         XCTAssertEqual(pausedWebViews, [webView])
-        XCTAssertEqual(scheduledInterval, 60)
         XCTAssertTrue(session.webView === webView)
     }
 
@@ -705,7 +705,6 @@ final class NotionWebSessionTests: XCTestCase {
         let session = NotionWebSession(
             webView: webView,
             loadRequest: { _, _ in },
-            scheduleEviction: { _, _ in AnyCancellable {} },
             selectionEvaluator: { _, evaluation, completion in
                 evaluations.append(evaluation)
                 switch evaluation {
@@ -757,7 +756,6 @@ final class NotionWebSessionTests: XCTestCase {
         let session = NotionWebSession(
             webView: webView,
             loadRequest: { _, _ in },
-            scheduleEviction: { _, _ in AnyCancellable {} },
             selectionEvaluator: { _, evaluation, completion in
                 evaluations.append(evaluation)
                 if case .capture = evaluation {
@@ -799,7 +797,6 @@ final class NotionWebSessionTests: XCTestCase {
             let session = NotionWebSession(
                 webView: webView,
                 loadRequest: { _, _ in },
-                scheduleEviction: { _, _ in AnyCancellable {} },
                 selectionEvaluator: { _, evaluation, completion in
                     evaluations.append(evaluation)
                     switch evaluation {
@@ -838,7 +835,6 @@ final class NotionWebSessionTests: XCTestCase {
         let session = NotionWebSession(
             webView: webView,
             loadRequest: { _, _ in },
-            scheduleEviction: { _, _ in AnyCancellable {} },
             selectionEvaluator: recorder.evaluate,
             scheduleAfterAttachment: { $0() },
             focusWebView: { _ in }
@@ -865,7 +861,6 @@ final class NotionWebSessionTests: XCTestCase {
         let session = NotionWebSession(
             webView: webView,
             loadRequest: { _, _ in },
-            scheduleEviction: { _, _ in AnyCancellable {} },
             selectionEvaluator: recorder.evaluate,
             scheduleAfterAttachment: { $0() },
             focusWebView: { _ in }
@@ -962,7 +957,6 @@ final class NotionWebSessionTests: XCTestCase {
         let session = NotionWebSession(
             webView: webView,
             loadRequest: { _, _ in },
-            scheduleEviction: { _, _ in AnyCancellable {} },
             selectionEvaluator: recorder.evaluate,
             scheduleAfterAttachment: { $0() },
             focusWebView: { _ in }
@@ -995,7 +989,6 @@ final class NotionWebSessionTests: XCTestCase {
         let session = NotionWebSession(
             webView: webView,
             loadRequest: { _, _ in },
-            scheduleEviction: { _, _ in AnyCancellable {} },
             selectionEvaluator: recorder.evaluate,
             scheduleAfterAttachment: { $0() },
             focusWebView: { _ in }
@@ -1013,7 +1006,6 @@ final class NotionWebSessionTests: XCTestCase {
     }
 
     func testEvictionNeverRestoresSelectionIntoReplacementWebView() throws {
-        var eviction: (@MainActor () -> Void)?
         let page = try makePage(id: firstPageID, title: "Roadmap")
         let webView = WKWebView()
         webView.load(URLRequest(url: page.canonicalURL))
@@ -1023,10 +1015,6 @@ final class NotionWebSessionTests: XCTestCase {
         let session = NotionWebSession(
             webView: webView,
             loadRequest: { _, _ in },
-            scheduleEviction: { _, action in
-                eviction = action
-                return AnyCancellable {}
-            },
             selectionEvaluator: recorder.evaluate,
             scheduleAfterAttachment: { $0() },
             focusWebView: { _ in }
@@ -1036,29 +1024,24 @@ final class NotionWebSessionTests: XCTestCase {
         navigationDelegate.webView?(webView, didFinish: nil)
         session.panelDidHide()
 
-        eviction?()
+        session.evictWarmWebView()
         session.panelDidShow()
 
         XCTAssertFalse(session.webView === webView)
         XCTAssertEqual(recorder.restoreCount, 0)
     }
 
-    func testWarmPeriodEvictsAndCleansUpSuspendedWebView() throws {
-        var eviction: (@MainActor () -> Void)?
+    func testExplicitEvictionCleansUpSuspendedWebView() throws {
         var stoppedWebViews: [WKWebView] = []
         let session = NotionWebSession(
             loadRequest: { _, _ in },
-            scheduleEviction: { _, action in
-                eviction = action
-                return AnyCancellable {}
-            },
             stopLoading: { stoppedWebViews.append($0) }
         )
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
         session.panelDidHide()
 
-        eviction?()
+        session.evictWarmWebView()
 
         XCTAssertNil(session.webView)
         XCTAssertEqual(session.state, .unloaded)
@@ -1068,7 +1051,7 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertTrue(webView.configuration.userContentController.userScripts.isEmpty)
     }
 
-    func testConfiguredWebViewUsesSessionForNavigationAndUIRequests() throws {
+    func testConfiguredWebViewUsesSessionForNavigationAndUIRequests() {
         let webView = WKWebView()
         let session = NotionWebSession(webView: webView)
 
@@ -1137,8 +1120,7 @@ final class NotionWebSessionTests: XCTestCase {
             webViewFactory: {
                 creationCount += 1
                 return WKWebView()
-            },
-            scheduleEviction: { _, _ in AnyCancellable {} }
+            }
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         session.activate(page: page)
@@ -1369,7 +1351,7 @@ final class NotionWebSessionTests: XCTestCase {
                 controller.removeAllUserScripts()
             }
         )
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let retiredWebView = try XCTUnwrap(session.webView)
 
         session.webViewWebContentProcessDidTerminate(retiredWebView)
@@ -1380,32 +1362,55 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertTrue(session.webView === retiredWebView)
     }
 
-    func testMemoryPressureEvictsOnlyHiddenNonTypingWarmWebView() throws {
+    func testMemoryPressurePolicyKeepsWarningsWarmAndEvictsOnCriticalPressure() throws {
         var stoppedWebViews: [WKWebView] = []
         let session = NotionWebSession(
             loadRequest: { _, _ in },
-            scheduleEviction: { _, _ in AnyCancellable {} },
             stopLoading: { stoppedWebViews.append($0) }
         )
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
 
-        session.handleMemoryPressure()
+        session.handleMemoryPressure(.critical)
         XCTAssertTrue(session.webView === webView)
 
         session.panelDidHide()
         session.handleEditorActivity(.typingStarted)
-        session.handleMemoryPressure()
+        session.handleMemoryPressure(.warning)
         XCTAssertTrue(session.webView === webView)
 
-        session.handleEditorActivity(.editingEnded)
-        session.handleMemoryPressure()
+        session.handleMemoryPressure(.critical)
         XCTAssertNil(session.webView)
         XCTAssertEqual(stoppedWebViews, [webView])
     }
 
+    func testCriticalMemoryPressureDoesNotWaitForPendingSelectionCapture() throws {
+        var captureCompletion: NotionEditorSelectionEvaluationCompletion?
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = TrustedURLWebView(url: page.canonicalURL)
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            selectionEvaluator: { _, evaluation, completion in
+                if case .capture = evaluation {
+                    captureCompletion = completion
+                }
+            }
+        )
+        session.activate(page: page)
+        session.webView(webView, didFinish: nil)
+
+        session.panelDidHide()
+        XCTAssertNotNil(captureCompletion)
+        XCTAssertEqual(session.state, .active)
+
+        session.handleMemoryPressure(.critical)
+
+        XCTAssertNil(session.webView)
+        XCTAssertEqual(session.state, .unloaded)
+    }
+
     func testShowingPanelAfterEvictionRecreatesAndRestoresInteractionState() throws {
-        var eviction: (@MainActor () -> Void)?
         var requests: [URLRequest] = []
         var restoredStates: [String] = []
         var creationCount = 0
@@ -1414,10 +1419,6 @@ final class NotionWebSessionTests: XCTestCase {
             webViewFactory: {
                 creationCount += 1
                 return WKWebView()
-            },
-            scheduleEviction: { _, action in
-                eviction = action
-                return AnyCancellable {}
             },
             interactionStateReader: { _ in "saved-interaction" },
             interactionStateWriter: { _, state in
@@ -1429,7 +1430,7 @@ final class NotionWebSessionTests: XCTestCase {
         let page = try makePage(id: firstPageID, title: "Roadmap")
         session.activate(page: page)
         session.panelDidHide()
-        eviction?()
+        session.evictWarmWebView()
         session.panelDidShow()
         session.panelDidShow()
 
@@ -1440,14 +1441,9 @@ final class NotionWebSessionTests: XCTestCase {
     }
 
     func testRestoredInteractionStateIsReleasedAfterApplyingToReplacementWebView() throws {
-        var eviction: (@MainActor () -> Void)?
         weak var restoredState: InteractionStateSentinel?
         let session = NotionWebSession(
             loadRequest: { _, _ in },
-            scheduleEviction: { _, action in
-                eviction = action
-                return AnyCancellable {}
-            },
             interactionStateReader: { _ in
                 let state = InteractionStateSentinel()
                 restoredState = state
@@ -1459,7 +1455,7 @@ final class NotionWebSessionTests: XCTestCase {
 
         session.activate(page: page)
         session.panelDidHide()
-        eviction?()
+        session.evictWarmWebView()
         XCTAssertNotNil(restoredState)
 
         session.panelDidShow()
@@ -1468,15 +1464,10 @@ final class NotionWebSessionTests: XCTestCase {
     }
 
     func testChangingSelectedPageWhileSuspendedDiscardsStaleStateAndLoadsNewPage() throws {
-        var eviction: (@MainActor () -> Void)?
         var requests: [URLRequest] = []
         var restoredStateCount = 0
         let session = NotionWebSession(
             loadRequest: { _, request in requests.append(request) },
-            scheduleEviction: { _, action in
-                eviction = action
-                return AnyCancellable {}
-            },
             interactionStateReader: { _ in "stale-interaction" },
             interactionStateWriter: { _, _ in restoredStateCount += 1 }
         )
@@ -1486,7 +1477,7 @@ final class NotionWebSessionTests: XCTestCase {
         session.panelDidHide()
 
         session.activate(page: secondPage)
-        eviction?()
+        session.evictWarmWebView()
         session.panelDidShow()
 
         XCTAssertEqual(requests.map(\.url), [firstPage.canonicalURL, secondPage.canonicalURL])
@@ -1495,7 +1486,6 @@ final class NotionWebSessionTests: XCTestCase {
     }
 
     func testEvictionAfterSuspendedPageChangeDoesNotRestoreOldWebViewURL() throws {
-        var eviction: (@MainActor () -> Void)?
         var requests: [URLRequest] = []
         let firstPage = try makePage(id: firstPageID, title: "Roadmap")
         let secondPage = try makePage(id: secondPageID, title: "Notes")
@@ -1505,17 +1495,13 @@ final class NotionWebSessionTests: XCTestCase {
         let session = NotionWebSession(
             webView: oldWebView,
             loadRequest: { _, request in requests.append(request) },
-            scheduleEviction: { _, action in
-                eviction = action
-                return AnyCancellable {}
-            },
             interactionStateReader: { _ in nil }
         )
         session.activate(page: firstPage)
         session.panelDidHide()
 
         session.activate(page: secondPage)
-        eviction?()
+        session.evictWarmWebView()
         session.panelDidShow()
 
         XCTAssertEqual(requests.map(\.url), [firstPage.canonicalURL, secondPage.canonicalURL])
@@ -1523,10 +1509,7 @@ final class NotionWebSessionTests: XCTestCase {
 
     func testLateOldPageResolutionCannotReplaceNewSelectionWhileSuspended() throws {
         var resolvedPages: [NotionPageReference] = []
-        let session = NotionWebSession(
-            loadRequest: { _, _ in },
-            scheduleEviction: { _, _ in AnyCancellable {} }
-        )
+        let session = NotionWebSession(loadRequest: { _, _ in })
         let firstPage = try makePage(id: firstPageID, title: "Roadmap")
         let secondPage = try makePage(id: secondPageID, title: "Notes")
         session.onPageResolved = { resolvedPages.append($0) }
@@ -1545,8 +1528,7 @@ final class NotionWebSessionTests: XCTestCase {
         let webView = WKWebView()
         let session = NotionWebSession(
             webView: webView,
-            loadRequest: { webView, request in webView.load(request) },
-            scheduleEviction: { _, _ in AnyCancellable {} }
+            loadRequest: { webView, request in webView.load(request) }
         )
         let firstPage = try makePage(id: firstPageID, title: "Roadmap")
         let secondPage = try makePage(id: secondPageID, title: "Notes")
@@ -1566,34 +1548,22 @@ final class NotionWebSessionTests: XCTestCase {
     }
 
     func testEvictionWithoutInteractionStateReloadsSavedCanonicalURL() throws {
-        var eviction: (@MainActor () -> Void)?
         var requests: [URLRequest] = []
         let session = NotionWebSession(
             loadRequest: { _, request in requests.append(request) },
-            scheduleEviction: { _, action in
-                eviction = action
-                return AnyCancellable {}
-            },
             interactionStateReader: { _ in nil }
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         session.activate(page: page)
         session.panelDidHide()
-        eviction?()
+        session.evictWarmWebView()
         session.panelDidShow()
 
         XCTAssertEqual(requests.map(\.url), [page.canonicalURL, page.canonicalURL])
     }
 
     func testLifecyclePublishesUnloadedLoadingActiveSuspendedUnloaded() throws {
-        var eviction: (@MainActor () -> Void)?
-        let session = NotionWebSession(
-            loadRequest: { _, _ in },
-            scheduleEviction: { _, action in
-                eviction = action
-                return AnyCancellable {}
-            }
-        )
+        let session = NotionWebSession(loadRequest: { _, _ in })
         let page = try makePage(id: firstPageID, title: "Roadmap")
         XCTAssertEqual(session.state, .unloaded)
 
@@ -1601,13 +1571,13 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .loading)
 
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
-        navigationDelegate.webView?(try XCTUnwrap(session.webView), didFinish: nil)
+        try navigationDelegate.webView?(XCTUnwrap(session.webView), didFinish: nil)
         XCTAssertEqual(session.state, .active)
 
         session.panelDidHide()
         XCTAssertEqual(session.state, .suspended)
 
-        eviction?()
+        session.evictWarmWebView()
         XCTAssertEqual(session.state, .unloaded)
     }
 
@@ -1630,8 +1600,7 @@ final class NotionWebSessionTests: XCTestCase {
     func testShowingPanelResumesWarmLiveWebViewWithoutReloading() throws {
         var requests: [URLRequest] = []
         let session = NotionWebSession(
-            loadRequest: { _, request in requests.append(request) },
-            scheduleEviction: { _, _ in AnyCancellable {} }
+            loadRequest: { _, request in requests.append(request) }
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         session.activate(page: page)
@@ -1648,11 +1617,8 @@ final class NotionWebSessionTests: XCTestCase {
     }
 
     func testLiveWebViewHostingStopsWhileSuspendedAndReturnsAfterPanelShow() throws {
-        let session = NotionWebSession(
-            loadRequest: { _, _ in },
-            scheduleEviction: { _, _ in AnyCancellable {} }
-        )
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let session = NotionWebSession(loadRequest: { _, _ in })
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let chrome = PiPChromeView(webSession: session)
         XCTAssertTrue(session.shouldHostWebView)
         XCTAssertTrue(PiPChromeView.shouldHostNotionWebView(for: session))
@@ -1667,16 +1633,9 @@ final class NotionWebSessionTests: XCTestCase {
         _ = chrome.body
     }
 
-    func testHiddenNavigationStartRemainsSuspendedAndOriginalTimerCanEvict() throws {
-        var eviction: (@MainActor () -> Void)?
-        let session = NotionWebSession(
-            loadRequest: { _, _ in },
-            scheduleEviction: { _, action in
-                eviction = action
-                return AnyCancellable {}
-            }
-        )
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+    func testHiddenNavigationStartRemainsSuspendedUntilCriticalPressureEvicts() throws {
+        let session = NotionWebSession(loadRequest: { _, _ in })
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
         session.panelDidHide()
@@ -1684,20 +1643,13 @@ final class NotionWebSessionTests: XCTestCase {
         navigationDelegate.webView?(webView, didStartProvisionalNavigation: nil)
 
         XCTAssertEqual(session.state, .suspended)
-        eviction?()
+        session.handleMemoryPressure(.critical)
         XCTAssertNil(session.webView)
     }
 
-    func testHiddenNavigationFinishRemainsSuspendedAndOriginalTimerCanEvict() throws {
-        var eviction: (@MainActor () -> Void)?
-        let session = NotionWebSession(
-            loadRequest: { _, _ in },
-            scheduleEviction: { _, action in
-                eviction = action
-                return AnyCancellable {}
-            }
-        )
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+    func testHiddenNavigationFinishRemainsSuspendedUntilCriticalPressureEvicts() throws {
+        let session = NotionWebSession(loadRequest: { _, _ in })
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
         session.panelDidHide()
@@ -1705,20 +1657,13 @@ final class NotionWebSessionTests: XCTestCase {
         navigationDelegate.webView?(webView, didFinish: nil)
 
         XCTAssertEqual(session.state, .suspended)
-        eviction?()
+        session.handleMemoryPressure(.critical)
         XCTAssertNil(session.webView)
     }
 
-    func testHiddenNavigationFailureRemainsSuspendedAndOriginalTimerCanEvict() throws {
-        var eviction: (@MainActor () -> Void)?
-        let session = NotionWebSession(
-            loadRequest: { _, _ in },
-            scheduleEviction: { _, action in
-                eviction = action
-                return AnyCancellable {}
-            }
-        )
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+    func testHiddenNavigationFailureRemainsSuspendedUntilCriticalPressureEvicts() throws {
+        let session = NotionWebSession(loadRequest: { _, _ in })
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
         session.panelDidHide()
@@ -1731,16 +1676,13 @@ final class NotionWebSessionTests: XCTestCase {
         navigationDelegate.webView?(webView, didFail: nil, withError: error)
 
         XCTAssertEqual(session.state, .suspended)
-        eviction?()
+        session.handleMemoryPressure(.critical)
         XCTAssertNil(session.webView)
     }
 
     func testHiddenNavigationOutcomesBecomeVisibleOnlyAfterPanelResumes() throws {
-        let session = NotionWebSession(
-            loadRequest: { _, _ in },
-            scheduleEviction: { _, _ in AnyCancellable {} }
-        )
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let session = NotionWebSession(loadRequest: { _, _ in })
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
 
@@ -1775,11 +1717,11 @@ final class NotionWebSessionTests: XCTestCase {
         var resolvedPages: [NotionPageReference] = []
         let session = NotionWebSession()
         session.onPageResolved = { resolvedPages.append($0) }
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
-        webView.load(
+        try webView.load(
             URLRequest(
-                url: try XCTUnwrap(
+                url: XCTUnwrap(
                     URL(string: "https://www.notion.so/New-Page-\(secondPageID)?pvs=4")
                 )
             )
@@ -1806,9 +1748,9 @@ final class NotionWebSessionTests: XCTestCase {
         session.activate(page: barePage)
         let webView = try XCTUnwrap(session.webView)
 
-        webView.load(
+        try webView.load(
             URLRequest(
-                url: try XCTUnwrap(
+                url: XCTUnwrap(
                     URL(string: "https://www.notion.so/Project-Roadmap-\(firstPageID)?pvs=4")
                 )
             )
@@ -1848,9 +1790,9 @@ final class NotionWebSessionTests: XCTestCase {
         session.activate(page: namedPage)
         let webView = try XCTUnwrap(session.webView)
 
-        webView.load(
+        try webView.load(
             URLRequest(
-                url: try XCTUnwrap(URL(string: "https://www.notion.so/\(firstPageID)"))
+                url: XCTUnwrap(URL(string: "https://www.notion.so/\(firstPageID)"))
             )
         )
 
@@ -1883,7 +1825,7 @@ final class NotionWebSessionTests: XCTestCase {
         var resolvedPages: [NotionPageReference] = []
         let session = NotionWebSession()
         session.onPageResolved = { resolvedPages.append($0) }
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
         let resolvedURL = try XCTUnwrap(
             URL(string: "https://app.notion.com/New-Page-\(secondPageID)?pvs=4#focus")
@@ -1904,8 +1846,8 @@ final class NotionWebSessionTests: XCTestCase {
         session.onPageResolved = { resolvedPages.append($0) }
         session.activate(page: original)
         let webView = try XCTUnwrap(session.webView)
-        webView.load(
-            URLRequest(url: try XCTUnwrap(URL(string: "https://www.notion.so/")))
+        try webView.load(
+            URLRequest(url: XCTUnwrap(URL(string: "https://www.notion.so/")))
         )
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
 
@@ -2060,7 +2002,7 @@ final class NotionWebSessionTests: XCTestCase {
 
     func testEditorActivityScriptRunsAtDocumentStartInMainFrameOnly() throws {
         let session = NotionWebSession()
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let webView = try XCTUnwrap(session.webView)
         let script = try XCTUnwrap(
             webView.configuration.userContentController.userScripts.first
@@ -2081,7 +2023,7 @@ final class NotionWebSessionTests: XCTestCase {
     func testEditorActivityScriptExecutesEditableEventLifecycleWithoutJavaScriptErrors() async throws {
         let webView = WKWebView()
         let session = NotionWebSession(webView: webView)
-        webView.loadHTMLString(
+        try webView.loadHTMLString(
             """
             <!doctype html>
             <html>
@@ -2096,7 +2038,7 @@ final class NotionWebSessionTests: XCTestCase {
               </body>
             </html>
             """,
-            baseURL: try XCTUnwrap(URL(string: "https://www.notion.so/activity-fixture"))
+            baseURL: XCTUnwrap(URL(string: "https://www.notion.so/activity-fixture"))
         )
         try await waitForJavaScriptCondition(in: webView) {
             "document.readyState === 'complete' && Boolean(document.querySelector('#editor'))"
@@ -2152,12 +2094,12 @@ final class NotionWebSessionTests: XCTestCase {
 
     func testNavigationResetsTypingActivity() throws {
         let session = NotionWebSession()
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
         session.handleEditorActivity(.typingStarted)
 
-        navigationDelegate.webView?(
-            try XCTUnwrap(session.webView),
+        try navigationDelegate.webView?(
+            XCTUnwrap(session.webView),
             didStartProvisionalNavigation: nil
         )
 
@@ -2166,12 +2108,12 @@ final class NotionWebSessionTests: XCTestCase {
 
     func testAdoptingResolvedSPAPageResetsTypingActivity() throws {
         let session = NotionWebSession()
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         session.handleEditorActivity(.typingStarted)
         let webView = try XCTUnwrap(session.webView)
-        webView.load(
+        try webView.load(
             URLRequest(
-                url: try XCTUnwrap(
+                url: XCTUnwrap(
                     URL(string: "https://www.notion.so/Notes-\(secondPageID)")
                 )
             )
@@ -2183,10 +2125,10 @@ final class NotionWebSessionTests: XCTestCase {
 
     func testFailureStateShowsGenericMessageAndRetryWithoutExposingWebKitErrorText() throws {
         let session = NotionWebSession()
-        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
         let navigationDelegate = try XCTUnwrap(session as WKNavigationDelegate)
-        navigationDelegate.webView?(
-            try XCTUnwrap(session.webView),
+        try navigationDelegate.webView?(
+            XCTUnwrap(session.webView),
             didFailProvisionalNavigation: nil,
             withError: NSError(
                 domain: "Test",
@@ -2230,7 +2172,7 @@ final class NotionWebSessionTests: XCTestCase {
                 URL(string: "https://www.notion.com/Roadmap-\(firstPageID)")
             ),
             scrollX: 0,
-            scrollY: 2_000,
+            scrollY: 2000,
             scrollProgress: 0.5,
             updatedAt: Date()
         )
@@ -2250,9 +2192,9 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertTrue(call.script.contains("requestAnimationFrame(apply)"))
         XCTAssertTrue(call.script.contains("performance.now() + timeoutMilliseconds"))
         XCTAssertEqual(call.arguments["scrollX"] as? Double, 0)
-        XCTAssertEqual(call.arguments["scrollY"] as? Double, 2_000)
+        XCTAssertEqual(call.arguments["scrollY"] as? Double, 2000)
         XCTAssertEqual(call.arguments["scrollProgress"] as? Double, 0.5)
-        XCTAssertEqual(call.arguments["timeoutMilliseconds"] as? Int, 2_000)
+        XCTAssertEqual(call.arguments["timeoutMilliseconds"] as? Int, 2000)
         XCTAssertEqual(call.arguments["tolerancePixels"] as? Int, 4)
         XCTAssertEqual(call.arguments["retryDelayMilliseconds"] as? Int, 100)
     }
@@ -2353,7 +2295,7 @@ private final class TrustedURLWebView: WKWebView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    required init?(coder _: NSCoder) {
         nil
     }
 
@@ -2395,7 +2337,7 @@ private final class SelectionEvaluationRecorder {
     }
 
     func evaluate(
-        _ webView: WKWebView,
+        _: WKWebView,
         _ evaluation: NotionEditorSelectionEvaluation,
         _ completion: @escaping NotionEditorSelectionEvaluationCompletion
     ) {

@@ -29,7 +29,7 @@ extension PanelCorner {
 }
 
 struct PanelCornerControls: View {
-    static let minimumHitTarget: CGFloat = 24
+    static let minimumHitTarget: CGFloat = 28
 
     @ObservedObject var controller: PanelPositionController
 
@@ -46,13 +46,11 @@ struct PanelCornerControls: View {
                 Button {
                     controller.move(to: corner)
                 } label: {
-                    Image(systemName: corner.symbolName)
+                    ToolbarMotionIcon(
+                        style: .corner(corner),
+                        systemImage: corner.symbolName
+                    )
                         .font(.system(size: 10, weight: .semibold))
-                        .frame(
-                            width: Self.minimumHitTarget,
-                            height: Self.minimumHitTarget
-                        )
-                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(

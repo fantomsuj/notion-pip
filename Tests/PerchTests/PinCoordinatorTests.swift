@@ -18,7 +18,6 @@ final class PinCoordinatorTests: XCTestCase {
         let session = NotionWebSession(
             webView: WKWebView(frame: .zero),
             loadRequest: { _, _ in },
-            scheduleEviction: { _, _ in AnyCancellable {} },
             pauseMedia: { _ in }
         )
         let coordinator = PiPPanelCoordinator(
@@ -251,9 +250,13 @@ final class PinCoordinatorTests: XCTestCase {
                 visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
             )
         )
+        XCTAssertEqual(handle.entrances, [.coordinated])
+        XCTAssertEqual(panel.stashTransitionPlacements, handle.placements)
 
         handle.restore()
 
+        XCTAssertEqual(panel.restoreTransitionPlacements, handle.placements)
+        XCTAssertEqual(handle.dismissForRestoreCount, 1)
         XCTAssertFalse(handle.isVisible)
         XCTAssertTrue(panel.isVisible)
         XCTAssertEqual(panel.presentCount, 2)
@@ -742,6 +745,7 @@ final class PinCoordinatorTests: XCTestCase {
             panel: panel,
             pageLoader: loader,
             stashHandle: handle,
+            reducesMotion: { false },
             visibleFramesProvider: {
                 [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
             }
@@ -752,7 +756,9 @@ final class PinCoordinatorTests: XCTestCase {
         handle.pull(to: 75)
 
         XCTAssertEqual(panel.pullRevealPresentationCount, 1)
-        XCTAssertEqual(panel.frame, CGRect(x: 810, y: 100, width: 300, height: 400))
+        XCTAssertEqual(panel.frame.origin.x, 803.448, accuracy: 0.001)
+        XCTAssertEqual(panel.frame.origin.y, 100)
+        XCTAssertEqual(panel.frame.size, CGSize(width: 300, height: 400))
         XCTAssertTrue(handle.finishPull(at: 75))
         XCTAssertTrue(panel.isVisible)
         XCTAssertFalse(handle.isVisible)
@@ -1587,6 +1593,8 @@ private final class FakePanelWindow: PiPPanelWindow {
     private(set) var animatedSetFrames: [CGRect] = []
     private(set) var locateHaloCount = 0
     private(set) var pullRevealPresentationCount = 0
+    private(set) var stashTransitionPlacements: [PanelStashPlacement] = []
+    private(set) var restoreTransitionPlacements: [PanelStashPlacement] = []
     var onClose: (@MainActor () -> Void)?
     private let recordEvent: (String) -> Void
     private let defersStashDismissal: Bool
@@ -1608,6 +1616,15 @@ private final class FakePanelWindow: PiPPanelWindow {
         recordEvent("panel.present")
         presentCount += 1
         isVisible = true
+    }
+
+    func presentFromStash(
+        placement: PanelStashPlacement,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        restoreTransitionPlacements.append(placement)
+        present()
+        completion()
     }
 
     func presentForPullReveal(at frame: CGRect) {
@@ -1653,9 +1670,10 @@ private final class FakePanelWindow: PiPPanelWindow {
     }
 
     func dismissForStash(
-        toward side: PanelStashSide,
+        toward placement: PanelStashPlacement,
         completion: @escaping @MainActor () -> Void
     ) {
+        stashTransitionPlacements.append(placement)
         guard defersStashDismissal else {
             orderOut()
             completion()
@@ -1752,7 +1770,9 @@ private final class FakePageLoader: NotionPageLoading {
 private final class FakeStashHandle: PiPStashHandle {
     private(set) var isVisible = false
     private(set) var placements: [PanelStashPlacement] = []
+    private(set) var entrances: [PiPStashHandleEntrance] = []
     private(set) var orderOutCount = 0
+    private(set) var dismissForRestoreCount = 0
     private var onRestore: (@MainActor () -> Void)?
     private var onPlacementChange: (@MainActor (PanelStashPlacement) -> Void)?
     private var onPullRevealChange: (@MainActor (CGFloat) -> Void)?
@@ -1777,6 +1797,29 @@ private final class FakeStashHandle: PiPStashHandle {
         self.onPullRevealChange = onPullRevealChange
         self.onPullRevealEnd = onPullRevealEnd
         isVisible = true
+    }
+
+    func present(
+        placement: PanelStashPlacement,
+        entrance: PiPStashHandleEntrance,
+        onRestore: @escaping @MainActor () -> Void,
+        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void,
+        onPullRevealChange: @escaping @MainActor (CGFloat) -> Void,
+        onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool
+    ) {
+        entrances.append(entrance)
+        present(
+            placement: placement,
+            onRestore: onRestore,
+            onPlacementChange: onPlacementChange,
+            onPullRevealChange: onPullRevealChange,
+            onPullRevealEnd: onPullRevealEnd
+        )
+    }
+
+    func dismissForRestore() {
+        dismissForRestoreCount += 1
+        orderOut()
     }
 
     func orderOut() {
