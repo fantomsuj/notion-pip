@@ -15,7 +15,7 @@ struct PiPChromeView: View {
     static let stashAccessibilityLabel = "Stash Perch to Side"
     static let stashHelp = "Move Perch to the nearest screen edge"
     static let pageSwitcherAccessibilityLabel = "Switch Notion page"
-    static let topControlsHeight: CGFloat = 32
+    static let topControlsHeight: CGFloat = 36
     static let topControlsRevealHeight: CGFloat = 8
     static let topControlsHoverOutset: CGFloat = 12
 
@@ -26,6 +26,8 @@ struct PiPChromeView: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @StateObject private var topControlsHover = TopControlsHoverController()
     @State private var presentsPageSwitcher = false
+    @State private var reloadFeedbackPending = false
+    @State private var reloadRotationDegrees: Double = 0
     @ObservedObject var pageSwitcherController: PageSwitcherController
     let commandModel: AppCommandModel
     let panelSizeController: PanelSizeController?
@@ -59,9 +61,10 @@ struct PiPChromeView: View {
     }
 
     static func topToolbarPresentation(
-        showsTopControls: Bool
+        showsTopControls: Bool,
+        isPageSwitcherPresented: Bool = false
     ) -> PiPTopToolbarPresentation {
-        showsTopControls ? .expanded : .hidden
+        showsTopControls || isPageSwitcherPresented ? .expanded : .hidden
     }
 
     static func shouldHostNotionWebView(for session: NotionWebSession) -> Bool {
@@ -179,7 +182,8 @@ struct PiPChromeView: View {
                     .accessibilityHidden(true)
 
                 let toolbarPresentation = Self.topToolbarPresentation(
-                    showsTopControls: showsTopControls
+                    showsTopControls: showsTopControls,
+                    isPageSwitcherPresented: presentsPageSwitcher
                 )
                 if toolbarPresentation != .hidden {
                     topControlsOverlay
@@ -197,6 +201,23 @@ struct PiPChromeView: View {
         )
         .onDisappear {
             topControlsHover.cancel()
+        }
+        .onChange(of: webSession.state) { previousState, currentState in
+            if ReloadCompletionMotionPolicy.shouldAnimate(
+                isPending: reloadFeedbackPending,
+                previousState: previousState,
+                currentState: currentState,
+                reducesMotion: reduceMotion
+            ) {
+                reloadRotationDegrees += 360
+            }
+            if reloadFeedbackPending,
+                ReloadCompletionMotionPolicy.shouldFinishPendingReload(
+                    currentState: currentState
+                )
+            {
+                reloadFeedbackPending = false
+            }
         }
     }
 
@@ -270,12 +291,7 @@ struct PiPChromeView: View {
             Button {
                 presentsPageSwitcher.toggle()
             } label: {
-                Image(systemName: "rectangle.stack")
-                    .frame(
-                        width: PanelCornerControls.minimumHitTarget,
-                        height: PanelCornerControls.minimumHitTarget
-                    )
-                    .contentShape(Rectangle())
+                ToolbarMotionIcon(style: .pageStack)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Self.pageSwitcherAccessibilityLabel)
@@ -291,13 +307,15 @@ struct PiPChromeView: View {
                 )
             }
 
-            Button(action: repinCurrentPage) {
-                Image(systemName: "arrow.clockwise")
-                    .frame(
-                        width: PanelCornerControls.minimumHitTarget,
-                        height: PanelCornerControls.minimumHitTarget
-                    )
-                    .contentShape(Rectangle())
+            Button {
+                reloadFeedbackPending = true
+                repinCurrentPage()
+            } label: {
+                ToolbarMotionIcon(
+                    style: .reload,
+                    systemImage: "arrow.clockwise",
+                    rotationDegrees: reloadRotationDegrees
+                )
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Self.reloadAccessibilityLabel)
@@ -320,12 +338,10 @@ struct PiPChromeView: View {
             )
 
             Button(action: onStash) {
-                Image(systemName: "arrow.down.right.and.arrow.up.left")
-                    .frame(
-                        width: PanelCornerControls.minimumHitTarget,
-                        height: PanelCornerControls.minimumHitTarget
-                    )
-                    .contentShape(Rectangle())
+                ToolbarMotionIcon(
+                    style: .stash,
+                    systemImage: "arrow.down.right.and.arrow.up.left"
+                )
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Self.stashAccessibilityLabel)
@@ -335,7 +351,16 @@ struct PiPChromeView: View {
 }
 
 private struct NotionToolbarMark: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
     var body: some View {
+        let transform = ToolbarIconMotionPolicy.transform(
+            for: .external,
+            isHovering: isHovering,
+            reducesMotion: reduceMotion
+        )
+
         ZStack {
             RoundedRectangle(cornerRadius: 1.5)
                 .stroke(lineWidth: 1.2)
@@ -344,6 +369,18 @@ private struct NotionToolbarMark: View {
                 .offset(y: -0.25)
         }
         .frame(width: 15, height: 15)
+        .offset(transform.offset)
+        .scaleEffect(transform.scale)
+        .frame(
+            width: PanelCornerControls.minimumHitTarget,
+            height: PanelCornerControls.minimumHitTarget
+        )
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: ToolbarIconMotionPolicy.hoverDuration),
+            value: isHovering
+        )
         .accessibilityHidden(true)
     }
 }
