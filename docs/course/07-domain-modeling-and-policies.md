@@ -4,7 +4,7 @@
 > repository tour, 15 minutes runtime trace, 15 minutes deep dive, 5 minutes
 > knowledge check, and 10 minutes exercise)
 
-Notion PiP's Domain directory is where many dangerous or ambiguous inputs
+Perch's Domain directory is where many dangerous or ambiguous inputs
 become explicit values: a URL becomes a validated Notion page, a cross-app
 handoff becomes one known route, a pile of pages becomes a bounded working set,
 and a failed delivery becomes a state with safe retry metadata. Most of these
@@ -162,26 +162,26 @@ coverage index:
 
 | File | Principal values or policy | Representation and consumers | Focused evidence |
 |---|---|---|---|
-| [`CaptureExport.swift`](../../Sources/NotionPiP/Domain/CaptureExport.swift) | Deterministic JSON/Markdown recovery export and credential-shaped key removal | Consumed by runtime recovery export | [`CaptureExportTests.swift`](../../Tests/NotionPiPTests/CaptureExportTests.swift) |
-| [`CaptureSnapshot.swift`](../../Sources/NotionPiP/Domain/CaptureSnapshot.swift) | `DraftMutation`, draft/record snapshots, `CanonicalJSON` | Values passed among editor, repositories, runtime, and delivery services | capture export, editor-flow, repository, and delivery tests |
-| [`DeliveryState.swift`](../../Sources/NotionPiP/Domain/DeliveryState.swift) | Delivery/draft states, delivery destination, safe error | Persistence and delivery state-machine representation | [`DeliveryEngineTests.swift`](../../Tests/NotionPiPTests/DeliveryEngineTests.swift) |
-| [`DesignTokens.swift`](../../Sources/NotionPiP/Domain/DesignTokens.swift) | Shared spacing, radii, and semantic SwiftUI colors | AppKit/SwiftUI presentation constants; deliberate platform-aware exception | view-level usage; no direct Domain unit test |
-| [`ExternalURLRoute.swift`](../../Sources/NotionPiP/Domain/ExternalURLRoute.swift) | Strict `notion-pip://pin` handoff parser | Cross-app input becomes a typed route | [`ExternalURLRouteTests.swift`](../../Tests/NotionPiPTests/ExternalURLRouteTests.swift) |
-| [`HistoryAssembler.swift`](../../Sources/NotionPiP/Domain/HistoryAssembler.swift) | Source-grouped, globally limited history sections | Public pure assembly API; no current production source consumer | [`HistoryAssemblerTests.swift`](../../Tests/NotionPiPTests/HistoryAssemblerTests.swift) |
-| [`JSONValue.swift`](../../Sources/NotionPiP/Domain/JSONValue.swift) | Recursive Codable JSON sum type | Notion API request bodies and block conversion | [`NotionBlockConverterTests.swift`](../../Tests/NotionPiPTests/NotionBlockConverterTests.swift) |
-| [`NotionPageReference.swift`](../../Sources/NotionPiP/Domain/NotionPageReference.swift) | Validated page identity, canonical URL, optional display title | Shared trust boundary for typed, restored, WebKit, and external page input | [`NotionPageReferenceTests.swift`](../../Tests/NotionPiPTests/NotionPageReferenceTests.swift) |
-| [`PageSwitcherMatcher.swift`](../../Sources/NotionPiP/Domain/PageSwitcherMatcher.swift) | Pinned/recent sections and deterministic fuzzy scoring | Used by `PageSwitcherController` | [`PageSwitcherMatcherTests.swift`](../../Tests/NotionPiPTests/PageSwitcherMatcherTests.swift) |
-| [`PageWorkingSetPolicy.swift`](../../Sources/NotionPiP/Domain/PageWorkingSetPolicy.swift) | Bounded, deduplicated pins/recents and retained restoration IDs | Used by page repository/store adapters | [`PageWorkingSetPolicyTests.swift`](../../Tests/NotionPiPTests/PageWorkingSetPolicyTests.swift) |
-| [`PageWorkingSetSnapshot.swift`](../../Sources/NotionPiP/Domain/PageWorkingSetSnapshot.swift) | Working-set/restoration transport values and typed errors | Crosses repository, runtime, switcher, and WebKit boundaries | [`PageRepositoryTests.swift`](../../Tests/NotionPiPTests/PageRepositoryTests.swift) and WebKit tests |
-| [`PanelSizePreferences.swift`](../../Sources/NotionPiP/Domain/PanelSizePreferences.swift) | Validated content sizes, built-in/custom presets, mutations | Used by size controller, defaults store, Settings | [`PanelSizePreferencesTests.swift`](../../Tests/NotionPiPTests/PanelSizePreferencesTests.swift) |
-| [`PersonalIntegrationToken.swift`](../../Sources/NotionPiP/Domain/PersonalIntegrationToken.swift) | Trimmed `ntn_` token and redacted description | Passed to credential vault and API clients; not itself secure storage | [`PersonalIntegrationTokenTests.swift`](../../Tests/NotionPiPTests/PersonalIntegrationTokenTests.swift) |
-| [`QuickCaptureDestination.swift`](../../Sources/NotionPiP/Domain/QuickCaptureDestination.swift) | Saved page-parent/data-source selection and display title | Settings/controller/repository value; converts to delivery destination | [`QuickCaptureDestinationRepositoryTests.swift`](../../Tests/NotionPiPTests/QuickCaptureDestinationRepositoryTests.swift) |
-| [`RetryPolicy.swift`](../../Sources/NotionPiP/Domain/RetryPolicy.swift) | Clock seam, exponential retry, attention threshold, retention interval/result | Used by capture repository, delivery engine, scheduler | delivery and [`RetentionPolicyTests.swift`](../../Tests/NotionPiPTests/RetentionPolicyTests.swift) |
+| [`CaptureExport.swift`](../../Sources/Perch/Domain/CaptureExport.swift) | Deterministic JSON/Markdown recovery export and credential-shaped key removal | Consumed by runtime recovery export | [`CaptureExportTests.swift`](../../Tests/PerchTests/CaptureExportTests.swift) |
+| [`CaptureSnapshot.swift`](../../Sources/Perch/Domain/CaptureSnapshot.swift) | `DraftMutation`, draft/record snapshots, `CanonicalJSON` | Values passed among editor, repositories, runtime, and delivery services | capture export, editor-flow, repository, and delivery tests |
+| [`DeliveryState.swift`](../../Sources/Perch/Domain/DeliveryState.swift) | Delivery/draft states, delivery destination, safe error | Persistence and delivery state-machine representation | [`DeliveryEngineTests.swift`](../../Tests/PerchTests/DeliveryEngineTests.swift) |
+| [`DesignTokens.swift`](../../Sources/Perch/Domain/DesignTokens.swift) | Shared spacing, radii, and semantic SwiftUI colors | AppKit/SwiftUI presentation constants; deliberate platform-aware exception | view-level usage; no direct Domain unit test |
+| [`ExternalURLRoute.swift`](../../Sources/Perch/Domain/ExternalURLRoute.swift) | Strict `perch://pin` handoff parser | Cross-app input becomes a typed route | [`ExternalURLRouteTests.swift`](../../Tests/PerchTests/ExternalURLRouteTests.swift) |
+| [`HistoryAssembler.swift`](../../Sources/Perch/Domain/HistoryAssembler.swift) | Source-grouped, globally limited history sections | Public pure assembly API; no current production source consumer | [`HistoryAssemblerTests.swift`](../../Tests/PerchTests/HistoryAssemblerTests.swift) |
+| [`JSONValue.swift`](../../Sources/Perch/Domain/JSONValue.swift) | Recursive Codable JSON sum type | Notion API request bodies and block conversion | [`NotionBlockConverterTests.swift`](../../Tests/PerchTests/NotionBlockConverterTests.swift) |
+| [`NotionPageReference.swift`](../../Sources/Perch/Domain/NotionPageReference.swift) | Validated page identity, canonical URL, optional display title | Shared trust boundary for typed, restored, WebKit, and external page input | [`NotionPageReferenceTests.swift`](../../Tests/PerchTests/NotionPageReferenceTests.swift) |
+| [`PageSwitcherMatcher.swift`](../../Sources/Perch/Domain/PageSwitcherMatcher.swift) | Pinned/recent sections and deterministic fuzzy scoring | Used by `PageSwitcherController` | [`PageSwitcherMatcherTests.swift`](../../Tests/PerchTests/PageSwitcherMatcherTests.swift) |
+| [`PageWorkingSetPolicy.swift`](../../Sources/Perch/Domain/PageWorkingSetPolicy.swift) | Bounded, deduplicated pins/recents and retained restoration IDs | Used by page repository/store adapters | [`PageWorkingSetPolicyTests.swift`](../../Tests/PerchTests/PageWorkingSetPolicyTests.swift) |
+| [`PageWorkingSetSnapshot.swift`](../../Sources/Perch/Domain/PageWorkingSetSnapshot.swift) | Working-set/restoration transport values and typed errors | Crosses repository, runtime, switcher, and WebKit boundaries | [`PageRepositoryTests.swift`](../../Tests/PerchTests/PageRepositoryTests.swift) and WebKit tests |
+| [`PanelSizePreferences.swift`](../../Sources/Perch/Domain/PanelSizePreferences.swift) | Validated content sizes, built-in/custom presets, mutations | Used by size controller, defaults store, Settings | [`PanelSizePreferencesTests.swift`](../../Tests/PerchTests/PanelSizePreferencesTests.swift) |
+| [`PersonalIntegrationToken.swift`](../../Sources/Perch/Domain/PersonalIntegrationToken.swift) | Trimmed `ntn_` token and redacted description | Passed to credential vault and API clients; not itself secure storage | [`PersonalIntegrationTokenTests.swift`](../../Tests/PerchTests/PersonalIntegrationTokenTests.swift) |
+| [`QuickCaptureDestination.swift`](../../Sources/Perch/Domain/QuickCaptureDestination.swift) | Saved page-parent/data-source selection and display title | Settings/controller/repository value; converts to delivery destination | [`QuickCaptureDestinationRepositoryTests.swift`](../../Tests/PerchTests/QuickCaptureDestinationRepositoryTests.swift) |
+| [`RetryPolicy.swift`](../../Sources/Perch/Domain/RetryPolicy.swift) | Clock seam, exponential retry, attention threshold, retention interval/result | Used by capture repository, delivery engine, scheduler | delivery and [`RetentionPolicyTests.swift`](../../Tests/PerchTests/RetentionPolicyTests.swift) |
 
 The table also exposes two intentional cross-layer facts. `DesignTokens` is UI
 policy living in Domain for shared ownership. `PageWorkingSetPolicy` operates
 on `StoredPageSnapshot`, declared in
-[`PageRepository.swift`](../../Sources/NotionPiP/Persistence/PageRepository.swift),
+[`PageRepository.swift`](../../Sources/Perch/Persistence/PageRepository.swift),
 so the current source layout is not a dependency-pure standalone Domain module.
 
 ### Exact Notion page URL invariants
@@ -218,11 +218,11 @@ accepted input port is absent from the resulting canonical URL.
 `ExternalURLRoute.parse` accepts only one current route shape:
 
 ```text
-notion-pip://pin?url=<percent-encoded HTTPS Notion page>&source=chrome-extension
+perch://pin?url=<percent-encoded HTTPS Notion page>&source=chrome-extension
 ```
 
 The outer URL is independently bounded to 4,096 UTF-8 bytes. Its scheme must be
-`notion-pip`; user, password, port, fragment, and any nonempty path are
+`perch`; user, password, port, fragment, and any nonempty path are
 forbidden. The host/action must be `pin`. Query keys must be a subset of
 `url` and `source`, with no duplicate occurrence—even a duplicate with a nil
 value. Both single nonnil values are required. The only source is the exact
@@ -385,7 +385,7 @@ URL with a query and fragment.
 
 ```mermaid
 flowchart TD
-    A["Untrusted notion-pip URL"] --> B["ExternalURLRoute.parse"]
+    A["Untrusted perch URL"] --> B["ExternalURLRoute.parse"]
     B -->|shape/source rejected| X["Typed ExternalURLRouteError; no activation"]
     B --> C["Nested NotionPageReference validation"]
     C -->|page rejected| X
@@ -683,7 +683,7 @@ transaction details.
 Product proposes a new cross-app route:
 
 ```text
-notion-pip://open-recent?page_id=<id>&source=chrome-extension
+perch://open-recent?page_id=<id>&source=chrome-extension
 ```
 
 The request says: “Accept any page ID, look it up in recents, and show it.”
@@ -702,10 +702,10 @@ Use committed-source searches:
 
 ```sh
 git grep -n "maximumURLLength\|itemsByName\|unknownAction" HEAD -- \
-  Sources/NotionPiP/Domain Tests/NotionPiPTests/ExternalURLRouteTests.swift
+  Sources/Perch/Domain Tests/PerchTests/ExternalURLRouteTests.swift
 git grep -n "canonicalID\|recentPages\|restoration(for" HEAD -- \
-  Sources/NotionPiP/Domain Tests/NotionPiPTests
-git grep -n "externalPages\|handleOpenURLs" HEAD -- Sources/NotionPiP
+  Sources/Perch/Domain Tests/PerchTests
+git grep -n "externalPages\|handleOpenURLs" HEAD -- Sources/Perch
 ```
 
 Do not register the scheme, change the handoff protocol, or launch external

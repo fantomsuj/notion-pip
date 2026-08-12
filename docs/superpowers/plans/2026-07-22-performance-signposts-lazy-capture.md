@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Use the subsystem `com.fantomsuj.NotionPiP` and categories prefixed with `performance.`.
+- Use the subsystem `com.fantomsuj.Perch` and categories prefixed with `performance.`.
 - Signposts must never include URLs, page IDs or titles, draft IDs or contents, integration tokens, request IDs, or error descriptions.
 - `ColdLaunchToStatusItem`, `FirstPiPPresentation`, and `FirstQuickCapturePresentation` are first-only intervals; duplicate begins return no token and emit no second interval.
 - Quick Capture must not construct `AppWindowPresenter`, `NSWindow`, `NSHostingView`, `CaptureEditorSession`, or `WKWebView` before the first `show()`.
@@ -23,15 +23,15 @@
 ### Task 1: Typed performance signposts for launch and first presentations
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/PerformanceSignposter.swift`
-- Create: `Tests/NotionPiPTests/PerformanceSignposterTests.swift`
-- Modify: `Sources/NotionPiP/App/NotionPiPApp.swift`
-- Modify: `Sources/NotionPiP/App/AppDelegate.swift`
-- Modify: `Sources/NotionPiP/Platform/AppWindowPresenter.swift`
-- Modify: `Sources/NotionPiP/Platform/AppWindowFactory.swift`
-- Modify: `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift`
-- Modify: `Tests/NotionPiPTests/AppWindowPresenterTests.swift`
-- Modify: `Tests/NotionPiPTests/PinCoordinatorTests.swift`
+- Create: `Sources/Perch/Platform/PerformanceSignposter.swift`
+- Create: `Tests/PerchTests/PerformanceSignposterTests.swift`
+- Modify: `Sources/Perch/App/PerchApp.swift`
+- Modify: `Sources/Perch/App/AppDelegate.swift`
+- Modify: `Sources/Perch/Platform/AppWindowPresenter.swift`
+- Modify: `Sources/Perch/Platform/AppWindowFactory.swift`
+- Modify: `Sources/Perch/Platform/PiPPanelCoordinator.swift`
+- Modify: `Tests/PerchTests/AppWindowPresenterTests.swift`
+- Modify: `Tests/PerchTests/PinCoordinatorTests.swift`
 
 **Interfaces:**
 - Produces: `PerformanceOperation`, `PerformanceOutcome`, opaque `PerformanceIntervalToken`, `PerformanceSignposting`, and `AppPerformanceSignposter.shared`.
@@ -89,7 +89,7 @@ struct PerformanceIntervalToken: Hashable, Sendable {
 
 - [ ] **Step 4: Instrument the exact lifecycle boundaries**
 
-Begin `ColdLaunchToStatusItem` at the first line of `NotionPiPApp.init`, bind its token to `AppDelegate` through `AppStartup.start`, and end it with `.success` in `applicationDidFinishLaunching` after composition has already constructed/configured `StatusItemController`.
+Begin `ColdLaunchToStatusItem` at the first line of `PerchApp.init`, bind its token to `AppDelegate` through `AppStartup.start`, and end it with `.success` in `applicationDidFinishLaunching` after composition has already constructed/configured `StatusItemController`.
 
 Add optional injected `performanceSignposter` and `firstPresentationOperation` parameters to `AppWindowPresenter`; wrap only the first `window.presentAsKey()` call. Configure the Quick Capture presenter with `.firstQuickCapturePresentation` in `AppWindowFactory`.
 
@@ -109,7 +109,7 @@ Expected: focused tests pass and the full suite reports 0 failures.
 - [ ] **Step 6: Commit Task 1**
 
 ```sh
-git add Sources/NotionPiP/Platform/PerformanceSignposter.swift Sources/NotionPiP/App/NotionPiPApp.swift Sources/NotionPiP/App/AppDelegate.swift Sources/NotionPiP/Platform/AppWindowPresenter.swift Sources/NotionPiP/Platform/AppWindowFactory.swift Sources/NotionPiP/Platform/PiPPanelCoordinator.swift Tests/NotionPiPTests/PerformanceSignposterTests.swift Tests/NotionPiPTests/AppWindowPresenterTests.swift Tests/NotionPiPTests/PinCoordinatorTests.swift .gitignore docs/superpowers/plans/2026-07-22-performance-signposts-lazy-capture.md
+git add Sources/Perch/Platform/PerformanceSignposter.swift Sources/Perch/App/PerchApp.swift Sources/Perch/App/AppDelegate.swift Sources/Perch/Platform/AppWindowPresenter.swift Sources/Perch/Platform/AppWindowFactory.swift Sources/Perch/Platform/PiPPanelCoordinator.swift Tests/PerchTests/PerformanceSignposterTests.swift Tests/PerchTests/AppWindowPresenterTests.swift Tests/PerchTests/PinCoordinatorTests.swift .gitignore docs/superpowers/plans/2026-07-22-performance-signposts-lazy-capture.md
 git commit -m "feat: instrument launch and first presentations"
 ```
 
@@ -118,10 +118,10 @@ git commit -m "feat: instrument launch and first presentations"
 ### Task 2: Defer Quick Capture construction until first presentation
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/AppWindowPresenter.swift`
-- Modify: `Sources/NotionPiP/App/NotionPiPApp.swift`
-- Modify: `Sources/NotionPiP/Platform/AppWindowFactory.swift`
-- Modify: `Tests/NotionPiPTests/AppWindowPresenterTests.swift`
+- Modify: `Sources/Perch/Platform/AppWindowPresenter.swift`
+- Modify: `Sources/Perch/App/PerchApp.swift`
+- Modify: `Sources/Perch/Platform/AppWindowFactory.swift`
+- Modify: `Tests/PerchTests/AppWindowPresenterTests.swift`
 
 **Interfaces:**
 - Consumes: `AppWindowPresenting`, `PerformanceSignposting`, and `.firstQuickCapturePresentation` from Task 1.
@@ -205,7 +205,7 @@ Expected: 0 failures, 0 type errors, and the packaged accessory app remains runn
 - [ ] **Step 6: Commit Task 2**
 
 ```sh
-git add Sources/NotionPiP/Platform/AppWindowPresenter.swift Sources/NotionPiP/App/NotionPiPApp.swift Sources/NotionPiP/Platform/AppWindowFactory.swift Tests/NotionPiPTests/AppWindowPresenterTests.swift
+git add Sources/Perch/Platform/AppWindowPresenter.swift Sources/Perch/App/PerchApp.swift Sources/Perch/Platform/AppWindowFactory.swift Tests/PerchTests/AppWindowPresenterTests.swift
 git commit -m "perf: lazy-load quick capture"
 ```
 

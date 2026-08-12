@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Restore keyboard focus and the prior DOM selection when a stashed Notion PiP panel reuses the same in-memory web view.
+**Goal:** Restore keyboard focus and the prior DOM selection when a stashed Perch panel reuses the same in-memory web view.
 
 **Architecture:** `NotionWebSession` owns a page-scoped selection snapshot and a generation token for pending capture work. An injected selection evaluator executes one-shot capture and restore operations in the trusted Notion main frame, while an injected attachment scheduler makes focus and restoration testable after the retained web view is re-hosted.
 
@@ -21,10 +21,10 @@
 ### Task 1: Define and decode one-shot selection operations
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/NotionEditorSelection.swift`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Test: `Tests/NotionPiPTests/NotionEditorSelectionTests.swift`
-- Test: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Create: `Sources/Perch/Platform/NotionEditorSelection.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Test: `Tests/PerchTests/NotionEditorSelectionTests.swift`
+- Test: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 **Interfaces:**
 - Produces: `NotionEditorSelectionSnapshot`, `NotionEditorSelectionEvaluation.capture`, and `NotionEditorSelectionEvaluation.restore(snapshot)`
@@ -61,8 +61,8 @@ Run the same filtered test command and require exit code 0.
 ### Task 2: Integrate capture, suspension, focus, and restore
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Test: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Test: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 **Interfaces:**
 - Consumes: selection operations from Task 1
@@ -92,8 +92,8 @@ Run the filtered command and require exit code 0.
 ### Task 3: Invalidate stale selection state
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Test: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Test: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 **Interfaces:**
 - Consumes: page-scoped saved snapshot and generation from Task 2
@@ -118,8 +118,8 @@ Run the filtered command and require exit code 0.
 ### Task 4: Verify the integrated change
 
 **Files:**
-- Review: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Review: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Review: `Sources/Perch/Platform/NotionWebSession.swift`
+- Review: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 - [x] **Step 1: Review the final diff against the approved design**
 

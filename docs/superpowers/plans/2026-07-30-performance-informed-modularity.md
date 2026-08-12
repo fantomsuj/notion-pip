@@ -58,24 +58,24 @@ Acceptance criteria for a phase are:
 ## Target dependency model
 
 ```text
-NotionPiP executable
-  ├── NotionPiPPlatform       (AppKit, SwiftUI, WebKit, SwiftData adapters)
-  │     └── NotionPiPCapture  (capture application service)
-  ├── NotionPiPCapture
-  │     └── NotionPiPBridge   (capture message/value contract; Foundation only)
-  └── NotionPiPDomain         (value types and policy; Foundation only)
+Perch executable
+  ├── PerchPlatform       (AppKit, SwiftUI, WebKit, SwiftData adapters)
+  │     └── PerchCapture  (capture application service)
+  ├── PerchCapture
+  │     └── PerchBridge   (capture message/value contract; Foundation only)
+  └── PerchDomain         (value types and policy; Foundation only)
 ```
 
-`NotionPiPCapture` must not import WebKit. `NotionPiPBridge` must not import AppKit, WebKit, or SwiftData. `NotionPiPPlatform` adapts WebKit and SwiftData to the narrower capabilities the capture service consumes. Do not create targets for UI views or the full persistence layer in this first plan.
+`PerchCapture` must not import WebKit. `PerchBridge` must not import AppKit, WebKit, or SwiftData. `PerchPlatform` adapts WebKit and SwiftData to the narrower capabilities the capture service consumes. Do not create targets for UI views or the full persistence layer in this first plan.
 
 ### Task 1: Establish traceable, privacy-safe performance baselines
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/PerformanceSignposter.swift`
-- Modify: `Sources/NotionPiP/Platform/AppWindowFactory.swift`
-- Modify: `Sources/NotionPiP/Platform/CaptureEditorSession.swift`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Modify: `Tests/NotionPiPTests/PerformanceSignposterTests.swift`
+- Modify: `Sources/Perch/Platform/PerformanceSignposter.swift`
+- Modify: `Sources/Perch/Platform/AppWindowFactory.swift`
+- Modify: `Sources/Perch/Platform/CaptureEditorSession.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Modify: `Tests/PerchTests/PerformanceSignposterTests.swift`
 - Create: `docs/PERFORMANCE_BASELINE.md`
 
 **Interfaces:**
@@ -161,20 +161,20 @@ Expected: all tests pass. Then follow `docs/PERFORMANCE_BASELINE.md` once in a R
 - [ ] **Step 7: Commit**
 
 ```sh
-git add Sources/NotionPiP/Platform/PerformanceSignposter.swift Sources/NotionPiP/Platform/AppWindowFactory.swift Sources/NotionPiP/Platform/CaptureEditorSession.swift Sources/NotionPiP/Platform/NotionWebSession.swift Tests/NotionPiPTests/PerformanceSignposterTests.swift docs/PERFORMANCE_BASELINE.md
+git add Sources/Perch/Platform/PerformanceSignposter.swift Sources/Perch/Platform/AppWindowFactory.swift Sources/Perch/Platform/CaptureEditorSession.swift Sources/Perch/Platform/NotionWebSession.swift Tests/PerchTests/PerformanceSignposterTests.swift docs/PERFORMANCE_BASELINE.md
 git commit -m "perf: instrument capture and web session operations"
 ```
 
 ### Task 2: Move Quick Capture preparation and persistence orchestration off the UI actor
 
 **Files:**
-- Create: `Sources/NotionPiP/Services/CaptureDraftPersistenceService.swift`
-- Create: `Tests/NotionPiPTests/CaptureDraftPersistenceServiceTests.swift`
-- Modify: `Sources/NotionPiP/Platform/CaptureEditorSession.swift`
-- Modify: `Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift`
-- Modify: `Sources/NotionPiP/Persistence/CaptureRepository.swift`
-- Modify: `Tests/NotionPiPTests/CaptureBridgeProtocolTests.swift`
-- Modify: `Tests/NotionPiPTests/CaptureWebViewAutosaveTests.swift`
+- Create: `Sources/Perch/Services/CaptureDraftPersistenceService.swift`
+- Create: `Tests/PerchTests/CaptureDraftPersistenceServiceTests.swift`
+- Modify: `Sources/Perch/Platform/CaptureEditorSession.swift`
+- Modify: `Sources/Perch/Platform/CaptureBridgeProtocol.swift`
+- Modify: `Sources/Perch/Persistence/CaptureRepository.swift`
+- Modify: `Tests/PerchTests/CaptureBridgeProtocolTests.swift`
+- Modify: `Tests/PerchTests/CaptureWebViewAutosaveTests.swift`
 
 **Interfaces:**
 - Consumes `CaptureEditorSnapshot`, `CaptureRepository`, and `CaptureRepositoryError`.
@@ -283,18 +283,18 @@ Expected: all tests pass, and the end-to-end autosave trace shows no extra bridg
 - [ ] **Step 7: Commit**
 
 ```sh
-git add Sources/NotionPiP/Services/CaptureDraftPersistenceService.swift Sources/NotionPiP/Platform/CaptureEditorSession.swift Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift Sources/NotionPiP/Persistence/CaptureRepository.swift Tests/NotionPiPTests/CaptureDraftPersistenceServiceTests.swift Tests/NotionPiPTests/CaptureBridgeProtocolTests.swift Tests/NotionPiPTests/CaptureWebViewAutosaveTests.swift Web/QuickCaptureEditor
+git add Sources/Perch/Services/CaptureDraftPersistenceService.swift Sources/Perch/Platform/CaptureEditorSession.swift Sources/Perch/Platform/CaptureBridgeProtocol.swift Sources/Perch/Persistence/CaptureRepository.swift Tests/PerchTests/CaptureDraftPersistenceServiceTests.swift Tests/PerchTests/CaptureBridgeProtocolTests.swift Tests/PerchTests/CaptureWebViewAutosaveTests.swift Web/QuickCaptureEditor
 git commit -m "perf: isolate capture draft persistence"
 ```
 
 ### Task 3: Give WebKit retention and restoration a bounded, measurable owner
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/NotionPageRestorationCache.swift`
-- Create: `Tests/NotionPiPTests/NotionPageRestorationCacheTests.swift`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Modify: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
-- Modify: `Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift`
+- Create: `Sources/Perch/Platform/NotionPageRestorationCache.swift`
+- Create: `Tests/PerchTests/NotionPageRestorationCacheTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Modify: `Tests/PerchTests/NotionWebSessionTests.swift`
+- Modify: `Tests/PerchTests/RuntimePinnedPagePersistenceTests.swift`
 
 **Interfaces:**
 - Produces `@MainActor final class NotionPageRestorationCache` owning opaque interaction states, durable restorations, scroll snapshots, and their retain/evict policy.
@@ -352,7 +352,7 @@ Then repeat measurement scenarios 4 and 5. Acceptance is that WebKit interaction
 - [ ] **Step 6: Commit**
 
 ```sh
-git add Sources/NotionPiP/Platform/NotionPageRestorationCache.swift Sources/NotionPiP/Platform/NotionWebSession.swift Tests/NotionPiPTests/NotionPageRestorationCacheTests.swift Tests/NotionPiPTests/NotionWebSessionTests.swift Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift
+git add Sources/Perch/Platform/NotionPageRestorationCache.swift Sources/Perch/Platform/NotionWebSession.swift Tests/PerchTests/NotionPageRestorationCacheTests.swift Tests/PerchTests/NotionWebSessionTests.swift Tests/PerchTests/RuntimePinnedPagePersistenceTests.swift
 git commit -m "perf: isolate WebKit restoration retention"
 ```
 
@@ -360,17 +360,17 @@ git commit -m "perf: isolate WebKit restoration retention"
 
 **Files:**
 - Modify: `Package.swift`
-- Create: `Sources/NotionPiPDomain/` by moving selected pure domain files from `Sources/NotionPiP/Domain/`
-- Create: `Sources/NotionPiPBridge/` by moving `CaptureBridgeProtocol.swift` and its Foundation-only contract types
-- Create: `Sources/NotionPiPCapture/` by moving `CaptureDraftPersistenceService.swift` and its Foundation-only dependencies
+- Create: `Sources/PerchDomain/` by moving selected pure domain files from `Sources/Perch/Domain/`
+- Create: `Sources/PerchBridge/` by moving `CaptureBridgeProtocol.swift` and its Foundation-only contract types
+- Create: `Sources/PerchCapture/` by moving `CaptureDraftPersistenceService.swift` and its Foundation-only dependencies
 - Modify: imports in moved files and their consumers
-- Modify: `Tests/NotionPiPTests/*` imports and target dependencies as required
+- Modify: `Tests/PerchTests/*` imports and target dependencies as required
 
 **Interfaces:**
-- `NotionPiPDomain` exports pure values/policies including `CaptureSnapshot`, `DeliveryState`, `RetryPolicy`, and `JSONValue`.
-- `NotionPiPBridge` depends on `NotionPiPDomain` and exports the capture request/reply contract plus canonical document validation.
-- `NotionPiPCapture` depends on `NotionPiPBridge` and a narrowly defined `CaptureDraftPersisting` protocol; its SwiftData adapter remains in the executable/platform target.
-- `NotionPiP` executable depends on all three libraries and owns AppKit, SwiftUI, WebKit, and SwiftData.
+- `PerchDomain` exports pure values/policies including `CaptureSnapshot`, `DeliveryState`, `RetryPolicy`, and `JSONValue`.
+- `PerchBridge` depends on `PerchDomain` and exports the capture request/reply contract plus canonical document validation.
+- `PerchCapture` depends on `PerchBridge` and a narrowly defined `CaptureDraftPersisting` protocol; its SwiftData adapter remains in the executable/platform target.
+- `Perch` executable depends on all three libraries and owns AppKit, SwiftUI, WebKit, and SwiftData.
 
 - [ ] **Step 1: Write a manifest-level build test by compiling the new targets independently**
 
@@ -379,8 +379,8 @@ Before moving production files, add the manifest targets with placeholder-free s
 Run:
 
 ```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build --target NotionPiPDomain
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build --target NotionPiPBridge
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build --target PerchDomain
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build --target PerchBridge
 ```
 
 - [ ] **Step 2: Extract only Foundation-only files and declare acyclic dependencies**
@@ -388,13 +388,13 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build --target No
 Use this manifest shape; retain the executable target path until a later UI migration.
 
 ```swift
-.target(name: "NotionPiPDomain", path: "Sources/NotionPiPDomain"),
-.target(name: "NotionPiPBridge", dependencies: ["NotionPiPDomain"], path: "Sources/NotionPiPBridge"),
-.target(name: "NotionPiPCapture", dependencies: ["NotionPiPBridge"], path: "Sources/NotionPiPCapture"),
+.target(name: "PerchDomain", path: "Sources/PerchDomain"),
+.target(name: "PerchBridge", dependencies: ["PerchDomain"], path: "Sources/PerchBridge"),
+.target(name: "PerchCapture", dependencies: ["PerchBridge"], path: "Sources/PerchCapture"),
 .executableTarget(
-    name: "NotionPiP",
-    dependencies: ["NotionPiPDomain", "NotionPiPBridge", "NotionPiPCapture"],
-    path: "Sources/NotionPiP",
+    name: "Perch",
+    dependencies: ["PerchDomain", "PerchBridge", "PerchCapture"],
+    path: "Sources/Perch",
     resources: [.copy("Resources/QuickCapture")]
 )
 ```
@@ -403,7 +403,7 @@ If an extracted source imports AppKit, WebKit, SwiftData, or a platform file, le
 
 - [ ] **Step 3: Replace concrete capture persistence access with a capability protocol**
 
-Define `CaptureDraftPersisting` in `NotionPiPCapture` using the exact operations the service needs, then make `CaptureRepository` conform in the executable target extension. This keeps the service testable with an in-memory fake without giving it the entire SwiftData repository.
+Define `CaptureDraftPersisting` in `PerchCapture` using the exact operations the service needs, then make `CaptureRepository` conform in the executable target extension. This keeps the service testable with an in-memory fake without giving it the entire SwiftData repository.
 
 ```swift
 protocol CaptureDraftPersisting: Sendable {
@@ -420,9 +420,9 @@ protocol CaptureDraftPersisting: Sendable {
 Run each target in isolation and the full suite:
 
 ```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build --target NotionPiPDomain
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build --target NotionPiPBridge
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build --target NotionPiPCapture
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build --target PerchDomain
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build --target PerchBridge
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build --target PerchCapture
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 ```
 
@@ -435,7 +435,7 @@ Record the actual trace results, changes to p50/p95, observed cache behavior, an
 - [ ] **Step 6: Commit**
 
 ```sh
-git add Package.swift Sources/NotionPiPDomain Sources/NotionPiPBridge Sources/NotionPiPCapture Sources/NotionPiP Tests/NotionPiPTests docs
+git add Package.swift Sources/PerchDomain Sources/PerchBridge Sources/PerchCapture Sources/Perch Tests/PerchTests docs
 git commit -m "refactor: enforce capture module boundaries"
 ```
 

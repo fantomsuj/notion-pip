@@ -23,21 +23,21 @@
 
 ## File Structure
 
-- Create `Sources/NotionPiP/Platform/NotionEditorCaret.swift` for the caret geometry value, strict bridge parsing, handler name, and generic DOM tracking script.
-- Create `Sources/NotionPiP/Platform/CursorAdjacentControlPlacement.swift` for pure CSS-to-view coordinate conversion and edge-aware placement.
-- Modify `Sources/NotionPiP/Platform/NotionWebSession.swift` to install, consume, publish, and invalidate caret updates for the current web-view generation, and rename its private bridge-removal closure to cover all installed bridges.
-- Modify `Sources/NotionPiP/Views/PiPChromeView.swift` to position the existing button using the placement policy.
-- Create `Tests/NotionPiPTests/NotionEditorCaretTests.swift` for bridge validation.
-- Create `Tests/NotionPiPTests/CursorAdjacentControlPlacementTests.swift` for placement behavior.
-- Modify `Tests/NotionPiPTests/NotionWebSessionTests.swift` for lifecycle and stale-message behavior.
-- Modify `Tests/NotionPiPTests/PiPChromeViewTests.swift` only for stable button constants or action-contract assertions exposed by the focused view change.
+- Create `Sources/Perch/Platform/NotionEditorCaret.swift` for the caret geometry value, strict bridge parsing, handler name, and generic DOM tracking script.
+- Create `Sources/Perch/Platform/CursorAdjacentControlPlacement.swift` for pure CSS-to-view coordinate conversion and edge-aware placement.
+- Modify `Sources/Perch/Platform/NotionWebSession.swift` to install, consume, publish, and invalidate caret updates for the current web-view generation, and rename its private bridge-removal closure to cover all installed bridges.
+- Modify `Sources/Perch/Views/PiPChromeView.swift` to position the existing button using the placement policy.
+- Create `Tests/PerchTests/NotionEditorCaretTests.swift` for bridge validation.
+- Create `Tests/PerchTests/CursorAdjacentControlPlacementTests.swift` for placement behavior.
+- Modify `Tests/PerchTests/NotionWebSessionTests.swift` for lifecycle and stale-message behavior.
+- Modify `Tests/PerchTests/PiPChromeViewTests.swift` only for stable button constants or action-contract assertions exposed by the focused view change.
 - Modify `docs/MANUAL_TEST_MATRIX.md` to record the new cursor-adjacent cases.
 
 ### Task 1: Define and validate trusted caret geometry
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/NotionEditorCaret.swift`
-- Create: `Tests/NotionPiPTests/NotionEditorCaretTests.swift`
+- Create: `Sources/Perch/Platform/NotionEditorCaret.swift`
+- Create: `Tests/PerchTests/NotionEditorCaretTests.swift`
 
 **Interfaces:**
 - Produces: `NotionEditorCaretGeometry`, an `Equatable, Sendable` value containing `left`, `top`, `bottom`, `viewportWidth`, and `viewportHeight` as `Double`.
@@ -164,7 +164,7 @@
   }
 
   enum NotionEditorCaretBridge {
-      static let handlerName = "notionPiPEditorCaret"
+      static let handlerName = "perchEditorCaret"
 
       static func update(
           from body: Any,
@@ -220,15 +220,15 @@
 
   ```javascript
   (() => {
-    if (window.__notionPiPEditorCaretInstalled) return;
-    window.__notionPiPEditorCaretInstalled = true;
+    if (window.__perchEditorCaretInstalled) return;
+    window.__perchEditorCaretInstalled = true;
     let scheduled = false;
     let wasVisible = false;
 
     const postHidden = () => {
       if (!wasVisible) return;
       wasVisible = false;
-      window.webkit?.messageHandlers?.notionPiPEditorCaret
+      window.webkit?.messageHandlers?.perchEditorCaret
         ?.postMessage({ visible: false });
     };
 
@@ -260,7 +260,7 @@
         return;
       }
       wasVisible = true;
-      window.webkit?.messageHandlers?.notionPiPEditorCaret?.postMessage({
+      window.webkit?.messageHandlers?.perchEditorCaret?.postMessage({
         visible: true,
         left: rect.left,
         top: rect.top,
@@ -298,19 +298,19 @@
 - [ ] **Step 6: Commit the bridge boundary**
 
   ```sh
-  git add Sources/NotionPiP/Platform/NotionEditorCaret.swift Tests/NotionPiPTests/NotionEditorCaretTests.swift
+  git add Sources/Perch/Platform/NotionEditorCaret.swift Tests/PerchTests/NotionEditorCaretTests.swift
   git commit -m "feat: add trusted Notion caret bridge"
   ```
 
 ### Task 2: Publish only current-page caret geometry from the web session
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift:79-139`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift:171-217`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift:315-370`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift:586-657`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift:790-819`
-- Modify: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift:79-139`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift:171-217`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift:315-370`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift:586-657`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift:790-819`
+- Modify: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 **Interfaces:**
 - Consumes: `NotionEditorCaretBridge.handlerName`, `.script`, and `.update(...)` from Task 1.
@@ -495,18 +495,18 @@
 - [ ] **Step 7: Commit current-session caret publication**
 
   ```sh
-  git add Sources/NotionPiP/Platform/NotionWebSession.swift Tests/NotionPiPTests/NotionWebSessionTests.swift
+  git add Sources/Perch/Platform/NotionWebSession.swift Tests/PerchTests/NotionWebSessionTests.swift
   git commit -m "feat: publish live Notion caret geometry"
   ```
 
 ### Task 3: Place the native clipboard button beside the caret
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/CursorAdjacentControlPlacement.swift`
-- Create: `Tests/NotionPiPTests/CursorAdjacentControlPlacementTests.swift`
-- Modify: `Sources/NotionPiP/Views/PiPChromeView.swift:1-22`
-- Modify: `Sources/NotionPiP/Views/PiPChromeView.swift:213-234`
-- Modify: `Tests/NotionPiPTests/PiPChromeViewTests.swift`
+- Create: `Sources/Perch/Platform/CursorAdjacentControlPlacement.swift`
+- Create: `Tests/PerchTests/CursorAdjacentControlPlacementTests.swift`
+- Modify: `Sources/Perch/Views/PiPChromeView.swift:1-22`
+- Modify: `Sources/Perch/Views/PiPChromeView.swift:213-234`
+- Modify: `Tests/PerchTests/PiPChromeViewTests.swift`
 - Modify: `docs/MANUAL_TEST_MATRIX.md`
 
 **Interfaces:**
@@ -522,7 +522,7 @@
   ```swift
   import CoreGraphics
   import XCTest
-  @testable import NotionPiP
+  @testable import Perch
 
   final class CursorAdjacentControlPlacementTests: XCTestCase {
       private let control = CGSize(width: 30, height: 30)
@@ -764,7 +764,7 @@
 - [ ] **Step 10: Build and manually verify the app when safe**
 
   First run the repository-required read-only setup checks and confirm
-  `pgrep -x NotionPiP` returns no process. If the app is running, stop and ask
+  `pgrep -x Perch` returns no process. If the app is running, stop and ask
   the user to save work and quit it because the build script terminates the
   process. Otherwise run:
 
@@ -773,17 +773,17 @@
   ```
 
   Sign in through the app UI, exercise every matrix case above, and confirm the
-  script reports `Verified .../dist/NotionPiP.app` with a process ID. Never ask
+  script reports `Verified .../dist/Perch.app` with a process ID. Never ask
   for a Notion password, session cookie, or integration token in chat or the
   terminal.
 
 - [ ] **Step 11: Commit the cursor-adjacent control**
 
   ```sh
-  git add Sources/NotionPiP/Platform/CursorAdjacentControlPlacement.swift \
-    Sources/NotionPiP/Views/PiPChromeView.swift \
-    Tests/NotionPiPTests/CursorAdjacentControlPlacementTests.swift \
-    Tests/NotionPiPTests/PiPChromeViewTests.swift \
+  git add Sources/Perch/Platform/CursorAdjacentControlPlacement.swift \
+    Sources/Perch/Views/PiPChromeView.swift \
+    Tests/PerchTests/CursorAdjacentControlPlacementTests.swift \
+    Tests/PerchTests/PiPChromeViewTests.swift \
     docs/MANUAL_TEST_MATRIX.md
   git commit -m "feat: place clipboard button beside Notion caret"
   ```

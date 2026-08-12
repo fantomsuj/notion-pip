@@ -1,8 +1,8 @@
-# Notion PiP Repository Course Implementation Plan
+# Perch Repository Course Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a complete mixed-audience course that explains every authored part of Notion PiP, supports a 12-lecture learning path and a condensed presentation, and equips maintainers to make verified changes.
+**Goal:** Build a complete mixed-audience course that explains every authored part of Perch, supports a 12-lecture learning path and a condensed presentation, and equips maintainers to make verified changes.
 
 **Architecture:** Focused Markdown documents under `docs/course/` form one learning system. Numbered lectures provide the narrative; shared architecture, glossary, change, presentation, and exhaustive file-atlas documents provide reference paths. The checked-out source is authoritative, and concrete claims link to files and tests.
 
@@ -65,7 +65,7 @@ Every lecture must contain these exact H2 sections: Learning objectives; Before 
 - [ ] Build `.context/course-source-files.txt` from the sorted union of `git ls-files` and `git ls-files --others --exclude-standard`.
 - [ ] Write the syllabus with six acceptance outcomes, required/helpful prerequisites, complete/fast/presenter paths, all document links and durations, source-snapshot note, exact build/test commands, and safety notes.
 - [ ] Verify each of the 18 planned course filenames appears in `README.md` and `git diff --check -- docs/course/README.md` passes.
-- [ ] Commit only `README.md` with message `docs: add Notion PiP course syllabus`.
+- [ ] Commit only `README.md` with message `docs: add Perch course syllabus`.
 
 ### Task 2: Create shared vocabulary and architecture
 
@@ -81,7 +81,7 @@ Every lecture must contain these exact H2 sections: Learning objectives; Before 
 - [ ] Write alphabetized glossary entries for Swift/concurrency, AppKit/SwiftUI, WebKit/bridge, SwiftData/reliability, and Tiptap/Notion API; every entry links a concrete repo example.
 - [ ] Write the subsystem/ownership map and Mermaid plus prose flows for startup, page activation, stash/restore, capture delivery, termination/autosave, and settings propagation.
 - [ ] Verify `ARCHITECTURE_MAP.md` contains at least six `^```mermaid$` blocks and each required flow phrase; verify every named type exists in source.
-- [ ] Commit both files with `docs: map Notion PiP architecture and vocabulary`.
+- [ ] Commit both files with `docs: map Perch architecture and vocabulary`.
 
 ### Task 3: Write Lectures 1–2
 
@@ -110,7 +110,7 @@ Every lecture must contain these exact H2 sections: Learning objectives; Before 
 - Produces: lifecycle and dependency models
 
 - [ ] Trace startup, URL-open buffering, state observation, degraded startup, and termination from source and tests.
-- [ ] Write Lecture 3: executable entry, NSApplication/delegate, accessory policy, URL handling, signposts, termination, MainActor, actors/tasks, and Sendable; trace `NotionPiPApp.main()` through the event loop.
+- [ ] Write Lecture 3: executable entry, NSApplication/delegate, accessory policy, URL handling, signposts, termination, MainActor, actors/tasks, and Sendable; trace `PerchApp.main()` through the event loop.
 - [ ] Write Lecture 4: AppComposition order, protocols, relays, AppRuntime facade/extensions, controller observation, lazy presenters, degraded persistence, and an owner/lifetime/isolation/consumer/failure table.
 - [ ] Verify named symbols with `rg` and run the shared H2-section check.
 - [ ] Commit with `docs: explain lifecycle and runtime composition`.
@@ -192,7 +192,7 @@ Every lecture must contain these exact H2 sections: Learning objectives; Before 
 - [ ] Write `Safe change workflow`, `Diagnostic playbook`, and `Verification ladder` with exact dirty-worktree, tracing, tests, implementation, full-check, and manual steps plus concurrency/migration/bridge/WebKit/API/signing/accessory-app branches.
 - [ ] Write `Worked scenarios` for a beginner policy edit, intermediate persisted setting, and advanced bridge extension, including discovery commands, files, invariants, tests, and verification.
 - [ ] Verify all five headings, all seven layers, and three scenarios exist; check links.
-- [ ] Commit with `docs: add Notion PiP change playbook`.
+- [ ] Commit with `docs: add Perch change playbook`.
 
 ### Task 10: Build the exhaustive file atlas
 
@@ -260,4 +260,4 @@ Every lecture must contain these exact H2 sections: Learning objectives; Before 
 - [ ] Run `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`. Expected: pass; if pre-existing code fails, preserve it and report exact failures separately.
 - [ ] Run `npm test` and `npm run typecheck`. Expected: pass. Do not run `npm run build:editor`.
 - [ ] Compare final files with all design deliverables and six acceptance criteria; confirm staged paths contain only `docs/course/*`.
-- [ ] Commit final corrections with `docs: complete and verify Notion PiP course`.
+- [ ] Commit final corrections with `docs: complete and verify Perch course`.

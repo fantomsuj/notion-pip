@@ -25,7 +25,7 @@ showing useful content within 400 milliseconds of shortcut-down.
 
 Wispr Flow avoids delaying the start of its primary action. Holding its
 push-to-talk shortcut starts a temporary session, while double-pressing the
-same shortcut locks that session into hands-free mode. Notion PiP can apply the
+same shortcut locks that session into hands-free mode. Perch can apply the
 same model spatially: holding reveals a temporary panel, while a double press
 locks the panel open.
 
@@ -35,7 +35,7 @@ References:
 - [Supported and unsupported keyboard hotkey shortcuts](https://docs.wisprflow.ai/articles/2612050838-supported-unsupported-keyboard-hotkey-shortcuts)
 
 Wispr Flow describes the double press as happening "quickly" but does not
-publish an exact interval. Notion PiP will use a deterministic 300-millisecond
+publish an exact interval. Perch will use a deterministic 300-millisecond
 press-to-press window, matching its existing injected shortcut timing default
 and keeping the value testable.
 
@@ -63,7 +63,7 @@ intervening release:
 
 1. Cancel the pending restash.
 2. Convert the temporary peek into a persistent open panel.
-3. Cancel focus restoration because the user has chosen to leave Notion PiP
+3. Cancel focus restoration because the user has chosen to leave Perch
    active.
 4. Ignore the matching second release for presentation purposes.
 
@@ -139,7 +139,7 @@ current 120-millisecond fade, and Reduce Motion behavior remains unchanged.
 
 No new persistent chrome is required. The panel remaining visible after the
 second release is the primary confirmation that it has been latched open.
-VoiceOver should receive a concise announcement such as “Notion PiP will stay
+VoiceOver should receive a concise announcement such as “Perch will stay
 open” when the second press is recognized.
 
 Settings and onboarding copy should explain the complete gesture in one line:

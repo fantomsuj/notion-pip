@@ -1,6 +1,6 @@
-# Notion PiP Architecture Map
+# Perch Architecture Map
 
-Notion PiP is one Swift Package Manager executable with deliberately separated
+Perch is one Swift Package Manager executable with deliberately separated
 responsibilities inside the target and a separately authored TypeScript editor
 that is bundled as a resource. The `AppRuntime` is the main-actor facade seen by
 views, but it does not own every subsystem: AppKit controllers own windows,
@@ -16,16 +16,16 @@ defined in the [glossary](GLOSSARY.md); the planned teaching sequence is in the
 
 | Subsystem | Owns | Principal concrete types | Does not own |
 |---|---|---|---|
-| Entry and composition | Process entry, dependency construction, degraded startup wiring, termination binding | [`NotionPiPApp`, `AppStartup`, `AppComposition`](../../Sources/NotionPiP/App/NotionPiPApp.swift), [`AppDelegate`](../../Sources/NotionPiP/App/AppDelegate.swift) | Feature policy or durable transitions |
-| Runtime/application | UI-facing state, activation routing, controller coordination, ordered page persistence | [`AppRuntime`](../../Sources/NotionPiP/App/AppRuntime.swift), [`PinCoordinator`](../../Sources/NotionPiP/App/PinCoordinator.swift), [`PageSwitcherController`](../../Sources/NotionPiP/App/PageSwitcherController.swift) | AppKit window mechanics, database model mutation, HTTP transport |
-| Domain | Validated values, snapshots, state machines, matching, geometry and retry rules | [`NotionPageReference`](../../Sources/NotionPiP/Domain/NotionPageReference.swift), [`PageWorkingSetPolicy`](../../Sources/NotionPiP/Domain/PageWorkingSetPolicy.swift), [`DeliveryState`](../../Sources/NotionPiP/Domain/DeliveryState.swift), [`RetryPolicy`](../../Sources/NotionPiP/Domain/RetryPolicy.swift) | Framework objects or I/O |
-| AppKit platform | Window roles, panel geometry, stash handle, status item, global shortcuts, Keychain adapter | [`PiPPanelCoordinator`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift), [`WindowRolePolicy`](../../Sources/NotionPiP/Platform/WindowRolePolicy.swift), [`StatusItemController`](../../Sources/NotionPiP/Platform/StatusItemController.swift), [`PersonalTokenCredentialVault`](../../Sources/NotionPiP/Platform/PersonalTokenCredentialVault.swift) | SwiftUI view state or delivery policy |
-| WebKit platform | One live Notion browser session, page interaction snapshots, lifecycle suspension, local-editor bridge | [`NotionWebSession`](../../Sources/NotionPiP/Platform/NotionWebSession.swift), [`NotionWebLifecycleController`](../../Sources/NotionPiP/Platform/NotionWebLifecycleController.swift), [`CaptureEditorSession`](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift), [`CaptureBridgeProtocol`](../../Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift) | Personal API credentials or remote delivery scheduling |
-| SwiftUI views | Rendering, bindings, user intent, accessibility surfaces | [`PiPChromeView`](../../Sources/NotionPiP/Views/PiPChromeView.swift), [`SettingsView`](../../Sources/NotionPiP/Views/SettingsView.swift), [`QuickCaptureView`](../../Sources/NotionPiP/Views/QuickCaptureView.swift) | Durable mutation rules or retained window ownership |
-| Persistence | Shared SwiftData container, schemas, validated repository transactions, rollback | [`NotionPiPPersistence`](../../Sources/NotionPiP/Persistence/NotionPiPPersistence.swift), [`PageRepository`](../../Sources/NotionPiP/Persistence/PageRepository.swift), [`CaptureRepository`](../../Sources/NotionPiP/Persistence/CaptureRepository.swift), [`QuickCaptureDestinationRepository`](../../Sources/NotionPiP/Persistence/QuickCaptureDestinationRepository.swift) | UI presentation or network calls |
-| Services | Capture finalization, scheduling, retries, document conversion, Notion HTTP operations | [`QuickCaptureLifecycleCoordinator`](../../Sources/NotionPiP/Services/QuickCaptureLifecycleCoordinator.swift), [`DeliveryScheduler`](../../Sources/NotionPiP/Services/DeliveryScheduler.swift), [`DeliveryEngine`](../../Sources/NotionPiP/Services/DeliveryEngine.swift), [`NotionCaptureDeliveryService`](../../Sources/NotionPiP/Services/NotionCaptureDeliveryService.swift), [`NotionAPIClient`](../../Sources/NotionPiP/Services/NotionAPIClient.swift) | Views, windows, or browser session cookies |
+| Entry and composition | Process entry, dependency construction, degraded startup wiring, termination binding | [`PerchApp`, `AppStartup`, `AppComposition`](../../Sources/Perch/App/PerchApp.swift), [`AppDelegate`](../../Sources/Perch/App/AppDelegate.swift) | Feature policy or durable transitions |
+| Runtime/application | UI-facing state, activation routing, controller coordination, ordered page persistence | [`AppRuntime`](../../Sources/Perch/App/AppRuntime.swift), [`PinCoordinator`](../../Sources/Perch/App/PinCoordinator.swift), [`PageSwitcherController`](../../Sources/Perch/App/PageSwitcherController.swift) | AppKit window mechanics, database model mutation, HTTP transport |
+| Domain | Validated values, snapshots, state machines, matching, geometry and retry rules | [`NotionPageReference`](../../Sources/Perch/Domain/NotionPageReference.swift), [`PageWorkingSetPolicy`](../../Sources/Perch/Domain/PageWorkingSetPolicy.swift), [`DeliveryState`](../../Sources/Perch/Domain/DeliveryState.swift), [`RetryPolicy`](../../Sources/Perch/Domain/RetryPolicy.swift) | Framework objects or I/O |
+| AppKit platform | Window roles, panel geometry, stash handle, status item, global shortcuts, Keychain adapter | [`PiPPanelCoordinator`](../../Sources/Perch/Platform/PiPPanelCoordinator.swift), [`WindowRolePolicy`](../../Sources/Perch/Platform/WindowRolePolicy.swift), [`StatusItemController`](../../Sources/Perch/Platform/StatusItemController.swift), [`PersonalTokenCredentialVault`](../../Sources/Perch/Platform/PersonalTokenCredentialVault.swift) | SwiftUI view state or delivery policy |
+| WebKit platform | One live Notion browser session, page interaction snapshots, lifecycle suspension, local-editor bridge | [`NotionWebSession`](../../Sources/Perch/Platform/NotionWebSession.swift), [`NotionWebLifecycleController`](../../Sources/Perch/Platform/NotionWebLifecycleController.swift), [`CaptureEditorSession`](../../Sources/Perch/Platform/CaptureEditorSession.swift), [`CaptureBridgeProtocol`](../../Sources/Perch/Platform/CaptureBridgeProtocol.swift) | Personal API credentials or remote delivery scheduling |
+| SwiftUI views | Rendering, bindings, user intent, accessibility surfaces | [`PiPChromeView`](../../Sources/Perch/Views/PiPChromeView.swift), [`SettingsView`](../../Sources/Perch/Views/SettingsView.swift), [`QuickCaptureView`](../../Sources/Perch/Views/QuickCaptureView.swift) | Durable mutation rules or retained window ownership |
+| Persistence | Shared SwiftData container, schemas, validated repository transactions, rollback | [`PerchPersistence`](../../Sources/Perch/Persistence/PerchPersistence.swift), [`PageRepository`](../../Sources/Perch/Persistence/PageRepository.swift), [`CaptureRepository`](../../Sources/Perch/Persistence/CaptureRepository.swift), [`QuickCaptureDestinationRepository`](../../Sources/Perch/Persistence/QuickCaptureDestinationRepository.swift) | UI presentation or network calls |
+| Services | Capture finalization, scheduling, retries, document conversion, Notion HTTP operations | [`QuickCaptureLifecycleCoordinator`](../../Sources/Perch/Services/QuickCaptureLifecycleCoordinator.swift), [`DeliveryScheduler`](../../Sources/Perch/Services/DeliveryScheduler.swift), [`DeliveryEngine`](../../Sources/Perch/Services/DeliveryEngine.swift), [`NotionCaptureDeliveryService`](../../Sources/Perch/Services/NotionCaptureDeliveryService.swift), [`NotionAPIClient`](../../Sources/Perch/Services/NotionAPIClient.swift) | Views, windows, or browser session cookies |
 | TypeScript editor | Tiptap document editing, debounced changes, reply validation, transition serialization, browser UI | [`QuickCaptureEditorController`](../../Web/QuickCaptureEditor/quick-capture-editor-controller.ts), [`DebouncedChangePublisher`](../../Web/QuickCaptureEditor/bridge/debounced-change-publisher.ts), [`EditorTransitionGate`](../../Web/QuickCaptureEditor/state/editor-transition-gate.ts) | Native persistence, Keychain access, or direct Notion API calls |
-| Tests and manual checks | Deterministic policy, persistence, service, bridge, and WebKit regression evidence; real-system integration checklist | [`Tests/NotionPiPTests`](../../Tests/NotionPiPTests), [`MANUAL_TEST_MATRIX.md`](../MANUAL_TEST_MATRIX.md) | Proof of unexercised window-server, Spaces, focus, login-session, or Launch Services behavior |
+| Tests and manual checks | Deterministic policy, persistence, service, bridge, and WebKit regression evidence; real-system integration checklist | [`Tests/PerchTests`](../../Tests/PerchTests), [`MANUAL_TEST_MATRIX.md`](../MANUAL_TEST_MATRIX.md) | Proof of unexercised window-server, Spaces, focus, login-session, or Launch Services behavior |
 
 The intended dependency direction is views and platform adapters toward the
 runtime/application layer, then through narrow protocols and value snapshots to
@@ -40,8 +40,8 @@ Course destination: Lecture 3 and Lecture 4 in the
 
 ```mermaid
 flowchart TD
-    A["NotionPiPApp.main"] --> B["AppComposition.init"]
-    B --> C["NotionPiPPersistence.makeContainer"]
+    A["PerchApp.main"] --> B["AppComposition.init"]
+    B --> C["PerchPersistence.makeContainer"]
     C --> D["PageRepository"]
     C --> E["CaptureRepository"]
     C --> F["QuickCaptureDestinationRepository"]
@@ -58,14 +58,14 @@ flowchart TD
     L --> N["NSApplication accessory policy and run loop"]
 ```
 
-**Prose fallback.** [`NotionPiPApp.main`](../../Sources/NotionPiP/App/NotionPiPApp.swift)
+**Prose fallback.** [`PerchApp.main`](../../Sources/Perch/App/PerchApp.swift)
 starts a cold-launch signpost, constructs `AppComposition`, installs the
 `AppDelegate` and main menu, calls `AppStartup.start`, and then enters the
 `NSApplication` run loop. The composition root opens one shared SwiftData
 container and builds the page, capture, and destination repositories plus the
 delivery service, engine, and scheduler. It separately wires the retained
 `NotionWebSession`, `PiPPanelCoordinator`, runtime, status item, and lazy
-windows. [`AppRuntime.start`](../../Sources/NotionPiP/App/AppRuntime.swift)
+windows. [`AppRuntime.start`](../../Sources/Perch/App/AppRuntime.swift)
 registers both shortcuts, bootstraps saved credentials and destination state,
 triggers delivery recovery, refreshes capture records, and begins pinned-page
 restoration. If the persistent container cannot open, composition injects
@@ -93,13 +93,13 @@ flowchart LR
 ```
 
 **Prose fallback.** Typed URLs and external routes become a validated
-[`NotionPageReference`](../../Sources/NotionPiP/Domain/NotionPageReference.swift);
+[`NotionPageReference`](../../Sources/Perch/Domain/NotionPageReference.swift);
 the page switcher already carries stored validated pages and optional durable
 restoration. All routes converge on
-[`AppRuntime.activate`](../../Sources/NotionPiP/App/AppRuntime+Activation.swift),
+[`AppRuntime.activate`](../../Sources/Perch/App/AppRuntime+Activation.swift),
 which increments the page-selection generation and tells `PinCoordinator` to
 show, reselect, or replace the panel's page. The
-[`PiPPanelCoordinator`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift)
+[`PiPPanelCoordinator`](../../Sources/Perch/Platform/PiPPanelCoordinator.swift)
 presents the panel and delegates browser work to `NotionWebSession`. That
 session preserves the outgoing page's in-process WebKit interaction state,
 then either restores it or loads the trusted saved/canonical URL in the one
@@ -133,9 +133,9 @@ flowchart TD
 
 **Prose fallback.** The chrome button, contextual menu-bar command, and global
 shortcut all converge on
-[`PiPPanelCoordinator.stashOrRestoreCurrentPage`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift)
+[`PiPPanelCoordinator.stashOrRestoreCurrentPage`](../../Sources/Perch/Platform/PiPPanelCoordinator.swift)
 through the runtime or `PinCoordinator`. When visible,
-[`PanelStashPolicy`](../../Sources/NotionPiP/Platform/PanelStashPolicy.swift)
+[`PanelStashPolicy`](../../Sources/Perch/Platform/PanelStashPolicy.swift)
 chooses the nearest screen edge, the coordinator saves the logical panel frame,
 presents `PiPStashHandleController`, notifies `NotionWebSession` that the panel
 hid, and calls `orderOut` on `KeyCapablePiPPanel`. The lifecycle controller
@@ -146,7 +146,7 @@ calls `restoreFromStash`. Both restoration paths replace the saved frame,
 dismiss the handle, present the panel, and call `panelDidShow` so the retained or
 recreated browser resumes. The floating all-Spaces panel and all-Spaces handle
 are intentional policies in
-[`WindowRolePolicy`](../../Sources/NotionPiP/Platform/WindowRolePolicy.swift),
+[`WindowRolePolicy`](../../Sources/Perch/Platform/WindowRolePolicy.swift),
 not an `NSPanel` defect.
 
 ## Flow 4 — capture delivery from editor to Notion
@@ -182,14 +182,14 @@ flowchart LR
 are debounced and serialized into a versioned `BridgeRequest` with a correlation
 ID and expected revision. `BridgeClient` posts to WebKit; the trusted local
 document is validated by `WeakScriptMessageHandler` and
-[`CaptureEditorSession`](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift).
+[`CaptureEditorSession`](../../Sources/Perch/Platform/CaptureEditorSession.swift).
 The session canonicalizes the ProseMirror document and awaits
 `CaptureRepository.saveDraft` before returning an acknowledgement. A stale
 revision becomes an explicit conflict, and a failed acknowledgement remains
 retryable in the editor.
 
 Closing a nonempty capture takes a fresh editor snapshot. The
-[`QuickCaptureLifecycleCoordinator`](../../Sources/NotionPiP/Services/QuickCaptureLifecycleCoordinator.swift)
+[`QuickCaptureLifecycleCoordinator`](../../Sources/Perch/Services/QuickCaptureLifecycleCoordinator.swift)
 ensures it is saved, requires a configured destination and usable token, and
 atomically converts the draft into a queued capture record. Only then does it
 trigger `DeliveryScheduler`. `DeliveryEngine` recovers interrupted work, claims
@@ -214,7 +214,7 @@ flowchart TD
     C -->|no| H["capture result = true"]
     D -->|visible Quick Capture| E["CaptureEditorSession.prepareForTermination"]
     D -->|window not visible| H
-    E --> F["window.NotionPiPBridge.snapshot"]
+    E --> F["window.PerchBridge.snapshot"]
     F --> G["CaptureRepository.saveDraft"]
     G -->|success| H
     G -->|failure| I["capture result = false; show failure"]
@@ -226,11 +226,11 @@ flowchart TD
     L -->|false| N["NSApplication.reply false"]
 ```
 
-**Prose fallback.** [`AppDelegate`](../../Sources/NotionPiP/App/AppDelegate.swift)
+**Prose fallback.** [`AppDelegate`](../../Sources/Perch/App/AppDelegate.swift)
 returns `.terminateLater` and runs the async handler bound by `AppStartup`. If a
 Quick Capture presenter exists and its window is visible,
 `AppWindowPresenter.prepareForTermination` calls
-[`CaptureEditorSession.prepareForTermination`](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift).
+[`CaptureEditorSession.prepareForTermination`](../../Sources/Perch/Platform/CaptureEditorSession.swift).
 The session reads the current JavaScript snapshot and persists it with the same
 revision-aware rules used by autosave. Capture preservation returns a Boolean:
 success permits termination, while failure publishes “Could not save the
@@ -270,7 +270,7 @@ flowchart TD
     J --> M["PiP chrome and menu size choices"]
 ```
 
-**Prose fallback.** [`SettingsView`](../../Sources/NotionPiP/Views/SettingsView.swift)
+**Prose fallback.** [`SettingsView`](../../Sources/Perch/Views/SettingsView.swift)
 turns user actions into methods on `AppRuntime` or `PanelSizeController`; views
 do not write stores directly. Shortcut, trusted-capture, and menu-bar settings
 are validated or registered, saved to dedicated UserDefaults adapters, then
@@ -281,7 +281,7 @@ through `NotionConnectionController` to `PersonalTokenCredentialVault` and the
 Keychain; the `SecureField` is cleared after submission or disappearance.
 Destination selection passes through `QuickCaptureDestinationController` to a
 SwiftData repository. Panel-size changes pass through
-[`PanelSizeController`](../../Sources/NotionPiP/App/PanelSizeController.swift),
+[`PanelSizeController`](../../Sources/Perch/App/PanelSizeController.swift),
 which validates and saves preferences before publishing them and asks
 `PiPPanelCoordinator` to change the live panel only for explicit apply actions.
 SwiftUI observes these published values, while `AppRuntime` forwards change

@@ -1,8 +1,8 @@
-# Notion PiP Repository Course Design
+# Perch Repository Course Design
 
 ## Purpose
 
-Create a durable, presentation-ready course that teaches the complete Notion PiP repository to a mixed audience. A learner should finish with enough conceptual grounding to explain the product and its technology, trace important runtime behavior through the code, present the architecture to others, and make focused changes safely.
+Create a durable, presentation-ready course that teaches the complete Perch repository to a mixed audience. A learner should finish with enough conceptual grounding to explain the product and its technology, trace important runtime behavior through the code, present the architecture to others, and make focused changes safely.
 
 The course will describe the repository as it exists in the working checkout on August 3, 2026. It will distinguish committed architecture from any uncommitted work present during course production and will not alter unrelated product code.
 
@@ -18,7 +18,7 @@ The course is for a mixed audience:
 Every major topic will therefore use three layers:
 
 1. **Foundation:** the technology and vocabulary needed to understand the topic
-2. **Repository tour:** the exact files, types, responsibilities, and call paths in Notion PiP
+2. **Repository tour:** the exact files, types, responsibilities, and call paths in Perch
 3. **Deep dive:** ownership, concurrency, persistence, failure behavior, design trade-offs, and testing seams
 
 Readers can skip the foundation layer when they already know the technology.
@@ -42,7 +42,7 @@ Exercises and presenter notes will be embedded in the lecture where they are use
 
 ### Lecture 1: Product intent and user experience
 
-- Why Notion PiP exists and which workflows it serves
+- Why Perch exists and which workflows it serves
 - The accessory-app model, persistent panel, edge stash, page switching, and Quick Capture
 - Intentional product constraints, including all-Spaces panel behavior and no Dock presence
 - A guided product demonstration and a user-action-to-subsystem map
@@ -61,7 +61,7 @@ Exercises and presenter notes will be embedded in the lecture where they are use
 - SwiftUI views hosted inside AppKit windows
 - Main-actor isolation, actors, tasks, `Sendable`, and observable state
 - Startup, URL-open handling, readiness measurement, and coordinated termination
-- The executable entry path from `NotionPiPApp.main()` into the running application
+- The executable entry path from `PerchApp.main()` into the running application
 
 ### Lecture 4: Composition, runtime state, and controller boundaries
 

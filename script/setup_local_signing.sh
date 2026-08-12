@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IDENTITY_NAME="Notion PiP Local Development"
+IDENTITY_NAME="Perch Local Development"
 SECURITY_TOOL="${SECURITY_TOOL:-/usr/bin/security}"
 OPENSSL_TOOL="${OPENSSL_TOOL:-/usr/bin/openssl}"
 LOGIN_KEYCHAIN="${LOGIN_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
@@ -24,7 +24,7 @@ if [[ ! -x "$OPENSSL_TOOL" ]]; then
 fi
 
 TEMP_ROOT="${TMPDIR:-/tmp}"
-TEMP_DIR="$(mktemp -d "$TEMP_ROOT/notion-pip-local-signing.XXXXXX")"
+TEMP_DIR="$(mktemp -d "$TEMP_ROOT/perch-local-signing.XXXXXX")"
 IMPORTED_IDENTITY=false
 SETUP_COMPLETE=false
 CERTIFICATE_HASH=""
@@ -37,7 +37,7 @@ cleanup() {
             >/dev/null 2>&1 || true
     fi
     case "$TEMP_DIR" in
-        */notion-pip-local-signing.*)
+        */perch-local-signing.*)
             rm -rf -- "$TEMP_DIR"
             ;;
     esac
@@ -56,7 +56,7 @@ ARCHIVE_PASSWORD="$($OPENSSL_TOOL rand -hex 32)"
     -sha256 \
     -days 3650 \
     -nodes \
-    -subj "/CN=$IDENTITY_NAME/O=Notion PiP Development/OU=LOCALDEV" \
+    -subj "/CN=$IDENTITY_NAME/O=Perch Development/OU=LOCALDEV" \
     -addext "keyUsage=critical,digitalSignature" \
     -addext "extendedKeyUsage=codeSigning" \
     -keyout "$PRIVATE_KEY" \
@@ -101,4 +101,4 @@ fi
 SETUP_COMPLETE=true
 
 echo "Installed $IDENTITY_NAME ($IDENTITY_HASH)."
-echo "Local Notion PiP rebuilds will now keep a stable signing identity."
+echo "Local Perch rebuilds will now keep a stable signing identity."

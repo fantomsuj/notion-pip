@@ -28,14 +28,14 @@
 
 ## File Structure
 
-- Create `Sources/NotionPiP/Domain/QuickCopyCandidateBuffer.swift` for fixed-capacity circular FIFO storage of `QuickCopyCandidate` values. This type owns storage mechanics only; it does not decide warning copy, monitor state, candidate validity, or retry behavior.
-- Create `Tests/NotionPiPTests/QuickCopyCandidateBufferTests.swift` for capacity, FIFO, wraparound, rejection, and clearing invariants.
-- Modify `Sources/NotionPiP/Services/QuickCopyController.swift` to replace its array with the buffer and own overflow/user-state behavior.
-- Modify `Tests/NotionPiPTests/QuickCopyControllerTests.swift` for bounded bursts, post-drain warnings, recovery after overflow, and session clearing.
+- Create `Sources/Perch/Domain/QuickCopyCandidateBuffer.swift` for fixed-capacity circular FIFO storage of `QuickCopyCandidate` values. This type owns storage mechanics only; it does not decide warning copy, monitor state, candidate validity, or retry behavior.
+- Create `Tests/PerchTests/QuickCopyCandidateBufferTests.swift` for capacity, FIFO, wraparound, rejection, and clearing invariants.
+- Modify `Sources/Perch/Services/QuickCopyController.swift` to replace its array with the buffer and own overflow/user-state behavior.
+- Modify `Tests/PerchTests/QuickCopyControllerTests.swift` for bounded bursts, post-drain warnings, recovery after overflow, and session clearing.
 - Modify `docs/MANUAL_TEST_MATRIX.md` with real Accessibility/WebKit checks that cannot be proven by unit tests.
-- Do not modify `Sources/NotionPiP/Domain/QuickCopy.swift`: `QuickCopyPolicy` continues to validate candidate content independently of storage capacity.
-- Do not modify `Sources/NotionPiP/Platform/AccessibilitySelectionMonitor.swift`: producer-side keyboard debouncing remains useful but is not a substitute for consumer-side bounds.
-- Do not modify `Sources/NotionPiP/Views/QuickCopyButton.swift`: its existing `.warning(String)` presentation already renders the required state.
+- Do not modify `Sources/Perch/Domain/QuickCopy.swift`: `QuickCopyPolicy` continues to validate candidate content independently of storage capacity.
+- Do not modify `Sources/Perch/Platform/AccessibilitySelectionMonitor.swift`: producer-side keyboard debouncing remains useful but is not a substitute for consumer-side bounds.
+- Do not modify `Sources/Perch/Views/QuickCopyButton.swift`: its existing `.warning(String)` presentation already renders the required state.
 
 ## Behavioral Contract
 
@@ -63,11 +63,11 @@ The buffer is intentionally feature-owned rather than a generic `Queue<Element>`
 ### Task 1: Add the bounded candidate FIFO
 
 **Files:**
-- Create: `Sources/NotionPiP/Domain/QuickCopyCandidateBuffer.swift`
-- Create: `Tests/NotionPiPTests/QuickCopyCandidateBufferTests.swift`
+- Create: `Sources/Perch/Domain/QuickCopyCandidateBuffer.swift`
+- Create: `Tests/PerchTests/QuickCopyCandidateBufferTests.swift`
 
 **Interfaces:**
-- Consumes: `QuickCopyCandidate` from `Sources/NotionPiP/Domain/QuickCopy.swift`.
+- Consumes: `QuickCopyCandidate` from `Sources/Perch/Domain/QuickCopy.swift`.
 - Produces: `struct QuickCopyCandidateBuffer: Sendable`.
 - Produces: `QuickCopyCandidateBuffer.standardCapacity == 8`.
 - Produces: `enum EnqueueResult: Equatable, Sendable { case accepted, atCapacity }`.
@@ -77,11 +77,11 @@ The buffer is intentionally feature-owned rather than a generic `Queue<Element>`
 
 - [ ] **Step 1: Write failing FIFO and capacity tests**
 
-Create `Tests/NotionPiPTests/QuickCopyCandidateBufferTests.swift` with exact ordering and wraparound coverage:
+Create `Tests/PerchTests/QuickCopyCandidateBufferTests.swift` with exact ordering and wraparound coverage:
 
 ```swift
 import XCTest
-@testable import NotionPiP
+@testable import Perch
 
 final class QuickCopyCandidateBufferTests: XCTestCase {
     func testFIFORejectsNewestCandidateAtCapacityWithoutMutatingAcceptedOrder() {
@@ -162,7 +162,7 @@ Expected: compilation fails because `QuickCopyCandidateBuffer` does not exist.
 
 - [ ] **Step 3: Implement the fixed-capacity circular buffer**
 
-Create `Sources/NotionPiP/Domain/QuickCopyCandidateBuffer.swift`:
+Create `Sources/Perch/Domain/QuickCopyCandidateBuffer.swift`:
 
 ```swift
 import Foundation
@@ -242,15 +242,15 @@ Expected: both existing suites pass unchanged.
 - [ ] **Step 6: Commit the independently tested buffer**
 
 ```sh
-git add Sources/NotionPiP/Domain/QuickCopyCandidateBuffer.swift Tests/NotionPiPTests/QuickCopyCandidateBufferTests.swift
+git add Sources/Perch/Domain/QuickCopyCandidateBuffer.swift Tests/PerchTests/QuickCopyCandidateBufferTests.swift
 git commit -m "feat: add bounded Quick Copy candidate buffer"
 ```
 
 ### Task 2: Compose backpressure into the controller
 
 **Files:**
-- Modify: `Sources/NotionPiP/Services/QuickCopyController.swift:53-230`
-- Modify: `Tests/NotionPiPTests/QuickCopyControllerTests.swift:98-302`
+- Modify: `Sources/Perch/Services/QuickCopyController.swift:53-230`
+- Modify: `Tests/PerchTests/QuickCopyControllerTests.swift:98-302`
 - Modify: `docs/MANUAL_TEST_MATRIX.md`
 
 **Interfaces:**
@@ -509,7 +509,7 @@ Run `git diff --check` and require no whitespace errors.
 - [ ] **Step 11: Commit controller composition and documentation**
 
 ```sh
-git add Sources/NotionPiP/Services/QuickCopyController.swift Tests/NotionPiPTests/QuickCopyControllerTests.swift docs/MANUAL_TEST_MATRIX.md
+git add Sources/Perch/Services/QuickCopyController.swift Tests/PerchTests/QuickCopyControllerTests.swift docs/MANUAL_TEST_MATRIX.md
 git commit -m "fix: bound Quick Copy insertion backlog"
 ```
 

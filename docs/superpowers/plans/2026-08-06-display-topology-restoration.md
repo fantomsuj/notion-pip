@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
-**Goal:** Keep one retained Notion PiP panel and at most one stash handle reachable through deterministic multi-display topology changes without reloading the live Notion page.
+**Goal:** Keep one retained Perch panel and at most one stash handle reachable through deterministic multi-display topology changes without reloading the live Notion page.
 
 **Architecture:** Add pure display descriptors, affinity selection, stash intent, and revision-gated topology decisions. A small AppKit observer produces snapshots; PiPPanelCoordinator reconciles its existing panel or handle without mutating committed geometry during automatic fallback.
 
@@ -20,9 +20,9 @@
 
 ## File Map
 
-- Create Sources/NotionPiP/Domain/DisplayTopology.swift for pure topology and affinity.
-- Create Sources/NotionPiP/Platform/PanelTopologyPolicy.swift for pure presentation decisions.
-- Create Sources/NotionPiP/Platform/AppKitDisplayTopologyObserver.swift for NSScreen observation.
+- Create Sources/Perch/Domain/DisplayTopology.swift for pure topology and affinity.
+- Create Sources/Perch/Platform/PanelTopologyPolicy.swift for pure presentation decisions.
+- Create Sources/Perch/Platform/AppKitDisplayTopologyObserver.swift for NSScreen observation.
 - Modify PanelGeometry, PanelGeometryPolicy, PanelStashPolicy, and PiPPanelCoordinator.
 - Add synthetic policy tests and coordinator regressions.
 - Expand docs/MANUAL_TEST_MATRIX.md.
@@ -30,8 +30,8 @@
 ### Task 1: Pure Display Topology And Affinity
 
 **Files:**
-- Create: Sources/NotionPiP/Domain/DisplayTopology.swift
-- Create: Tests/NotionPiPTests/DisplayTopologyPolicyTests.swift
+- Create: Sources/Perch/Domain/DisplayTopology.swift
+- Create: Tests/PerchTests/DisplayTopologyPolicyTests.swift
 
 **Interfaces:**
 - Produces DisplayDescriptor, DisplayAffinity, DisplayTopology, and DisplayTopologyPolicy.targetDisplay.
@@ -107,19 +107,19 @@ Exact identifier wins. Replacement candidates must share primary role and are sc
 
 ~~~sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter DisplayTopologyPolicyTests
-git add Sources/NotionPiP/Domain/DisplayTopology.swift Tests/NotionPiPTests/DisplayTopologyPolicyTests.swift
+git add Sources/Perch/Domain/DisplayTopology.swift Tests/PerchTests/DisplayTopologyPolicyTests.swift
 git commit -m "feat: model display topology affinity"
 ~~~
 
 ### Task 2: Topology-Aware Geometry And Stash Intent
 
 **Files:**
-- Modify: Sources/NotionPiP/Domain/PanelGeometry.swift
-- Modify: Sources/NotionPiP/Platform/PanelGeometryPolicy.swift
-- Modify: Sources/NotionPiP/Platform/PanelStashPolicy.swift
-- Modify: Tests/NotionPiPTests/PanelGeometryTests.swift
-- Modify: Tests/NotionPiPTests/PanelGeometryStoreTests.swift
-- Modify: Tests/NotionPiPTests/PanelStashPolicyTests.swift
+- Modify: Sources/Perch/Domain/PanelGeometry.swift
+- Modify: Sources/Perch/Platform/PanelGeometryPolicy.swift
+- Modify: Sources/Perch/Platform/PanelStashPolicy.swift
+- Modify: Tests/PerchTests/PanelGeometryTests.swift
+- Modify: Tests/PerchTests/PanelGeometryStoreTests.swift
+- Modify: Tests/PerchTests/PanelStashPolicyTests.swift
 
 **Interfaces:**
 - Consumes display values from Task 1.
@@ -176,15 +176,15 @@ Retain CGRect-array overloads as wrappers. Add stash intent capture and remappin
 
 ~~~sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter 'PanelGeometryTests|PanelGeometryStoreTests|PanelStashPolicyTests'
-git add Sources/NotionPiP/Domain/PanelGeometry.swift Sources/NotionPiP/Platform/PanelGeometryPolicy.swift Sources/NotionPiP/Platform/PanelStashPolicy.swift Tests/NotionPiPTests/PanelGeometryTests.swift Tests/NotionPiPTests/PanelGeometryStoreTests.swift Tests/NotionPiPTests/PanelStashPolicyTests.swift
+git add Sources/Perch/Domain/PanelGeometry.swift Sources/Perch/Platform/PanelGeometryPolicy.swift Sources/Perch/Platform/PanelStashPolicy.swift Tests/PerchTests/PanelGeometryTests.swift Tests/PerchTests/PanelGeometryStoreTests.swift Tests/PerchTests/PanelStashPolicyTests.swift
 git commit -m "feat: preserve geometry across display changes"
 ~~~
 
 ### Task 3: Pure Revision-Gated Panel Decisions
 
 **Files:**
-- Create: Sources/NotionPiP/Platform/PanelTopologyPolicy.swift
-- Create: Tests/NotionPiPTests/PanelTopologyPolicyTests.swift
+- Create: Sources/Perch/Platform/PanelTopologyPolicy.swift
+- Create: Tests/PerchTests/PanelTopologyPolicyTests.swift
 
 **Interfaces:**
 - Consumes committed geometry, stash intent, and topology.
@@ -238,16 +238,16 @@ Return nil for duplicate/stale revisions. Accept but do not move on an empty sna
 
 ~~~sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter PanelTopologyPolicyTests
-git add Sources/NotionPiP/Platform/PanelTopologyPolicy.swift Tests/NotionPiPTests/PanelTopologyPolicyTests.swift
+git add Sources/Perch/Platform/PanelTopologyPolicy.swift Tests/PerchTests/PanelTopologyPolicyTests.swift
 git commit -m "feat: resolve panel topology transitions"
 ~~~
 
 ### Task 4: AppKit Observation And Coordinator Reconciliation
 
 **Files:**
-- Create: Sources/NotionPiP/Platform/AppKitDisplayTopologyObserver.swift
-- Modify: Sources/NotionPiP/Platform/PiPPanelCoordinator.swift
-- Modify: Tests/NotionPiPTests/PinCoordinatorTests.swift
+- Create: Sources/Perch/Platform/AppKitDisplayTopologyObserver.swift
+- Modify: Sources/Perch/Platform/PiPPanelCoordinator.swift
+- Modify: Tests/PerchTests/PinCoordinatorTests.swift
 
 **Interfaces:**
 - Consumes pure decisions from Task 3.
@@ -284,7 +284,7 @@ Replace the direct screen notification token with the adapter. Keep reclampPanel
 
 ~~~sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter 'PinCoordinatorTests|PiPPanelGeometryTests|PanelTopologyPolicyTests'
-git add Sources/NotionPiP/Platform/AppKitDisplayTopologyObserver.swift Sources/NotionPiP/Platform/PiPPanelCoordinator.swift Tests/NotionPiPTests/PinCoordinatorTests.swift
+git add Sources/Perch/Platform/AppKitDisplayTopologyObserver.swift Sources/Perch/Platform/PiPPanelCoordinator.swift Tests/PerchTests/PinCoordinatorTests.swift
 git commit -m "feat: reconcile panel on screen notifications"
 ~~~
 
@@ -306,7 +306,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 
 - [ ] **Step 3: Build, stage, launch, and verify**
 
-Run pgrep -x NotionPiP first because the build script quits the app. If it is not running:
+Run pgrep -x Perch first because the build script quits the app. If it is not running:
 
 ~~~sh
 ./script/build_and_run.sh --verify

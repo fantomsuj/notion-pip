@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a native-feeling edge tab that temporarily stashes the live Notion PiP and restores it without changing the page, WebView session, or saved panel frame.
+**Goal:** Add a native-feeling edge tab that temporarily stashes the live Perch and restores it without changing the page, WebView session, or saved panel frame.
 
 **Architecture:** A pure `PanelStashPolicy` computes edge-tab placement from panel and screen geometry. `PiPPanelCoordinator` coordinates the existing PiP panel with a narrow AppKit handle controller, while SwiftUI receives only stash and restore callbacks.
 
@@ -21,9 +21,9 @@
 ### Task 1: Stash placement policy
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/PanelStashPolicy.swift`
-- Modify: `Sources/NotionPiP/Platform/PanelFramePolicy.swift`
-- Test: `Tests/NotionPiPTests/PanelStashPolicyTests.swift`
+- Create: `Sources/Perch/Platform/PanelStashPolicy.swift`
+- Modify: `Sources/Perch/Platform/PanelFramePolicy.swift`
+- Test: `Tests/PerchTests/PanelStashPolicyTests.swift`
 
 **Interfaces:**
 - Consumes: `PanelFramePolicy.targetVisibleFrame(for:from:)`
@@ -37,8 +37,8 @@
 ### Task 2: Coordinator stash lifecycle
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift`
-- Modify: `Tests/NotionPiPTests/PinCoordinatorTests.swift`
+- Modify: `Sources/Perch/Platform/PiPPanelCoordinator.swift`
+- Modify: `Tests/PerchTests/PinCoordinatorTests.swift`
 
 **Interfaces:**
 - Consumes: `PanelStashPlacement` and the existing `PiPPanelWindow`
@@ -52,11 +52,11 @@
 ### Task 3: Edge-handle UI and toolbar action
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/PiPStashHandleController.swift`
-- Create: `Sources/NotionPiP/Views/PiPStashHandleView.swift`
-- Modify: `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift`
-- Modify: `Sources/NotionPiP/Views/PiPChromeView.swift`
-- Modify: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Create: `Sources/Perch/Platform/PiPStashHandleController.swift`
+- Create: `Sources/Perch/Views/PiPStashHandleView.swift`
+- Modify: `Sources/Perch/Platform/PiPPanelCoordinator.swift`
+- Modify: `Sources/Perch/Views/PiPChromeView.swift`
+- Modify: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 **Interfaces:**
 - Consumes: `PiPStashHandle`, `PanelStashPlacement`, and coordinator stash/restore operations

@@ -2,7 +2,7 @@
 
 **Estimated duration:** 75 minutes
 
-Notion PiP behaves less like a document window and more like an open notebook
+Perch behaves less like a document window and more like an open notebook
 kept beside the current task. This lecture follows that product idea through
 AppKit window roles, pure screen-geometry policies, the retained panel and edge
 handle, global shortcuts, the menu-bar fallback, and saved size presets.
@@ -70,11 +70,11 @@ Keep four coordinate and lifetime facts visible while reading:
    construct a replacement.
 
 The primary authority for this lecture is committed source, particularly
-[`WindowRolePolicy.swift`](../../Sources/NotionPiP/Platform/WindowRolePolicy.swift),
-[`PanelFramePolicy.swift`](../../Sources/NotionPiP/Platform/PanelFramePolicy.swift),
-[`PanelStashPolicy.swift`](../../Sources/NotionPiP/Platform/PanelStashPolicy.swift),
+[`WindowRolePolicy.swift`](../../Sources/Perch/Platform/WindowRolePolicy.swift),
+[`PanelFramePolicy.swift`](../../Sources/Perch/Platform/PanelFramePolicy.swift),
+[`PanelStashPolicy.swift`](../../Sources/Perch/Platform/PanelStashPolicy.swift),
 and
-[`PiPPanelCoordinator.swift`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift).
+[`PiPPanelCoordinator.swift`](../../Sources/Perch/Platform/PiPPanelCoordinator.swift).
 Historical stash design documents can explain intent, but they do not override
 the current implementation.
 
@@ -166,7 +166,7 @@ Notion browser. Lecture 6 owns the detailed WebKit lifecycle model.
 
 ### Window-role table
 
-[`WindowRolePolicy.swift`](../../Sources/NotionPiP/Platform/WindowRolePolicy.swift)
+[`WindowRolePolicy.swift`](../../Sources/Perch/Platform/WindowRolePolicy.swift)
 centralizes construction policy rather than scattering flags among presenters:
 
 | Role | Concrete kind | Level | Initial content | Minimum content | Space policy |
@@ -183,14 +183,14 @@ Every policy also sets `hidesOnDeactivate = false` and
 `close()` so the red close control orders out or invokes a feature-specific
 handler instead of accepting AppKit's default destruction semantics.
 
-[`WindowRolePolicyTests.swift`](../../Tests/NotionPiPTests/WindowRolePolicyTests.swift)
+[`WindowRolePolicyTests.swift`](../../Tests/PerchTests/WindowRolePolicyTests.swift)
 checks the constructed classes and configured values. It does **not** prove
 cross-Space visibility, Mission Control exclusion, keyboard focus under another
 app, or Stage Manager behavior.
 
 ### The coordinator owns the presentation state machine
 
-[`PiPPanelCoordinator`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift)
+[`PiPPanelCoordinator`](../../Sources/Perch/Platform/PiPPanelCoordinator.swift)
 implements both `PiPPanelCoordinating` and `PanelSizing`. Its minimal public
 presentation state is:
 
@@ -211,13 +211,13 @@ Composition constructs exactly one `KeyCapablePiPPanel` and one
 `PiPStashHandleController`. That controller owns the resting handle and the
 contextual shelf panel, while the panel coordinator remains unaware of shelf
 details. One `NSHostingView` contains `PiPChromeView`.
-[`NotionPiPApp.swift`](../../Sources/NotionPiP/App/NotionPiPApp.swift) constructs
+[`PerchApp.swift`](../../Sources/Perch/App/PerchApp.swift) constructs
 that coordinator once with the one shared `NotionWebSession`, then retains the
 graph through `AppComposition` for the event-loop lifetime.
 
 ### Frame policy: requested size, effective frame, and anchor
 
-[`PanelFramePolicy.swift`](../../Sources/NotionPiP/Platform/PanelFramePolicy.swift)
+[`PanelFramePolicy.swift`](../../Sources/Perch/Platform/PanelFramePolicy.swift)
 contains deterministic rectangle functions:
 
 - `targetVisibleFrame` chooses the display with greatest frame intersection,
@@ -247,15 +247,15 @@ anchor. After a 140-millisecond quiet period, the coordinator waits until the
 primary mouse button is up and may snap a near-corner frame. In committed
 `HEAD`, that corner-snap frame change animates for 0.18 seconds with ease-out.
 
-[`PanelFramePolicyTests.swift`](../../Tests/NotionPiPTests/PanelFramePolicyTests.swift)
+[`PanelFramePolicyTests.swift`](../../Tests/PerchTests/PanelFramePolicyTests.swift)
 protects negative-origin displays, pointer selection, title-bar conversion,
 minimum and oversized clamping, corner behavior, and preferred-size restoration.
-[`PinCoordinatorTests.swift`](../../Tests/NotionPiPTests/PinCoordinatorTests.swift)
+[`PinCoordinatorTests.swift`](../../Tests/PerchTests/PinCoordinatorTests.swift)
 protects coordinator use of those decisions with fake panels and handles.
 
 ### Stash policy and handle lifecycle
 
-[`PanelStashPolicy.swift`](../../Sources/NotionPiP/Platform/PanelStashPolicy.swift)
+[`PanelStashPolicy.swift`](../../Sources/Perch/Platform/PanelStashPolicy.swift)
 has no AppKit dependency. For a full panel, it chooses the target visible
 display, selects left when the panel center is on or left of the display center
 and right otherwise, vertically centers the 36×96 handle on the panel, and
@@ -263,7 +263,7 @@ clamps it inside usable vertical space. For a dragged handle, it chooses a side
 from the handle center, preserves the dragged vertical origin when possible,
 and clamps at the top or bottom.
 
-[`PiPStashHandleController.swift`](../../Sources/NotionPiP/Platform/PiPStashHandleController.swift)
+[`PiPStashHandleController.swift`](../../Sources/Perch/Platform/PiPStashHandleController.swift)
 turns that value into real handle and shelf windows. It installs a SwiftUI
 handle for the current side, presents the handle at the policy frame, and
 retains restore and placement-change callbacks only while visible. Hover or a
@@ -272,7 +272,7 @@ secondary click loads recent history and derives the shelf frame from
 snapping. `orderOut()` cancels shelf work, hides both surfaces, and clears the
 current placement and presentation callbacks.
 
-[`PiPStashHandleView.swift`](../../Sources/NotionPiP/Views/PiPStashHandleView.swift)
+[`PiPStashHandleView.swift`](../../Sources/Perch/Views/PiPStashHandleView.swift)
 combines SwiftUI appearance with an `NSViewRepresentable` interaction surface.
 The AppKit view accepts first mouse, distinguishes a click from a drag after a
 3-point Euclidean threshold, moves the panel during dragging, and reports the
@@ -297,53 +297,53 @@ missing persistent store therefore suppresses only the shelf; the ordinary
 handle remains a click and drag recovery surface.
 
 Policy behavior is covered by
-[`PanelStashPolicyTests.swift`](../../Tests/NotionPiPTests/PanelStashPolicyTests.swift);
+[`PanelStashPolicyTests.swift`](../../Tests/PerchTests/PanelStashPolicyTests.swift);
 the click/drag/accessibility split is covered by
-[`PiPStashHandleInteractionTests.swift`](../../Tests/NotionPiPTests/PiPStashHandleInteractionTests.swift).
+[`PiPStashHandleInteractionTests.swift`](../../Tests/PerchTests/PiPStashHandleInteractionTests.swift).
 
 ### Chrome, menus, status item, and activation routes
 
-[`PiPChromeView.swift`](../../Sources/NotionPiP/Views/PiPChromeView.swift) exposes
+[`PiPChromeView.swift`](../../Sources/Perch/Views/PiPChromeView.swift) exposes
 the in-panel stash button and an **Open in Notion** action that opens the active
 canonical URL before requesting stash. Its top controls appear after hover and
 stay available for VoiceOver, Switch Control, or Full Keyboard Access. The
-ellipsis embeds [`PiPAppCommandMenu`](../../Sources/NotionPiP/Views/PiPAppCommandMenu.swift),
-including the shared [`PanelSizeMenu`](../../Sources/NotionPiP/Views/PanelSizeMenu.swift).
+ellipsis embeds [`PiPAppCommandMenu`](../../Sources/Perch/Views/PiPAppCommandMenu.swift),
+including the shared [`PanelSizeMenu`](../../Sources/Perch/Views/PanelSizeMenu.swift).
 
-[`StatusItemController.swift`](../../Sources/NotionPiP/Platform/StatusItemController.swift)
+[`StatusItemController.swift`](../../Sources/Perch/Platform/StatusItemController.swift)
 creates the menu-bar item, observes effective visibility, and asks
-[`AppKitCommandMenuFactory`](../../Sources/NotionPiP/Platform/AppKitCommandMenuFactory.swift)
+[`AppKitCommandMenuFactory`](../../Sources/Perch/Platform/AppKitCommandMenuFactory.swift)
 for a fresh menu on either left- or right-mouse-up. The first command is derived
 from current panel state:
 
 | State at menu creation | Context command |
 |---|---|
 | unavailable | **Open Settings…** |
-| visible | **Stash Notion PiP** |
-| stashed | **Show Notion PiP** |
+| visible | **Stash Perch** |
+| stashed | **Show Perch** |
 
 The runtime rechecks state before honoring a captured stash/show command, so a
 menu opened before a state change does not accidentally invert the new state.
 Both the status menu and panel ellipsis use the same command model and size
 controller. The normal application Edit menu in
-[`AppMainMenuFactory.swift`](../../Sources/NotionPiP/Platform/AppMainMenuFactory.swift)
+[`AppMainMenuFactory.swift`](../../Sources/Perch/Platform/AppMainMenuFactory.swift)
 routes Undo, Redo, Cut, Copy, Paste, and Select All through the AppKit responder
 chain so the key web or text view can handle them.
 
 ### Shortcut registration and fallback
 
-[`GlobalShortcut.swift`](../../Sources/NotionPiP/Platform/GlobalShortcut.swift)
+[`GlobalShortcut.swift`](../../Sources/Perch/Platform/GlobalShortcut.swift)
 defines validated, persistable Carbon key codes and modifiers. The defaults are:
 
 - panel show/stash/peek: Command-Shift-P;
 - Quick Capture: Command-Shift-N.
 
 They have independent stores and may not be assigned the same combination.
-[`CarbonGlobalShortcutRegistrar`](../../Sources/NotionPiP/Platform/GlobalShortcutRegistrar.swift)
+[`CarbonGlobalShortcutRegistrar`](../../Sources/Perch/Platform/GlobalShortcutRegistrar.swift)
 registers pressed and released events, replaces an existing binding, and tries
 to restore the previous known-good binding if replacement fails.
 
-[`AppRuntime+Activation.swift`](../../Sources/NotionPiP/App/AppRuntime+Activation.swift)
+[`AppRuntime+Activation.swift`](../../Sources/Perch/App/AppRuntime+Activation.swift)
 interprets panel shortcut events:
 
 - release before the 300-millisecond hold threshold is a tap;
@@ -363,16 +363,16 @@ global recovery surface. The visible edge handle remains another restore route
 while the panel is stashed.
 
 Shortcut value/replacement behavior is protected by
-[`GlobalShortcutTests.swift`](../../Tests/NotionPiPTests/GlobalShortcutTests.swift),
+[`GlobalShortcutTests.swift`](../../Tests/PerchTests/GlobalShortcutTests.swift),
 tap routing and status fallback by
-[`RuntimeActivationAndMenuBarTests.swift`](../../Tests/NotionPiPTests/RuntimeActivationAndMenuBarTests.swift),
+[`RuntimeActivationAndMenuBarTests.swift`](../../Tests/PerchTests/RuntimeActivationAndMenuBarTests.swift),
 and hold-to-peek by
-[`RuntimePinnedPagePersistenceTests.swift`](../../Tests/NotionPiPTests/RuntimePinnedPagePersistenceTests.swift).
+[`RuntimePinnedPagePersistenceTests.swift`](../../Tests/PerchTests/RuntimePinnedPagePersistenceTests.swift).
 Real Carbon registration conflicts and OS delivery remain manual.
 
 ### Size presets from value model to surfaces
 
-[`PanelSizePreferences.swift`](../../Sources/NotionPiP/Domain/PanelSizePreferences.swift)
+[`PanelSizePreferences.swift`](../../Sources/Perch/Domain/PanelSizePreferences.swift)
 owns validated values and mutations:
 
 | Built-in | Requested content size |
@@ -388,12 +388,12 @@ names are reserved. Up to 12 custom presets are allowed. Stable IDs survive
 edits. Deleting the default custom preset selects Comfortable but does not
 resize the panel.
 
-[`PanelSizePreferencesStore.swift`](../../Sources/NotionPiP/Persistence/PanelSizePreferencesStore.swift)
+[`PanelSizePreferencesStore.swift`](../../Sources/Perch/Persistence/PanelSizePreferencesStore.swift)
 stores versioned JSON in `UserDefaults`. Missing data returns `nil` so legacy
 AppKit frame autosave can remain authoritative. Corrupt, invalid, or unsupported
 stored data falls back to safe defaults.
 
-[`PanelSizeController.swift`](../../Sources/NotionPiP/App/PanelSizeController.swift)
+[`PanelSizeController.swift`](../../Sources/Perch/App/PanelSizeController.swift)
 is the observable orchestration layer. It binds weakly to the coordinator's
 `PanelSizing` surface, derives whether Apply is available, resolves adaptive
 sizes against the panel's target display, persists the requested working size,
@@ -409,7 +409,7 @@ restoration on a larger display. Manual resize persistence occurs only after
 `NSWindow.didEndLiveResizeNotification`, not on every intermediate frame.
 
 Settings uses
-[`PanelSizeSettingsView.swift`](../../Sources/NotionPiP/Views/PanelSizeSettingsView.swift)
+[`PanelSizeSettingsView.swift`](../../Sources/Perch/Views/PanelSizeSettingsView.swift)
 to manage defaults and custom values even when no page exists; Apply remains
 disabled until a panel has a pinned page. Both native and SwiftUI menus use the
 same preset order, default suffix, enablement, reset, and manage actions.
@@ -483,11 +483,11 @@ In concrete order:
     current page, and panel return; WebKit retention/resumption details continue
     in Lecture 6.
 
-[`PinCoordinatorTests.swift`](../../Tests/NotionPiPTests/PinCoordinatorTests.swift)
+[`PinCoordinatorTests.swift`](../../Tests/PerchTests/PinCoordinatorTests.swift)
 checks frame retention, no reload, lifecycle notifications, representation
 ordering, handle movement, screen changes, red-close behavior, and both toggle
 directions with fakes.
-[`PiPPanelGeometryTests.swift`](../../Tests/NotionPiPTests/PiPPanelGeometryTests.swift)
+[`PiPPanelGeometryTests.swift`](../../Tests/PerchTests/PiPPanelGeometryTests.swift)
 also constructs the real panel class and checks that stashing does not resize
 it. Neither test proves real focus, Spaces, visual continuity, or retained
 Notion editing under WindowServer; use the manual matrix for those claims.
@@ -659,8 +659,8 @@ AppKit representation controlling the same retained feature state.
 
 ### Safe live demonstration
 
-Before a live demo, save work and quit any running Notion PiP before rebuilding;
-the build script terminates existing `NotionPiP` processes. Use a non-sensitive
+Before a live demo, save work and quit any running Perch before rebuilding;
+the build script terminates existing `Perch` processes. Use a non-sensitive
 page in the user's own signed-in Notion session. Never request a password,
 session cookie, or integration token.
 
@@ -741,11 +741,11 @@ Use focused searches against committed source:
 
 ```sh
 git grep -n "midX <=\|snappedPlacement" HEAD -- \
-  Sources/NotionPiP/Platform Tests/NotionPiPTests
+  Sources/Perch/Platform Tests/PerchTests
 git grep -n "preferredWorkingContentSize\|lastExplicitWorkingContentSize" HEAD -- \
-  Sources/NotionPiP Tests/NotionPiPTests
+  Sources/Perch Tests/PerchTests
 git grep -n "globalShortcutUnavailable\|effectiveMenuBarIconVisibility" HEAD -- \
-  Sources/NotionPiP Tests/NotionPiPTests
+  Sources/Perch Tests/PerchTests
 ```
 
 Do not modify display settings or deliberately break a system-wide shortcut

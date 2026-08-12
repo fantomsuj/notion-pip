@@ -1,4 +1,4 @@
-# Notion PiP Change Guide
+# Perch Change Guide
 
 This is the maintainer playbook for deciding where a change belongs, changing it
 safely, diagnosing failures, and selecting evidence that actually covers the
@@ -54,8 +54,8 @@ show the existing direction.
 | Inputs | Validated values, snapshots, policy parameters, and deterministic time or geometry values supplied by callers. |
 | Outputs | New values, mutations, rankings, transitions, or typed errors with no external side effect. |
 | Isolation | Prefer value semantics and `Sendable`. Most domain code needs no actor because it owns no mutable process-global state. |
-| Examples | [`NotionPageReference`](../../Sources/NotionPiP/Domain/NotionPageReference.swift), [`PageWorkingSetPolicy`](../../Sources/NotionPiP/Domain/PageWorkingSetPolicy.swift), [`PageSwitcherMatcher`](../../Sources/NotionPiP/Domain/PageSwitcherMatcher.swift), [`RetryPolicy`](../../Sources/NotionPiP/Domain/RetryPolicy.swift), and [`CaptureExport`](../../Sources/NotionPiP/Domain/CaptureExport.swift). |
-| Tests | Small table-driven XCTest cases with values in and exact values/errors out, such as [`PageSwitcherMatcherTests`](../../Tests/NotionPiPTests/PageSwitcherMatcherTests.swift) and the retry-policy cases in [`DeliveryEngineTests`](../../Tests/NotionPiPTests/DeliveryEngineTests.swift). |
+| Examples | [`NotionPageReference`](../../Sources/Perch/Domain/NotionPageReference.swift), [`PageWorkingSetPolicy`](../../Sources/Perch/Domain/PageWorkingSetPolicy.swift), [`PageSwitcherMatcher`](../../Sources/Perch/Domain/PageSwitcherMatcher.swift), [`RetryPolicy`](../../Sources/Perch/Domain/RetryPolicy.swift), and [`CaptureExport`](../../Sources/Perch/Domain/CaptureExport.swift). |
+| Tests | Small table-driven XCTest cases with values in and exact values/errors out, such as [`PageSwitcherMatcherTests`](../../Tests/PerchTests/PageSwitcherMatcherTests.swift) and the retry-policy cases in [`DeliveryEngineTests`](../../Tests/PerchTests/DeliveryEngineTests.swift). |
 | Exclusions | No database contexts, windows, WebViews, Keychain, network requests, `UserDefaults.standard`, or UI orchestration. |
 
 Domain is the right owner for a reusable rule even when the visible symptom is
@@ -72,8 +72,8 @@ direction. See [Lecture 7](07-domain-modeling-and-policies.md).
 | Inputs | Domain mutations, expected revisions, validated identifiers, snapshots, retention rules, and explicit store configuration. |
 | Outputs | `Sendable` snapshots, committed revisions, ordered working sets, or typed transaction/conflict errors. |
 | Isolation | SwiftData repositories are model actors with private model contexts. Save or roll back explicitly, and do not let `@Model` instances escape. Synchronous `UserDefaults` stores are a narrow exception. |
-| Examples | [`NotionPiPPersistence`](../../Sources/NotionPiP/Persistence/NotionPiPPersistence.swift), [`PageRepository`](../../Sources/NotionPiP/Persistence/PageRepository.swift), [`CaptureRepository`](../../Sources/NotionPiP/Persistence/CaptureRepository.swift), [`QuickCaptureDestinationRepository`](../../Sources/NotionPiP/Persistence/QuickCaptureDestinationRepository.swift), and [`PanelSizePreferencesStore`](../../Sources/NotionPiP/Persistence/PanelSizePreferencesStore.swift). |
-| Tests | Fresh in-memory containers for transaction policy; UUID-named temporary disk stores for reopen and migration; unique defaults suites for preference stores. See [`CaptureRepositoryTests`](../../Tests/NotionPiPTests/CaptureRepositoryTests.swift) and [`SchemaMigrationTests`](../../Tests/NotionPiPTests/SchemaMigrationTests.swift). |
+| Examples | [`PerchPersistence`](../../Sources/Perch/Persistence/PerchPersistence.swift), [`PageRepository`](../../Sources/Perch/Persistence/PageRepository.swift), [`CaptureRepository`](../../Sources/Perch/Persistence/CaptureRepository.swift), [`QuickCaptureDestinationRepository`](../../Sources/Perch/Persistence/QuickCaptureDestinationRepository.swift), and [`PanelSizePreferencesStore`](../../Sources/Perch/Persistence/PanelSizePreferencesStore.swift). |
+| Tests | Fresh in-memory containers for transaction policy; UUID-named temporary disk stores for reopen and migration; unique defaults suites for preference stores. See [`CaptureRepositoryTests`](../../Tests/PerchTests/CaptureRepositoryTests.swift) and [`SchemaMigrationTests`](../../Tests/PerchTests/SchemaMigrationTests.swift). |
 | Exclusions | No SwiftUI presentation, AppKit ownership, remote delivery, browser navigation, or leaked mutable model objects. |
 
 Use Persistence when the contract contains words such as *commit*, *revision*,
@@ -89,8 +89,8 @@ and clean up only its exact temporary directory. See [Lecture 8](08-persistence-
 | Inputs | Repository and transport protocols, domain snapshots, credentials supplied through a port, clocks, retry delays, and cancellation. |
 | Outputs | Delivery receipts, state transitions, converted blocks, scheduled work, search results, and bounded user-safe failures. |
 | Isolation | Actors or `Sendable` protocols own mutable asynchronous work. Use structured tasks, injected clocks, and explicit cancellation/ambiguity handling. |
-| Examples | [`QuickCaptureLifecycleCoordinator`](../../Sources/NotionPiP/Services/QuickCaptureLifecycleCoordinator.swift), [`DeliveryScheduler`](../../Sources/NotionPiP/Services/DeliveryScheduler.swift), [`DeliveryEngine`](../../Sources/NotionPiP/Services/DeliveryEngine.swift), [`NotionCaptureDeliveryService`](../../Sources/NotionPiP/Services/NotionCaptureDeliveryService.swift), and [`NotionAPIClient`](../../Sources/NotionPiP/Services/NotionAPIClient.swift). |
-| Tests | Protocol fakes that record requests, injected clocks/delays, continuations for ordering, and status/error fixtures. See [`DeliveryEngineTests`](../../Tests/NotionPiPTests/DeliveryEngineTests.swift) and [`NotionAPIClientTests`](../../Tests/NotionPiPTests/NotionAPIClientTests.swift). |
+| Examples | [`QuickCaptureLifecycleCoordinator`](../../Sources/Perch/Services/QuickCaptureLifecycleCoordinator.swift), [`DeliveryScheduler`](../../Sources/Perch/Services/DeliveryScheduler.swift), [`DeliveryEngine`](../../Sources/Perch/Services/DeliveryEngine.swift), [`NotionCaptureDeliveryService`](../../Sources/Perch/Services/NotionCaptureDeliveryService.swift), and [`NotionAPIClient`](../../Sources/Perch/Services/NotionAPIClient.swift). |
+| Tests | Protocol fakes that record requests, injected clocks/delays, continuations for ordering, and status/error fixtures. See [`DeliveryEngineTests`](../../Tests/PerchTests/DeliveryEngineTests.swift) and [`NotionAPIClientTests`](../../Tests/PerchTests/NotionAPIClientTests.swift). |
 | Exclusions | No views, retained windows, browser cookies, direct SwiftData model access, or policy hidden inside a transport fake. |
 
 Services own remote-work semantics, not credentials or UI. Notion cookies stay
@@ -106,8 +106,8 @@ See [Lecture 10](10-notion-api-and-delivery.md).
 | Inputs | View commands, platform callbacks, repository/service publications, validated routes, and dependency implementations supplied by composition. |
 | Outputs | Observable UI state, unified activation, ordered coordination calls, degradation state, and facade methods used by views. |
 | Isolation | Runtime and UI-facing controllers are `@MainActor`. Structured child tasks may call actors and return `Sendable` values; ordering requirements remain explicit. |
-| Examples | [`AppRuntime`](../../Sources/NotionPiP/App/AppRuntime.swift), [`PinCoordinator`](../../Sources/NotionPiP/App/PinCoordinator.swift), [`PageSwitcherController`](../../Sources/NotionPiP/App/PageSwitcherController.swift), [`PanelSizeController`](../../Sources/NotionPiP/App/PanelSizeController.swift), and [`NotionPiPApp`](../../Sources/NotionPiP/App/NotionPiPApp.swift). |
-| Tests | Runtime/controller tests with fake repositories, panels, presenters, pasteboards, shortcut registrars, and services. Reuse [`AppRuntimeTestSupport`](../../Tests/NotionPiPTests/AppRuntimeTestSupport.swift). |
+| Examples | [`AppRuntime`](../../Sources/Perch/App/AppRuntime.swift), [`PinCoordinator`](../../Sources/Perch/App/PinCoordinator.swift), [`PageSwitcherController`](../../Sources/Perch/App/PageSwitcherController.swift), [`PanelSizeController`](../../Sources/Perch/App/PanelSizeController.swift), and [`PerchApp`](../../Sources/Perch/App/PerchApp.swift). |
+| Tests | Runtime/controller tests with fake repositories, panels, presenters, pasteboards, shortcut registrars, and services. Reuse [`AppRuntimeTestSupport`](../../Tests/PerchTests/AppRuntimeTestSupport.swift). |
 | Exclusions | No low-level AppKit geometry, WebKit delegate implementation, SwiftData model mutation, HTTP serialization, or duplicated domain policy. |
 
 App is the orchestration owner: it says *when* to persist, present, activate, or
@@ -122,7 +122,7 @@ on narrow protocols or closures. See [Lecture 4](04-composition-and-runtime.md).
 | Inputs | App-level commands, validated URLs, snapshots, window roles, shortcut definitions, and service calls exposed through narrow closures. |
 | Outputs | AppKit windows/panels, WebKit lifecycle and delegate events, global shortcuts, Keychain/defaults/system-URL effects, and framework-derived state. |
 | Isolation | AppKit, SwiftUI hosting, and WebKit objects are `@MainActor`; adapters must respect framework callback lifetimes. Use actors only for genuinely independent mutable work. |
-| Examples | [`PiPPanelCoordinator`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift), [`NotionWebSession`](../../Sources/NotionPiP/Platform/NotionWebSession.swift), [`CaptureEditorSession`](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift), [`GlobalShortcutRegistrar`](../../Sources/NotionPiP/Platform/GlobalShortcutRegistrar.swift), and [`PersonalTokenCredentialVault`](../../Sources/NotionPiP/Platform/PersonalTokenCredentialVault.swift). |
+| Examples | [`PiPPanelCoordinator`](../../Sources/Perch/Platform/PiPPanelCoordinator.swift), [`NotionWebSession`](../../Sources/Perch/Platform/NotionWebSession.swift), [`CaptureEditorSession`](../../Sources/Perch/Platform/CaptureEditorSession.swift), [`GlobalShortcutRegistrar`](../../Sources/Perch/Platform/GlobalShortcutRegistrar.swift), and [`PersonalTokenCredentialVault`](../../Sources/Perch/Platform/PersonalTokenCredentialVault.swift). |
 | Tests | Extracted geometry/navigation/role policies, fake framework boundaries, constructed AppKit objects where reliable, local real-WebKit tests, and bounded manual matrix rows. |
 | Exclusions | No product ranking/retention policy, delivery retry policy, view-owned local presentation state, or direct database mutation. |
 
@@ -140,7 +140,7 @@ and [6](06-webkit-notion-session.md).
 | Inputs | Injected observable owners, bindings, immutable display values, local presentation state, and callbacks representing user intent. |
 | Outputs | SwiftUI hierarchy, accessibility surfaces, and user actions routed to the injected owner. |
 | Isolation | SwiftUI-facing work is main-actor-bound. Use `@ObservedObject` for an injected owner, `@StateObject` only for a view-created owner, `@Binding` for parent-owned values, and `@State` for local presentation. |
-| Examples | [`SettingsView`](../../Sources/NotionPiP/Views/SettingsView.swift), [`PiPChromeView`](../../Sources/NotionPiP/Views/PiPChromeView.swift), [`PageSwitcherView`](../../Sources/NotionPiP/Views/PageSwitcherView.swift), and [`QuickCaptureView`](../../Sources/NotionPiP/Views/QuickCaptureView.swift). |
+| Examples | [`SettingsView`](../../Sources/Perch/Views/SettingsView.swift), [`PiPChromeView`](../../Sources/Perch/Views/PiPChromeView.swift), [`PageSwitcherView`](../../Sources/Perch/Views/PageSwitcherView.swift), and [`QuickCaptureView`](../../Sources/Perch/Views/QuickCaptureView.swift). |
 | Tests | Test controller state and callbacks first; use platform/menu construction tests where present; manually inspect layout, focus, keyboard access, and VoiceOver when those are the changed contract. |
 | Exclusions | No direct persistence/network/window ownership, duplicated URL or policy validation, long-lived background tasks, or private source of truth shadowing App. |
 
@@ -158,7 +158,7 @@ the App owner exposes a method and publishes the authoritative result. See
 | Isolation | The JavaScript event loop owns editor state. Debounced publication and transition gates serialize acknowledgement-dependent work; native actors remain outside this layer. |
 | Examples | [`QuickCaptureEditorController`](../../Web/QuickCaptureEditor/quick-capture-editor-controller.ts), [`protocol.ts`](../../Web/QuickCaptureEditor/protocol.ts), [`DebouncedChangePublisher`](../../Web/QuickCaptureEditor/bridge/debounced-change-publisher.ts), and [`EditorTransitionGate`](../../Web/QuickCaptureEditor/state/editor-transition-gate.ts). |
 | Tests | `node:test` for state/protocol code, fresh `happy-dom` windows for owned DOM behavior, then Swift protocol, flow, and real local-WebKit tests for the packaged bridge. |
-| Exclusions | No native repository or Keychain access, direct Notion API calls, assumptions about live Notion cookies, or hand edits to generated [`editor.js`](../../Sources/NotionPiP/Resources/QuickCapture/editor.js). |
+| Exclusions | No native repository or Keychain access, direct Notion API calls, assumptions about live Notion cookies, or hand edits to generated [`editor.js`](../../Sources/Perch/Resources/QuickCapture/editor.js). |
 
 TypeScript authoring source and native decoding form one protocol contract. The
 request ID, version, exact fields, origin/main-frame checks, one-megabyte bound,
@@ -189,8 +189,8 @@ rewrite, stage, format, or test-fix unrelated work. When existing edits overlap
 the investigation, compare the committed authority without changing the tree:
 
 ```sh
-git show HEAD:Sources/NotionPiP/Path/To/File.swift
-git diff HEAD -- Sources/NotionPiP/Path/To/File.swift
+git show HEAD:Sources/Perch/Path/To/File.swift
+git diff HEAD -- Sources/Perch/Path/To/File.swift
 ```
 
 Stop if safe ownership cannot be established. A build command is not read-only:
@@ -209,7 +209,7 @@ Then locate definitions, call sites, tests, failure branches, and construction:
 
 ```sh
 rg -n "TypeName|methodName|errorCase" Sources Tests Web
-rg -n "TypeName\(" Sources/NotionPiP/App Tests
+rg -n "TypeName\(" Sources/Perch/App Tests
 git log -S'methodName' --oneline -- Sources Tests Web
 ```
 
@@ -269,7 +269,7 @@ npm ci
 npm test
 npm run typecheck
 npm run build:editor
-git diff -- Sources/NotionPiP/Resources/QuickCapture/editor.js
+git diff -- Sources/Perch/Resources/QuickCapture/editor.js
 ```
 
 `happy-dom` does not prove WebKit, and a real-WebKit filter does not replace the
@@ -298,18 +298,18 @@ sw_vers -productVersion
 test -x /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -version
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift --version
-pgrep -x NotionPiP
+pgrep -x Perch
 ```
 
-If `NotionPiP` is running, ask the user to save work and quit it. The next
-command terminates processes named `NotionPiP`, rebuilds, stages, ad-hoc signs,
+If `Perch` is running, ask the user to save work and quit it. The next
+command terminates processes named `Perch`, rebuilds, stages, ad-hoc signs,
 launches, and verifies the development app:
 
 ```sh
 ./script/build_and_run.sh --verify
 ```
 
-A success line identifies `dist/NotionPiP.app` and its PID. It is not a full
+A success line identifies `dist/Perch.app` and its PID. It is not a full
 test-suite pass, notarization proof, or manual UI pass. Execute only affected
 rows from the [manual matrix](../MANUAL_TEST_MATRIX.md), recording environment,
 actual result, and untested combinations.
@@ -339,12 +339,12 @@ fixture, log, screenshot, or report.
 | Branch | First evidence | Likely owner and next move | Do not do |
 |---|---|---|---|
 | Concurrency | Capture the compiler diagnostic or race ordering; `rg -n "Task|await|@MainActor|actor|Sendable"` around producer and consumer; run the smallest ordering test repeatedly through SwiftPM. | Domain values should cross boundaries as `Sendable`; Persistence/Services own actor mutation; App/Platform UI objects stay `@MainActor`. Add a controllable gate or continuation and assert ordering/cancellation. | Do not reach for `@unchecked Sendable`, `nonisolated(unsafe)`, detached tasks, arbitrary sleeps, or main-actor annotations that merely hide ownership. |
-| Migration | Identify source schema, target schema, store URL, reopen step, and actual model error. Inspect [`NotionPiPSchema.swift`](../../Sources/NotionPiP/Persistence/NotionPiPSchema.swift), container construction, and [`SchemaMigrationTests`](../../Tests/NotionPiPTests/SchemaMigrationTests.swift). | Persistence owns schema/version/transaction behavior. Reproduce with a unique temporary on-disk store created under the old schema, release it, then reopen through the supported path and assert values. | Do not infer migration safety from an in-memory test, delete the user's store, reuse one disk URL across parallel tests, or add silent data loss as recovery. |
-| Bridge | Save one exact request/reply envelope and correlation ID; compare [`protocol.ts`](../../Web/QuickCaptureEditor/protocol.ts), [`CaptureBridgeProtocol.swift`](../../Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift), and nearby protocol tests. | Web owns request construction/state; Platform validates and dispatches; Persistence owns revisions. Check version, main frame, exact file origin/path, bounded ID/message, exact keys, request/result kinds, expected revision, and retry identity. | Do not relax exact-field/origin checks, treat a stale revision as a generic save failure, retry a state transition with new identity, or patch generated `editor.js`. |
+| Migration | Identify source schema, target schema, store URL, reopen step, and actual model error. Inspect [`PerchSchema.swift`](../../Sources/Perch/Persistence/PerchSchema.swift), container construction, and [`SchemaMigrationTests`](../../Tests/PerchTests/SchemaMigrationTests.swift). | Persistence owns schema/version/transaction behavior. Reproduce with a unique temporary on-disk store created under the old schema, release it, then reopen through the supported path and assert values. | Do not infer migration safety from an in-memory test, delete the user's store, reuse one disk URL across parallel tests, or add silent data loss as recovery. |
+| Bridge | Save one exact request/reply envelope and correlation ID; compare [`protocol.ts`](../../Web/QuickCaptureEditor/protocol.ts), [`CaptureBridgeProtocol.swift`](../../Sources/Perch/Platform/CaptureBridgeProtocol.swift), and nearby protocol tests. | Web owns request construction/state; Platform validates and dispatches; Persistence owns revisions. Check version, main frame, exact file origin/path, bounded ID/message, exact keys, request/result kinds, expected revision, and retry identity. | Do not relax exact-field/origin checks, treat a stale revision as a generic save failure, retry a state transition with new identity, or patch generated `editor.js`. |
 | WebKit | Decide whether failure is local editor, live Notion session, navigation policy, lifecycle suspension, focus, or resource loading. Run the nearest `CaptureWebView...Tests` or `NotionWeb...Tests`; inspect `--logs` only after a staged reproduction. | Platform owns `WKWebView`, data store, delegates, lifecycle, and navigation; Web owns local editor state. Confirm the local editor uses its bounded file URL and non-persistent trust domain while the live Notion session retains its own cookies. | Do not ask for cookies, use live Notion DOM as a stable fixture, claim `happy-dom` proves WebKit, or broaden navigation/origin rules to make a test pass. |
 | API and delivery | Record method/path/status, request ID if safe, `Retry-After`, local record state, and whether the remote write may have committed. Use transport fakes and run `NotionAPIClientTests`, `DeliveryEngineTests`, or scheduler tests as ownership indicates. | Services own serialization, error mapping, retry, scheduling, ambiguity, and cancellation; Persistence owns the durable outbox state. Treat 401 as a credential-reconnect path; treat 403 as a permission, integration-capability, or page-access review. Distinguish both from 409 conflict, 429 backoff, 5xx retry, and a timeout after a possible write. | Do not call the live API in tests, log token/content, turn all errors into retries, or duplicate a possibly committed write merely because no reply arrived. |
-| Build and signing | Run the four read-only host/toolchain checks from the safe workflow. Inspect actual build output, [`Package.swift`](../../Package.swift), [`build_and_run.sh`](../../script/build_and_run.sh), plist, resources, and `codesign -dv --verbose=4 dist/NotionPiP.app`. | Build configuration owns Swift/macOS constraints; the script stages resources, writes plist, applies sandbox/network entitlements, ad-hoc signs, and launches. Explain if existing `node_modules` triggered editor regeneration. | Do not install large tools, accept a license with `sudo`, change entitlements/signing, replace dependencies, or move `node_modules` without a concrete failure and approval. Ad-hoc signing is not notarization. |
-| Accessory app seems hidden | Run `pgrep -x NotionPiP`; inspect verification output and bounded logs for termination. Then check the menu-bar icon preference, edge handle, and configured global shortcut. | App/Platform own accessory activation and reachability. No Dock icon is expected. A shortcut-registration failure temporarily forces the menu-bar icon visible; a stashed PiP remains reachable from its handle. | Do not report missing Dock presence or the persistent all-Spaces `NSPanel` as a crash/defect. Do not rebuild until active captures are saved and the running app is quit. |
+| Build and signing | Run the four read-only host/toolchain checks from the safe workflow. Inspect actual build output, [`Package.swift`](../../Package.swift), [`build_and_run.sh`](../../script/build_and_run.sh), plist, resources, and `codesign -dv --verbose=4 dist/Perch.app`. | Build configuration owns Swift/macOS constraints; the script stages resources, writes plist, applies sandbox/network entitlements, ad-hoc signs, and launches. Explain if existing `node_modules` triggered editor regeneration. | Do not install large tools, accept a license with `sudo`, change entitlements/signing, replace dependencies, or move `node_modules` without a concrete failure and approval. Ad-hoc signing is not notarization. |
+| Accessory app seems hidden | Run `pgrep -x Perch`; inspect verification output and bounded logs for termination. Then check the menu-bar icon preference, edge handle, and configured global shortcut. | App/Platform own accessory activation and reachability. No Dock icon is expected. A shortcut-registration failure temporarily forces the menu-bar icon visible; a stashed PiP remains reachable from its handle. | Do not report missing Dock presence or the persistent all-Spaces `NSPanel` as a crash/defect. Do not rebuild until active captures are saved and the running app is quit. |
 
 Useful escalation order:
 
@@ -376,17 +376,17 @@ query grouping or deterministic tie-breakers.
 ```sh
 git status --short
 rg -n "PageSwitcherMatcher|subsequenceScore|EqualScores|word" \
-  Sources/NotionPiP Tests/NotionPiPTests
-git show HEAD:Sources/NotionPiP/Domain/PageSwitcherMatcher.swift
-git show HEAD:Tests/NotionPiPTests/PageSwitcherMatcherTests.swift
+  Sources/Perch Tests/PerchTests
+git show HEAD:Sources/Perch/Domain/PageSwitcherMatcher.swift
+git show HEAD:Tests/PerchTests/PageSwitcherMatcherTests.swift
 ```
 
 **Files and ownership.** The decision belongs in
-[`PageSwitcherMatcher.swift`](../../Sources/NotionPiP/Domain/PageSwitcherMatcher.swift).
+[`PageSwitcherMatcher.swift`](../../Sources/Perch/Domain/PageSwitcherMatcher.swift).
 Its regression belongs in
-[`PageSwitcherMatcherTests.swift`](../../Tests/NotionPiPTests/PageSwitcherMatcherTests.swift).
-Read [`PageSwitcherController.swift`](../../Sources/NotionPiP/App/PageSwitcherController.swift)
-and [`PageSwitcherView.swift`](../../Sources/NotionPiP/Views/PageSwitcherView.swift)
+[`PageSwitcherMatcherTests.swift`](../../Tests/PerchTests/PageSwitcherMatcherTests.swift).
+Read [`PageSwitcherController.swift`](../../Sources/Perch/App/PageSwitcherController.swift)
+and [`PageSwitcherView.swift`](../../Sources/Perch/Views/PageSwitcherView.swift)
 as consumers; do not edit them unless tracing proves their mapping or rendering
 is independently wrong.
 
@@ -411,8 +411,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   swift test --filter PageSwitcherMatcherTests
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 git diff --check
-git diff -- Sources/NotionPiP/Domain/PageSwitcherMatcher.swift \
-  Tests/NotionPiPTests/PageSwitcherMatcherTests.swift
+git diff -- Sources/Perch/Domain/PageSwitcherMatcher.swift \
+  Tests/PerchTests/PageSwitcherMatcherTests.swift
 ```
 
 No bundle or manual check is normally required for a pure ranking rule unless
@@ -437,20 +437,20 @@ binding patterns, not their names blindly:
 ```sh
 git status --short
 rg -n "MenuBarIconPreferenceStore|savedMenuBarIconVisibility|Binding\(|Toggle\(" \
-  Sources/NotionPiP Tests/NotionPiPTests
-rg -n "DeveloperStatusView|developer" Sources/NotionPiP/Views Tests
-git show HEAD:Sources/NotionPiP/Platform/MenuBarIconPreferenceStore.swift
-git show HEAD:Sources/NotionPiP/App/AppRuntime.swift
-git show HEAD:Sources/NotionPiP/Views/SettingsView.swift
+  Sources/Perch Tests/PerchTests
+rg -n "DeveloperStatusView|developer" Sources/Perch/Views Tests
+git show HEAD:Sources/Perch/Platform/MenuBarIconPreferenceStore.swift
+git show HEAD:Sources/Perch/App/AppRuntime.swift
+git show HEAD:Sources/Perch/Views/SettingsView.swift
 ```
 
 **Files and ownership.** A small preference adapter can follow
-[`MenuBarIconPreferenceStore.swift`](../../Sources/NotionPiP/Platform/MenuBarIconPreferenceStore.swift)
+[`MenuBarIconPreferenceStore.swift`](../../Sources/Perch/Platform/MenuBarIconPreferenceStore.swift)
 or be generalized only if current call sites already justify it. App ownership
-belongs in [`AppRuntime.swift`](../../Sources/NotionPiP/App/AppRuntime.swift):
+belongs in [`AppRuntime.swift`](../../Sources/Perch/App/AppRuntime.swift):
 load the saved value, publish one authoritative property, and expose a setter.
-[`SettingsView.swift`](../../Sources/NotionPiP/Views/SettingsView.swift) renders
-the binding; [`DeveloperStatusView.swift`](../../Sources/NotionPiP/Views/DeveloperStatusView.swift)
+[`SettingsView.swift`](../../Sources/Perch/Views/SettingsView.swift) renders
+the binding; [`DeveloperStatusView.swift`](../../Sources/Perch/Views/DeveloperStatusView.swift)
 remains presentation. Add store tests and runtime/view-projection tests beside
 the nearest existing examples. Planned filenames must be revalidated before
 creating them.
@@ -483,7 +483,7 @@ git diff --check
 ```
 
 Manually relaunch the staged app only if the task requires UI/relaunch proof:
-save active work, confirm `pgrep -x NotionPiP` is empty, run
+save active work, confirm `pgrep -x Perch` is empty, run
 `./script/build_and_run.sh --verify`, toggle the setting, relaunch, and record
 visibility plus keyboard/VoiceOver behavior. Do not describe that as migration
 coverage.
@@ -507,12 +507,12 @@ Persistence and must remain safe if an acknowledgement is lost.
 ```sh
 git status --short
 rg -n "BridgeRequest|resolveConflict|stash|restore|requestTypes|makeRequest" \
-  Web/QuickCaptureEditor Sources/NotionPiP/Platform Tests/NotionPiPTests
+  Web/QuickCaptureEditor Sources/Perch/Platform Tests/PerchTests
 rg -n "discardDraft|QuickCaptureLifecycle|expectedRevision|transition" \
-  Sources/NotionPiP Tests/NotionPiPTests Web/QuickCaptureEditor
+  Sources/Perch Tests/PerchTests Web/QuickCaptureEditor
 git show HEAD:Web/QuickCaptureEditor/protocol.ts
-git show HEAD:Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift
-git show HEAD:Sources/NotionPiP/Platform/CaptureEditorSession.swift
+git show HEAD:Sources/Perch/Platform/CaptureBridgeProtocol.swift
+git show HEAD:Sources/Perch/Platform/CaptureEditorSession.swift
 ```
 
 **Files and ownership.** Likely authoring files are
@@ -520,11 +520,11 @@ git show HEAD:Sources/NotionPiP/Platform/CaptureEditorSession.swift
 [`quick-capture-editor-controller.ts`](../../Web/QuickCaptureEditor/quick-capture-editor-controller.ts),
 and [`editor-transition-gate.ts`](../../Web/QuickCaptureEditor/state/editor-transition-gate.ts).
 Native validation/dispatch belongs in
-[`CaptureBridgeProtocol.swift`](../../Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift)
-and [`CaptureEditorSession.swift`](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift).
-Reuse the existing [`CapturePersistencePorts`](../../Sources/NotionPiP/Services/CapturePersistencePorts.swift),
-[`QuickCaptureLifecycleCoordinator`](../../Sources/NotionPiP/Services/QuickCaptureLifecycleCoordinator.swift),
-and [`CaptureRepository`](../../Sources/NotionPiP/Persistence/CaptureRepository.swift)
+[`CaptureBridgeProtocol.swift`](../../Sources/Perch/Platform/CaptureBridgeProtocol.swift)
+and [`CaptureEditorSession.swift`](../../Sources/Perch/Platform/CaptureEditorSession.swift).
+Reuse the existing [`CapturePersistencePorts`](../../Sources/Perch/Services/CapturePersistencePorts.swift),
+[`QuickCaptureLifecycleCoordinator`](../../Sources/Perch/Services/QuickCaptureLifecycleCoordinator.swift),
+and [`CaptureRepository`](../../Sources/Perch/Persistence/CaptureRepository.swift)
 only if their current discard semantics match the approved contract. Update
 TypeScript protocol/transition/controller tests, Swift bridge/flow/repository
 tests, real-WebKit tests, and the generated editor asset.
@@ -559,7 +559,7 @@ npm ci
 npm test
 npm run typecheck
 npm run build:editor
-git diff -- Sources/NotionPiP/Resources/QuickCapture/editor.js
+git diff -- Sources/Perch/Resources/QuickCapture/editor.js
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   swift test --filter CaptureBridgeProtocolTests
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Let a user press `Command-R` while interacting with the Notion PiP panel to reload the URL currently displayed by its embedded `WKWebView`, including a Notion sign-in page.
+Let a user press `Command-R` while interacting with the Perch panel to reload the URL currently displayed by its embedded `WKWebView`, including a Notion sign-in page.
 
 ## Scope
 

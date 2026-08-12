@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make the existing `Command-Shift-P` global shortcut stash or restore the currently pinned Notion PiP instead of reading a URL from the clipboard. If no page is pinned, the shortcut opens and focuses the existing URL prompt.
+Make the existing `Command-Shift-P` global shortcut stash or restore the currently pinned Perch instead of reading a URL from the clipboard. If no page is pinned, the shortcut opens and focuses the existing URL prompt.
 
 ## Interaction
 

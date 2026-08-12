@@ -21,10 +21,10 @@
 ### Task 1: Extract deterministic navigation policy
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/NotionWebNavigationPolicy.swift`
-- Create: `Tests/NotionPiPTests/NotionWebNavigationPolicyTests.swift`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Modify: `Tests/NotionPiPTests/WebNavigationDestinationTests.swift`
+- Create: `Sources/Perch/Platform/NotionWebNavigationPolicy.swift`
+- Create: `Tests/PerchTests/NotionWebNavigationPolicyTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Modify: `Tests/PerchTests/WebNavigationDestinationTests.swift`
 
 **Interfaces:**
 - Produces `NotionWebNavigationPolicy.actionDecision(for:targetFrameIsPresent:) -> NotionWebNavigationActionDecision`.
@@ -55,10 +55,10 @@ Expected: all selected tests pass.
 ### Task 2: Extract page-state restoration coordination
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/NotionPageStateRestorationCoordinator.swift`
-- Create: `Tests/NotionPiPTests/NotionPageStateRestorationCoordinatorTests.swift`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Modify: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Create: `Sources/Perch/Platform/NotionPageStateRestorationCoordinator.swift`
+- Create: `Tests/PerchTests/NotionPageStateRestorationCoordinatorTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Modify: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 **Interfaces:**
 - Produces `NotionPageStateRestorationCoordinator.RestorationPlan`, with `.interactionState(Any)` and `.load(url:isDurableRestoration:)` cases.
@@ -88,10 +88,10 @@ Expected: all selected tests pass.
 ### Task 3: Extract script-message coordination and generations
 
 **Files:**
-- Create: `Sources/NotionPiP/Platform/NotionWebScriptMessageCoordinator.swift`
-- Create: `Tests/NotionPiPTests/NotionWebScriptMessageCoordinatorTests.swift`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Modify: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Create: `Sources/Perch/Platform/NotionWebScriptMessageCoordinator.swift`
+- Create: `Tests/PerchTests/NotionWebScriptMessageCoordinatorTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Modify: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 **Interfaces:**
 - Produces `NotionWebScriptMessageCoordinator.install(in:) -> UInt`, `remove(from:)`, `generation`, and a weak `delegate` conforming to `NotionWebScriptMessageHandling`.

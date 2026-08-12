@@ -1,4 +1,4 @@
-# Notion PiP in 75 Minutes
+# Perch in 75 Minutes
 
 This is a slide-equivalent talk track for an engineering audience. The elapsed targets form the 75-minute spine. Every section names what the audience sees, what the presenter says, the source evidence behind it, a diagram cue, and whether a demo occurs.
 
@@ -22,9 +22,9 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Visible content:** Three phrases: “always available,” “at most one live Notion view,” and “local capture that survives failure.” Show a still of the panel stashed at a screen edge and restored.
 
-**Spoken narrative:** Notion PiP is a macOS accessory app: its absence from the Dock is expected, its all-Spaces panel behavior is intentional, and the menu-bar item, edge handle, and global shortcut are alternate reachability paths. Frame the repository around three promises: keep the panel available, never keep more than one live Notion view, and keep user-authored capture data durable even when remote delivery is not.
+**Spoken narrative:** Perch is a macOS accessory app: its absence from the Dock is expected, its all-Spaces panel behavior is intentional, and the menu-bar item, edge handle, and global shortcut are alternate reachability paths. Frame the repository around three promises: keep the panel available, never keep more than one live Notion view, and keep user-authored capture data durable even when remote delivery is not.
 
-**Source links:** [Lecture 1](01-product-and-user-experience.md), [product intent and setup expectations](../../AGENTS.md), [PiPChromeView](../../Sources/NotionPiP/Views/PiPChromeView.swift).
+**Source links:** [Lecture 1](01-product-and-user-experience.md), [product intent and setup expectations](../../AGENTS.md), [PiPChromeView](../../Sources/Perch/Views/PiPChromeView.swift).
 
 **Diagram cue:** Draw three concentric rings labeled presentation, session, and durable work; use the [architecture map](ARCHITECTURE_MAP.md) as the reference for the later decomposition.
 
@@ -44,11 +44,11 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Spoken narrative:** Demonstrate the user loop in one uninterrupted pass: restore the panel, navigate the existing Notion session, switch pages, stash and restore the panel, then type a short Quick Capture draft. Call out that panel visibility, browser identity, and draft durability are related experiences with different owners. Do not imply that a local save acknowledgement means the capture has reached Notion.
 
-**Source links:** [Lecture 1](01-product-and-user-experience.md), [PiPPanelCoordinator](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift), [QuickCaptureView](../../Sources/NotionPiP/Views/QuickCaptureView.swift).
+**Source links:** [Lecture 1](01-product-and-user-experience.md), [PiPPanelCoordinator](../../Sources/Perch/Platform/PiPPanelCoordinator.swift), [QuickCaptureView](../../Sources/Perch/Views/QuickCaptureView.swift).
 
 **Diagram cue:** Keep a small “user action → owning subsystem” strip below the live app: restore → Platform, switch → App/Platform, type → Web/Platform/Persistence.
 
-**Demo:** **Product demo.** Preflight the account and content. Fallback: show the prepared stills and use [PiPChromeViewTests](../../Tests/NotionPiPTests/PiPChromeViewTests.swift) plus [PiPStashHandleInteractionTests](../../Tests/NotionPiPTests/PiPStashHandleInteractionTests.swift) for chrome/stashing, [NotionWebSessionTests](../../Tests/NotionPiPTests/NotionWebSessionTests.swift) for page replacement and restoration, and [CaptureWebViewAutosaveTests](../../Tests/NotionPiPTests/CaptureWebViewAutosaveTests.swift) for acknowledged local persistence.
+**Demo:** **Product demo.** Preflight the account and content. Fallback: show the prepared stills and use [PiPChromeViewTests](../../Tests/PerchTests/PiPChromeViewTests.swift) plus [PiPStashHandleInteractionTests](../../Tests/PerchTests/PiPStashHandleInteractionTests.swift) for chrome/stashing, [NotionWebSessionTests](../../Tests/PerchTests/NotionWebSessionTests.swift) for page replacement and restoration, and [CaptureWebViewAutosaveTests](../../Tests/PerchTests/CaptureWebViewAutosaveTests.swift) for acknowledged local persistence.
 
 **60-minute cut:** Trim 1 minute by demonstrating only one page switch and one stash/restore cycle.
 
@@ -60,11 +60,11 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Visible content:** A stack table: Swift 6.2 / SwiftPM / macOS 14 target; SwiftUI + AppKit + WebKit; SwiftData + Keychain + Notion API; TypeScript + Tiptap + esbuild; checked-in `editor.js`.
 
-**Spoken narrative:** The native executable is a Swift package, but the capture editor is a TypeScript application bundled as a generated resource. Explain the artifact boundary: edit TypeScript under `Web/QuickCaptureEditor`, build it with the pinned npm toolchain, and ship the checked-in `Sources/NotionPiP/Resources/QuickCapture/editor.js`. `.build`, `dist`, and `node_modules` are generated or local artifacts, not product architecture. Source builds require full Xcode 26.2 or newer on macOS 15.6 or newer even though the product deployment target is macOS 14.
+**Spoken narrative:** The native executable is a Swift package, but the capture editor is a TypeScript application bundled as a generated resource. Explain the artifact boundary: edit TypeScript under `Web/QuickCaptureEditor`, build it with the pinned npm toolchain, and ship the checked-in `Sources/Perch/Resources/QuickCapture/editor.js`. `.build`, `dist`, and `node_modules` are generated or local artifacts, not product architecture. Source builds require full Xcode 26.2 or newer on macOS 15.6 or newer even though the product deployment target is macOS 14.
 
 **Source links:** [Lecture 2](02-repository-and-technology-stack.md), [Package.swift](../../Package.swift), [package.json](../../package.json), [build-and-run script](../../script/build_and_run.sh).
 
-**Diagram cue:** Draw two build lanes—Swift sources and TypeScript sources—joining at `NotionPiP.app`.
+**Diagram cue:** Draw two build lanes—Swift sources and TypeScript sources—joining at `Perch.app`.
 
 **Demo:** No demo — use the artifact diagram to avoid spending talk time on tool output.
 
@@ -96,11 +96,11 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Elapsed target:** 16:00–20:00 (4 minutes; cumulative 20).
 
-**Visible content:** `NotionPiPApp.main → AppComposition → AppRuntime.start → NSApplication.run`, with the degraded-persistence branch visible.
+**Visible content:** `PerchApp.main → AppComposition → AppRuntime.start → NSApplication.run`, with the degraded-persistence branch visible.
 
-**Spoken narrative:** `NotionPiPApp` is the executable entry point and `AppComposition` is the concrete composition root. It creates persistence and services, builds `AppRuntime`, installs the delegate, starts the runtime, and enters the AppKit run loop. The runtime can continue in a degraded mode when durable storage cannot open, which is a deliberate availability choice—not permission to hide the failure.
+**Spoken narrative:** `PerchApp` is the executable entry point and `AppComposition` is the concrete composition root. It creates persistence and services, builds `AppRuntime`, installs the delegate, starts the runtime, and enters the AppKit run loop. The runtime can continue in a degraded mode when durable storage cannot open, which is a deliberate availability choice—not permission to hide the failure.
 
-**Source links:** [Lecture 3](03-application-lifecycle.md), [NotionPiPApp.swift](../../Sources/NotionPiP/App/NotionPiPApp.swift), [AppDelegate.swift](../../Sources/NotionPiP/App/AppDelegate.swift), [startup flow](ARCHITECTURE_MAP.md).
+**Source links:** [Lecture 3](03-application-lifecycle.md), [PerchApp.swift](../../Sources/Perch/App/PerchApp.swift), [AppDelegate.swift](../../Sources/Perch/App/AppDelegate.swift), [startup flow](ARCHITECTURE_MAP.md).
 
 **Diagram cue:** Use Architecture Map Flow 1; highlight object construction separately from lifecycle callbacks.
 
@@ -118,7 +118,7 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Spoken narrative:** `AppRuntime` is the `@MainActor` facade that connects UI intent, platform callbacks, observable state, repositories, and services. Composition injects concrete collaborators. Controllers own feature-specific state transitions; action relays keep AppKit command surfaces from reaching through SwiftUI. Actor isolation protects mutable storage and service state, while Sendable value snapshots cross back to the main actor.
 
-**Source links:** [Lecture 4](04-composition-and-runtime.md), [AppRuntime.swift](../../Sources/NotionPiP/App/AppRuntime.swift), [AppCommandActionRelay.swift](../../Sources/NotionPiP/App/AppCommandActionRelay.swift), [AppRuntime facade tests](../../Tests/NotionPiPTests/AppRuntimeFacadeTests.swift).
+**Source links:** [Lecture 4](04-composition-and-runtime.md), [AppRuntime.swift](../../Sources/Perch/App/AppRuntime.swift), [AppCommandActionRelay.swift](../../Sources/Perch/App/AppCommandActionRelay.swift), [AppRuntime facade tests](../../Tests/PerchTests/AppRuntimeFacadeTests.swift).
 
 **Diagram cue:** Draw a main-actor boundary around Runtime/controllers and actor boundaries around repositories/services; label crossings “intent” and “snapshot.”
 
@@ -136,7 +136,7 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Spoken narrative:** AppKit owns the unusual window behavior. Pure policies decide role, geometry, and stash transitions; coordinators apply those decisions to `NSPanel` and SwiftUI hosts. Stashing moves the panel out of the way and exposes a separate edge handle so the app remains reachable. The shortcut and menu icon are additional controls, not the owners of panel geometry. Preserve all-Spaces behavior as a product invariant.
 
-**Source links:** [Lecture 5](05-panel-stashing-and-controls.md), [PiPPanelCoordinator.swift](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift), [PanelStashPolicy.swift](../../Sources/NotionPiP/Platform/PanelStashPolicy.swift), [stash/restore flow](ARCHITECTURE_MAP.md).
+**Source links:** [Lecture 5](05-panel-stashing-and-controls.md), [PiPPanelCoordinator.swift](../../Sources/Perch/Platform/PiPPanelCoordinator.swift), [PanelStashPolicy.swift](../../Sources/Perch/Platform/PanelStashPolicy.swift), [stash/restore flow](ARCHITECTURE_MAP.md).
 
 **Diagram cue:** Use Architecture Map Flow 3, adding a dashed reachability triangle between menu item, shortcut, and edge handle.
 
@@ -154,7 +154,7 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Spoken narrative:** `NotionWebSession` owns at most one live Notion `WKWebView`. A hide/show during the warm period can reuse that view, while switching to a different page captures outgoing interaction state, retires the old view, and ensures one replacement. Quick Capture is a different, local-file WebView with a nonpersistent data store and a narrow script bridge. WebKit integration tests create disposable views. Trust decisions belong at navigation and message boundaries, not in SwiftUI.
 
-**Source links:** [Lecture 6](06-webkit-notion-session.md), [NotionWebSession.swift](../../Sources/NotionPiP/Platform/NotionWebSession.swift), [NotionWebView.swift](../../Sources/NotionPiP/Platform/NotionWebView.swift), [NotionWebSessionTests.swift](../../Tests/NotionPiPTests/NotionWebSessionTests.swift).
+**Source links:** [Lecture 6](06-webkit-notion-session.md), [NotionWebSession.swift](../../Sources/Perch/Platform/NotionWebSession.swift), [NotionWebView.swift](../../Sources/Perch/Platform/NotionWebView.swift), [NotionWebSessionTests.swift](../../Tests/PerchTests/NotionWebSessionTests.swift).
 
 **Diagram cue:** Use Architecture Map Flow 2 for live navigation, then place the capture editor beside—not inside—that lifecycle.
 
@@ -174,7 +174,7 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Spoken narrative:** Domain code gives names to validated identity, explicit state, and deterministic decisions. Page references normalize what the rest of the app may trust; working-set policy chooses recency and pin behavior; delivery and retry types describe failure without invoking network code. Keeping these decisions pure makes concurrency boundaries smaller and tests faster.
 
-**Source links:** [Lecture 7](07-domain-modeling-and-policies.md), [NotionPageReference.swift](../../Sources/NotionPiP/Domain/NotionPageReference.swift), [PageWorkingSetPolicy.swift](../../Sources/NotionPiP/Domain/PageWorkingSetPolicy.swift), [RetryPolicy.swift](../../Sources/NotionPiP/Domain/RetryPolicy.swift).
+**Source links:** [Lecture 7](07-domain-modeling-and-policies.md), [NotionPageReference.swift](../../Sources/Perch/Domain/NotionPageReference.swift), [PageWorkingSetPolicy.swift](../../Sources/Perch/Domain/PageWorkingSetPolicy.swift), [RetryPolicy.swift](../../Sources/Perch/Domain/RetryPolicy.swift).
 
 **Diagram cue:** Draw “untrusted input → validated value → pure policy → effect owner.”
 
@@ -190,9 +190,9 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Visible content:** Shared SwiftData container feeding model-actor repositories for pages, settings, drafts, and capture records; Sendable snapshots crossing outward.
 
-**Spoken narrative:** `NotionPiPPersistence` owns schema and container creation. Repositories isolate model access behind actors and return value snapshots so SwiftData objects do not escape their context. Restoration rebuilds working state at startup; schema migration and disk-backed tests cover durable behavior. If persistence initialization fails, the runtime can surface degraded service health while continuing with limited functionality.
+**Spoken narrative:** `PerchPersistence` owns schema and container creation. Repositories isolate model access behind actors and return value snapshots so SwiftData objects do not escape their context. Restoration rebuilds working state at startup; schema migration and disk-backed tests cover durable behavior. If persistence initialization fails, the runtime can surface degraded service health while continuing with limited functionality.
 
-**Source links:** [Lecture 8](08-persistence-and-restoration.md), [NotionPiPPersistence.swift](../../Sources/NotionPiP/Persistence/NotionPiPPersistence.swift), [CaptureRepository.swift](../../Sources/NotionPiP/Persistence/CaptureRepository.swift), [SchemaMigrationTests.swift](../../Tests/NotionPiPTests/SchemaMigrationTests.swift).
+**Source links:** [Lecture 8](08-persistence-and-restoration.md), [PerchPersistence.swift](../../Sources/Perch/Persistence/PerchPersistence.swift), [CaptureRepository.swift](../../Sources/Perch/Persistence/CaptureRepository.swift), [SchemaMigrationTests.swift](../../Tests/PerchTests/SchemaMigrationTests.swift).
 
 **Diagram cue:** Draw actor-isolated repositories inside the persistence boundary and immutable snapshots leaving it toward App and Services.
 
@@ -210,7 +210,7 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Spoken narrative:** The editor runs local HTML, CSS, and JavaScript in a nonpersistent WebKit store. TypeScript owns rich-text interaction and canonical editor snapshots. `WeakScriptMessageHandler` derives the WebKit main-frame, origin, and source-path context while avoiding an ownership cycle; `CaptureBridgeProtocol` validates that context and the exact envelope, then decodes a typed request. `CaptureEditorSession` canonicalizes its content and coordinates persistence. A bridge change is a cross-language contract change and must update both implementations and both test suites.
 
-**Source links:** [Lecture 9](09-quick-capture-editor-bridge.md), [editor controller](../../Web/QuickCaptureEditor/quick-capture-editor-controller.ts), [WeakScriptMessageHandler.swift](../../Sources/NotionPiP/Platform/WeakScriptMessageHandler.swift), [CaptureBridgeProtocol.swift](../../Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift), [CaptureEditorSession.swift](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift).
+**Source links:** [Lecture 9](09-quick-capture-editor-bridge.md), [editor controller](../../Web/QuickCaptureEditor/quick-capture-editor-controller.ts), [WeakScriptMessageHandler.swift](../../Sources/Perch/Platform/WeakScriptMessageHandler.swift), [CaptureBridgeProtocol.swift](../../Sources/Perch/Platform/CaptureBridgeProtocol.swift), [CaptureEditorSession.swift](../../Sources/Perch/Platform/CaptureEditorSession.swift).
 
 **Diagram cue:** Use the editor half of Architecture Map Flow 4 and label every serialization boundary.
 
@@ -228,7 +228,7 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Spoken narrative:** Trace one keystroke: the editor produces a canonical snapshot; a 300 ms debounce coalesces changes; `BridgeClient` sends a request carrying the expected revision; WebKit forwards the message through the weak handler; Swift decodes it; and `CaptureRepository` enforces the expected revision before saving. Back in the browser, `BridgeClient` validates the reply shape and correlation ID, and a successful reply advances the editor to the maximum of its current revision and the returned authoritative revision. A lost, malformed, uncorrelated, or failed acknowledgement must not silently declare the draft saved. Emphasize the boundary: this acknowledgement proves local persistence, not remote Notion delivery.
 
-**Source links:** [debounced-change-publisher.ts](../../Web/QuickCaptureEditor/bridge/debounced-change-publisher.ts), [bridge-client.ts](../../Web/QuickCaptureEditor/bridge/bridge-client.ts), [WeakScriptMessageHandler.swift](../../Sources/NotionPiP/Platform/WeakScriptMessageHandler.swift), [CaptureEditorSession.swift](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift), [autosave tests](../../Web/QuickCaptureEditor/autosave.test.ts).
+**Source links:** [debounced-change-publisher.ts](../../Web/QuickCaptureEditor/bridge/debounced-change-publisher.ts), [bridge-client.ts](../../Web/QuickCaptureEditor/bridge/bridge-client.ts), [WeakScriptMessageHandler.swift](../../Sources/Perch/Platform/WeakScriptMessageHandler.swift), [CaptureEditorSession.swift](../../Sources/Perch/Platform/CaptureEditorSession.swift), [autosave tests](../../Web/QuickCaptureEditor/autosave.test.ts).
 
 **Diagram cue:** Animate or reveal one numbered arrow at a time across the Web → Platform → Persistence boundary; finish with a separate, still-unstarted Delivery lane.
 
@@ -248,7 +248,7 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Spoken narrative:** Closing or submitting a capture does not make the network reliable. The repository is the durable outbox; the scheduler decides when work is eligible; the engine owns an attempt; the delivery service converts blocks and calls the Notion API. Persisted states, retry policy, and request journaling distinguish safe retries from uncertain outcomes so the app does not pretend success or duplicate work casually.
 
-**Source links:** [Lecture 10](10-notion-api-and-delivery.md), [DeliveryScheduler.swift](../../Sources/NotionPiP/Services/DeliveryScheduler.swift), [DeliveryEngine.swift](../../Sources/NotionPiP/Services/DeliveryEngine.swift), [NotionCaptureDeliveryService.swift](../../Sources/NotionPiP/Services/NotionCaptureDeliveryService.swift), [DeliveryEngineTests.swift](../../Tests/NotionPiPTests/DeliveryEngineTests.swift).
+**Source links:** [Lecture 10](10-notion-api-and-delivery.md), [DeliveryScheduler.swift](../../Sources/Perch/Services/DeliveryScheduler.swift), [DeliveryEngine.swift](../../Sources/Perch/Services/DeliveryEngine.swift), [NotionCaptureDeliveryService.swift](../../Sources/Perch/Services/NotionCaptureDeliveryService.swift), [DeliveryEngineTests.swift](../../Tests/PerchTests/DeliveryEngineTests.swift).
 
 **Diagram cue:** Complete Architecture Map Flow 4 by revealing the previously hidden Delivery lane and branching on confirmed failure versus ambiguous completion.
 
@@ -266,7 +266,7 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Spoken narrative:** SwiftUI views should remain declarative: read observable state, bind edits, and send intent. App owns feature coordination; dedicated SwiftData or `UserDefaults` adapters store durable preferences; and Platform applies system effects such as panel sizing, shortcut registration, and menu-bar visibility. AppKit still owns window creation and hosting, so a view is not the whole feature.
 
-**Source links:** [Lecture 11](11-views-settings-and-state.md), [SettingsView.swift](../../Sources/NotionPiP/Views/SettingsView.swift), [PanelSizeController.swift](../../Sources/NotionPiP/App/PanelSizeController.swift), [settings propagation flow](ARCHITECTURE_MAP.md).
+**Source links:** [Lecture 11](11-views-settings-and-state.md), [SettingsView.swift](../../Sources/Perch/Views/SettingsView.swift), [PanelSizeController.swift](../../Sources/Perch/App/PanelSizeController.swift), [settings propagation flow](ARCHITECTURE_MAP.md).
 
 **Diagram cue:** Use Architecture Map Flow 6 as a round trip, not a one-way binding arrow.
 
@@ -284,7 +284,7 @@ The product demo uses a rehearsed account with non-sensitive pages. Account and 
 
 **Spoken narrative:** Match evidence to risk. Pure policies need fast independent tests. Persistence needs actor isolation and disk-backed migration coverage. The editor needs TypeScript protocol tests plus real `WKWebView` tests for the actual bridge and resource bundle. Full suites catch adjacency; `build_and_run.sh --verify` proves a staged app launches; manual checks remain necessary for Spaces, focus, animation, shortcuts, and account/network behavior.
 
-**Source links:** [Lecture 12](12-testing-debugging-and-change-workflow.md), [CaptureBridgeProtocolTests.swift](../../Tests/NotionPiPTests/CaptureBridgeProtocolTests.swift), [CaptureWebViewAutosaveTests.swift](../../Tests/NotionPiPTests/CaptureWebViewAutosaveTests.swift), [verification ladder](CHANGE_GUIDE.md).
+**Source links:** [Lecture 12](12-testing-debugging-and-change-workflow.md), [CaptureBridgeProtocolTests.swift](../../Tests/PerchTests/CaptureBridgeProtocolTests.swift), [CaptureWebViewAutosaveTests.swift](../../Tests/PerchTests/CaptureWebViewAutosaveTests.swift), [verification ladder](CHANGE_GUIDE.md).
 
 **Diagram cue:** Draw the ladder with speed decreasing and realism increasing from bottom to top.
 

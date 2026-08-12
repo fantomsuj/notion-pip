@@ -20,8 +20,8 @@
 ### Task 1: Editor Activity State and Bridge
 
 **Files:**
-- Modify: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
+- Modify: `Tests/PerchTests/NotionWebSessionTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
 
 **Interfaces:**
 - Produces: `NotionEditorActivity`, `NotionEditorActivityBridge.activity(...)`, `NotionWebSession.isTypingInPage`, `handleEditorActivity(_:)`, and `revealTopControls()`.
@@ -34,8 +34,8 @@
 ### Task 2: Typing-Aware SwiftUI Actions
 
 **Files:**
-- Modify: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
-- Modify: `Sources/NotionPiP/Views/PiPChromeView.swift`
+- Modify: `Tests/PerchTests/NotionWebSessionTests.swift`
+- Modify: `Sources/Perch/Views/PiPChromeView.swift`
 
 **Interfaces:**
 - Consumes: `NotionWebSession.isTypingInPage` and `revealTopControls()`.
