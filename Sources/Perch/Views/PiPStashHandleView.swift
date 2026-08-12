@@ -448,11 +448,13 @@ final class PiPStashHandleInteractionView: NSView {
             sourceOperationMask: snapshot.sourceOperationMask
         )
         guard operation == .copy else {
-            clearDropTarget()
+            clearDropTarget(resetsSession: false)
             return []
         }
         guard publishedDrop?.sequenceNumber != snapshot.sequenceNumber,
-              let candidate = snapshot.candidate
+              let candidate = dropSession.frozenCandidate(
+                  sequenceNumber: snapshot.sequenceNumber
+              )
         else {
             return .copy
         }

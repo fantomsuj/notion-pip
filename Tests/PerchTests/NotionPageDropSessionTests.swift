@@ -55,6 +55,29 @@ final class NotionPageDropSessionTests: XCTestCase {
         XCTAssertEqual(session.perform(sequenceNumber: 41), first)
     }
 
+    func testUpdateRetainsFrozenCandidateAcrossCopyMaskLossAndRegain() throws {
+        let first = try makeDrop(pageID: "0123456789abcdef0123456789abcdef")
+        let changed = try makeDrop(pageID: "fedcba9876543210fedcba9876543210")
+        var session = NotionPageDropSession()
+
+        XCTAssertEqual(
+            session.update(sequenceNumber: 41, candidate: first, sourceOperationMask: .copy),
+            .copy
+        )
+        XCTAssertEqual(
+            session.update(sequenceNumber: 41, candidate: changed, sourceOperationMask: .link),
+            []
+        )
+        XCTAssertFalse(session.canPrepare(sequenceNumber: 41))
+        XCTAssertNil(session.perform(sequenceNumber: 41))
+        XCTAssertEqual(
+            session.update(sequenceNumber: 41, candidate: changed, sourceOperationMask: .copy),
+            .copy
+        )
+
+        XCTAssertEqual(session.perform(sequenceNumber: 41), first)
+    }
+
     func testCanPrepareAcceptsOnlyActiveSequence() throws {
         var session = NotionPageDropSession()
         _ = session.update(

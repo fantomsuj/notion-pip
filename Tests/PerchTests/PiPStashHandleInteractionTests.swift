@@ -52,6 +52,68 @@ final class PiPStashHandleInteractionTests: XCTestCase {
         XCTAssertEqual(activationCount, 0)
     }
 
+    func testCopyMaskLossHidesPreviewAndRegainRepublishesFrozenCandidate() throws {
+        let first = try makeDrop(
+            pageID: "0123456789abcdef0123456789abcdef",
+            sourceLabel: "Roadmap"
+        )
+        let changed = try makeDrop(
+            pageID: "fedcba9876543210fedcba9876543210",
+            sourceLabel: "Changed"
+        )
+        var changes: [NotionPageDrop?] = []
+        var performed: [NotionPageDrop] = []
+        let interaction = PiPStashHandleInteractionView(
+            pointerLocation: { .zero },
+            onActivate: {},
+            onDragEnded: { _ in },
+            onDropCandidateChanged: { changes.append($0) },
+            onDropPerformed: { performed.append($0) }
+        )
+
+        XCTAssertEqual(
+            interaction.draggingEntered(
+                snapshot: PiPStashHandleDragSnapshot(
+                    sequenceNumber: 41,
+                    candidate: first,
+                    sourceOperationMask: .copy
+                )
+            ),
+            .copy
+        )
+        XCTAssertEqual(
+            interaction.draggingUpdated(
+                snapshot: PiPStashHandleDragSnapshot(
+                    sequenceNumber: 41,
+                    candidate: changed,
+                    sourceOperationMask: .link
+                )
+            ),
+            []
+        )
+        XCTAssertEqual(changes, [first, nil])
+        XCTAssertEqual(interaction.accessibilityLabel(), "Restore Perch")
+        XCTAssertFalse(interaction.prepareForDragOperation(sequenceNumber: 41))
+        XCTAssertFalse(interaction.performDragOperation(sequenceNumber: 41))
+        XCTAssertTrue(performed.isEmpty)
+
+        XCTAssertEqual(
+            interaction.draggingUpdated(
+                snapshot: PiPStashHandleDragSnapshot(
+                    sequenceNumber: 41,
+                    candidate: changed,
+                    sourceOperationMask: .copy
+                )
+            ),
+            .copy
+        )
+        XCTAssertEqual(changes, [first, nil, first])
+        XCTAssertEqual(interaction.accessibilityLabel(), "Open Roadmap in Perch")
+        XCTAssertTrue(interaction.prepareForDragOperation(sequenceNumber: 41))
+        XCTAssertTrue(interaction.performDragOperation(sequenceNumber: 41))
+        XCTAssertEqual(performed, [first])
+    }
+
     func testInvalidExternalDragIsInert() {
         var changes: [NotionPageDrop?] = []
         var performed: [NotionPageDrop] = []

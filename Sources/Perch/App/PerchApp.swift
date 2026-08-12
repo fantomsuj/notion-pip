@@ -123,7 +123,8 @@ private final class AppComposition {
         let recentPageSelectionRelay = PiPRecentPageSelectionRelay()
         let notionPageDropComposition = NotionPageDropComposition(
             recentPagesController: recentPagesController,
-            onSelectRecentPage: recentPageSelectionRelay.perform
+            onSelectRecentPage: recentPageSelectionRelay.perform,
+            dropTitleProvider: pageRepository
         )
         let stashHandle = notionPageDropComposition.stashHandle
         let quickCopyController = QuickCopyController(
@@ -276,14 +277,21 @@ final class NotionPageDropComposition {
     init(
         recentPagesController: PiPRecentPagesShelfController? = nil,
         onSelectRecentPage: @escaping @MainActor (PiPRecentPageSelection) -> Void = { _ in },
-        makeStashHandle: ((@escaping @MainActor (NotionPageDrop) -> Void) -> PiPStashHandleController)? = nil
+        dropTitleProvider: (any NotionPageDropTitleProviding)? = nil,
+        makeStashHandle: (
+            (
+                (any NotionPageDropTitleProviding)?,
+                @escaping @MainActor (NotionPageDrop) -> Void
+            ) -> PiPStashHandleController
+        )? = nil
     ) {
         if let makeStashHandle {
-            stashHandle = makeStashHandle(relay.perform)
+            stashHandle = makeStashHandle(dropTitleProvider, relay.perform)
         } else {
             stashHandle = PiPStashHandleController(
                 recentPagesController: recentPagesController,
                 onSelectRecentPage: onSelectRecentPage,
+                dropTitleProvider: dropTitleProvider,
                 onDropNotionPage: relay.perform
             )
         }

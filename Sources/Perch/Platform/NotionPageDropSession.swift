@@ -2,6 +2,7 @@ import AppKit
 
 struct NotionPageDropSession {
     private var activeDrop: (sequenceNumber: Int, drop: NotionPageDrop)?
+    private var copyIsAllowed = false
 
     mutating func update(
         sequenceNumber: Int,
@@ -11,27 +12,27 @@ struct NotionPageDropSession {
         if activeDrop?.sequenceNumber != sequenceNumber {
             reset()
         }
-        guard sourceOperationMask.contains(.copy) else {
-            reset()
-            return []
+        if activeDrop == nil, let candidate {
+            activeDrop = (sequenceNumber, candidate)
         }
-        if activeDrop != nil {
-            return .copy
-        }
-        guard let candidate else {
-            return []
-        }
-
-        activeDrop = (sequenceNumber, candidate)
-        return .copy
+        copyIsAllowed = activeDrop != nil && sourceOperationMask.contains(.copy)
+        return copyIsAllowed ? .copy : []
     }
 
     func canPrepare(sequenceNumber: Int) -> Bool {
-        activeDrop?.sequenceNumber == sequenceNumber
+        copyIsAllowed && activeDrop?.sequenceNumber == sequenceNumber
+    }
+
+    func frozenCandidate(sequenceNumber: Int) -> NotionPageDrop? {
+        guard activeDrop?.sequenceNumber == sequenceNumber else { return nil }
+        return activeDrop?.drop
     }
 
     mutating func perform(sequenceNumber: Int) -> NotionPageDrop? {
-        guard let activeDrop, activeDrop.sequenceNumber == sequenceNumber else {
+        guard copyIsAllowed,
+              let activeDrop,
+              activeDrop.sequenceNumber == sequenceNumber
+        else {
             return nil
         }
         reset()
@@ -40,5 +41,6 @@ struct NotionPageDropSession {
 
     mutating func reset() {
         activeDrop = nil
+        copyIsAllowed = false
     }
 }

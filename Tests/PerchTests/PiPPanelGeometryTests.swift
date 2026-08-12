@@ -7,6 +7,47 @@ import XCTest
 
 @MainActor
 final class PiPPanelGeometryTests: XCTestCase {
+    func testDropCompositionForwardsTitleProviderToProductionHandle() async throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_200, height: 900)
+        let handlePanel = makeDropHandlePanel()
+        let titleProvider = GeometryDropTitleProvider(title: "Stored Roadmap")
+        let dropComposition = NotionPageDropComposition(
+            dropTitleProvider: titleProvider,
+            makeStashHandle: { dropTitleProvider, onDropNotionPage in
+                PiPStashHandleController(
+                    visibleFramesProvider: { [visibleFrame] },
+                    dropTitleProvider: dropTitleProvider,
+                    onDropNotionPage: onDropNotionPage,
+                    handlePanel: handlePanel,
+                    shelfPanel: self.makeDropHandlePanel(),
+                    shelfDismissDelay: .zero
+                )
+            }
+        )
+        dropComposition.stashHandle.present(
+            placement: PanelStashPlacement(
+                side: .right,
+                frame: CGRect(x: 1_164, y: 402, width: 36, height: 96)
+            ),
+            onRestore: {},
+            onPlacementChange: { _ in }
+        )
+        let handleView = try dropHandleView(in: handlePanel)
+        let drop = try NotionPageDrop(
+            validating: XCTUnwrap(
+                URL(string: "https://www.notion.so/Roadmap-0123456789abcdef0123456789abcdef")
+            ),
+            sourceLabel: "Dragged Roadmap"
+        )
+
+        handleView.onDropCandidateChanged(drop)
+        for _ in 0..<20 where handleView.dropTargetModel.label != "Stored Roadmap" {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(handleView.dropTargetModel.label, "Stored Roadmap")
+    }
+
     func testEdgeHandleDropPreviewIsInertAndCompletionRestoresCommittedFrame() async throws {
         let visibleFrame = CGRect(x: 0, y: 0, width: 1_200, height: 900)
         let committedFrame = CGRect(x: 240, y: 140, width: 560, height: 640)
@@ -14,7 +55,7 @@ final class PiPPanelGeometryTests: XCTestCase {
         let handlePanel = makeDropHandlePanel()
         let shelfPanel = makeDropHandlePanel()
         let dropComposition = NotionPageDropComposition(
-            makeStashHandle: { onDropNotionPage in
+            makeStashHandle: { _, onDropNotionPage in
                 PiPStashHandleController(
                     visibleFramesProvider: { [visibleFrame] },
                     onDropNotionPage: onDropNotionPage,
@@ -319,4 +360,16 @@ private final class EdgeHandleDropPageLoader: NotionPageLoading {
     }
 
     func reloadPinnedPage(_ page: NotionPageReference) {}
+}
+
+private actor GeometryDropTitleProvider: NotionPageDropTitleProviding {
+    let title: String
+
+    init(title: String) {
+        self.title = title
+    }
+
+    func displayTitle(for pageID: String) async -> String? {
+        title
+    }
 }
