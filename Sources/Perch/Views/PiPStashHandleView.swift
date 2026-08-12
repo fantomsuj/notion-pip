@@ -1,7 +1,30 @@
 import SwiftUI
 
+struct PiPStashHandleDragSnapshot {
+    let sequenceNumber: Int
+    let candidate: NotionPageDrop?
+    let sourceOperationMask: NSDragOperation
+}
+
+@MainActor
+final class PiPStashHandleDropTargetModel: ObservableObject {
+    @Published private(set) var isActive = false
+    @Published private(set) var label: String?
+
+    func show(label: String) {
+        self.label = label
+        isActive = true
+    }
+
+    func clear() {
+        isActive = false
+        label = nil
+    }
+}
+
 struct PiPStashHandleView: View {
     let side: PanelStashSide
+    @ObservedObject var dropTargetModel: PiPStashHandleDropTargetModel
     let onRestore: @MainActor () -> Void
     let onDragEnded: @MainActor (CGRect) -> Void
     let onDragStarted: @MainActor () -> Void
@@ -9,18 +32,24 @@ struct PiPStashHandleView: View {
     let onPullRevealEnded: @MainActor (CGFloat) -> Bool
     let onHoverChanged: @MainActor (Bool) -> Void
     let onShowRecentPages: @MainActor () -> Void
+    let onDropCandidateChanged: @MainActor (NotionPageDrop?) -> Void
+    let onDropPerformed: @MainActor (NotionPageDrop) -> Void
 
     init(
         side: PanelStashSide,
+        dropTargetModel: PiPStashHandleDropTargetModel,
         onRestore: @escaping @MainActor () -> Void,
         onDragEnded: @escaping @MainActor (CGRect) -> Void = { _ in },
         onDragStarted: @escaping @MainActor () -> Void = {},
         onPullRevealChanged: @escaping @MainActor (CGFloat) -> Void = { _ in },
         onPullRevealEnded: @escaping @MainActor (CGFloat) -> Bool = { _ in false },
         onHoverChanged: @escaping @MainActor (Bool) -> Void = { _ in },
-        onShowRecentPages: @escaping @MainActor () -> Void = {}
+        onShowRecentPages: @escaping @MainActor () -> Void = {},
+        onDropCandidateChanged: @escaping @MainActor (NotionPageDrop?) -> Void = { _ in },
+        onDropPerformed: @escaping @MainActor (NotionPageDrop) -> Void = { _ in }
     ) {
         self.side = side
+        self.dropTargetModel = dropTargetModel
         self.onRestore = onRestore
         self.onDragEnded = onDragEnded
         self.onDragStarted = onDragStarted
@@ -28,16 +57,34 @@ struct PiPStashHandleView: View {
         self.onPullRevealEnded = onPullRevealEnded
         self.onHoverChanged = onHoverChanged
         self.onShowRecentPages = onShowRecentPages
+        self.onDropCandidateChanged = onDropCandidateChanged
+        self.onDropPerformed = onDropPerformed
     }
 
     var body: some View {
         ZStack {
-            VStack(spacing: 8) {
-                Image(systemName: "rectangle.on.rectangle")
-                    .font(.system(size: 13, weight: .medium))
+            Group {
+                if dropTargetModel.isActive, let label = dropTargetModel.label {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Open in Perch")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(label)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 18)
+                } else {
+                    VStack(spacing: 8) {
+                        Image(systemName: "rectangle.on.rectangle")
+                            .font(.system(size: 13, weight: .medium))
 
-                Image(systemName: side == .left ? "chevron.right" : "chevron.left")
-                    .font(.system(size: 12, weight: .semibold))
+                        Image(systemName: side == .left ? "chevron.right" : "chevron.left")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                }
             }
             .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -53,7 +100,10 @@ struct PiPStashHandleView: View {
                 onPullRevealChanged: onPullRevealChanged,
                 onPullRevealEnded: onPullRevealEnded,
                 onHoverChanged: onHoverChanged,
-                onShowRecentPages: onShowRecentPages
+                onShowRecentPages: onShowRecentPages,
+                accessibilityDropLabel: dropTargetModel.isActive ? dropTargetModel.label : nil,
+                onDropCandidateChanged: onDropCandidateChanged,
+                onDropPerformed: onDropPerformed
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -70,6 +120,9 @@ private struct PiPStashHandleInteractionSurface: NSViewRepresentable {
     let onPullRevealEnded: @MainActor (CGFloat) -> Bool
     let onHoverChanged: @MainActor (Bool) -> Void
     let onShowRecentPages: @MainActor () -> Void
+    let accessibilityDropLabel: String?
+    let onDropCandidateChanged: @MainActor (NotionPageDrop?) -> Void
+    let onDropPerformed: @MainActor (NotionPageDrop) -> Void
 
     func makeNSView(context: Context) -> PiPStashHandleInteractionView {
         PiPStashHandleInteractionView(
@@ -80,7 +133,10 @@ private struct PiPStashHandleInteractionSurface: NSViewRepresentable {
             onPullRevealChanged: onPullRevealChanged,
             onPullRevealEnded: onPullRevealEnded,
             onHoverChanged: onHoverChanged,
-            onShowRecentPages: onShowRecentPages
+            onShowRecentPages: onShowRecentPages,
+            accessibilityDropLabel: accessibilityDropLabel,
+            onDropCandidateChanged: onDropCandidateChanged,
+            onDropPerformed: onDropPerformed
         )
     }
 
@@ -93,7 +149,10 @@ private struct PiPStashHandleInteractionSurface: NSViewRepresentable {
             onPullRevealChanged: onPullRevealChanged,
             onPullRevealEnded: onPullRevealEnded,
             onHoverChanged: onHoverChanged,
-            onShowRecentPages: onShowRecentPages
+            onShowRecentPages: onShowRecentPages,
+            accessibilityDropLabel: accessibilityDropLabel,
+            onDropCandidateChanged: onDropCandidateChanged,
+            onDropPerformed: onDropPerformed
         )
     }
 }
@@ -103,6 +162,7 @@ final class PiPStashHandleInteractionView: NSView {
     private static let dragThreshold: CGFloat = 3
 
     private let pointerLocation: @MainActor () -> CGPoint
+    private let dropCandidateReader: @MainActor (NSPasteboard) -> NotionPageDrop?
     private var side: PanelStashSide
     private var onActivate: @MainActor () -> Void
     private var onDragEnded: @MainActor (CGRect) -> Void
@@ -111,11 +171,15 @@ final class PiPStashHandleInteractionView: NSView {
     private var onPullRevealEnded: @MainActor (CGFloat) -> Bool
     private var onHoverChanged: @MainActor (Bool) -> Void
     private var onShowRecentPages: @MainActor () -> Void
+    private var onDropCandidateChanged: @MainActor (NotionPageDrop?) -> Void
+    private var onDropPerformed: @MainActor (NotionPageDrop) -> Void
     private var initialPointerLocation: CGPoint?
     private var initialWindowOrigin: CGPoint?
     private var dragMode: DragMode?
     private var latestInwardDistance: CGFloat = 0
     private var hoverTrackingArea: NSTrackingArea?
+    private var dropSession = NotionPageDropSession()
+    private var publishedDrop: (sequenceNumber: Int, drop: NotionPageDrop)?
 
     private enum DragMode {
         case reposition
@@ -124,6 +188,9 @@ final class PiPStashHandleInteractionView: NSView {
 
     init(
         pointerLocation: @escaping @MainActor () -> CGPoint = { NSEvent.mouseLocation },
+        dropCandidateReader: @escaping @MainActor (NSPasteboard) -> NotionPageDrop? = {
+            NotionPageDropPasteboardReader.candidate(from: $0)
+        },
         side: PanelStashSide = .right,
         onActivate: @escaping @MainActor () -> Void,
         onDragEnded: @escaping @MainActor (CGRect) -> Void,
@@ -131,9 +198,13 @@ final class PiPStashHandleInteractionView: NSView {
         onPullRevealChanged: @escaping @MainActor (CGFloat) -> Void = { _ in },
         onPullRevealEnded: @escaping @MainActor (CGFloat) -> Bool = { _ in false },
         onHoverChanged: @escaping @MainActor (Bool) -> Void = { _ in },
-        onShowRecentPages: @escaping @MainActor () -> Void = {}
+        onShowRecentPages: @escaping @MainActor () -> Void = {},
+        accessibilityDropLabel: String? = nil,
+        onDropCandidateChanged: @escaping @MainActor (NotionPageDrop?) -> Void = { _ in },
+        onDropPerformed: @escaping @MainActor (NotionPageDrop) -> Void = { _ in }
     ) {
         self.pointerLocation = pointerLocation
+        self.dropCandidateReader = dropCandidateReader
         self.side = side
         self.onActivate = onActivate
         self.onDragEnded = onDragEnded
@@ -142,8 +213,11 @@ final class PiPStashHandleInteractionView: NSView {
         self.onPullRevealEnded = onPullRevealEnded
         self.onHoverChanged = onHoverChanged
         self.onShowRecentPages = onShowRecentPages
+        self.onDropCandidateChanged = onDropCandidateChanged
+        self.onDropPerformed = onDropPerformed
         super.init(frame: .zero)
 
+        registerForDraggedTypes([.URL, .string])
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel("Restore Perch")
@@ -154,6 +228,7 @@ final class PiPStashHandleInteractionView: NSView {
                 return self != nil
             }
         ])
+        updateAccessibility(dropLabel: accessibilityDropLabel)
         toolTip = "Pull inward to reveal; drag along the edge to move"
     }
 
@@ -170,7 +245,10 @@ final class PiPStashHandleInteractionView: NSView {
         onPullRevealChanged: @escaping @MainActor (CGFloat) -> Void = { _ in },
         onPullRevealEnded: @escaping @MainActor (CGFloat) -> Bool = { _ in false },
         onHoverChanged: @escaping @MainActor (Bool) -> Void = { _ in },
-        onShowRecentPages: @escaping @MainActor () -> Void = {}
+        onShowRecentPages: @escaping @MainActor () -> Void = {},
+        accessibilityDropLabel: String? = nil,
+        onDropCandidateChanged: @escaping @MainActor (NotionPageDrop?) -> Void = { _ in },
+        onDropPerformed: @escaping @MainActor (NotionPageDrop) -> Void = { _ in }
     ) {
         self.side = side
         self.onActivate = onActivate
@@ -180,6 +258,9 @@ final class PiPStashHandleInteractionView: NSView {
         self.onPullRevealEnded = onPullRevealEnded
         self.onHoverChanged = onHoverChanged
         self.onShowRecentPages = onShowRecentPages
+        self.onDropCandidateChanged = onDropCandidateChanged
+        self.onDropPerformed = onDropPerformed
+        updateAccessibility(dropLabel: publishedDrop == nil ? nil : accessibilityDropLabel)
     }
 
     override func updateTrackingAreas() {
@@ -287,6 +368,119 @@ final class PiPStashHandleInteractionView: NSView {
     override func accessibilityPerformPress() -> Bool {
         onActivate()
         return true
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        draggingEntered(snapshot: dragSnapshot(from: sender))
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        draggingUpdated(snapshot: dragSnapshot(from: sender))
+    }
+
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        prepareForDragOperation(sequenceNumber: sender.draggingSequenceNumber)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        performDragOperation(sequenceNumber: sender.draggingSequenceNumber)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        draggingExited()
+    }
+
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        concludeDragOperation()
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        draggingEnded()
+    }
+
+    func draggingEntered(snapshot: PiPStashHandleDragSnapshot) -> NSDragOperation {
+        updateDropTarget(snapshot: snapshot)
+    }
+
+    func draggingUpdated(snapshot: PiPStashHandleDragSnapshot) -> NSDragOperation {
+        updateDropTarget(snapshot: snapshot)
+    }
+
+    func prepareForDragOperation(sequenceNumber: Int) -> Bool {
+        dropSession.canPrepare(sequenceNumber: sequenceNumber)
+    }
+
+    func performDragOperation(sequenceNumber: Int) -> Bool {
+        guard let drop = dropSession.perform(sequenceNumber: sequenceNumber) else {
+            return false
+        }
+        clearDropTarget(resetsSession: false)
+        onDropPerformed(drop)
+        return true
+    }
+
+    func draggingExited() {
+        clearDropTarget()
+    }
+
+    func concludeDragOperation() {
+        clearDropTarget()
+    }
+
+    func draggingEnded() {
+        clearDropTarget()
+    }
+
+    private func dragSnapshot(from sender: any NSDraggingInfo) -> PiPStashHandleDragSnapshot {
+        PiPStashHandleDragSnapshot(
+            sequenceNumber: sender.draggingSequenceNumber,
+            candidate: dropCandidateReader(sender.draggingPasteboard),
+            sourceOperationMask: sender.draggingSourceOperationMask
+        )
+    }
+
+    private func updateDropTarget(
+        snapshot: PiPStashHandleDragSnapshot
+    ) -> NSDragOperation {
+        let operation = dropSession.update(
+            sequenceNumber: snapshot.sequenceNumber,
+            candidate: snapshot.candidate,
+            sourceOperationMask: snapshot.sourceOperationMask
+        )
+        guard operation == .copy else {
+            clearDropTarget()
+            return []
+        }
+        guard publishedDrop?.sequenceNumber != snapshot.sequenceNumber,
+              let candidate = snapshot.candidate
+        else {
+            return .copy
+        }
+
+        publishedDrop = (snapshot.sequenceNumber, candidate)
+        onDropCandidateChanged(candidate)
+        updateAccessibility(dropLabel: candidate.displayLabel(localTitle: nil))
+        return .copy
+    }
+
+    private func clearDropTarget(resetsSession: Bool = true) {
+        if resetsSession {
+            dropSession.reset()
+        }
+        guard publishedDrop != nil else { return }
+        publishedDrop = nil
+        onDropCandidateChanged(nil)
+        updateAccessibility(dropLabel: nil)
+    }
+
+    private func updateAccessibility(dropLabel: String?) {
+        if let dropLabel {
+            setAccessibilityLabel("Open \(dropLabel) in Perch")
+            setAccessibilityHelp(nil)
+        } else {
+            setAccessibilityLabel("Restore Perch")
+            setAccessibilityHelp("Bring the stashed Perch back from the side.")
+        }
     }
 
     private func resetInteraction() {

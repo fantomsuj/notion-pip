@@ -4,6 +4,145 @@ import XCTest
 
 @MainActor
 final class PiPStashHandleInteractionTests: XCTestCase {
+    func testValidExternalDragPublishesFrozenCandidateAndPerformsItOnce() throws {
+        let first = try makeDrop(
+            pageID: "0123456789abcdef0123456789abcdef",
+            sourceLabel: "Roadmap"
+        )
+        let later = try makeDrop(
+            pageID: "fedcba9876543210fedcba9876543210",
+            sourceLabel: "Later"
+        )
+        let candidate = DropCandidate(first)
+        var activationCount = 0
+        var changes: [NotionPageDrop?] = []
+        var performed: [NotionPageDrop] = []
+        let interaction = PiPStashHandleInteractionView(
+            pointerLocation: { .zero },
+            onActivate: { activationCount += 1 },
+            onDragEnded: { _ in },
+            onDropCandidateChanged: { changes.append($0) },
+            onDropPerformed: { performed.append($0) }
+        )
+        let firstSnapshot = PiPStashHandleDragSnapshot(
+            sequenceNumber: 41,
+            candidate: candidate.value,
+            sourceOperationMask: .copy
+        )
+
+        XCTAssertTrue(interaction.registeredDraggedTypes.contains(.URL))
+        XCTAssertTrue(interaction.registeredDraggedTypes.contains(.string))
+        XCTAssertEqual(interaction.draggingEntered(snapshot: firstSnapshot), .copy)
+        XCTAssertEqual(changes, [first])
+        XCTAssertEqual(activationCount, 0)
+
+        candidate.value = later
+        let laterSnapshot = PiPStashHandleDragSnapshot(
+            sequenceNumber: 41,
+            candidate: candidate.value,
+            sourceOperationMask: .copy
+        )
+        XCTAssertEqual(interaction.draggingUpdated(snapshot: laterSnapshot), .copy)
+        XCTAssertEqual(changes, [first])
+        XCTAssertTrue(interaction.prepareForDragOperation(sequenceNumber: 41))
+        XCTAssertTrue(interaction.performDragOperation(sequenceNumber: 41))
+        XCTAssertFalse(interaction.performDragOperation(sequenceNumber: 41))
+        XCTAssertEqual(changes, [first, nil])
+        XCTAssertEqual(performed, [first])
+        XCTAssertEqual(activationCount, 0)
+    }
+
+    func testInvalidExternalDragIsInert() {
+        var changes: [NotionPageDrop?] = []
+        var performed: [NotionPageDrop] = []
+        let interaction = PiPStashHandleInteractionView(
+            pointerLocation: { .zero },
+            onActivate: {},
+            onDragEnded: { _ in },
+            onDropCandidateChanged: { changes.append($0) },
+            onDropPerformed: { performed.append($0) }
+        )
+        let snapshot = PiPStashHandleDragSnapshot(
+            sequenceNumber: 42,
+            candidate: nil,
+            sourceOperationMask: .copy
+        )
+
+        XCTAssertEqual(interaction.draggingEntered(snapshot: snapshot), NSDragOperation())
+        XCTAssertFalse(interaction.prepareForDragOperation(sequenceNumber: 42))
+        XCTAssertFalse(interaction.performDragOperation(sequenceNumber: 42))
+        XCTAssertTrue(changes.isEmpty)
+        XCTAssertTrue(performed.isEmpty)
+    }
+
+    func testExternalDragResetCallbacksClearPreview() throws {
+        let drop = try makeDrop(
+            pageID: "0123456789abcdef0123456789abcdef",
+            sourceLabel: "Roadmap"
+        )
+        let reset: [(PiPStashHandleInteractionView) -> Void] = [
+            { view in view.draggingExited() },
+            { view in view.concludeDragOperation() },
+            { view in view.draggingEnded() }
+        ]
+
+        for resetDrag in reset {
+            var changes: [NotionPageDrop?] = []
+            let interaction = PiPStashHandleInteractionView(
+                pointerLocation: { .zero },
+                onActivate: {},
+                onDragEnded: { _ in },
+                onDropCandidateChanged: { changes.append($0) }
+            )
+            let snapshot = PiPStashHandleDragSnapshot(
+                sequenceNumber: 43,
+                candidate: drop,
+                sourceOperationMask: .copy
+            )
+            XCTAssertEqual(interaction.draggingEntered(snapshot: snapshot), .copy)
+
+            resetDrag(interaction)
+
+            XCTAssertEqual(changes, [drop, nil])
+            XCTAssertFalse(interaction.prepareForDragOperation(sequenceNumber: 43))
+        }
+    }
+
+    func testExternalDragUpdatesAccessibilityWithoutChangingPressBehavior() throws {
+        let drop = try makeDrop(
+            pageID: "0123456789abcdef0123456789abcdef",
+            sourceLabel: "Roadmap"
+        )
+        var activationCount = 0
+        let interaction = PiPStashHandleInteractionView(
+            pointerLocation: { .zero },
+            onActivate: { activationCount += 1 },
+            onDragEnded: { _ in }
+        )
+        let snapshot = PiPStashHandleDragSnapshot(
+            sequenceNumber: 44,
+            candidate: drop,
+            sourceOperationMask: .copy
+        )
+
+        XCTAssertEqual(interaction.draggingEntered(snapshot: snapshot), .copy)
+        XCTAssertEqual(interaction.accessibilityLabel(), "Open Roadmap in Perch")
+        XCTAssertTrue(interaction.accessibilityPerformPress())
+        XCTAssertEqual(activationCount, 1)
+        XCTAssertEqual(
+            interaction.accessibilityCustomActions()?.map(\.name),
+            ["Show recent PiP pages"]
+        )
+
+        interaction.draggingExited()
+
+        XCTAssertEqual(interaction.accessibilityLabel(), "Restore Perch")
+        XCTAssertEqual(
+            interaction.accessibilityHelp(),
+            "Bring the stashed Perch back from the side."
+        )
+    }
+
     func testSmallPointerMovementRemainsARestoreClick() throws {
         let pointer = PointerLocation(CGPoint(x: 10, y: 10))
         var activationCount = 0
@@ -186,6 +325,13 @@ final class PiPStashHandleInteractionTests: XCTestCase {
             )
         )
     }
+
+    private func makeDrop(pageID: String, sourceLabel: String?) throws -> NotionPageDrop {
+        try NotionPageDrop(
+            validating: try XCTUnwrap(URL(string: "https://www.notion.so/Page-\(pageID)")),
+            sourceLabel: sourceLabel
+        )
+    }
 }
 
 @MainActor
@@ -193,6 +339,15 @@ private final class PointerLocation {
     var value: CGPoint
 
     init(_ value: CGPoint) {
+        self.value = value
+    }
+}
+
+@MainActor
+private final class DropCandidate {
+    var value: NotionPageDrop?
+
+    init(_ value: NotionPageDrop?) {
         self.value = value
     }
 }
