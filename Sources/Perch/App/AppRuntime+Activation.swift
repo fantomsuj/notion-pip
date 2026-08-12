@@ -116,6 +116,15 @@ extension AppRuntime {
         activate(page: page, source: source, persist: true, restoration: restoration)
     }
 
+    func activateRecentPage(_ selection: PiPRecentPageSelection) {
+        guard case let .activate(page, restoration) = selection else { return }
+        activate(
+            page: page,
+            source: .pageSwitcher,
+            restoration: restoration
+        )
+    }
+
     func handleOpenURLs(_ urls: [URL]) {
         for (page, source) in pinCoordinator.externalPages(from: urls) {
             activate(page: page, source: .externalRoute(source))

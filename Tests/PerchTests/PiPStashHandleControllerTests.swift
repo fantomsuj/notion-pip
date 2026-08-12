@@ -128,6 +128,49 @@ final class PiPStashHandleControllerTests: XCTestCase {
         XCTAssertTrue(shelfPanel.becomesKeyOnlyIfNeeded)
     }
 
+    func testFocusRequestSurvivesPointerExitDuringDelayedLoad() async throws {
+        let handlePanel = makePanel()
+        let shelfPanel = makePanel()
+        let recent = PiPRecentPagesShelfController(
+            store: ControllerRecentStore(
+                snapshot: try makeSnapshot(count: 2),
+                delay: .milliseconds(40)
+            )
+        )
+        let controller = PiPStashHandleController(
+            visibleFramesProvider: { [self] in visibleFrames },
+            recentPagesController: recent,
+            handlePanel: handlePanel,
+            shelfPanel: shelfPanel,
+            shelfDismissDelay: .zero
+        )
+        present(controller)
+
+        controller.showRecentPages()
+        controller.handleHoverChanged(false)
+        await waitUntil { shelfPanel.isVisible }
+
+        XCTAssertTrue(shelfPanel.isVisible)
+        XCTAssertTrue(shelfPanel.becomesKeyOnlyIfNeeded)
+    }
+
+    func testFocusedShelfSurvivesPointerExitAndDismissesWhenFocusIsLost() async throws {
+        let (controller, _, shelfPanel, _) = try makeController(itemCount: 2)
+        present(controller)
+
+        controller.showRecentPages()
+        await waitUntil { shelfPanel.isVisible }
+        controller.handleHoverChanged(false)
+        controller.shelfHoverChanged(false)
+        await settle()
+
+        XCTAssertTrue(shelfPanel.isVisible)
+
+        controller.shelfDidResignKey()
+
+        XCTAssertFalse(shelfPanel.isVisible)
+    }
+
     func testDragHidesShelfAndSnapsFromHandleFrame() async throws {
         var placements: [PanelStashPlacement] = []
         let (controller, handlePanel, shelfPanel, _) = try makeController(itemCount: 2)
@@ -169,8 +212,42 @@ final class PiPStashHandleControllerTests: XCTestCase {
 
         controller.selectRecentPage(id: snapshot.pages[1].pageID)
 
-        XCTAssertEqual(selections.map(\.page.pageID), [snapshot.pages[1].pageID])
+        let selectedPageIDs = selections.compactMap { selection -> String? in
+            guard case let .activate(page, _) = selection else { return nil }
+            return page.pageID
+        }
+        XCTAssertEqual(selectedPageIDs, [snapshot.pages[1].pageID])
         XCTAssertTrue(handlePanel.isVisible)
+    }
+
+    func testSelectingCurrentRowRestoresWithoutRepinning() async throws {
+        let handlePanel = makePanel()
+        let shelfPanel = makePanel()
+        let snapshot = try makeSnapshot(count: 2)
+        let recent = PiPRecentPagesShelfController(store: ControllerRecentStore(snapshot: snapshot))
+        var restoreCount = 0
+        var selections: [PiPRecentPageSelection] = []
+        let controller = PiPStashHandleController(
+            visibleFramesProvider: { [self] in visibleFrames },
+            recentPagesController: recent,
+            onSelectRecentPage: { selections.append($0) },
+            handlePanel: handlePanel,
+            shelfPanel: shelfPanel,
+            shelfDismissDelay: .zero
+        )
+        controller.present(
+            placement: placement,
+            onRestore: { restoreCount += 1 },
+            onPlacementChange: { _ in }
+        )
+        controller.handleHoverChanged(true)
+        await waitUntil { shelfPanel.isVisible }
+
+        controller.selectRecentPage(id: snapshot.pages[0].pageID)
+
+        XCTAssertEqual(restoreCount, 1)
+        XCTAssertTrue(selections.isEmpty)
+        XCTAssertFalse(shelfPanel.isVisible)
     }
 
     func testOrderOutCancelsPendingLoadHidesPanelsAndClearsPresentationCallbacks() async throws {

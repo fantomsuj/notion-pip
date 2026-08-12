@@ -26,7 +26,7 @@ final class PiPChromeViewTests: XCTestCase {
                 "Move Perch to bottom right",
             ]
         )
-        XCTAssertEqual(PanelCornerControls.minimumHitTarget, 24)
+        XCTAssertEqual(PanelCornerControls.minimumHitTarget, 28)
     }
 
     func testTopToolbarRevealsCornerControlsWithEveryOtherAction() {
@@ -41,6 +41,125 @@ final class PiPChromeViewTests: XCTestCase {
                 showsTopControls: true
             ),
             .expanded
+        )
+    }
+
+    func testTopToolbarStaysVisibleWhilePageSwitcherIsPresented() {
+        XCTAssertEqual(
+            PiPChromeView.topToolbarPresentation(
+                showsTopControls: false,
+                isPageSwitcherPresented: true
+            ),
+            .expanded
+        )
+    }
+
+    func testTopToolbarUsesExpandedSizing() {
+        XCTAssertEqual(PiPChromeView.topControlsHeight, 36)
+        XCTAssertEqual(PiPChromeView.topControlsSpacing, 4)
+        XCTAssertEqual(PanelCornerControls.minimumHitTarget, 28)
+    }
+
+    func testToolbarHoverMotionIsLocalDirectionalAndReducedMotionSafe() {
+        let resting = ToolbarIconMotionPolicy.transform(
+            for: .corner(.topLeft),
+            isHovering: false,
+            reducesMotion: false
+        )
+        let topLeft = ToolbarIconMotionPolicy.transform(
+            for: .corner(.topLeft),
+            isHovering: true,
+            reducesMotion: false
+        )
+        let stash = ToolbarIconMotionPolicy.transform(
+            for: .stash,
+            isHovering: true,
+            reducesMotion: false
+        )
+        let external = ToolbarIconMotionPolicy.transform(
+            for: .external,
+            isHovering: true,
+            reducesMotion: false
+        )
+        let reduced = ToolbarIconMotionPolicy.transform(
+            for: .stash,
+            isHovering: true,
+            reducesMotion: true
+        )
+
+        XCTAssertEqual(resting, .identity)
+        XCTAssertLessThan(topLeft.offset.width, 0)
+        XCTAssertLessThan(topLeft.offset.height, 0)
+        XCTAssertLessThan(stash.scale, 1)
+        XCTAssertGreaterThan(external.offset.width, 0)
+        XCTAssertLessThan(external.offset.height, 0)
+        XCTAssertEqual(reduced, .identity)
+    }
+
+    func testPageStackSeparatesOnlyForPointerHoverWithMotionEnabled() {
+        XCTAssertEqual(
+            ToolbarIconMotionPolicy.pageStackSeparation(
+                isHovering: false,
+                reducesMotion: false
+            ),
+            0
+        )
+        XCTAssertGreaterThan(
+            ToolbarIconMotionPolicy.pageStackSeparation(
+                isHovering: true,
+                reducesMotion: false
+            ),
+            0
+        )
+        XCTAssertEqual(
+            ToolbarIconMotionPolicy.pageStackSeparation(
+                isHovering: true,
+                reducesMotion: true
+            ),
+            0
+        )
+    }
+
+    func testReloadMotionRunsOnceOnlyAfterSuccessfulLoadCompletion() {
+        XCTAssertTrue(
+            ReloadCompletionMotionPolicy.shouldAnimate(
+                isPending: true,
+                previousState: .loading,
+                currentState: .active,
+                reducesMotion: false
+            )
+        )
+        XCTAssertFalse(
+            ReloadCompletionMotionPolicy.shouldAnimate(
+                isPending: false,
+                previousState: .loading,
+                currentState: .active,
+                reducesMotion: false
+            )
+        )
+        XCTAssertFalse(
+            ReloadCompletionMotionPolicy.shouldAnimate(
+                isPending: true,
+                previousState: .loading,
+                currentState: .loading,
+                reducesMotion: false
+            )
+        )
+        XCTAssertFalse(
+            ReloadCompletionMotionPolicy.shouldAnimate(
+                isPending: true,
+                previousState: .loading,
+                currentState: .failed("Network"),
+                reducesMotion: false
+            )
+        )
+        XCTAssertFalse(
+            ReloadCompletionMotionPolicy.shouldAnimate(
+                isPending: true,
+                previousState: .loading,
+                currentState: .active,
+                reducesMotion: true
+            )
         )
     }
 

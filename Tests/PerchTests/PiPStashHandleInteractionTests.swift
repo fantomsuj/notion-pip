@@ -56,6 +56,7 @@ final class PiPStashHandleInteractionTests: XCTestCase {
         let interaction = PiPStashHandleInteractionView(
             pointerLocation: { pointer.value },
             side: .right,
+            reducesMotion: { false },
             onActivate: { activationCount += 1 },
             onDragEnded: { completedFrames.append($0) },
             onPullRevealChanged: { revealDistances.append($0) },
@@ -71,29 +72,63 @@ final class PiPStashHandleInteractionTests: XCTestCase {
         interaction.mouseDragged(with: try mouseEvent(.leftMouseDragged))
         interaction.mouseUp(with: try mouseEvent(.leftMouseUp))
 
-        XCTAssertEqual(window.frame.origin, CGPoint(x: 20, y: 100))
+        XCTAssertEqual(window.frame.origin.x, 17, accuracy: 0.1)
+        XCTAssertEqual(window.frame.origin.y, 100)
         XCTAssertEqual(revealDistances, [80])
         XCTAssertEqual(endedDistances, [80])
         XCTAssertEqual(activationCount, 0)
         XCTAssertTrue(completedFrames.isEmpty)
     }
 
-    func testAccessibilityPressRestoresWithoutDragging() {
+    func testInwardDragResistsThenSnapsAndPerformsThresholdFeedbackOnce() throws {
+        let pointer = PointerLocation(CGPoint(x: 100, y: 10))
+        var thresholdFeedbackCount = 0
+        let interaction = PiPStashHandleInteractionView(
+            pointerLocation: { pointer.value },
+            side: .right,
+            pullRevealTravel: 150,
+            reducesMotion: { false },
+            performThresholdFeedback: { thresholdFeedbackCount += 1 },
+            onActivate: {},
+            onDragEnded: { _ in }
+        )
+        let window = makeWindow(contentView: interaction)
+
+        interaction.mouseDown(with: try mouseEvent(.leftMouseDown))
+        pointer.value = CGPoint(x: 38.5, y: 10)
+        interaction.mouseDragged(with: try mouseEvent(.leftMouseDragged))
+        let resistedOrigin = window.frame.origin.x
+
+        pointer.value = CGPoint(x: 37, y: 10)
+        interaction.mouseDragged(with: try mouseEvent(.leftMouseDragged))
+        let snappedOrigin = window.frame.origin.x
+
+        pointer.value = CGPoint(x: 20, y: 10)
+        interaction.mouseDragged(with: try mouseEvent(.leftMouseDragged))
+
+        XCTAssertGreaterThan(resistedOrigin, 38.5)
+        XCTAssertLessThan(snappedOrigin, resistedOrigin - 8)
+        XCTAssertEqual(thresholdFeedbackCount, 1)
+    }
+
+    func testAccessibilityPressRestoresAndCustomActionShowsRecentPages() throws {
         var activationCount = 0
+        var showRecentCount = 0
         let interaction = PiPStashHandleInteractionView(
             pointerLocation: { .zero },
             onActivate: { activationCount += 1 },
-            onDragEnded: { _ in }
+            onDragEnded: { _ in },
+            onShowRecentPages: { showRecentCount += 1 }
         )
 
         XCTAssertTrue(interaction.accessibilityPerformPress())
         XCTAssertEqual(activationCount, 1)
         XCTAssertEqual(interaction.accessibilityRole(), .button)
         XCTAssertEqual(interaction.accessibilityLabel(), "Restore Perch")
-        XCTAssertEqual(
-            interaction.accessibilityCustomActions()?.map(\.name),
-            ["Show recent PiP pages"]
-        )
+        let recentPagesAction = try XCTUnwrap(interaction.accessibilityCustomActions()?.first)
+        XCTAssertEqual(recentPagesAction.name, "Show recent PiP pages")
+        XCTAssertTrue(try XCTUnwrap(recentPagesAction.handler)())
+        XCTAssertEqual(showRecentCount, 1)
     }
 
     func testHoverAndSecondaryClickReportRecentPagesIntentWithoutRestoring() throws {

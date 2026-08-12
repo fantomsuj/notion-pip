@@ -4,25 +4,40 @@ import OSLog
 @main
 enum PerchApp {
     static func main() {
-        let coldLaunchToken = AppPerformanceSignposter.shared.begin(.coldLaunchToReady)
-        let composition = AppComposition()
-        let appDelegate = AppDelegate()
-        let application = NSApplication.shared
-        application.delegate = appDelegate
-        application.mainMenu = AppMainMenuFactory.make()
-        AppStartup.start(
-            runtime: composition.runtime,
-            appDelegate: appDelegate,
-            coldLaunchToken: coldLaunchToken,
-            applicationDidFinishLaunching: {
-                composition.onboardingCoordinator.showIfNeeded()
-            },
-            quickCopyTerminationAction: {
-                composition.quickCopyController.prepareForTermination()
-            }
-        )
-        withExtendedLifetime(composition) {
-            application.run()
+        do {
+            try ApplicationLaunch.run(
+                claimInstance: {
+                    try ApplicationInstanceCoordinator().claim()
+                },
+                prepareApplication: {
+                    let coldLaunchToken = AppPerformanceSignposter.shared.begin(
+                        .coldLaunchToReady
+                    )
+                    return (AppComposition(), coldLaunchToken)
+                },
+                runApplication: { preparedApplication, _ in
+                    let (composition, coldLaunchToken) = preparedApplication
+                    let appDelegate = AppDelegate()
+                    let application = NSApplication.shared
+                    application.delegate = appDelegate
+                    application.mainMenu = AppMainMenuFactory.make()
+                    AppStartup.start(
+                        runtime: composition.runtime,
+                        appDelegate: appDelegate,
+                        coldLaunchToken: coldLaunchToken,
+                        applicationDidFinishLaunching: {
+                            composition.onboardingCoordinator.showIfNeeded()
+                        },
+                        quickCopyTerminationAction: {
+                            composition.quickCopyController.prepareForTermination()
+                        }
+                    )
+                    application.run()
+                }
+            )
+        } catch {
+            Logger(subsystem: "com.fantomsuj.Perch", category: "lifecycle")
+                .fault("Unable to claim the application instance lock")
         }
     }
 }
@@ -104,8 +119,11 @@ private final class AppComposition {
         )
         let pageSwitcherController = PageSwitcherController(store: pageRepository)
         let pageSwitcherRelay = PageSwitcherSelectionRelay()
-        let recentPagesController = PiPRecentPagesShelfController(store: pageRepository)
         let recentPageSelectionRelay = PiPRecentPageSelectionRelay()
+        let recentPagesController = PiPRecentPagesShelfController(
+            store: pageRepository,
+            currentPageProvider: recentPageSelectionRelay.currentPage
+        )
         let stashHandle = PiPStashHandleController(
             recentPagesController: recentPagesController,
             onSelectRecentPage: recentPageSelectionRelay.perform
@@ -166,11 +184,10 @@ private final class AppComposition {
             )
         }
         recentPageSelectionRelay.handler = { [weak runtime] selection in
-            runtime?.activate(
-                page: selection.page,
-                source: .pageSwitcher,
-                restoration: selection.restoration
-            )
+            runtime?.activateRecentPage(selection)
+        }
+        recentPageSelectionRelay.currentPageProvider = { [weak runtime] in
+            runtime?.activePage
         }
 
         let settingsWindowPresenter = SettingsWindowPresenter { closeHandler in
@@ -234,8 +251,13 @@ private final class PageSwitcherSelectionRelay {
 @MainActor
 private final class PiPRecentPageSelectionRelay {
     var handler: (PiPRecentPageSelection) -> Void = { _ in }
+    var currentPageProvider: () -> NotionPageReference? = { nil }
 
     func perform(_ selection: PiPRecentPageSelection) {
         handler(selection)
+    }
+
+    func currentPage() -> NotionPageReference? {
+        currentPageProvider()
     }
 }

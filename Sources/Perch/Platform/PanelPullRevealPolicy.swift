@@ -2,6 +2,9 @@ import CoreGraphics
 
 enum PanelPullRevealPolicy {
     static let restoreThreshold: CGFloat = 0.42
+    private static let resistanceStart: CGFloat = 0.32
+    private static let resistedThresholdProgress: CGFloat = 0.365
+    private static let snappedThresholdProgress: CGFloat = 0.44
 
     static func inwardDistance(forHorizontalDelta deltaX: CGFloat, side: PanelStashSide) -> CGFloat {
         max(side == .left ? deltaX : -deltaX, 0)
@@ -17,6 +20,37 @@ enum PanelPullRevealPolicy {
 
     static func shouldRestore(progress: CGFloat) -> Bool {
         progress >= restoreThreshold
+    }
+
+    /// Maps pointer progress to a physical-feeling reveal while preserving the raw
+    /// progress for the final commit decision. The panel begins to resist shortly
+    /// before the commit threshold, then advances by a small perceptible snap when
+    /// the threshold is crossed.
+    static func interactiveProgress(
+        forRawProgress rawProgress: CGFloat,
+        reducesMotion: Bool
+    ) -> CGFloat {
+        let rawProgress = min(max(rawProgress, 0), 1)
+        guard !reducesMotion else { return rawProgress }
+
+        if rawProgress < resistanceStart {
+            return rawProgress
+        }
+        if rawProgress < restoreThreshold {
+            let intervalProgress = (rawProgress - resistanceStart)
+                / (restoreThreshold - resistanceStart)
+            return resistanceStart
+                + intervalProgress * (resistedThresholdProgress - resistanceStart)
+        }
+
+        let intervalProgress = (rawProgress - restoreThreshold)
+            / (1 - restoreThreshold)
+        return snappedThresholdProgress
+            + intervalProgress * (1 - snappedThresholdProgress)
+    }
+
+    static func crossedRestoreThreshold(from previous: CGFloat, to current: CGFloat) -> Bool {
+        previous < restoreThreshold && current >= restoreThreshold
     }
 
     static func hiddenFrame(

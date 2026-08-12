@@ -50,14 +50,19 @@ final class PiPRecentPagesShelfTests: XCTestCase {
         )
         await controller.load()
 
-        let selection = try XCTUnwrap(controller.selection(for: snapshot.pages[1].pageID.uppercased()))
+        let selection = try XCTUnwrap(
+            controller.selection(for: snapshot.pages[1].pageID.uppercased())
+        )
+        guard case let .activate(page, restoration) = selection else {
+            return XCTFail("Expected a recent-page activation")
+        }
 
-        XCTAssertEqual(selection.page.pageID, snapshot.pages[1].pageID)
-        XCTAssertEqual(selection.restoration, snapshot.restorations.first)
+        XCTAssertEqual(page.pageID, snapshot.pages[1].pageID)
+        XCTAssertEqual(restoration, snapshot.restorations.first)
     }
 
     @MainActor
-    func testSelectionForCurrentPageStillReturnsSelection() async throws {
+    func testSelectionForCurrentPageReturnsRestoreOnlyAction() async throws {
         let snapshot = try makeRecentSnapshot(count: 2, activeIndex: 0)
         let controller = PiPRecentPagesShelfController(
             store: RecentPagesStore(snapshot: snapshot),
@@ -66,10 +71,65 @@ final class PiPRecentPagesShelfTests: XCTestCase {
         )
         await controller.load()
 
-        XCTAssertEqual(
-            controller.selection(for: snapshot.pages[0].pageID)?.page.pageID,
-            snapshot.pages[0].pageID
+        XCTAssertEqual(controller.selection(for: snapshot.pages[0].pageID), .restoreCurrent)
+    }
+
+    @MainActor
+    func testLiveCurrentPageOverridesStalePersistedActivePageAndIsInserted() async throws {
+        let snapshot = try makeRecentSnapshot(count: 2, activeIndex: 0)
+        let livePage = try NotionPageReference(
+            validating: XCTUnwrap(
+                URL(string: "https://www.notion.so/Live-page-\(pageID(7))")
+            )
         )
+        let controller = PiPRecentPagesShelfController(
+            store: RecentPagesStore(snapshot: snapshot),
+            clock: TestDateProvider(Date(timeIntervalSince1970: 10_000)),
+            timeZone: utc,
+            currentPageProvider: { livePage }
+        )
+
+        await controller.load()
+
+        XCTAssertEqual(controller.items.first?.page.pageID, livePage.pageID)
+        XCTAssertEqual(controller.items.filter(\.isCurrent).map(\.page.pageID), [livePage.pageID])
+        XCTAssertEqual(controller.selection(for: livePage.pageID), .restoreCurrent)
+        XCTAssertFalse(controller.items[1].isCurrent)
+    }
+
+    @MainActor
+    func testSelectionPreservesRecoveredTitleFromStoredSnapshot() async throws {
+        let bareURL = try XCTUnwrap(URL(string: "https://www.notion.so/\(pageID(1))"))
+        let current = StoredPageSnapshot(
+            pageID: pageID(0),
+            canonicalURL: try pageURL(0),
+            displayTitle: "Current",
+            timestamp: Date(timeIntervalSince1970: 10_000)
+        )
+        let recovered = StoredPageSnapshot(
+            pageID: pageID(1),
+            canonicalURL: bareURL,
+            displayTitle: "Recovered title",
+            timestamp: Date(timeIntervalSince1970: 9_000)
+        )
+        let controller = PiPRecentPagesShelfController(
+            store: RecentPagesStore(
+                snapshot: PiPRecentPagesSnapshot(
+                    activePageID: current.pageID,
+                    pages: [current, recovered],
+                    restorations: []
+                )
+            )
+        )
+
+        await controller.load()
+
+        guard case let .activate(page, restoration) = controller.selection(for: recovered.pageID)
+        else {
+            return XCTFail("Expected a recent-page activation")
+        }
+        XCTAssertEqual(page.displayTitle, "Recovered title")
+        XCTAssertNil(restoration)
     }
 
     @MainActor
