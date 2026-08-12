@@ -56,6 +56,7 @@ final class PiPChromeViewTests: XCTestCase {
 
     func testTopToolbarUsesExpandedSizing() {
         XCTAssertEqual(PiPChromeView.topControlsHeight, 36)
+        XCTAssertEqual(PiPChromeView.topControlsSpacing, 4)
         XCTAssertEqual(PanelCornerControls.minimumHitTarget, 28)
     }
 

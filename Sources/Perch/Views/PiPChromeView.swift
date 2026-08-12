@@ -16,6 +16,7 @@ struct PiPChromeView: View {
     static let stashHelp = "Move Perch to the nearest screen edge"
     static let pageSwitcherAccessibilityLabel = "Switch Notion page"
     static let topControlsHeight: CGFloat = 36
+    static let topControlsSpacing = DesignTokens.Spacing.compact
     static let topControlsRevealHeight: CGFloat = 8
     static let topControlsHoverOutset: CGFloat = 12
 
@@ -262,7 +263,7 @@ struct PiPChromeView: View {
     }
 
     private var expandedTopControls: some View {
-        HStack(spacing: DesignTokens.Spacing.control) {
+        HStack(spacing: Self.topControlsSpacing) {
             if webSession.state == .loading {
                 ProgressView()
                     .controlSize(.small)
