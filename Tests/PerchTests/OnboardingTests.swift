@@ -19,11 +19,19 @@ final class OnboardingPreferenceStoreTests: XCTestCase {
 }
 
 final class OnboardingContentTests: XCTestCase {
+    func testPinPageStepDirectsPeopleToTheInlinePageInput() {
+        XCTAssertTrue(OnboardingStep.pinPage.detail.contains("below"))
+        XCTAssertTrue(OnboardingStep.pinPage.detail.contains("pin it now"))
+        XCTAssertFalse(OnboardingStep.pinPage.detail.contains("Settings"))
+    }
+
     func testPanelControlsStepExplainsDiscoveryAndTitleBarMaximizeGesture() {
         XCTAssertEqual(OnboardingStep.allCases.count, 5)
         XCTAssertEqual(OnboardingStep.panelControls.sidebarTitle, "Panel controls")
         XCTAssertTrue(OnboardingStep.panelControls.detail.contains("top edge"))
         XCTAssertTrue(OnboardingStep.panelControls.detail.contains("corner arrows"))
+        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("centered toolbar"))
+        XCTAssertFalse(OnboardingStep.panelControls.detail.contains("stay visible"))
         XCTAssertTrue(OnboardingStep.panelControls.detail.contains("Double-click"))
         XCTAssertTrue(OnboardingStep.panelControls.detail.contains("maximize"))
     }
@@ -42,7 +50,7 @@ final class OnboardingContentTests: XCTestCase {
         )
     }
 
-    func testPanelControlsStepUsesEveryPersistentCornerArrow() {
+    func testPanelControlsStepUsesEveryCornerArrow() {
         XCTAssertEqual(
             PanelCorner.allCases.map(\.symbolName),
             [

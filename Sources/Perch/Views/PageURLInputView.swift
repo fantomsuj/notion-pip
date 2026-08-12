@@ -30,27 +30,3 @@ struct PageURLInputView: View {
         }
     }
 }
-
-struct PageURLInputWindowContent: View {
-    @ObservedObject var state: PageURLInputState
-    let onSubmit: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.Spacing.section) {
-            VStack(alignment: .leading, spacing: DesignTokens.Spacing.compact) {
-                Text("Pin a Notion page")
-                    .font(.headline)
-                    .foregroundStyle(DesignTokens.Colors.primaryText)
-
-                Text("Paste a full Notion page URL.")
-                    .font(.callout)
-                    .foregroundStyle(DesignTokens.Colors.secondaryText)
-            }
-
-            PageURLInputView(state: state, onSubmit: onSubmit)
-        }
-        .padding(DesignTokens.Spacing.container)
-        .frame(width: 440)
-        .background(DesignTokens.Colors.background)
-    }
-}

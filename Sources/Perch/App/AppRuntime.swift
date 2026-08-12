@@ -39,7 +39,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let peekFocusRestorer: any PeekFocusRestoring
     let performanceSignposter: any PerformanceSignposting
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
-    let pageURLInputPresenter: any PageURLInputPresenting
+    private let pageURLInputPresenter: (any PageURLInputPresenting)?
     let pageRepository: (any PageWorkingSetPersisting)?
     let automaticSettingsPresentationAllowed: @MainActor () -> Bool
     weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
@@ -84,18 +84,14 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             }
     ) {
         let inputState = PageURLInputState()
-        let submissionRelay = PageURLInputSubmissionRelay()
-        let inputPresenter = pageURLInputPresenter ?? PageURLInputPresenter(
-            state: inputState,
-            onSubmit: submissionRelay.submit
-        )
+        let inputRequestRelay = PageURLInputRequestRelay()
 
         pageURLInputState = inputState
-        self.pageURLInputPresenter = inputPresenter
+        self.pageURLInputPresenter = pageURLInputPresenter
         pinCoordinator = PinCoordinator(
             panelCoordinator: panelCoordinator ?? PiPPanelCoordinator(),
             pasteboard: pasteboard,
-            requestPageURLFocus: inputPresenter.presentAndFocus
+            requestPageURLFocus: inputRequestRelay.request
         )
         self.shortcutRegistrar = shortcutRegistrar
         self.shortcutStore = shortcutStore
@@ -122,8 +118,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         pinCoordinator.onExternalPresentationAction = { [weak self] in
             self?.cancelShortcutGesture(restashTransientPanel: false)
         }
-        submissionRelay.handler = { [weak self] in
-            self?.validatePageURL()
+        inputRequestRelay.handler = { [weak self] in
+            self?.presentPageURLInput()
         }
     }
 
@@ -142,6 +138,15 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
     func bind(settingsWindowPresenter: any SettingsWindowPresenting) {
         self.settingsWindowPresenter = settingsWindowPresenter
+    }
+
+    func presentPageURLInput() {
+        if let pageURLInputPresenter {
+            pageURLInputPresenter.presentAndFocus()
+            return
+        }
+        settingsWindowPresenter?.show()
+        pageURLInputState.requestFocus()
     }
 
     func retryRecovery(for issue: ServiceHealthIssue) {
@@ -223,10 +228,10 @@ private struct MenuBarIconState {
 }
 
 @MainActor
-private final class PageURLInputSubmissionRelay {
-    var handler: () -> Void = {}
+private final class PageURLInputRequestRelay {
+    var handler: (@MainActor () -> Void)?
 
-    func submit() {
-        handler()
+    func request() {
+        handler?()
     }
 }

@@ -5,6 +5,8 @@ import SwiftUI
 enum AppWindowFactory {
     static func makeOnboarding(
         globalShortcut: GlobalShortcut,
+        pageURLInputState: PageURLInputState,
+        onPinPage: @escaping @MainActor () -> Void,
         onComplete: @escaping @MainActor () -> Void,
         onOpenSettings: @escaping @MainActor () -> Void
     ) -> AppWindowPresenter {
@@ -14,6 +16,8 @@ enum AppWindowFactory {
             content: AnyView(
                 OnboardingView(
                     globalShortcut: globalShortcut,
+                    pageURLInputState: pageURLInputState,
+                    onPinPage: onPinPage,
                     onComplete: onComplete,
                     onOpenSettings: onOpenSettings
                 )
