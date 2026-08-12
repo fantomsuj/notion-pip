@@ -1796,6 +1796,89 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(session.activePage?.pageID, secondPageID)
     }
 
+    func testSamePageSlugResolutionPublishesRecoveredTitle() throws {
+        var resolvedPages: [NotionPageReference] = []
+        let session = NotionWebSession()
+        session.onPageResolved = { resolvedPages.append($0) }
+        let barePage = try NotionPageReference(
+            validating: XCTUnwrap(URL(string: "https://www.notion.so/\(firstPageID)"))
+        )
+        session.activate(page: barePage)
+        let webView = try XCTUnwrap(session.webView)
+
+        webView.load(
+            URLRequest(
+                url: try XCTUnwrap(
+                    URL(string: "https://www.notion.so/Project-Roadmap-\(firstPageID)?pvs=4")
+                )
+            )
+        )
+
+        XCTAssertEqual(resolvedPages.map(\.displayTitle), ["Project Roadmap"])
+        XCTAssertEqual(session.activePage?.displayTitle, "Project Roadmap")
+    }
+
+    func testFinishedBarePagePublishesDocumentTitle() throws {
+        let barePage = try NotionPageReference(
+            validating: XCTUnwrap(URL(string: "https://www.notion.so/\(firstPageID)"))
+        )
+        let webView = TrustedURLWebView(
+            url: barePage.canonicalURL,
+            title: " Project Roadmap | Notion "
+        )
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in }
+        )
+        var resolvedPages: [NotionPageReference] = []
+        session.onPageResolved = { resolvedPages.append($0) }
+        session.activate(page: barePage)
+
+        session.webView(webView, didFinish: nil)
+
+        XCTAssertEqual(resolvedPages.map(\.displayTitle), ["Project Roadmap"])
+        XCTAssertEqual(session.activePage?.displayTitle, "Project Roadmap")
+    }
+
+    func testSamePageBareRouteDoesNotDiscardKnownTitle() throws {
+        var resolvedPages: [NotionPageReference] = []
+        let session = NotionWebSession()
+        session.onPageResolved = { resolvedPages.append($0) }
+        let namedPage = try makePage(id: firstPageID, title: "Project-Roadmap")
+        session.activate(page: namedPage)
+        let webView = try XCTUnwrap(session.webView)
+
+        webView.load(
+            URLRequest(
+                url: try XCTUnwrap(URL(string: "https://www.notion.so/\(firstPageID)"))
+            )
+        )
+
+        XCTAssertEqual(resolvedPages.map(\.displayTitle), ["Project Roadmap"])
+        XCTAssertEqual(session.activePage?.displayTitle, "Project Roadmap")
+    }
+
+    func testBarePageTitleChangePublishesMetadataWithoutEndingEditorActivity() throws {
+        let barePage = try NotionPageReference(
+            validating: XCTUnwrap(URL(string: "https://www.notion.so/\(firstPageID)"))
+        )
+        let webView = TrustedURLWebView(url: barePage.canonicalURL)
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in }
+        )
+        var resolvedPages: [NotionPageReference] = []
+        session.onPageResolved = { resolvedPages.append($0) }
+        session.activate(page: barePage)
+        session.handleEditorActivity(.typingStarted)
+
+        webView.publishTitle("Project Roadmap | Notion")
+
+        XCTAssertEqual(resolvedPages.map(\.displayTitle), ["Project Roadmap"])
+        XCTAssertEqual(session.activePage?.displayTitle, "Project Roadmap")
+        XCTAssertTrue(session.isTypingInPage)
+    }
+
     func testAppHostSPAURLChangeAdoptsCanonicalPage() throws {
         var resolvedPages: [NotionPageReference] = []
         let session = NotionWebSession()
@@ -2261,9 +2344,11 @@ private final class InteractionStateSentinel {}
 
 private final class TrustedURLWebView: WKWebView {
     private let trustedURL: URL
+    private var documentTitle: String?
 
-    init(url: URL) {
+    init(url: URL, title: String? = nil) {
         trustedURL = url
+        documentTitle = title
         super.init(frame: .zero, configuration: WKWebViewConfiguration())
     }
 
@@ -2274,6 +2359,16 @@ private final class TrustedURLWebView: WKWebView {
 
     override var url: URL? {
         trustedURL
+    }
+
+    override var title: String? {
+        documentTitle
+    }
+
+    func publishTitle(_ title: String?) {
+        willChangeValue(forKey: "title")
+        documentTitle = title
+        didChangeValue(forKey: "title")
     }
 }
 
