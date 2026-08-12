@@ -73,7 +73,7 @@ final class StatusItemController: NSObject {
         button.imagePosition = .imageOnly
         button.toolTip = "Perch"
         button.setAccessibilityLabel("Perch")
-        button.setAccessibilityHelp("Open commands for the pinned Notion page and app.")
+        button.setAccessibilityHelp("Open commands for the current Notion page and app.")
         button.target = self
         button.action = #selector(handleStatusItemAction(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])

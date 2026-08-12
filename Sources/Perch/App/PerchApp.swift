@@ -201,14 +201,13 @@ private final class AppComposition {
         let onboardingCoordinator = OnboardingCoordinator(
             preferenceStore: onboardingPreferenceStore,
             settingsWindowPresenter: settingsWindowPresenter,
-            firstPageHandoff: { [weak runtime] in
-                runtime?.presentPageURLInputAfterRestoreIfNeeded()
-            },
-            makeWindowPresenter: { completion, openSettings in
+            openCurrentPage: runtime.validatePageURL,
+            onFinish: runtime.suppressAutomaticCurrentPageSetup,
+            makeWindowPresenter: { openPage, completion, openSettings in
                 AppWindowFactory.makeOnboarding(
                     globalShortcut: runtime.globalShortcut,
                     pageURLInputState: runtime.pageURLInputState,
-                    onPinPage: runtime.validatePageURL,
+                    onPinPage: openPage,
                     onComplete: completion,
                     onOpenSettings: openSettings
                 )

@@ -19,12 +19,6 @@ final class OnboardingPreferenceStoreTests: XCTestCase {
 }
 
 final class OnboardingContentTests: XCTestCase {
-    func testPinPageStepDirectsPeopleToTheInlinePageInput() {
-        XCTAssertTrue(OnboardingStep.pinPage.detail.contains("below"))
-        XCTAssertTrue(OnboardingStep.pinPage.detail.contains("pin it now"))
-        XCTAssertFalse(OnboardingStep.pinPage.detail.contains("Settings"))
-    }
-
     func testPanelControlsStepExplainsDiscoveryAndTitleBarMaximizeGesture() {
         XCTAssertEqual(OnboardingStep.allCases.count, 5)
         XCTAssertEqual(OnboardingStep.panelControls.sidebarTitle, "Panel controls")
@@ -42,7 +36,7 @@ final class OnboardingContentTests: XCTestCase {
             [
                 "New Notion page",
                 "Switch page",
-                "Reload pinned page",
+                "Reload current page",
                 "Open in browser",
                 "App menu & sizes",
                 "Stash to edge",
@@ -97,20 +91,20 @@ final class OnboardingCoordinatorTests: XCTestCase {
         harness.complete?()
 
         XCTAssertEqual(harness.presenter.hideCount, 1)
+        XCTAssertEqual(harness.finish.finishCount, 1)
         XCTAssertFalse(harness.store.shouldPresent(version: OnboardingCoordinator.currentVersion))
 
         harness.coordinator.showIfNeeded()
         XCTAssertEqual(harness.presenter.showCount, 1)
     }
 
-    func testCompletingRequestsFirstPageHandoff() throws {
+    func testCompletingDoesNotOpenAnotherSetupSurface() throws {
         let harness = try makeHarness()
         harness.coordinator.showIfNeeded()
 
         harness.complete?()
 
         XCTAssertEqual(harness.presenter.hideCount, 1)
-        XCTAssertEqual(harness.firstPageHandoff.performCount, 1)
         XCTAssertFalse(harness.store.shouldPresent(version: OnboardingCoordinator.currentVersion))
     }
 
@@ -122,8 +116,30 @@ final class OnboardingCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(harness.presenter.hideCount, 1)
         XCTAssertEqual(harness.settings.showCount, 1)
-        XCTAssertEqual(harness.firstPageHandoff.performCount, 0)
+        XCTAssertEqual(harness.finish.finishCount, 1)
         XCTAssertFalse(harness.store.shouldPresent(version: OnboardingCoordinator.currentVersion))
+    }
+
+    func testSuccessfulPageOpeningCompletesAndClosesOnboarding() throws {
+        let harness = try makeHarness(pageOpeningSucceeds: true)
+        harness.coordinator.showIfNeeded()
+
+        harness.openPage?()
+
+        XCTAssertEqual(harness.presenter.hideCount, 1)
+        XCTAssertEqual(harness.finish.finishCount, 1)
+        XCTAssertFalse(harness.store.shouldPresent(version: OnboardingCoordinator.currentVersion))
+    }
+
+    func testFailedPageOpeningLeavesOnboardingOpen() throws {
+        let harness = try makeHarness(pageOpeningSucceeds: false)
+        harness.coordinator.showIfNeeded()
+
+        harness.openPage?()
+
+        XCTAssertEqual(harness.presenter.hideCount, 0)
+        XCTAssertEqual(harness.finish.finishCount, 0)
+        XCTAssertTrue(harness.store.shouldPresent(version: OnboardingCoordinator.currentVersion))
     }
 
     func testReplayAlwaysPresentsWithoutResettingCompletion() throws {
@@ -135,7 +151,10 @@ final class OnboardingCoordinatorTests: XCTestCase {
         XCTAssertFalse(harness.store.shouldPresent(version: OnboardingCoordinator.currentVersion))
     }
 
-    private func makeHarness(completedVersion: Int? = nil) throws -> OnboardingHarness {
+    private func makeHarness(
+        completedVersion: Int? = nil,
+        pageOpeningSucceeds: Bool = false
+    ) throws -> OnboardingHarness {
         let defaultsName = "OnboardingCoordinatorTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
         defaults.removePersistentDomain(forName: defaultsName)
@@ -145,14 +164,17 @@ final class OnboardingCoordinatorTests: XCTestCase {
         }
         let presenter = OnboardingWindowPresenterSpy()
         let settings = OnboardingSettingsPresenterSpy()
-        let firstPageHandoff = OnboardingFirstPageHandoffSpy()
+        let finish = OnboardingFinishSpy()
+        var openPage: (() -> Void)?
         var complete: (() -> Void)?
         var openSettings: (() -> Void)?
         let coordinator = OnboardingCoordinator(
             preferenceStore: store,
             settingsWindowPresenter: settings,
-            firstPageHandoff: firstPageHandoff.perform,
-            makeWindowPresenter: { completion, settingsAction in
+            openCurrentPage: { pageOpeningSucceeds },
+            onFinish: finish.perform,
+            makeWindowPresenter: { pageAction, completion, settingsAction in
+                openPage = pageAction
                 complete = completion
                 openSettings = settingsAction
                 return presenter
@@ -163,7 +185,8 @@ final class OnboardingCoordinatorTests: XCTestCase {
             store: store,
             presenter: presenter,
             settings: settings,
-            firstPageHandoff: firstPageHandoff,
+            finish: finish,
+            openPage: { openPage?() },
             complete: { complete?() },
             openSettings: { openSettings?() }
         )
@@ -176,7 +199,8 @@ private struct OnboardingHarness {
     let store: OnboardingPreferenceStore
     let presenter: OnboardingWindowPresenterSpy
     let settings: OnboardingSettingsPresenterSpy
-    let firstPageHandoff: OnboardingFirstPageHandoffSpy
+    let finish: OnboardingFinishSpy
+    let openPage: (() -> Void)?
     let complete: (() -> Void)?
     let openSettings: (() -> Void)?
 }
@@ -198,8 +222,8 @@ private final class OnboardingSettingsPresenterSpy: SettingsWindowPresenting {
 }
 
 @MainActor
-private final class OnboardingFirstPageHandoffSpy {
-    private(set) var performCount = 0
+private final class OnboardingFinishSpy {
+    private(set) var finishCount = 0
 
-    func perform() { performCount += 1 }
+    func perform() { finishCount += 1 }
 }

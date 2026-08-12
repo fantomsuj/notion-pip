@@ -39,7 +39,7 @@ private extension ServiceHealthIssue {
         case .persistentStoreUnavailable:
             "Local storage is unavailable"
         case .pinnedPagePersistenceUnavailable:
-            "Pinned page is not being saved"
+            "Current page is not being saved"
         case .globalShortcutUnavailable:
             "Global shortcut is unavailable"
         }
@@ -48,7 +48,7 @@ private extension ServiceHealthIssue {
     var recoveryMessage: String {
         switch self {
         case .persistentStoreUnavailable:
-            "Pinned-page recovery is disabled. Quit and reopen the app to retry."
+            "Current-page recovery is disabled. Quit and reopen the app to retry."
         case .pinnedPagePersistenceUnavailable:
             "Your current page works for this session. Retry saving it locally."
         case .globalShortcutUnavailable:

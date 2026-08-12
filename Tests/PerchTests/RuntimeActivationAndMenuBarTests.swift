@@ -63,12 +63,10 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         let pasteboard = RuntimePasteboard(
             value: "https://www.notion.so/Notes-\(secondPageID)"
         )
-        let presenter = RuntimePageURLInputPresenter()
         let runtime = makeRuntime(
             panel: panel,
             pasteboard: pasteboard,
-            shortcutRegistrar: shortcut,
-            pageURLInputPresenter: presenter
+            shortcutRegistrar: shortcut
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         runtime.activate(page: page, source: .typedURL)
@@ -81,19 +79,16 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertEqual(panel.currentPage, page)
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
         XCTAssertEqual(pasteboard.readCount, 0)
-        XCTAssertEqual(presenter.presentAndFocusCount, 0)
     }
 
     func testShortcutStashesVisiblePinnedPanel() throws {
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
         let pasteboard = RuntimePasteboard(value: nil)
-        let presenter = RuntimePageURLInputPresenter()
         let runtime = makeRuntime(
             panel: panel,
             pasteboard: pasteboard,
-            shortcutRegistrar: shortcut,
-            pageURLInputPresenter: presenter
+            shortcutRegistrar: shortcut
         )
         let page = try makePage(id: firstPageID, title: "Roadmap")
         runtime.activate(page: page, source: .typedURL)
@@ -106,7 +101,6 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertEqual(panel.currentPage, page)
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
         XCTAssertEqual(pasteboard.readCount, 0)
-        XCTAssertEqual(presenter.presentAndFocusCount, 0)
     }
 
     func testShortcutStashesExpandedPiPImmediately() throws {
@@ -144,22 +138,23 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertEqual(panel.shownPages, [page])
     }
 
-    func testShortcutPresentsAndFocusesURLInputWhenNoPageIsPinned() {
+    func testShortcutPresentsSettingsAndFocusesURLInputWhenNoPageIsAvailable() {
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
         let pasteboard = RuntimePasteboard(value: nil)
-        let presenter = RuntimePageURLInputPresenter()
+        let settings = RuntimeSettingsWindowPresenter()
         let runtime = makeRuntime(
             panel: panel,
             pasteboard: pasteboard,
-            shortcutRegistrar: shortcut,
-            pageURLInputPresenter: presenter
+            shortcutRegistrar: shortcut
         )
+        runtime.bind(settingsWindowPresenter: settings)
         runtime.start()
 
         shortcut.handler?()
 
-        XCTAssertEqual(presenter.presentAndFocusCount, 1)
+        XCTAssertEqual(settings.showCount, 1)
+        XCTAssertEqual(runtime.pageURLFocusRequest, 1)
         XCTAssertEqual(pasteboard.readCount, 0)
         XCTAssertNil(panel.currentPage)
         XCTAssertFalse(panel.isVisible)
@@ -261,12 +256,34 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
     func testStatusMenuContextActionWithoutCurrentPageShowsSettings() {
         let panel = RuntimePanelCoordinator()
         let settings = RuntimeSettingsWindowPresenter()
-        let runtime = makeRuntime(panel: panel)
+        let runtime = AppRuntime(
+            panelCoordinator: panel,
+            pasteboard: RuntimePasteboard(value: nil),
+            shortcutRegistrar: RuntimeShortcutRegistrar()
+        )
         runtime.bind(settingsWindowPresenter: settings)
 
         runtime.performStatusMenuContextCommand(.openSettings)
 
         XCTAssertEqual(settings.showCount, 1)
+        XCTAssertEqual(runtime.pageURLFocusRequest, 1)
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    func testMenuBarActivationWithoutCurrentPageShowsSettingsAndFocusesPageURL() {
+        let panel = RuntimePanelCoordinator()
+        let settings = RuntimeSettingsWindowPresenter()
+        let runtime = AppRuntime(
+            panelCoordinator: panel,
+            pasteboard: RuntimePasteboard(value: nil),
+            shortcutRegistrar: RuntimeShortcutRegistrar()
+        )
+        runtime.bind(settingsWindowPresenter: settings)
+
+        runtime.handleMenuBarActivation()
+
+        XCTAssertEqual(settings.showCount, 1)
+        XCTAssertEqual(runtime.pageURLFocusRequest, 1)
         XCTAssertFalse(panel.isVisible)
     }
 

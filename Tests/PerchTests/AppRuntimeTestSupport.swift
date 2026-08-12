@@ -10,7 +10,6 @@ func makeRuntime(
     panel: RuntimePanelCoordinator,
     pasteboard: any PasteboardReading = RuntimePasteboard(value: nil),
     shortcutRegistrar: any GlobalShortcutRegistering = RuntimeShortcutRegistrar(),
-    pageURLInputPresenter: RuntimePageURLInputPresenter = RuntimePageURLInputPresenter(),
     pageRepository: (any PageWorkingSetPersisting)? = nil,
     shortcutHoldDuration: Duration = .milliseconds(300),
     shortcutGestureScheduler: any ShortcutGestureScheduling =
@@ -40,7 +39,6 @@ func makeRuntime(
         menuBarIconPreferenceStore: preferenceStore,
         holdToPeekPreferenceStore: holdPreferenceStore,
         peekFocusRestorer: peekFocusRestorer,
-        pageURLInputPresenter: pageURLInputPresenter,
         pageRepository: pageRepository,
         shortcutHoldDuration: shortcutHoldDuration,
         shortcutGestureScheduler: shortcutGestureScheduler,
@@ -334,16 +332,6 @@ final class RuntimeShortcutRegistrar: GlobalShortcutRegistering {
     private enum RuntimeShortcutRegistrationError: Error {
         case failed
     }
-}
-
-@MainActor
-final class RuntimePageURLInputPresenter: PageURLInputPresenting {
-    private(set) var presentAndFocusCount = 0
-
-    func presentAndFocus() {
-        presentAndFocusCount += 1
-    }
-
 }
 
 enum RuntimeRepositoryError: Error {

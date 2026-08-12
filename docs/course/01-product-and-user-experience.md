@@ -247,7 +247,7 @@ usually moves inward.
 | User action | Immediate surface | Result-owning path | Durable or external effect |
 |---|---|---|---|
 | Launch the app | App lifecycle | `AppDelegate` selects accessory policy; startup/runtime restores services and the saved working set | Saved page and preferences may be read |
-| Enter a Notion URL | Settings or Pin Page | URL input → `AppRuntime` → pin coordinator → panel coordinator → `NotionWebSession` | Valid activation is recorded as a visit; a new page appears in recents |
+| Enter a Notion URL | Onboarding or Settings Current Page | URL input → `AppRuntime` → pin coordinator → panel coordinator → `NotionWebSession` | Valid activation is recorded as a visit; a new page appears in recents |
 | Open `perch://pin` | Launch Services handoff | `AppDelegate` → runtime → strict external-route parser → normal activation path | Same page recording as typed input; untrusted routes are rejected |
 | Edit the visible page | Embedded Notion UI | `PiPChromeView` hosts the retained `NotionWebSession` view | Notion owns remote page editing through its web session |
 | Switch pages | Page-switcher popover | `PageSwitcherController`/matcher → runtime activation → WebKit session | Active/recent order and durable restoration are saved |

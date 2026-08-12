@@ -9,23 +9,23 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             Form {
-                Section("Panel Sizes") {
-                    PanelSizeSettingsView(controller: panelSizeController)
-                }
-
-                Section("Pinned Page") {
+                Section("Current Page") {
                     PageURLInputView(
                         state: runtime.pageURLInputState,
-                        onSubmit: runtime.validatePageURL
+                        onSubmit: { _ = runtime.validatePageURL() }
                     )
                     if let activePage = runtime.activePage {
                         LabeledContent(
-                            "Active page",
+                            "Open page",
                             value: activePage.displayTitle ?? activePage.canonicalURL.absoluteString)
                     } else {
-                        Text("No page is pinned yet.")
+                        Text("No page is open in Perch yet.")
                             .foregroundStyle(DesignTokens.Colors.secondaryText)
                     }
+                }
+
+                Section("Panel Sizes") {
+                    PanelSizeSettingsView(controller: panelSizeController)
                 }
 
                 Section("Global Shortcut") {
@@ -116,7 +116,7 @@ struct SettingsView: View {
 
                 Section("Service Status") {
                     LabeledContent(
-                        "Pinned-page sync",
+                        "Current-page saving",
                         value: runtime.serviceHealth.issues.contains(.pinnedPagePersistenceUnavailable)
                             ? "Needs attention" : "Ready")
                 }
