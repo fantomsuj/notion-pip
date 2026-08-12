@@ -172,8 +172,8 @@ centralizes construction policy rather than scattering flags among presenters:
 | Role | Concrete kind | Level | Initial content | Minimum content | Space policy |
 |---|---|---:|---:|---:|---|
 | Quick Capture | key-capable `NSWindow` | floating | 520×520 | 440×400 | move to active Space; full-screen auxiliary |
+| Onboarding | key-capable `NSWindow` | normal | 760×520 | 680×480 | move to active Space; full-screen auxiliary |
 | Settings | key-capable `NSWindow` | normal | 480×460 | 440×420 | move to active Space; full-screen auxiliary |
-| Pin Page | key-capable `NSWindow` | floating | 440×180 | 440×180, also maximum | move to active Space; full-screen auxiliary |
 | Picture in Picture | key-capable `NSPanel` | floating | 520×680 | 360×420 | all Spaces; full-screen auxiliary; transient; ignored by cycle |
 | Stash handle | nonactivating borderless `NSPanel` | floating | zero before placement | zero | same overlay collection behavior as PiP |
 | Stash shelf | nonactivating borderless `NSPanel` | floating | zero before attachment | zero | same overlay collection behavior as PiP |

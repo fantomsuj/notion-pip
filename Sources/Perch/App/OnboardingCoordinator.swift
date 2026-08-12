@@ -4,24 +4,28 @@ final class OnboardingCoordinator {
 
     typealias WindowPresenterFactory = @MainActor (
         @escaping @MainActor () -> Void,
+        @escaping @MainActor () -> Void,
         @escaping @MainActor () -> Void
     ) -> any AppWindowPresenting
 
     private let preferenceStore: OnboardingPreferenceStore
     private weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
-    private let firstPageHandoff: @MainActor () -> Void
+    private let openCurrentPage: @MainActor () -> Bool
+    private let onFinish: @MainActor () -> Void
     private let makeWindowPresenter: WindowPresenterFactory
     private var windowPresenter: (any AppWindowPresenting)?
 
     init(
         preferenceStore: OnboardingPreferenceStore = OnboardingPreferenceStore(),
         settingsWindowPresenter: any SettingsWindowPresenting,
-        firstPageHandoff: @escaping @MainActor () -> Void,
+        openCurrentPage: @escaping @MainActor () -> Bool,
+        onFinish: @escaping @MainActor () -> Void,
         makeWindowPresenter: @escaping WindowPresenterFactory
     ) {
         self.preferenceStore = preferenceStore
         self.settingsWindowPresenter = settingsWindowPresenter
-        self.firstPageHandoff = firstPageHandoff
+        self.openCurrentPage = openCurrentPage
+        self.onFinish = onFinish
         self.makeWindowPresenter = makeWindowPresenter
     }
 
@@ -36,10 +40,10 @@ final class OnboardingCoordinator {
 
     private func complete() {
         finishCompletion()
-        firstPageHandoff()
     }
 
     private func finishCompletion() {
+        onFinish()
         preferenceStore.markCompleted(version: Self.currentVersion)
         windowPresenter?.hide()
     }
@@ -49,11 +53,17 @@ final class OnboardingCoordinator {
         settingsWindowPresenter?.show()
     }
 
+    private func openPage() {
+        guard openCurrentPage() else { return }
+        finishCompletion()
+    }
+
     private func presenterOrCreate() -> any AppWindowPresenting {
         if let windowPresenter {
             return windowPresenter
         }
         let windowPresenter = makeWindowPresenter(
+            { [weak self] in self?.openPage() },
             { [weak self] in self?.complete() },
             { [weak self] in self?.openSettings() }
         )

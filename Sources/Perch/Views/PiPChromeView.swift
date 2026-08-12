@@ -10,8 +10,8 @@ struct PiPChromeView: View {
     static let primaryActionID = AppCommandID.newNotionPage
     static let primaryActionAccessibilityLabel = "New Notion Page"
     static let primaryActionHelp = "Create a page in the Notion app"
-    static let reloadAccessibilityLabel = "Re-pin current Notion page"
-    static let reloadHelp = "Re-pin the current Notion page"
+    static let reloadAccessibilityLabel = "Reload current Notion page"
+    static let reloadHelp = "Reload the current Notion page"
     static let stashAccessibilityLabel = "Stash Perch to Side"
     static let stashHelp = "Move Perch to the nearest screen edge"
     static let pageSwitcherAccessibilityLabel = "Switch Notion page"

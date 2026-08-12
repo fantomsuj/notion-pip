@@ -14,9 +14,14 @@ struct PageURLField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.compact) {
-            Text("Notion page URL")
-                .font(.caption)
-                .foregroundStyle(DesignTokens.Colors.secondaryText)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Notion page URL")
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Colors.secondaryText)
+                Text("In Notion, choose ••• → Copy link.")
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Colors.secondaryText)
+            }
 
             HStack(spacing: DesignTokens.Spacing.control) {
                 TextField("https://www.notion.com/…", text: $text)
@@ -25,11 +30,11 @@ struct PageURLField: View {
                     .onSubmit(onSubmit)
                     .accessibilityLabel("Notion page URL")
 
-                Button("Pin", action: onSubmit)
+                Button("Open in Perch", action: onSubmit)
                     .buttonStyle(.borderedProminent)
                     .tint(DesignTokens.Colors.action)
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityHint("Pins the page in the floating panel")
+                    .accessibilityHint("Opens the page in the floating panel")
             }
         }
         .onAppear {

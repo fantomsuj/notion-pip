@@ -60,7 +60,11 @@ extension AppRuntime {
         cancelShortcutGesture(restashTransientPanel: false)
         switch command {
         case .openSettings:
-            settingsWindowPresenter?.show()
+            if activePage == nil {
+                presentCurrentPageSetup()
+            } else {
+                settingsWindowPresenter?.show()
+            }
         case .stash:
             guard pipPresentationState == .visible else { return }
             _ = pinCoordinator.stashOrRestoreCurrentPage()
@@ -73,18 +77,21 @@ extension AppRuntime {
     func handleMenuBarActivation() {
         cancelShortcutGesture(restashTransientPanel: false)
         guard pinCoordinator.stashOrRestoreCurrentPage() else {
-            settingsWindowPresenter?.show()
+            presentCurrentPageSetup()
             return
         }
     }
 
-    func validatePageURL() {
+    @discardableResult
+    func validatePageURL() -> Bool {
         switch pinCoordinator.page(from: pageURLText) {
         case let .success(page):
             activate(page: page, source: .typedURL)
-            pageURLInputState.showPinned(page: page)
+            pageURLInputState.showOpened(page: page)
+            return true
         case .failure:
             showValidationFailure("Use an HTTPS Notion page URL with a page ID.")
+            return false
         }
     }
 
@@ -291,7 +298,7 @@ extension AppRuntime {
 
     private func handleGlobalShortcutTap() {
         guard pinCoordinator.performGlobalShortcutAction() else {
-            presentPageURLInput()
+            presentCurrentPageSetup()
             return
         }
     }

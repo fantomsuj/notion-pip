@@ -130,7 +130,6 @@ framework mechanics is useful:
 | `PageWorkingSetPersisting` | runtime and switcher → `PageRepository` | SwiftData models and `ModelContext` transactions |
 | `QuickCaptureDestinationPersisting` | destination controller → destination repository | SwiftData settings storage |
 | `GlobalShortcutRegistering` | runtime → Carbon registrar | Carbon event-handler setup |
-| `PageURLInputPresenting` | runtime/pin coordinator → input window presenter | `NSWindow` creation and field focus mechanics |
 | `SettingsWindowPresenting` | runtime and command relay → settings presenter | concrete window retention |
 | `AppWindowPresenting` | commands/relays → lazy or concrete presenter | the underlying `NSWindow` |
 | `ApplicationTerminationParticipating` | startup → live Quick Capture presenter | editor-specific final snapshot logic |

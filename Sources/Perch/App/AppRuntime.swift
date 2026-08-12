@@ -39,14 +39,12 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let peekFocusRestorer: any PeekFocusRestoring
     let performanceSignposter: any PerformanceSignposting
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
-    private let pageURLInputPresenter: (any PageURLInputPresenting)?
     let pageRepository: (any PageWorkingSetPersisting)?
     let automaticSettingsPresentationAllowed: @MainActor () -> Bool
     weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
     var restorePinnedPageTask: Task<Void, Never>?
     var persistPinnedPageTask: Task<Void, Never>?
-    var firstPageHandoffTask: Task<Void, Never>?
-    var isFirstPageHandoffPending = false
+    var suppressesAutomaticCurrentPageSetup = false
     var persistenceGeneration = 0
     var pageSelectionGeneration = 0
     let shortcutHoldDuration: Duration
@@ -70,7 +68,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         holdToPeekPreferenceStore: HoldToPeekPreferenceStore = HoldToPeekPreferenceStore(),
         peekFocusRestorer: any PeekFocusRestoring = PeekFocusRestorer(),
         performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
-        pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
         pageRepository: (any PageWorkingSetPersisting)? = nil,
         shortcutHoldDuration: Duration = .milliseconds(300),
         shortcutGestureScheduler: any ShortcutGestureScheduling = TaskShortcutGestureScheduler(),
@@ -87,7 +84,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         let inputRequestRelay = PageURLInputRequestRelay()
 
         pageURLInputState = inputState
-        self.pageURLInputPresenter = pageURLInputPresenter
         pinCoordinator = PinCoordinator(
             panelCoordinator: panelCoordinator ?? PiPPanelCoordinator(),
             pasteboard: pasteboard,
@@ -119,7 +115,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             self?.cancelShortcutGesture(restashTransientPanel: false)
         }
         inputRequestRelay.handler = { [weak self] in
-            self?.presentPageURLInput()
+            self?.presentCurrentPageSetup()
         }
     }
 
@@ -140,13 +136,13 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.settingsWindowPresenter = settingsWindowPresenter
     }
 
-    func presentPageURLInput() {
-        if let pageURLInputPresenter {
-            pageURLInputPresenter.presentAndFocus()
-            return
-        }
+    func presentCurrentPageSetup() {
         settingsWindowPresenter?.show()
         pageURLInputState.requestFocus()
+    }
+
+    func suppressAutomaticCurrentPageSetup() {
+        suppressesAutomaticCurrentPageSetup = true
     }
 
     func retryRecovery(for issue: ServiceHealthIssue) {

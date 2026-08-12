@@ -86,8 +86,8 @@ Edge handle NSPanel
 
 Key-capable NSWindow
 ├─ NSHostingView<SettingsView>
-├─ NSHostingView<QuickCaptureView> → Capture WKWebView
-└─ NSHostingView<PageURLInputWindowContent>
+├─ NSHostingView<OnboardingView>
+└─ NSHostingView<QuickCaptureView> → Capture WKWebView
 
 Menu-bar status item
 └─ AppKit NSMenu built from the same AppCommandModel
@@ -97,9 +97,8 @@ Menu-bar status item
 owns the persistent panel and installs `PiPChromeView` in an `NSHostingView`.
 [`PiPStashHandleController.swift`](../../Sources/Perch/Platform/PiPStashHandleController.swift)
 does the same for the edge handle. [`AppWindowFactory.swift`](../../Sources/Perch/Platform/AppWindowFactory.swift)
-creates key-capable Quick Capture and Settings windows, while
-[`PageURLInputPresenter.swift`](../../Sources/Perch/Platform/PageURLInputPresenter.swift)
-creates the separate pin-page window.
+creates the key-capable Settings and onboarding windows. Page setup stays
+inline in those two surfaces instead of opening another window.
 
 The views do not choose panel collection behavior, reposition windows, open a
 SwiftData context, or register Carbon hot keys. They issue actions to owners
@@ -149,8 +148,8 @@ Every committed basename under `Sources/Perch/Views` appears below.
 | [`NotionWorkspaceSearchView.swift`](../../Sources/Perch/Views/NotionWorkspaceSearchView.swift) | Runtime search result/error plus query | Async workspace search and `.notionSearch` activation | [`AppRuntimeFacadeTests.swift`](../../Tests/PerchTests/AppRuntimeFacadeTests.swift), activation tests |
 | [`PagePickerView.swift`](../../Sources/Perch/Views/PagePickerView.swift) | Pages and pin closure | Pure 30-character display title and pin action; no current production consumer | `PagePickerDisplay` in [`PinCoordinatorTests.swift`](../../Tests/PerchTests/PinCoordinatorTests.swift) |
 | [`PageSwitcherView.swift`](../../Sources/Perch/Views/PageSwitcherView.swift) | Switcher controller, focus, row hover | Load/search/traverse/select/dismiss/pin through controller and callbacks | [`PageSwitcherMatcherTests.swift`](../../Tests/PerchTests/PageSwitcherMatcherTests.swift) |
-| [`PageURLField.swift`](../../Sources/Perch/Views/PageURLField.swift) | Text binding, focus request, submit closure | Edit, focus, submit/Pin | [`PageURLInputPresenterTests.swift`](../../Tests/PerchTests/PageURLInputPresenterTests.swift) plus manual field checks |
-| [`PageURLInputView.swift`](../../Sources/Perch/Views/PageURLInputView.swift) | URL state and submit closure | Compose field and typed validation feedback; also supplies window content | presenter/activation tests |
+| [`PageURLField.swift`](../../Sources/Perch/Views/PageURLField.swift) | Text binding, focus request, submit closure | Edit, focus, open in Perch | [`PageURLInputPresenterTests.swift`](../../Tests/PerchTests/PageURLInputPresenterTests.swift) plus manual field checks |
+| [`PageURLInputView.swift`](../../Sources/Perch/Views/PageURLInputView.swift) | URL state and submit closure | Compose field and typed validation feedback | setup/activation tests |
 | [`PanelSizeMenu.swift`](../../Sources/Perch/Views/PanelSizeMenu.swift) | Size controller | Apply, reset default, manage | [`AppCommandTests.swift`](../../Tests/PerchTests/AppCommandTests.swift), controller tests |
 | [`PanelSizeSettingsView.swift`](../../Sources/Perch/Views/PanelSizeSettingsView.swift) | Size controller plus local sheet/row buffers | Set/apply default; add/edit/apply/delete custom presets | [`PanelSizeControllerTests.swift`](../../Tests/PerchTests/PanelSizeControllerTests.swift), preferences tests |
 | [`PiPAppCommandMenu.swift`](../../Sources/Perch/Views/PiPAppCommandMenu.swift) | Shared command model and optional size controller | Perform commands with keyboard equivalents | [`AppCommandTests.swift`](../../Tests/PerchTests/AppCommandTests.swift) |
@@ -200,15 +199,14 @@ controller owns the handle panel and callbacks; SwiftUI owns only appearance.
 
 `PageURLField` edits a binding and reacts to a monotonically increasing
 `focusRequest`. This avoids trying to focus an off-screen field before its
-window is key. `PageURLInputPresenter.presentAndFocus()` presents first, then
-increments the request. The same `PageURLInputView` appears inline in Settings
-and inside `PageURLInputWindowContent` for the standalone pin window.
+window is key. `AppRuntime.presentCurrentPageSetup()` presents Settings first,
+then increments the request. The same `PageURLInputView` appears inline in
+Settings and onboarding.
 
 Submission calls `AppRuntime.validatePageURL`. Success enters the unified
-activation path, displays typed success, and hides the standalone window;
-failure keeps it visible and publishes safe validation copy. Workspace search
-is available only when connected and activates a selected result with the
-`.notionSearch` source.
+activation path and displays typed success. During onboarding, success also
+completes and closes the guide; failure keeps it visible and publishes safe
+validation copy.
 
 ### Quick Capture, outbox, and conflict surfaces
 
@@ -235,8 +233,8 @@ The committed `SettingsView` is one grouped scrolling form:
 
 | Section | Child/state owner | Effects |
 |---|---|---|
+| Current Page | URL input and runtime active page | Validate and activate a typed page; receive focused no-page fallbacks |
 | Panel Sizes | `PanelSizeSettingsView` / `PanelSizeController` | Persist default/custom values and apply valid sizes to bound panel |
-| Pinned Page | URL input, workspace search, runtime active page | Validate/activate typed or searched page |
 | Quick Capture Destination | destination view/controller | Persist page-parent or data-source selection |
 | Global Shortcut | panel shortcut recorder/runtime | Replace/reset Carbon registration and store |
 | Trusted Quick Capture | separate shortcut plus two runtime bindings | Persist clipboard prefill and saved-cursor insertion preferences |

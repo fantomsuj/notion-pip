@@ -2212,8 +2212,8 @@ final class NotionWebSessionTests: XCTestCase {
 
         XCTAssertEqual(PiPChromeView.primaryActionAccessibilityLabel, "New Notion Page")
         XCTAssertEqual(PiPChromeView.primaryActionHelp, "Create a page in the Notion app")
-        XCTAssertEqual(PiPChromeView.reloadAccessibilityLabel, "Re-pin current Notion page")
-        XCTAssertEqual(PiPChromeView.reloadHelp, "Re-pin the current Notion page")
+        XCTAssertEqual(PiPChromeView.reloadAccessibilityLabel, "Reload current Notion page")
+        XCTAssertEqual(PiPChromeView.reloadHelp, "Reload the current Notion page")
         XCTAssertEqual(PiPChromeView.stashAccessibilityLabel, "Stash Perch to Side")
         XCTAssertEqual(
             PiPChromeView.stashHelp,

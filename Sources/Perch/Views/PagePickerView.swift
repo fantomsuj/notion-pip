@@ -19,7 +19,7 @@ struct PagePickerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.compact) {
-            Text("Pinned page")
+            Text("Current page")
                 .font(.caption)
                 .foregroundStyle(DesignTokens.Colors.secondaryText)
 
@@ -27,7 +27,7 @@ struct PagePickerView: View {
                 Button {
                     onPin(page)
                 } label: {
-                    Label(PagePickerDisplay.title(for: page), systemImage: "pin")
+                    Label(PagePickerDisplay.title(for: page), systemImage: "doc.text")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)

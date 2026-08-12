@@ -20,6 +20,11 @@ struct OnboardingView: View {
         }
         .frame(minWidth: 680, minHeight: 480)
         .background(DesignTokens.Colors.background)
+        .onChange(of: selection) {
+            if selection == .pinPage {
+                pageURLInputState.requestFocus()
+            }
+        }
     }
 
     private var sidebar: some View {
@@ -115,21 +120,28 @@ struct OnboardingView: View {
                     }
                 }
 
-                if selection == .shortcuts {
+                switch selection {
+                case .pinPage:
+                    Button("Set Up Later") {
+                        selection = selection.next
+                    }
+                case .shortcuts:
+                    Button("Open Settings") {
+                        onOpenSettings()
+                    }
+
                     Button("Finish") {
                         onComplete()
                     }
-                }
-
-                Button(selection == .shortcuts ? "Open Settings" : "Continue") {
-                    if selection == .shortcuts {
-                        onOpenSettings()
-                    } else {
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                default:
+                    Button("Continue") {
                         selection = selection.next
                     }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
             }
             .padding(.top, DesignTokens.Spacing.container)
         }
@@ -168,7 +180,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
     var sidebarTitle: String {
         switch self {
         case .welcome: "Welcome"
-        case .pinPage: "Pin a page"
+        case .pinPage: "Open a page"
         case .panelControls: "Panel controls"
         case .appMenu: "Menu & settings"
         case .shortcuts: "Work faster"
@@ -178,7 +190,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
     var symbolName: String {
         switch self {
         case .welcome: "rectangle.on.rectangle"
-        case .pinPage: "pin"
+        case .pinPage: "doc.text"
         case .panelControls: "slider.horizontal.3"
         case .appMenu: "menubar.rectangle"
         case .shortcuts: "keyboard"
@@ -210,7 +222,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         case .welcome:
             "Perch is a floating panel that follows you across desktop Spaces and full-screen apps. It stays out of the Dock so your workspace remains uncluttered."
         case .pinPage:
-            "Paste a Notion page link below to pin it now. The page keeps its navigation and session as you move between other apps."
+            "Paste a Notion page link below. Perch opens the page in its floating panel and keeps your signed-in session as you move between apps."
         case .panelControls:
             "Hover over the top edge of the PiP to reveal the centered toolbar, including four corner arrows and the other controls. Double-click the title bar above it to maximize the PiP, then double-click again to restore it."
         case .appMenu:
@@ -243,7 +255,7 @@ struct OnboardingToolbarControl: Identifiable, Equatable {
     static let all: [Self] = [
         Self(title: "New Notion page", icon: .system("plus")),
         Self(title: "Switch page", icon: .system("rectangle.stack")),
-        Self(title: "Reload pinned page", icon: .system("arrow.clockwise")),
+        Self(title: "Reload current page", icon: .system("arrow.clockwise")),
         Self(title: "Open in browser", icon: .notion),
         Self(title: "App menu & sizes", icon: .system("ellipsis.circle")),
         Self(title: "Stash to edge", icon: .system("arrow.down.right.and.arrow.up.left")),
@@ -271,7 +283,7 @@ private struct OverlayArtwork: View {
 
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.control) {
                 HStack {
-                    Image(systemName: "pin.fill")
+                    Image(systemName: "doc.text.fill")
                         .foregroundStyle(.tint)
                     Text("Project roadmap")
                         .font(.callout.weight(.semibold))
@@ -312,9 +324,6 @@ private struct PinPageArtwork: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.section) {
-            Label("Pinned Page", systemImage: "pin")
-                .font(.headline)
-
             PageURLInputView(state: state, onSubmit: onSubmit)
 
             Label("Your signed-in Notion session stays in the panel", systemImage: "checkmark.circle.fill")
