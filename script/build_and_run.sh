@@ -2,8 +2,8 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-APP_NAME="NotionPiP"
-BUNDLE_ID="com.fantomsuj.NotionPiP"
+APP_NAME="Perch"
+BUNDLE_ID="com.fantomsuj.Perch"
 MIN_SYSTEM_VERSION="14.0"
 DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
 export DEVELOPER_DIR
@@ -16,7 +16,9 @@ APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
-ENTITLEMENTS="$ROOT_DIR/Support/NotionPiP.entitlements"
+ENTITLEMENTS="$ROOT_DIR/Support/Perch.entitlements"
+SIGN_SCRIPT="$ROOT_DIR/script/sign_app.sh"
+APP_ICON_SOURCE="$ROOT_DIR/Support/Perch.icns"
 
 VERSION_CONFIG="$ROOT_DIR/Support/Version.env"
 
@@ -24,16 +26,20 @@ if [[ ! -f "$VERSION_CONFIG" ]]; then
     echo "error: missing release version configuration at $VERSION_CONFIG" >&2
     exit 1
 fi
+if [[ ! -f "$APP_ICON_SOURCE" ]]; then
+    echo "error: missing app icon at $APP_ICON_SOURCE" >&2
+    exit 1
+fi
 
 # shellcheck disable=SC1090
 source "$VERSION_CONFIG"
 
-if [[ ! "${NOTION_PIP_VERSION:-}" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
-    echo "error: NOTION_PIP_VERSION must contain two or three numeric components" >&2
+if [[ ! "${PERCH_VERSION:-}" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+    echo "error: PERCH_VERSION must contain two or three numeric components" >&2
     exit 1
 fi
-if [[ ! "${NOTION_PIP_BUILD_NUMBER:-}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "error: NOTION_PIP_BUILD_NUMBER must be a positive integer" >&2
+if [[ ! "${PERCH_BUILD_NUMBER:-}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: PERCH_BUILD_NUMBER must be a positive integer" >&2
     exit 1
 fi
 
@@ -55,10 +61,6 @@ cd "$ROOT_DIR"
 
 /usr/bin/pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-if [[ -f "$ROOT_DIR/package.json" && -d "$ROOT_DIR/node_modules" ]]; then
-    /usr/bin/env npm run build:editor --if-present
-fi
-
 swift build --product "$APP_NAME"
 BUILD_DIR="$(swift build --show-bin-path)"
 BUILD_BINARY="$BUILD_DIR/$APP_NAME"
@@ -72,6 +74,7 @@ fi
 /bin/mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 /bin/cp "$BUILD_BINARY" "$APP_BINARY"
 /bin/chmod +x "$APP_BINARY"
+/bin/cp "$APP_ICON_SOURCE" "$APP_RESOURCES/Perch.icns"
 
 while IFS= read -r -d '' resource_bundle; do
     /usr/bin/ditto "$resource_bundle" "$APP_RESOURCES/$(basename "$resource_bundle")"
@@ -85,11 +88,13 @@ cat >"$INFO_PLIST" <<PLIST
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>Notion PiP</string>
+    <string>Perch</string>
     <key>CFBundleExecutable</key>
     <string>$APP_NAME</string>
     <key>CFBundleIdentifier</key>
     <string>$BUNDLE_ID</string>
+    <key>CFBundleIconFile</key>
+    <string>Perch.icns</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -97,9 +102,9 @@ cat >"$INFO_PLIST" <<PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>$NOTION_PIP_VERSION</string>
+    <string>$PERCH_VERSION</string>
     <key>CFBundleVersion</key>
-    <string>$NOTION_PIP_BUILD_NUMBER</string>
+    <string>$PERCH_BUILD_NUMBER</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
@@ -107,7 +112,7 @@ cat >"$INFO_PLIST" <<PLIST
             <string>$BUNDLE_ID</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>notion-pip</string>
+                <string>perch</string>
             </array>
         </dict>
     </array>
@@ -122,7 +127,7 @@ cat >"$INFO_PLIST" <<PLIST
 PLIST
 
 /usr/bin/plutil -lint "$INFO_PLIST" >/dev/null
-/usr/bin/codesign --force --deep --sign - --timestamp=none --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
+"$SIGN_SCRIPT" "$APP_BUNDLE" "$ENTITLEMENTS"
 /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 
 open_app() {
@@ -146,10 +151,11 @@ wait_for_process() {
 
 verify_bundle() {
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST")" == "$BUNDLE_ID" ]] || return 1
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$INFO_PLIST")" == "Perch.icns" ]] || return 1
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$INFO_PLIST")" == "$MIN_SYSTEM_VERSION" ]] || return 1
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$INFO_PLIST")" == "true" ]] || return 1
-    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$INFO_PLIST")" == "notion-pip" ]] || return 1
-    [[ -f "$APP_RESOURCES/NotionPiP_NotionPiP.bundle/QuickCapture/index.html" ]] || return 1
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$INFO_PLIST")" == "perch" ]] || return 1
+    [[ -f "$APP_RESOURCES/Perch.icns" ]] || return 1
     /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE" || return 1
 }
 
@@ -195,7 +201,7 @@ cleanup_verification_log() {
 start_verification_log() {
     local attempt
 
-    VERIFICATION_LOG_FILE="$(/usr/bin/mktemp /tmp/notion-pip-verify.XXXXXX)"
+    VERIFICATION_LOG_FILE="$(/usr/bin/mktemp /tmp/perch-verify.XXXXXX)"
     /usr/bin/log stream --style compact --predicate "process == \"$APP_NAME\"" \
         >"$VERIFICATION_LOG_FILE" 2>&1 &
     VERIFICATION_LOG_PID=$!

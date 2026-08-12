@@ -4,7 +4,7 @@
 > repository tour, 15 minutes runtime trace, 10 minutes deep dive, 5 minutes
 > knowledge check, and 10 minutes exercise)
 
-Notion PiP does not render a native copy of a Notion page. It hosts the real
+Perch does not render a native copy of a Notion page. It hosts the real
 Notion web application inside a native panel and builds a narrow lifecycle and
 trust boundary around it. This lecture explains how that boundary keeps one
 page surface live, switches pages without keeping a browser per page, and
@@ -34,18 +34,10 @@ Read [Lecture 5](05-panel-stashing-and-controls.md) for the panel side of
 restoration, and manual-verification boundary. The canonical cross-layer view
 is [Flow 2 in the architecture map](ARCHITECTURE_MAP.md#flow-2--page-activation-and-webkit-navigation).
 
-This lecture was checked against committed source at starting commit
-`55f00ca7c45f4829d96ba2920b0b024b38beb019`. The working tree also contained
-unstaged edits to
-[`NotionWebSession.swift`](../../Sources/NotionPiP/Platform/NotionWebSession.swift)
+This lecture is maintained against the current implementations in
+[`NotionWebSession.swift`](../../Sources/Perch/Platform/NotionWebSession.swift)
 and
-[`NotionWebSessionTests.swift`](../../Tests/NotionPiPTests/NotionWebSessionTests.swift).
-Those edits are **not** architectural evidence here. To inspect the same
-baseline after opening a working-tree link, use:
-
-```sh
-git show 55f00ca7c45f4829d96ba2920b0b024b38beb019:Sources/NotionPiP/Platform/NotionWebSession.swift
-```
+[`NotionWebSessionTests.swift`](../../Tests/PerchTests/NotionWebSessionTests.swift).
 
 Prerequisite concepts are deliberately light: a browser view loads URLs, a
 delegate receives navigation events, and an object can outlive the SwiftUI view
@@ -63,8 +55,9 @@ short time. Under memory pressure or after the warm period, the desk can be
 removed and reconstructed later from safer records.
 
 “One live `WKWebView`” therefore means **one at a time**, not one immortal
-object. A warm hide/show keeps the same instance. A page switch, warm eviction,
-or WebKit renderer termination can retire it and create a replacement. The
+object. A warm hide/show keeps the same instance. A page switch or warm eviction
+can retire it and create a replacement. WebKit renderer recovery keeps the same
+view object when WebKit permits and refreshes its document-bound bridges. The
 session never keeps one browser instance per pinned page.
 
 ### WebKit, AppKit, and SwiftUI roles
@@ -77,7 +70,7 @@ session never keeps one browser instance per pinned page.
 - `WKUIDelegate` receives requests that would normally create a new browser
   window and routes them without creating a second live Notion view.
 - `NSViewRepresentable` is only a SwiftUI adapter. In
-  [`NotionWebView.swift`](../../Sources/NotionPiP/Platform/NotionWebView.swift),
+  [`NotionWebView.swift`](../../Sources/Perch/Platform/NotionWebView.swift),
   `makeNSView` returns the already-owned `WKWebView`; SwiftUI does not create or
   configure the session.
 
@@ -97,7 +90,7 @@ renderer exits.
 
 ### Ownership and state
 
-[`NotionWebSession.swift`](../../Sources/NotionPiP/Platform/NotionWebSession.swift)
+[`NotionWebSession.swift`](../../Sources/Perch/Platform/NotionWebSession.swift)
 defines the `NotionPageLoading` boundary, the observable session, the activity
 and scroll bridges, and both WebKit delegates. The session publishes one of:
 
@@ -105,7 +98,7 @@ and scroll bridges, and both WebKit delegates. The session publishes one of:
 unloaded | loading | active | suspended | offline | failed(message)
 ```
 
-[`NotionWebLifecycleController.swift`](../../Sources/NotionPiP/Platform/NotionWebLifecycleController.swift)
+[`NotionWebLifecycleController.swift`](../../Sources/Perch/Platform/NotionWebLifecycleController.swift)
 owns visibility, suspension, the 60-second warm-retention timer, and eviction
 eligibility without retaining WebKit objects. `NotionWebSession` executes its
 commands by detaching, configuring, or retiring the actual view.
@@ -127,21 +120,21 @@ stateDiagram-v2
     suspended --> offline: show retained offline result
     suspended --> failed: show retained failure result
     suspended --> unloaded: warm or memory-pressure eviction
-    active --> loading: visible renderer termination; canonical reload
-    suspended --> unloaded: hidden renderer termination
+    active --> loading: renderer termination; canonical reload
+    suspended --> suspended: hidden renderer termination; canonical reload
 ```
 
 While suspended, navigation callbacks update a saved “state before suspension”
 rather than making a hidden view appear active. Showing the panel exposes the
 latest saved outcome. Tests cover this subtle rule in
-[`NotionWebSessionTests.swift`](../../Tests/NotionPiPTests/NotionWebSessionTests.swift)
+[`NotionWebSessionTests.swift`](../../Tests/PerchTests/NotionWebSessionTests.swift)
 and the pure lifecycle policy in
-[`NotionWebLifecycleControllerTests.swift`](../../Tests/NotionPiPTests/NotionWebLifecycleControllerTests.swift).
+[`NotionWebLifecycleControllerTests.swift`](../../Tests/PerchTests/NotionWebLifecycleControllerTests.swift).
 
 ### View creation and hosting
 
 `makeWebView()` creates an
-[`ExternalDropActivatingWebView`](../../Sources/NotionPiP/Platform/ExternalDropActivatingWebView.swift)
+[`ExternalDropActivatingWebView`](../../Sources/Perch/Platform/ExternalDropActivatingWebView.swift)
 with `WKWebsiteDataStore.default()` and an inactive scheduling policy of
 `.suspend`. `configure(_:)` installs the activity and scroll scripts, sets the
 navigation and UI delegates, and observes the URL so single-page-app route
@@ -157,21 +150,21 @@ a retired renderer harmless.
 
 | Boundary | Accepted | Rejected or redirected | Why |
 |---|---|---|---|
-| Pin or cross-app handoff | A canonical HTTPS page on `app.notion.com`, `notion.so`, or `www.notion.so` with a 32-hex page ID | Unknown action/source, credentials, invalid page, oversized outer URL | [`HANDOFF_PROTOCOL.md`](../HANDOFF_PROTOCOL.md) and `NotionPageReference` turn external input into a validated page value before activation |
-| Live top-frame navigation | Exact HTTPS Notion hosts, plus `identity.notion.com` for authentication | External HTTP(S) opens through the system; credential-bearing, relative, malformed, and unsupported schemes cancel | [`WebNavigationDestination.swift`](../../Sources/NotionPiP/Platform/WebNavigationDestination.swift) uses exact hosts, not suffix matching |
+| Pin or cross-app handoff | A canonical HTTPS page on `app.notion.com`, `notion.com`, or `www.notion.com` with a 32-hex page ID; legacy `.so` links remain accepted | Unknown action/source, credentials, invalid page, oversized outer URL | [`HANDOFF_PROTOCOL.md`](../HANDOFF_PROTOCOL.md) and `NotionPageReference` turn external input into a validated page value before activation |
+| Live top-frame navigation | Exact HTTPS Notion hosts, plus `identity.notion.com` for authentication | External HTTP(S) opens through the system; credential-bearing, relative, malformed, and unsupported schemes cancel | [`WebNavigationDestination.swift`](../../Sources/Perch/Platform/WebNavigationDestination.swift) uses exact hosts, not suffix matching |
 | New-window request | Trusted Notion request loads in the existing view | External HTTP(S) opens through the system; unsupported input does nothing; no second `WKWebView` is returned | `WKUIDelegate` preserves the one-live-view invariant |
 | Activity message | Main-frame HTTPS message from the three page hosts and exactly `typingStarted` or `editingEnded` | Subframes, HTTP, other hosts, and other payload shapes | The message only changes chrome/eviction state, but it is still origin- and shape-checked |
 | Scroll message | Main-frame HTTPS message from the three page hosts with exactly finite `x`, `y`, and `progress` in 0...1 | Extra/missing fields, nonfinite values, bad progress, subframes, or other origins | Only bounded values can become restoration data |
-| Selection capture/restore | Current view, current page ID, trusted page URL, bounded versioned paths/offsets, and the same element token | Replaced DOM element, wrong page/view, stale generation, malformed or oversized paths | [`NotionEditorSelection.swift`](../../Sources/NotionPiP/Platform/NotionEditorSelection.swift) prevents a stale selection from being replayed into different content |
+| Selection capture/restore | Current view, current page ID, trusted page URL, bounded versioned paths/offsets, and the same element token | Replaced DOM element, wrong page/view, stale generation, malformed or oversized paths | [`NotionEditorSelection.swift`](../../Sources/Perch/Platform/NotionEditorSelection.swift) prevents a stale selection from being replayed into different content |
 | External text drop | Plain or attributed text from outside the WebView | Nontext and internal WebView drags do not activate the panel | The subclass prepares focus once per drag and forwards the original event to WebKit; it does not ingest or rewrite the dropped content |
-| Local Quick Capture bridge | Versioned request from its one allowed local editor document | Wrong frame/origin/document or malformed protocol | [`WeakScriptMessageHandler.swift`](../../Sources/NotionPiP/Platform/WeakScriptMessageHandler.swift) belongs to the separate local Quick Capture view; it is **not** the live Notion activity/scroll bridge |
+| Local Quick Capture bridge | Versioned request from its one allowed local editor document | Wrong frame/origin/document or malformed protocol | [`WeakScriptMessageHandler.swift`](../../Sources/Perch/Platform/WeakScriptMessageHandler.swift) belongs to the separate local Quick Capture view; it is **not** the live Notion activity/scroll bridge |
 
 The classification tests are in
-[`WebNavigationDestinationTests.swift`](../../Tests/NotionPiPTests/WebNavigationDestinationTests.swift),
+[`WebNavigationDestinationTests.swift`](../../Tests/PerchTests/WebNavigationDestinationTests.swift),
 drop preparation tests are in
-[`ExternalDropActivatingWebViewTests.swift`](../../Tests/NotionPiPTests/ExternalDropActivatingWebViewTests.swift),
+[`ExternalDropActivatingWebViewTests.swift`](../../Tests/PerchTests/ExternalDropActivatingWebViewTests.swift),
 and DOM-token selection tests are in
-[`NotionEditorSelectionTests.swift`](../../Tests/NotionPiPTests/NotionEditorSelectionTests.swift).
+[`NotionEditorSelectionTests.swift`](../../Tests/PerchTests/NotionEditorSelectionTests.swift).
 
 ## Runtime trace
 
@@ -251,10 +244,17 @@ small helper methods while retaining ownership and failure behavior.
    removes opaque interaction snapshots, leaving durable fallback.
 3. Showing an active page after eviction creates a replacement and restores
    opaque state when still retained, otherwise it loads the saved safe URL.
-4. Renderer termination is stricter: WebKit cannot return unsaved DOM edits,
-   so the session discards interaction, selection, scroll, and pending
-   restoration for that page and reloads only its canonical URL when visible.
-   When hidden, recovery waits until the next show.
+4. Renderer termination is stricter: WebKit cannot return unsaved DOM edits or
+   trustworthy opaque interaction state. The session invalidates DOM-bound
+   bridges and selection, discards opaque restoration, and keeps only a numeric
+   scroll fallback captured for the same selected page.
+5. The session keeps the same `WKWebView`, advances its callback generation,
+   and reloads only the current validated canonical URL once. This attempt also
+   runs while stashed, while lifecycle publication remains suspended.
+6. A successful finish activates the recovered document. A validated redirect
+   can adopt a different Notion page, but it discards the old page's scroll
+   fallback. A failed reload or repeated termination stops automatic reloads
+   and leaves a native retry action.
 
 ## Deep dive
 
@@ -270,7 +270,7 @@ best effort and must have a durable fallback.
 
 Opaque `interactionState` is rich but process-local and outside the app's
 schema. `DurablePageRestoration`, defined in
-[`PageWorkingSetSnapshot.swift`](../../Sources/NotionPiP/Domain/PageWorkingSetSnapshot.swift),
+[`PageWorkingSetSnapshot.swift`](../../Sources/Perch/Domain/PageWorkingSetSnapshot.swift),
 is intentionally small and validates that its URL belongs to its page ID and
 that all scroll values are finite. Selection state is narrower still: it is
 useful only for a retained DOM and is consumed or invalidated quickly. Each
@@ -294,8 +294,9 @@ document; it is not a general bridge into the hosted Notion site.
 
 ## Common misconceptions and failure modes
 
-- **“One live view means the same instance forever.”** No. A warm hide/show
-  keeps it; page replacement, eviction, and renderer termination can retire it.
+- **“One live view means the same instance forever.”** No. A warm hide/show and
+  renderer recovery keep it when possible; page replacement and eviction can
+  still retire it.
 - **“Suspended means navigation stopped producing callbacks.”** No. Outcomes
   are recorded behind the suspended presentation state and become visible on
   resume.
@@ -388,7 +389,7 @@ do not change trust policy to make a demo pass.
 4. The session must be hidden and suspended, and eviction must not be protected
    by editor activity.
 5. `WKUIDelegate` receives it, opens the URL through the system, returns no new
-   WebView, and does not load it inside Notion PiP.
+   WebView, and does not load it inside Perch.
 6. WebKit cannot provide unsaved DOM edits or guarantee stale opaque state after
    renderer loss, so canonical reload is the safe recoverable baseline.
 
@@ -424,14 +425,16 @@ matching committed test. Do not edit source.
   failure.
 - A retired view fails the identity/generation guard and cannot mutate the
   replacement session.
-- Visible renderer loss retires the broken view, clears stale per-page state,
-  and loads the canonical page in a replacement; hidden recovery is deferred.
+- Renderer loss refreshes document-bound callbacks on the same view, clears
+  stale opaque and selection state, and makes one canonical reload with only a
+  same-page numeric scroll fallback. Hidden recovery remains suspended, and a
+  repeated termination exposes the native retry state instead of looping.
 - Matching tests should come from
-  [`NotionWebSessionTests.swift`](../../Tests/NotionPiPTests/NotionWebSessionTests.swift),
-  [`WebNavigationDestinationTests.swift`](../../Tests/NotionPiPTests/WebNavigationDestinationTests.swift),
-  [`NotionEditorSelectionTests.swift`](../../Tests/NotionPiPTests/NotionEditorSelectionTests.swift),
+  [`NotionWebSessionTests.swift`](../../Tests/PerchTests/NotionWebSessionTests.swift),
+  [`WebNavigationDestinationTests.swift`](../../Tests/PerchTests/WebNavigationDestinationTests.swift),
+  [`NotionEditorSelectionTests.swift`](../../Tests/PerchTests/NotionEditorSelectionTests.swift),
   or
-  [`ExternalDropActivatingWebViewTests.swift`](../../Tests/NotionPiPTests/ExternalDropActivatingWebViewTests.swift),
+  [`ExternalDropActivatingWebViewTests.swift`](../../Tests/PerchTests/ExternalDropActivatingWebViewTests.swift),
   depending on the chosen case.
 
 ## Recap

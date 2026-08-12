@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the stashed Notion PiP edge tab draggable across displays and snap it to the nearest horizontal edge on release without restoring or reloading the live page.
+**Goal:** Make the stashed Perch edge tab draggable across displays and snap it to the nearest horizontal edge on release without restoring or reloading the live page.
 
 **Architecture:** Extend the pure stash geometry policy with drag-end snapping, add a testable AppKit pointer interaction surface to the existing SwiftUI handle, and let the panel coordinator retain placement changes for the current stash session. The main PiP panel and WebView remain untouched while the handle moves.
 
@@ -21,8 +21,8 @@
 ### Task 1: Drag-end placement policy
 
 **Files:**
-- Modify: `Tests/NotionPiPTests/PanelStashPolicyTests.swift`
-- Modify: `Sources/NotionPiP/Platform/PanelStashPolicy.swift`
+- Modify: `Tests/PerchTests/PanelStashPolicyTests.swift`
+- Modify: `Sources/Perch/Platform/PanelStashPolicy.swift`
 
 **Interfaces:**
 - Consumes: `PanelFramePolicy.targetVisibleFrame(for:from:)` and `PanelStashPolicy.handleSize`.
@@ -81,15 +81,15 @@ Expected: all `PanelStashPolicyTests` pass.
 - [ ] **Step 5: Commit the geometry slice**
 
 ```bash
-git add Sources/NotionPiP/Platform/PanelStashPolicy.swift Tests/NotionPiPTests/PanelStashPolicyTests.swift
+git add Sources/Perch/Platform/PanelStashPolicy.swift Tests/PerchTests/PanelStashPolicyTests.swift
 git commit -m "feat: snap dragged stash handle to screen edge"
 ```
 
 ### Task 2: Click-versus-drag AppKit interaction
 
 **Files:**
-- Create: `Tests/NotionPiPTests/PiPStashHandleInteractionTests.swift`
-- Modify: `Sources/NotionPiP/Views/PiPStashHandleView.swift`
+- Create: `Tests/PerchTests/PiPStashHandleInteractionTests.swift`
+- Modify: `Sources/Perch/Views/PiPStashHandleView.swift`
 
 **Interfaces:**
 - Consumes: the handle panel supplied by `NSView.window`.
@@ -124,7 +124,7 @@ Expected: compile failure reporting that `PiPStashHandleInteractionView` is not 
 
 - [ ] **Step 3: Implement the AppKit interaction surface**
 
-Add an internal `NSView` subclass that records pointer and panel origin on mouse-down, crosses a 3-point Euclidean threshold in `mouseDragged`, moves the panel with `setFrameOrigin`, and chooses `onActivate` versus `onDragEnded` in `mouseUp`. Give the view button accessibility role, label, hint, press action, and the tooltip `Drag to move; click to restore Notion PiP`.
+Add an internal `NSView` subclass that records pointer and panel origin on mouse-down, crosses a 3-point Euclidean threshold in `mouseDragged`, moves the panel with `setFrameOrigin`, and chooses `onActivate` versus `onDragEnded` in `mouseUp`. Give the view button accessibility role, label, hint, press action, and the tooltip `Drag to move; click to restore Perch`.
 
 Add a private `NSViewRepresentable` wrapper and replace the SwiftUI `Button` with a `ZStack`: the existing material/symbol visuals are accessibility-hidden beneath the interaction surface.
 
@@ -137,16 +137,16 @@ Expected: click and drag tests pass with no failures.
 - [ ] **Step 5: Commit the interaction slice**
 
 ```bash
-git add Sources/NotionPiP/Views/PiPStashHandleView.swift Tests/NotionPiPTests/PiPStashHandleInteractionTests.swift
+git add Sources/Perch/Views/PiPStashHandleView.swift Tests/PerchTests/PiPStashHandleInteractionTests.swift
 git commit -m "feat: drag the stashed PiP handle"
 ```
 
 ### Task 3: Snap controller and retain placement
 
 **Files:**
-- Modify: `Tests/NotionPiPTests/PinCoordinatorTests.swift`
-- Modify: `Sources/NotionPiP/Platform/PiPStashHandleController.swift`
-- Modify: `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift`
+- Modify: `Tests/PerchTests/PinCoordinatorTests.swift`
+- Modify: `Sources/Perch/Platform/PiPStashHandleController.swift`
+- Modify: `Sources/Perch/Platform/PiPPanelCoordinator.swift`
 
 **Interfaces:**
 - Consumes: `PanelStashPolicy.snappedPlacement(for:visibleFrames:)` and the interaction view's final dragged frame.
@@ -185,7 +185,7 @@ Expected: all focused tests pass.
 - [ ] **Step 6: Commit the orchestration slice**
 
 ```bash
-git add Sources/NotionPiP/Platform/PiPStashHandleController.swift Sources/NotionPiP/Platform/PiPPanelCoordinator.swift Tests/NotionPiPTests/PinCoordinatorTests.swift
+git add Sources/Perch/Platform/PiPStashHandleController.swift Sources/Perch/Platform/PiPPanelCoordinator.swift Tests/PerchTests/PinCoordinatorTests.swift
 git commit -m "feat: retain dragged stash placement"
 ```
 

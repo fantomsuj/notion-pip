@@ -2,7 +2,7 @@
 
 ## Goal
 
-Let someone reposition the stashed Notion PiP by dragging its edge tab. A click still restores the live PiP; a drag moves the tab freely and, on release, snaps it to the nearest horizontal edge while keeping the chosen vertical position.
+Let someone reposition the stashed Perch by dragging its edge tab. A click still restores the live PiP; a drag moves the tab freely and, on release, snaps it to the nearest horizontal edge while keeping the chosen vertical position.
 
 ## Research and Rationale
 
@@ -44,9 +44,9 @@ References:
 
 ## Accessibility and Feedback
 
-- The tab retains the accessibility label **Restore Notion PiP** and hint **Bring the stashed Notion PiP back from the side.**
+- The tab retains the accessibility label **Restore Perch** and hint **Bring the stashed Perch back from the side.**
 - The whole visible tab remains the pointer and accessibility target.
-- The help text becomes **Drag to move; click to restore Notion PiP** so the new behavior is discoverable without adding permanent chrome.
+- The help text becomes **Drag to move; click to restore Perch** so the new behavior is discoverable without adding permanent chrome.
 - No animation is added; the tab follows the system drag and snaps immediately on release.
 
 ## Edge Cases

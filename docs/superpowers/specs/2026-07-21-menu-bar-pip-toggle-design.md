@@ -26,7 +26,7 @@ References:
 
 ### Command access
 
-- Add a visible app-menu button to the PiP toolbar using the `ellipsis.circle` SF Symbol and the accessibility label "Notion PiP menu."
+- Add a visible app-menu button to the PiP toolbar using the `ellipsis.circle` SF Symbol and the accessibility label "Perch menu."
 - Clicking that button opens the full app command menu.
 - Right-clicking the menu-bar icon opens the same command menu without changing PiP visibility.
 - The two menus share one command definition so their labels, enabled states, keyboard shortcuts, and actions cannot drift.
@@ -38,7 +38,7 @@ The shared command menu contains these groups in order:
 1. **Quick Capture** — opens the existing Quick Capture window.
 2. **Change Pinned Page…** — opens the existing menu-bar setup/options surface. The ellipsis communicates that another interface is required.
 3. **Settings…** — opens Settings.
-4. **Quit Notion PiP** — terminates the app.
+4. **Quit Perch** — terminates the app.
 
 Workspace search and URL entry remain in the setup/options surface opened by **Change Pinned Page…**. They are not duplicated inside the compact command menu.
 
@@ -118,7 +118,7 @@ The WebView session stays alive while the panel is hidden because the existing p
 - A regular click that shows the PiP activates the accessory app and makes the panel key, matching the behavior used when a page is first pinned.
 - Hiding the PiP uses the existing `orderOut` path and does not clear `currentPage`.
 - The visible toolbar menu button sits with the existing reload, browser, surface picker, and close controls. It appears before the close button so the close button remains the trailing destructive/dismissive control.
-- The status item retains a tooltip such as "Show or hide Notion PiP. Right-click for menu." This helps explain the secondary shortcut without making it essential.
+- The status item retains a tooltip such as "Show or hide Perch. Right-click for menu." This helps explain the secondary shortcut without making it essential.
 - The setup/options surface remains unchanged in scope and layout.
 
 ## Error and Edge-Case Behavior
@@ -132,7 +132,7 @@ The WebView session stays alive while the panel is hidden because the existing p
 
 ## Accessibility
 
-- The menu-bar status item has an accessibility label that identifies Notion PiP and an accessibility help string describing the toggle behavior.
+- The menu-bar status item has an accessibility label that identifies Perch and an accessibility help string describing the toggle behavior.
 - The PiP toolbar app-menu button has an explicit accessibility label and a hit target consistent with the neighboring toolbar controls.
 - All shared menu commands have textual labels, remain keyboard navigable, and preserve existing keyboard shortcuts where applicable.
 - The toggle does not add animation, so Reduce Motion requires no special behavior.

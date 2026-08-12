@@ -22,8 +22,8 @@
 ### Task 1: Web-session creation and page recognition
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Test: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Test: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 **Interfaces:**
 - Consumes: Existing `NotionPageReference.init(validating:)` canonical URL validation.
@@ -191,7 +191,7 @@ Expected: all `NotionWebSessionTests` pass.
 - [x] **Step 7: Commit the web-session slice**
 
 ```bash
-git add Sources/NotionPiP/Platform/NotionWebSession.swift Tests/NotionPiPTests/NotionWebSessionTests.swift
+git add Sources/Perch/Platform/NotionWebSession.swift Tests/PerchTests/NotionWebSessionTests.swift
 git commit -m "feat: create Notion pages in embedded session"
 ```
 
@@ -200,10 +200,10 @@ git commit -m "feat: create Notion pages in embedded session"
 ### Task 2: Shared command and accessible PiP toolbar button
 
 **Files:**
-- Modify: `Sources/NotionPiP/App/AppCommandModel.swift`
-- Modify: `Sources/NotionPiP/Views/PiPChromeView.swift`
-- Test: `Tests/NotionPiPTests/AppCommandTests.swift`
-- Test: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Modify: `Sources/Perch/App/AppCommandModel.swift`
+- Modify: `Sources/Perch/Views/PiPChromeView.swift`
+- Test: `Tests/PerchTests/AppCommandTests.swift`
+- Test: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 **Interfaces:**
 - Consumes: `NotionWebSession.createNewPage()` and `NotionWebSession.isCreatingNewPage` from Task 1.
@@ -225,7 +225,7 @@ XCTAssertEqual(model.commands.map(\.title), [
     "Quick Capture",
     "Change Pinned Page…",
     "Settings…",
-    "Quit Notion PiP",
+    "Quit Perch",
 ])
 ```
 
@@ -301,7 +301,7 @@ init(
         AppCommandGroup(commands: [
             AppCommand(
                 id: .quit,
-                title: "Quit Notion PiP",
+                title: "Quit Perch",
                 keyEquivalent: "q",
                 action: quit
             ),
@@ -366,7 +366,7 @@ Expected: both suites pass.
 - [x] **Step 7: Commit the UI slice**
 
 ```bash
-git add Sources/NotionPiP/App/AppCommandModel.swift Sources/NotionPiP/Views/PiPChromeView.swift Tests/NotionPiPTests/AppCommandTests.swift Tests/NotionPiPTests/NotionWebSessionTests.swift
+git add Sources/Perch/App/AppCommandModel.swift Sources/Perch/Views/PiPChromeView.swift Tests/PerchTests/AppCommandTests.swift Tests/PerchTests/NotionWebSessionTests.swift
 git commit -m "feat: add new Notion page toolbar action"
 ```
 
@@ -375,10 +375,10 @@ git commit -m "feat: add new Notion page toolbar action"
 ### Task 3: Composition and unified runtime adoption
 
 **Files:**
-- Modify: `Sources/NotionPiP/App/NotionPiPApp.swift`
-- Modify: `Sources/NotionPiP/App/AppRuntime.swift`
-- Modify: `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift`
-- Test: `Tests/NotionPiPTests/RuntimeActivationTests.swift`
+- Modify: `Sources/Perch/App/PerchApp.swift`
+- Modify: `Sources/Perch/App/AppRuntime.swift`
+- Modify: `Sources/Perch/Platform/PiPPanelCoordinator.swift`
+- Test: `Tests/PerchTests/RuntimeActivationTests.swift`
 
 **Interfaces:**
 - Consumes: `NotionWebSession.onPageResolved`, `NotionWebSession.createNewPage()`, `AppCommandModel(newNotionPage:...)`.
@@ -440,7 +440,7 @@ convenience init(
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
     panel.hidesOnDeactivate = false
     panel.isReleasedWhenClosed = false
-    panel.title = "Notion PiP"
+    panel.title = "Perch"
 
     _ = panel.setFrameUsingName(Self.autosaveName)
     _ = panel.setFrameAutosaveName(Self.autosaveName)
@@ -514,7 +514,7 @@ Expected: all four suites pass, including existing edge-stash tests.
 - [x] **Step 7: Commit the composition slice**
 
 ```bash
-git add Sources/NotionPiP/App/NotionPiPApp.swift Sources/NotionPiP/App/AppRuntime.swift Sources/NotionPiP/App/AppCommandModel.swift Sources/NotionPiP/Platform/PiPPanelCoordinator.swift Tests/NotionPiPTests/AppCommandTests.swift Tests/NotionPiPTests/RuntimeActivationTests.swift
+git add Sources/Perch/App/PerchApp.swift Sources/Perch/App/AppRuntime.swift Sources/Perch/App/AppCommandModel.swift Sources/Perch/Platform/PiPPanelCoordinator.swift Tests/PerchTests/AppCommandTests.swift Tests/PerchTests/RuntimeActivationTests.swift
 git commit -m "feat: adopt created Notion page as active pin"
 ```
 
@@ -583,7 +583,7 @@ git commit -m "docs: explain one-click Notion page creation"
 Run:
 
 ```bash
-git diff origin/master... -- Sources/NotionPiP/App/AppCommandModel.swift Sources/NotionPiP/App/AppRuntime.swift Sources/NotionPiP/App/NotionPiPApp.swift Sources/NotionPiP/Platform/NotionWebSession.swift Sources/NotionPiP/Platform/PiPPanelCoordinator.swift Sources/NotionPiP/Views/PiPChromeView.swift Tests/NotionPiPTests/AppCommandTests.swift Tests/NotionPiPTests/NotionWebSessionTests.swift Tests/NotionPiPTests/RuntimeActivationTests.swift README.md
+git diff origin/master... -- Sources/Perch/App/AppCommandModel.swift Sources/Perch/App/AppRuntime.swift Sources/Perch/App/PerchApp.swift Sources/Perch/Platform/NotionWebSession.swift Sources/Perch/Platform/PiPPanelCoordinator.swift Sources/Perch/Views/PiPChromeView.swift Tests/PerchTests/AppCommandTests.swift Tests/PerchTests/NotionWebSessionTests.swift Tests/PerchTests/RuntimeActivationTests.swift README.md
 ```
 
 Expected: the feature matches the approved design, contains no token requirement, preserves existing controls, and has no unrelated refactor.

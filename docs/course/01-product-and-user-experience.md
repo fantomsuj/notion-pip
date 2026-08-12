@@ -2,7 +2,7 @@
 
 **Duration:** 45 minutes
 
-Notion PiP is “a little piece of Notion that stays with you”: a native macOS
+Perch is “a little piece of Notion that stays with you”: a native macOS
 accessory that keeps a real Notion page close while other work continues. This
 lecture builds a precise product model before later lectures explain the code.
 It describes the committed repository snapshot; unrelated unstaged product
@@ -16,9 +16,9 @@ the first owning subsystem.
 > says, “Create a fresh Notion page from the `+` button; it becomes the new
 > pinned page automatically.” That sentence is inconsistent with this committed
 > source snapshot. Here the toolbar `+` invokes **Quick Capture** in
-> [`PiPChromeView.swift`](../../Sources/NotionPiP/Views/PiPChromeView.swift).
+> [`PiPChromeView.swift`](../../Sources/Perch/Views/PiPChromeView.swift).
 > Activating a new page records its visit so it appears in **Recent**; the pin
-> control on each [`PageSwitcherView`](../../Sources/NotionPiP/Views/PageSwitcherView.swift)
+> control on each [`PageSwitcherView`](../../Sources/Perch/Views/PageSwitcherView.swift)
 > row explicitly promotes it to a pinned favorite or removes that favorite.
 > This lecture follows committed source behavior rather than the inconsistent
 > README sentence.
@@ -75,7 +75,7 @@ full-screen behavior on a real Mac.
 ### The open-notebook metaphor
 
 An ordinary browser or desktop Notion window is a destination: the user leaves
-the current task, finds the window, and enters the workspace. Notion PiP is more
+the current task, finds the window, and enters the workspace. Perch is more
 like leaving a notebook open beside the keyboard. The page is already present,
 small enough to coexist with the main task, and easy to tuck away without
 closing the thought. The product goal is not to replace Notion. It shortens the
@@ -118,14 +118,14 @@ layer. Later lectures unpack each path.
 
 | Product surface | What the user experiences | Starting source |
 |---|---|---|
-| Process presence | No Dock icon; menu-bar access is on by default and can be hidden | [`AppDelegate.swift`](../../Sources/NotionPiP/App/AppDelegate.swift), [`StatusItemController.swift`](../../Sources/NotionPiP/Platform/StatusItemController.swift) |
-| Floating notebook | An editable Notion page in a floating, all-Spaces panel | [`WindowRolePolicy.swift`](../../Sources/NotionPiP/Platform/WindowRolePolicy.swift), [`PiPChromeView.swift`](../../Sources/NotionPiP/Views/PiPChromeView.swift) |
-| Page entry | A validated Notion page URL can be entered; an allowlisted external handoff can activate a page | [`AppRuntime+Activation.swift`](../../Sources/NotionPiP/App/AppRuntime+Activation.swift), [handoff protocol](../HANDOFF_PROTOCOL.md) |
-| Page switcher | Up to seven favorites and seven nonfavorite recent pages, with local subsequence search, keyboard selection, and an explicit pin/unpin control | [`PageWorkingSetPolicy.swift`](../../Sources/NotionPiP/Domain/PageWorkingSetPolicy.swift), [`PageSwitcherView.swift`](../../Sources/NotionPiP/Views/PageSwitcherView.swift) |
-| Edge stash | The full panel gives way to a slim handle on the nearest edge; restoring returns the retained panel | [`PiPPanelCoordinator.swift`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift), [`PanelStashPolicy.swift`](../../Sources/NotionPiP/Platform/PanelStashPolicy.swift) |
-| Panel size | Built-in and custom presets resize the retained panel without intentionally reloading Notion | [`PanelSizeController.swift`](../../Sources/NotionPiP/App/PanelSizeController.swift), [`PanelSizeSettingsView.swift`](../../Sources/NotionPiP/Views/PanelSizeSettingsView.swift) |
-| Quick Capture | The `+` control or capture command opens a focused local editor whose draft is saved before delivery | [`AppCommandModel.swift`](../../Sources/NotionPiP/App/AppCommandModel.swift), [`QuickCaptureView.swift`](../../Sources/NotionPiP/Views/QuickCaptureView.swift) |
-| Optional Notion API access | Settings accepts a personal token for destination search and delivery; the token stays in Keychain and never enters the live Notion view | [`SettingsView.swift`](../../Sources/NotionPiP/Views/SettingsView.swift), [`PersonalTokenCredentialVault.swift`](../../Sources/NotionPiP/Platform/PersonalTokenCredentialVault.swift) |
+| Process presence | No Dock icon; menu-bar access is on by default and can be hidden | [`AppDelegate.swift`](../../Sources/Perch/App/AppDelegate.swift), [`StatusItemController.swift`](../../Sources/Perch/Platform/StatusItemController.swift) |
+| Floating notebook | An editable Notion page in a floating, all-Spaces panel | [`WindowRolePolicy.swift`](../../Sources/Perch/Platform/WindowRolePolicy.swift), [`PiPChromeView.swift`](../../Sources/Perch/Views/PiPChromeView.swift) |
+| Page entry | A validated Notion page URL can be entered; an allowlisted external handoff can activate a page | [`AppRuntime+Activation.swift`](../../Sources/Perch/App/AppRuntime+Activation.swift), [handoff protocol](../HANDOFF_PROTOCOL.md) |
+| Page switcher | Up to seven favorites and seven nonfavorite recent pages, with local subsequence search, keyboard selection, and an explicit pin/unpin control | [`PageWorkingSetPolicy.swift`](../../Sources/Perch/Domain/PageWorkingSetPolicy.swift), [`PageSwitcherView.swift`](../../Sources/Perch/Views/PageSwitcherView.swift) |
+| Edge stash | The full panel gives way to a slim handle on the nearest edge; a contextual recent-pages shelf can extend inward while the PiP remains retained | [`PiPPanelCoordinator.swift`](../../Sources/Perch/Platform/PiPPanelCoordinator.swift), [`PiPStashHandleController.swift`](../../Sources/Perch/Platform/PiPStashHandleController.swift) |
+| Panel size | Built-in and custom presets resize the retained panel without intentionally reloading Notion | [`PanelSizeController.swift`](../../Sources/Perch/App/PanelSizeController.swift), [`PanelSizeSettingsView.swift`](../../Sources/Perch/Views/PanelSizeSettingsView.swift) |
+| Quick Capture | The `+` control or capture command opens a focused local editor whose draft is saved before delivery | [`AppCommandModel.swift`](../../Sources/Perch/App/AppCommandModel.swift), [`QuickCaptureView.swift`](../../Sources/Perch/Views/QuickCaptureView.swift) |
+| Optional Notion API access | Settings accepts a personal token for destination search and delivery; the token stays in Keychain and never enters the live Notion view | [`SettingsView.swift`](../../Sources/Perch/Views/SettingsView.swift), [`PersonalTokenCredentialVault.swift`](../../Sources/Perch/Platform/PersonalTokenCredentialVault.swift) |
 
 The live Notion sign-in and the optional personal API token are separate trust
 domains. Browser cookies belong to the embedded Notion session. The token is
@@ -133,7 +133,7 @@ needed only for API-backed Quick Capture destination search and delivery; it is
 not needed to build, launch, pin, view, or edit a Notion page.
 
 **Manual-verification label:** collection behavior in
-[`WindowRolePolicy.swift`](../../Sources/NotionPiP/Platform/WindowRolePolicy.swift)
+[`WindowRolePolicy.swift`](../../Sources/Perch/Platform/WindowRolePolicy.swift)
 states the all-Spaces policy, but the real outcomes for Mission Control,
 full-screen Spaces, keyboard focus, and display changes are manual checks.
 
@@ -156,7 +156,7 @@ full-screen Spaces, keyboard focus, and display changes are manual checks.
    without depending on hover.
 
 The same activation path accepts a validated
-[`notion-pip://pin`](../HANDOFF_PROTOCOL.md) handoff. The handoff's `source` is
+[`perch://pin`](../HANDOFF_PROTOCOL.md) handoff. The handoff's `source` is
 untrusted metadata; URL validation, not the source label, grants entry.
 
 ### Journey 2: move between pages without multiplying browsers
@@ -184,10 +184,15 @@ untrusted metadata; URL validation, not the source label, grants entry.
 2. Stashing records the logical panel frame, chooses the nearest edge, presents
    the handle, notifies the browser lifecycle that the panel hid, and removes
    the full panel from view.
-3. Clicking the handle, choosing **Show Notion PiP**, or tapping the shortcut
+3. Hovering the handle opens a contextual **Recent in PiP** shelf with up to
+   five visit-ordered pages. The shelf is an extension of the handle, not a
+   second persistent PiP: it contains page identity and recency only.
+4. Clicking the handle, choosing **Show Perch**, or tapping the shortcut
    restores the retained panel. Holding the panel shortcut while stashed
    temporarily peeks the panel and stashes it again on release.
-4. Applying a built-in or custom size asks the panel coordinator to resize the
+5. Choosing the current shelf row restores without reloading; choosing another
+   row follows normal page-switcher activation with its saved restoration.
+6. Applying a built-in or custom size asks the panel coordinator to resize the
    existing panel. A stashed panel is restored to apply the size. The saved
    preferred dimensions remain distinct from temporary clamping on a small
    display.
@@ -243,11 +248,12 @@ usually moves inward.
 |---|---|---|---|
 | Launch the app | App lifecycle | `AppDelegate` selects accessory policy; startup/runtime restores services and the saved working set | Saved page and preferences may be read |
 | Enter a Notion URL | Settings or Pin Page | URL input → `AppRuntime` → pin coordinator → panel coordinator → `NotionWebSession` | Valid activation is recorded as a visit; a new page appears in recents |
-| Open `notion-pip://pin` | Launch Services handoff | `AppDelegate` → runtime → strict external-route parser → normal activation path | Same page recording as typed input; untrusted routes are rejected |
+| Open `perch://pin` | Launch Services handoff | `AppDelegate` → runtime → strict external-route parser → normal activation path | Same page recording as typed input; untrusted routes are rejected |
 | Edit the visible page | Embedded Notion UI | `PiPChromeView` hosts the retained `NotionWebSession` view | Notion owns remote page editing through its web session |
 | Switch pages | Page-switcher popover | `PageSwitcherController`/matcher → runtime activation → WebKit session | Active/recent order and durable restoration are saved |
 | Pin or unpin a favorite | Pin control or accessibility action on a switcher row | `PageSwitcherView` → `PageSwitcherController.setPinned` → page repository | The row moves between pinned favorites and recents; the active page need not change |
 | Stash or restore | Panel control, shortcut, status menu, or handle | Runtime/pin coordinator → `PiPPanelCoordinator` → stash policy and handle controller | Presentation geometry/preferences remain local |
+| Restore a recent stashed page | Contextual handle shelf | Recent visit history → `PiPRecentPagesShelfController` → runtime page-switcher activation → retained panel | The selected visit is recorded; available durable restoration is reused |
 | Apply a size | PiP/status menu or Settings | `PanelSizeController` → panel coordinator | Presets and last explicit working size use local preferences |
 | Press toolbar `+` or choose the app command | PiP control or app command | App command → capture presenter → local editor session → capture repository | A nonempty configured capture enters the outbox, then API delivery |
 | Press the global capture shortcut | Registered shortcut | Runtime reads trusted settings and optional clipboard text → saved-cursor WebKit insertion attempt → capture presenter fallback | Successful insertion edits the live page directly; fallback creates a local draft that may later enter the outbox |
@@ -279,7 +285,7 @@ credential storage merely because it contains the initiating button.
 | Misconception or symptom | Correct product model | First check |
 |---|---|---|
 | “The app crashed because it is not in the Dock.” | Accessory/no-Dock behavior is intentional. | Look for the panel or default-visible menu-bar icon; use the panel shortcut. |
-| “An all-Spaces panel is an `NSPanel` bug.” | The panel and stash handle deliberately join all Spaces as floating auxiliary UI. | Compare [`WindowRolePolicy.swift`](../../Sources/NotionPiP/Platform/WindowRolePolicy.swift) with the [manual matrix](../MANUAL_TEST_MATRIX.md). |
+| “An all-Spaces panel is an `NSPanel` bug.” | The panel and stash handle deliberately join all Spaces as floating auxiliary UI. | Compare [`WindowRolePolicy.swift`](../../Sources/Perch/Platform/WindowRolePolicy.swift) with the [manual matrix](../MANUAL_TEST_MATRIX.md). |
 | “Every pinned page has its own live browser.” | One `WKWebView` is reused; saved pages have snapshots and restoration, not permanent browser instances. | Distinguish live interaction state from durable URL/scroll state. |
 | “Switching back must reproduce every detail after relaunch.” | Rich WebKit state is process-local; cross-launch restoration is URL plus best-effort scroll. | Confirm whether the process relaunched or the view was evicted. |
 | “The `+` button immediately pins a blank live page.” | The README sentence making that claim is inconsistent with this snapshot. In committed UI, `+` opens Quick Capture; favorites are managed by the page-switcher pin control. | Use the source-authority callout, then check Quick Capture status or the switcher row. |
@@ -336,7 +342,7 @@ trust and ownership boundaries.
 
 Try to answer before expanding the supplied answers below.
 
-1. Why does Notion PiP not appear in the Dock?
+1. Why does Perch not appear in the Dock?
 2. Does switching among seven favorites create seven live `WKWebView` objects?
 3. What survives a relaunch when rich WebKit interaction state does not?
 4. Name three ways to restore a stashed panel.
@@ -354,7 +360,7 @@ Try to answer before expanding the supplied answers below.
    among saved page references.
 3. A validated last URL plus durable, best-effort scroll restoration; otherwise
    the canonical URL and natural scroll position are used.
-4. Click the edge handle, choose **Show Notion PiP** from the menu-bar item, or
+4. Click the edge handle, choose **Show Perch** from the menu-bar item, or
    tap the panel show/hide shortcut. A held shortcut can also provide a
    temporary peek while stashed.
 5. Activation displays the page and records its visit, placing a new page in
@@ -395,8 +401,8 @@ For each scenario, write:
 3. the state expected to remain live, durable, or presentation-only;
 4. one expected observation that automated tests cannot fully prove.
 
-Use [`PiPChromeView.swift`](../../Sources/NotionPiP/Views/PiPChromeView.swift),
-[`PiPPanelCoordinator.swift`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift),
+Use [`PiPChromeView.swift`](../../Sources/Perch/Views/PiPChromeView.swift),
+[`PiPPanelCoordinator.swift`](../../Sources/Perch/Platform/PiPPanelCoordinator.swift),
 the [page activation flow](ARCHITECTURE_MAP.md#flow-2--page-activation-and-webkit-navigation),
 the [stash flow](ARCHITECTURE_MAP.md#flow-3--stashrestore-presentation), and the
 [capture flow](ARCHITECTURE_MAP.md#flow-4--capture-delivery-from-editor-to-notion).
@@ -433,7 +439,7 @@ own WebKit view, or treats “Saved” as remote delivery, revisit the
 
 ## Recap
 
-Notion PiP is an open notebook, not a replacement for Notion. It combines an
+Perch is an open notebook, not a replacement for Notion. It combines an
 intentional accessory/no-Dock process with a floating, all-Spaces panel that
 hosts one live Notion web view. Page switching, stashing, and sizing preserve
 continuity at different state boundaries. Quick Capture is local-first and

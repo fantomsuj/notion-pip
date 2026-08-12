@@ -2,7 +2,7 @@
 
 **Duration:** 90 minutes
 
-Notion PiP crosses pure domain logic, SwiftData actors, AppKit windows, SwiftUI
+Perch crosses pure domain logic, SwiftData actors, AppKit windows, SwiftUI
 views, WebKit, a TypeScript editor, HTTP, Keychain, and macOS window-server
 behavior. No single test style can cover all of that honestly. This capstone
 lecture teaches how to choose the smallest trustworthy evidence, diagnose a
@@ -77,7 +77,7 @@ the produced app targets macOS 14 or newer.
 Important safety boundaries:
 
 - `script/build_and_run.sh` terminates every running process named
-  `NotionPiP` before building. Save active work and quit the app first.
+  `Perch` before building. Save active work and quit the app first.
 - Do not accept an Xcode license with `sudo`, install large dependencies, edit
   signing/entitlements, or change system configuration merely to make an
   exercise pass.
@@ -127,20 +127,20 @@ The suite's recurring isolation tools are:
   proves completion.
 
 The implementation source for the shared SwiftData factory is
-[`NotionPiPPersistence.swift`](../../Sources/NotionPiP/Persistence/NotionPiPPersistence.swift).
+[`PerchPersistence.swift`](../../Sources/Perch/Persistence/PerchPersistence.swift).
 Representative isolation lives in
-[`CaptureRepositoryTests.swift`](../../Tests/NotionPiPTests/CaptureRepositoryTests.swift),
-[`SchemaMigrationTests.swift`](../../Tests/NotionPiPTests/SchemaMigrationTests.swift),
-and [`AppRuntimeTestSupport.swift`](../../Tests/NotionPiPTests/AppRuntimeTestSupport.swift).
+[`CaptureRepositoryTests.swift`](../../Tests/PerchTests/CaptureRepositoryTests.swift),
+[`SchemaMigrationTests.swift`](../../Tests/PerchTests/SchemaMigrationTests.swift),
+and [`AppRuntimeTestSupport.swift`](../../Tests/PerchTests/AppRuntimeTestSupport.swift).
 
 ## Repository tour
 
 ### Swift XCTest suite
 
-[`Tests/NotionPiPTests`](../../Tests/NotionPiPTests) contains 70 committed Swift
+[`Tests/PerchTests`](../../Tests/PerchTests) contains 70 committed Swift
 test/support files at this course baseline: 64 `*Tests.swift` files and six
 `*TestSupport.swift` files. Test classes inherit `XCTestCase`, import the
-executable module with `@testable import NotionPiP`, and use async XCTest methods
+executable module with `@testable import Perch`, and use async XCTest methods
 for actor/MainActor work.
 
 The suite groups naturally:
@@ -160,18 +160,18 @@ The suite groups naturally:
 
 The most reused support boundaries are:
 
-- [`AppRuntimeTestSupport.swift`](../../Tests/NotionPiPTests/AppRuntimeTestSupport.swift):
+- [`AppRuntimeTestSupport.swift`](../../Tests/PerchTests/AppRuntimeTestSupport.swift):
   runtime factory plus fake panel, settings presenter, pasteboard, shortcut
   registrar, URL presenter, token store, page repository, and Notion client.
-- [`Task3TestSupport.swift`](../../Tests/NotionPiPTests/Task3TestSupport.swift):
+- [`Task3TestSupport.swift`](../../Tests/PerchTests/Task3TestSupport.swift):
   canonical JSON fixture helper and controllable delivery clock.
-- [`CaptureWebViewTestSupport.swift`](../../Tests/NotionPiPTests/CaptureWebViewTestSupport.swift):
+- [`CaptureWebViewTestSupport.swift`](../../Tests/PerchTests/CaptureWebViewTestSupport.swift):
   real local `WKWebView` input/DOM/lock queries, bounded waits, persistence
   failures, bridge recording, and blocking gates.
 - Formatting, slash-menu, and persistence helpers in
-  [`CaptureWebViewFormattingTestSupport.swift`](../../Tests/NotionPiPTests/CaptureWebViewFormattingTestSupport.swift),
-  [`CaptureWebViewSlashMenuTestSupport.swift`](../../Tests/NotionPiPTests/CaptureWebViewSlashMenuTestSupport.swift),
-  and [`CaptureWebViewPersistenceTestSupport.swift`](../../Tests/NotionPiPTests/CaptureWebViewPersistenceTestSupport.swift).
+  [`CaptureWebViewFormattingTestSupport.swift`](../../Tests/PerchTests/CaptureWebViewFormattingTestSupport.swift),
+  [`CaptureWebViewSlashMenuTestSupport.swift`](../../Tests/PerchTests/CaptureWebViewSlashMenuTestSupport.swift),
+  and [`CaptureWebViewPersistenceTestSupport.swift`](../../Tests/PerchTests/CaptureWebViewPersistenceTestSupport.swift).
 
 ### TypeScript and DOM suite
 
@@ -199,12 +199,12 @@ the other.
 - [`MANUAL_TEST_MATRIX.md`](../../docs/MANUAL_TEST_MATRIX.md) is the source of
   truth for Stage Manager, Spaces, Mission Control, multi-display/Dock geometry,
   focus, retained WebView state, panel sizes, and accessibility passes.
-- [`PerformanceSignposter.swift`](../../Sources/NotionPiP/Platform/PerformanceSignposter.swift)
+- [`PerformanceSignposter.swift`](../../Sources/Perch/Platform/PerformanceSignposter.swift)
   defines first-only intervals for cold launch, first PiP presentation, and
   first Quick Capture presentation.
 - [`build_and_run.sh`](../../script/build_and_run.sh) assembles, signs, launches,
   debugs, streams logs, or verifies the app.
-- [`NotionPiP.entitlements`](../../Support/NotionPiP.entitlements) enables the app
+- [`Perch.entitlements`](../../Support/Perch.entitlements) enables the app
   sandbox and outbound network client access—nothing more.
 - [`Version.env`](../../Support/Version.env) supplies the bundle version/build;
   [`Package.swift`](../../Package.swift) supplies Swift 6.2, macOS 14, the
@@ -249,13 +249,13 @@ window boundary.
 every mode:
 
 1. validate mode, version strings, and full Xcode location;
-2. terminate running `NotionPiP` processes;
+2. terminate running `Perch` processes;
 3. if both `package.json` and `node_modules` exist, regenerate editor assets;
-4. `swift build --product NotionPiP` and find SwiftPM's binary directory;
-5. replace `dist/NotionPiP.app`, copy the executable and every top-level SwiftPM
+4. `swift build --product Perch` and find SwiftPM's binary directory;
+5. replace `dist/Perch.app`, copy the executable and every top-level SwiftPM
    resource bundle;
 6. write and lint `Info.plist` with bundle ID, version, macOS 14 minimum,
-   `LSUIElement = true`, and `notion-pip` URL scheme;
+   `LSUIElement = true`, and `perch` URL scheme;
 7. ad-hoc sign with the sandbox/network entitlements and verify the signature;
 8. launch the staged bundle according to the selected mode.
 
@@ -265,11 +265,11 @@ The mode determines what happens after staging:
 |---|---|---|
 | `run` or no argument | `open -n` the app | Ordinary local trial |
 | `--debug` | Launch, wait for PID, attach Xcode's LLDB | Native breakpoint/crash investigation |
-| `--logs` | Stream unified logs for process `NotionPiP` | Lifecycle and framework-visible events |
-| `--telemetry` | Stream `com.fantomsuj.NotionPiP` subsystem at info level | App-owned categories and signpost context |
+| `--logs` | Stream unified logs for process `Perch` | Lifecycle and framework-visible events |
+| `--telemetry` | Stream `com.fantomsuj.Perch` subsystem at info level | App-owned categories and signpost context |
 | `--verify` | Capture logs before launch; check PID, plist, resource, signature, two-second stability, and absence of two SwiftData concurrency diagnostics | Repeatable local bundle/startup gate |
 
-A successful verification prints `Verified .../dist/NotionPiP.app (pid ...)`.
+A successful verification prints `Verified .../dist/Perch.app (pid ...)`.
 The result is a development app signed with `-`; it is not Developer ID signed,
 not notarized, and not evidence that every UI flow passed.
 
@@ -333,10 +333,10 @@ npm ci
 npm test
 npm run typecheck
 npm run build:editor
-git diff -- Sources/NotionPiP/Resources/QuickCapture/editor.js
+git diff -- Sources/Perch/Resources/QuickCapture/editor.js
 ```
 
-The generated [`editor.js`](../../Sources/NotionPiP/Resources/QuickCapture/editor.js)
+The generated [`editor.js`](../../Sources/Perch/Resources/QuickCapture/editor.js)
 is checked in. Regenerate it intentionally and review the diff. `npm ci` uses
 the lockfile; do not replace pinned dependencies casually.
 
@@ -367,7 +367,7 @@ failure, or cancelled—for:
 - `FirstPiPPresentation` in `performance.presentation`; and
 - `FirstQuickCapturePresentation` in `performance.presentation`.
 
-[`PerformanceSignposterTests.swift`](../../Tests/NotionPiPTests/PerformanceSignposterTests.swift)
+[`PerformanceSignposterTests.swift`](../../Tests/PerchTests/PerformanceSignposterTests.swift)
 proves first-only token and repeated-end safety. Signposts answer “how long did
 this interval take?” They do not prove the resulting UI was correct.
 
@@ -473,7 +473,7 @@ Use this sequence for a code change:
 2. Open `CaptureWebViewTestSupport.swift` beside `dom.ts`. Ask which one can call
    `WKWebView.callAsyncJavaScript` and which one creates Node globals.
 3. Read `build_and_run.sh` from `swift build` through `codesign`; do not run it
-   unless active Notion PiP work is saved.
+   unless active Perch work is saved.
 4. Open one multi-display row in the manual matrix and ask learners to name the
    unit policy tests that should accompany it.
 
@@ -520,7 +520,7 @@ If `node_modules` is absent, do not install it merely for a native-only demo.
 
 7. Why must the app be quit before the build script?
 
-   **Answer:** the script uses `pkill -x NotionPiP` before building. Unsaved work
+   **Answer:** the script uses `pkill -x Perch` before building. Unsaved work
    in a running development instance can be lost.
 
 8. Which evidence is appropriate for a Mission Control regression?
@@ -553,17 +553,17 @@ handle.”
 
 Expected files:
 
-- [`PanelStashPolicy.swift`](../../Sources/NotionPiP/Platform/PanelStashPolicy.swift)
-- [`PanelStashPolicyTests.swift`](../../Tests/NotionPiPTests/PanelStashPolicyTests.swift)
-- [`PiPPanelCoordinator.swift`](../../Sources/NotionPiP/Platform/PiPPanelCoordinator.swift)
+- [`PanelStashPolicy.swift`](../../Sources/Perch/Platform/PanelStashPolicy.swift)
+- [`PanelStashPolicyTests.swift`](../../Tests/PerchTests/PanelStashPolicyTests.swift)
+- [`PiPPanelCoordinator.swift`](../../Sources/Perch/Platform/PiPPanelCoordinator.swift)
 - [`MANUAL_TEST_MATRIX.md`](../../docs/MANUAL_TEST_MATRIX.md)
 
 Commands:
 
 ```sh
 rg -n "placement|greatestPanelIntersection|nearest" \
-  Sources/NotionPiP/Platform/PanelStashPolicy.swift \
-  Tests/NotionPiPTests/PanelStashPolicyTests.swift
+  Sources/Perch/Platform/PanelStashPolicy.swift \
+  Tests/PerchTests/PanelStashPolicyTests.swift
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   swift test --filter PanelStashPolicyTests
 ```
@@ -581,17 +581,17 @@ do not change geometry formulas speculatively.
 
 Expected files:
 
-- [`TopControlsHoverController.swift`](../../Sources/NotionPiP/Views/TopControlsHoverController.swift)
-- [`PiPChromeView.swift`](../../Sources/NotionPiP/Views/PiPChromeView.swift)
-- [`PiPChromeViewTests.swift`](../../Tests/NotionPiPTests/PiPChromeViewTests.swift)
+- [`TopControlsHoverController.swift`](../../Sources/Perch/Views/TopControlsHoverController.swift)
+- [`PiPChromeView.swift`](../../Sources/Perch/Views/PiPChromeView.swift)
+- [`PiPChromeViewTests.swift`](../../Tests/PerchTests/PiPChromeViewTests.swift)
 
 Commands:
 
 ```sh
 rg -n "reveal|dismiss|pointer|duration|topControls" \
-  Sources/NotionPiP/Views/TopControlsHoverController.swift \
-  Sources/NotionPiP/Views/PiPChromeView.swift \
-  Tests/NotionPiPTests/PiPChromeViewTests.swift
+  Sources/Perch/Views/TopControlsHoverController.swift \
+  Sources/Perch/Views/PiPChromeView.swift \
+  Tests/PerchTests/PiPChromeViewTests.swift
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   swift test --filter PiPChromeViewTests
 ```
@@ -613,11 +613,11 @@ Expected files:
 - [`debounced-change-publisher.ts`](../../Web/QuickCaptureEditor/bridge/debounced-change-publisher.ts)
 - [`bridge-client.ts`](../../Web/QuickCaptureEditor/bridge/bridge-client.ts)
 - [`protocol.ts`](../../Web/QuickCaptureEditor/protocol.ts)
-- [`CaptureBridgeProtocol.swift`](../../Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift)
-- [`CaptureEditorSession.swift`](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift)
+- [`CaptureBridgeProtocol.swift`](../../Sources/Perch/Platform/CaptureBridgeProtocol.swift)
+- [`CaptureEditorSession.swift`](../../Sources/Perch/Platform/CaptureEditorSession.swift)
 - [`autosave.test.ts`](../../Web/QuickCaptureEditor/autosave.test.ts)
-- [`CaptureEditorFlowTests.swift`](../../Tests/NotionPiPTests/CaptureEditorFlowTests.swift)
-- [`CaptureWebViewAutosaveTests.swift`](../../Tests/NotionPiPTests/CaptureWebViewAutosaveTests.swift)
+- [`CaptureEditorFlowTests.swift`](../../Tests/PerchTests/CaptureEditorFlowTests.swift)
+- [`CaptureWebViewAutosaveTests.swift`](../../Tests/PerchTests/CaptureWebViewAutosaveTests.swift)
 
 Commands:
 
@@ -659,7 +659,7 @@ separately with the relevant manual matrix row and environment.
   bridge, and the manual matrix owns irreducible macOS/window-server behavior.
 - Logs provide bounded diagnostic categories; first-only signposts measure
   three startup/presentation intervals without proving correctness.
-- The build script creates `dist/NotionPiP.app`, copies resources, writes its
+- The build script creates `dist/Perch.app`, copies resources, writes its
   plist, applies sandbox/network entitlements, ad-hoc signs, and launches or
   verifies according to mode.
 - `--verify` is a bundle/startup gate, not the XCTest/Node/manual suite and not a

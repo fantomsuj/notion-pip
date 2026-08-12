@@ -21,21 +21,21 @@
 
 ## File Map
 
-- Create `Sources/NotionPiP/Domain/PanelGeometry.swift`: versioned geometry snapshot and validation.
-- Create `Sources/NotionPiP/Persistence/PanelGeometryStore.swift`: dedicated `UserDefaults` persistence boundary.
-- Create `Sources/NotionPiP/Platform/PanelGeometryPolicy.swift`: capture and resolve geometry without window ownership.
-- Modify `Sources/NotionPiP/Platform/PanelFramePolicy.swift`: make the existing anchor value Codable and Sendable for the snapshot.
-- Modify `Sources/NotionPiP/Platform/PiPPanelCoordinator.swift`: replace parallel geometry fields with the unified snapshot and guard stash animation ordering.
-- Modify `Sources/NotionPiP/Domain/PanelSizePreferences.swift`: Horizontal/Vertical built-ins and legacy decoding.
-- Modify `Sources/NotionPiP/App/PanelSizeController.swift`: Vertical reset and built-in/custom application through the same commit path.
-- Modify `Sources/NotionPiP/Views/PanelSizeMenu.swift`: expose Horizontal, Vertical, custom sizes, Reset, and management.
-- Modify `Sources/NotionPiP/Views/PanelSizeSettingsView.swift`: remove competing default selection and show the two built-ins.
-- Create `Tests/NotionPiPTests/PanelGeometryTests.swift`: snapshot validation and policy behavior.
-- Create `Tests/NotionPiPTests/PanelGeometryStoreTests.swift`: persistence and corrupt-data behavior.
-- Modify `Tests/NotionPiPTests/PanelSizePreferencesTests.swift`: built-ins and migration.
-- Modify `Tests/NotionPiPTests/PanelSizeControllerTests.swift`: reset and application behavior.
-- Modify `Tests/NotionPiPTests/PinCoordinatorTests.swift`: exact stash/restore geometry, display changes, and transition ordering.
-- Modify `Tests/NotionPiPTests/PiPPanelGeometryTests.swift`: real-AppKit horizontal and vertical restoration.
+- Create `Sources/Perch/Domain/PanelGeometry.swift`: versioned geometry snapshot and validation.
+- Create `Sources/Perch/Persistence/PanelGeometryStore.swift`: dedicated `UserDefaults` persistence boundary.
+- Create `Sources/Perch/Platform/PanelGeometryPolicy.swift`: capture and resolve geometry without window ownership.
+- Modify `Sources/Perch/Platform/PanelFramePolicy.swift`: make the existing anchor value Codable and Sendable for the snapshot.
+- Modify `Sources/Perch/Platform/PiPPanelCoordinator.swift`: replace parallel geometry fields with the unified snapshot and guard stash animation ordering.
+- Modify `Sources/Perch/Domain/PanelSizePreferences.swift`: Horizontal/Vertical built-ins and legacy decoding.
+- Modify `Sources/Perch/App/PanelSizeController.swift`: Vertical reset and built-in/custom application through the same commit path.
+- Modify `Sources/Perch/Views/PanelSizeMenu.swift`: expose Horizontal, Vertical, custom sizes, Reset, and management.
+- Modify `Sources/Perch/Views/PanelSizeSettingsView.swift`: remove competing default selection and show the two built-ins.
+- Create `Tests/PerchTests/PanelGeometryTests.swift`: snapshot validation and policy behavior.
+- Create `Tests/PerchTests/PanelGeometryStoreTests.swift`: persistence and corrupt-data behavior.
+- Modify `Tests/PerchTests/PanelSizePreferencesTests.swift`: built-ins and migration.
+- Modify `Tests/PerchTests/PanelSizeControllerTests.swift`: reset and application behavior.
+- Modify `Tests/PerchTests/PinCoordinatorTests.swift`: exact stash/restore geometry, display changes, and transition ordering.
+- Modify `Tests/PerchTests/PiPPanelGeometryTests.swift`: real-AppKit horizontal and vertical restoration.
 - Modify `docs/MANUAL_TEST_MATRIX.md`: Horizontal/Vertical and exact restore checks.
 
 ---
@@ -284,13 +284,13 @@ Require exit 0 and zero failures.
 
 - [ ] **Step 4: Build, launch, and verify the staged app**
 
-First run `pgrep -x NotionPiP`. If it is already running, terminate only the test-launched/staged process when ownership is clear; otherwise do not risk user edits. Then run:
+First run `pgrep -x Perch`. If it is already running, terminate only the test-launched/staged process when ownership is clear; otherwise do not risk user edits. Then run:
 
 ```sh
 ./script/build_and_run.sh --verify
 ```
 
-Require the script's `Verified .../dist/NotionPiP.app` output and process ID. Quit the verified staged process after the check.
+Require the script's `Verified .../dist/Perch.app` output and process ID. Quit the verified staged process after the check.
 
 - [ ] **Step 5: Commit Task 5**
 

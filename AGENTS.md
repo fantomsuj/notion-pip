@@ -2,7 +2,7 @@
 
 ## Product intent
 
-Notion PiP is an always-on-screen overlay. Its persistent, all-Spaces panel
+Perch is an always-on-screen overlay. Its persistent, all-Spaces panel
 behavior is intentional and should not be reported as an `NSPanel` defect.
 
 ## Writing Swift code
@@ -27,7 +27,7 @@ behavior is intentional and should not be reported as an `NSPanel` defect.
 
   Report the command result and anything not verified.
 
-## Helping someone run Notion PiP locally
+## Helping someone run Perch locally
 
 When the user asks to set up or try the app, prioritize getting the existing app
 running. Do not change product code, signing settings, entitlements, or the
@@ -42,10 +42,7 @@ user approves the change.
   Line Tools alone are not sufficient.
 - The build produces a native executable for the current Mac, so either Apple
   silicon or Intel is acceptable when building from source.
-- Node.js is not required for a fresh clone merely to run the app. The generated
-  Quick Capture editor assets are checked into the repository. If
-  `node_modules` already exists, the build script rebuilds those assets and
-  therefore requires Node and npm.
+- Node.js is not required to build or run the app.
 - No `.env` file, Notion token, signing certificate, or other secret is required
   to build and launch the app.
 
@@ -67,9 +64,9 @@ user approves the change.
    silently install large system software or accept Xcode's license with
    `sudo`. After installation, Xcode may ask the user to accept its license and
    install additional components.
-4. Check `pgrep -x NotionPiP`. If the app is running, stop and ask the user to
+4. Check `pgrep -x Perch`. If the app is running, stop and ask the user to
    finish or save active work and quit it before continuing. The build script
-   terminates running `NotionPiP` processes, which can discard unsaved edits.
+   terminates running `Perch` processes, which can discard unsaved edits.
 5. From the repository root, build, stage, ad-hoc sign, launch, and verify the
    app:
 
@@ -78,24 +75,34 @@ user approves the change.
    ```
 
 6. Report the result and the staged app location:
-   `dist/NotionPiP.app`.
+   `dist/Perch.app`.
 
-The build script intentionally quits any running process named `NotionPiP`
+The build script intentionally quits any running process named `Perch`
 before rebuilding. It then launches the new build. A successful verification
-prints `Verified .../dist/NotionPiP.app` with a process ID.
+prints `Verified .../dist/Perch.app` with a process ID.
 
 ### What the user should expect
 
-- Notion PiP is an accessory, so it does not appear in the Dock. Its menu-bar
+- Perch is an accessory, so it does not appear in the Dock. Its menu-bar
   icon is shown by default but can be hidden in Settings; the PiP remains
   reachable through its edge handle or global shortcut.
 - The user signs in to their own Notion account inside the app. Never ask them
   to paste a Notion password, session cookie, or integration token into chat or
   the terminal.
-- A personal integration token is optional and should be entered only through
-  the app's own settings UI.
-- The locally built app is ad-hoc signed for development. This is expected and
-  is different from a Developer ID-signed, notarized distribution build.
+- The app does not accept a personal integration token. Workspace search and
+  account access remain inside Notion's embedded interface.
+- Local builds use a configured Apple Development or Perch local-development
+  identity when available, and otherwise fall back to ad-hoc signing. The optional
+  `./script/setup_local_signing.sh` helper creates a machine-local identity to keep
+  macOS permissions and login-item identity stable across rebuilds. None of these
+  development paths replace a Developer ID-signed, notarized distribution build.
+- Launch at Login works only from the staged `dist/Perch.app`, not by
+  running the SwiftPM executable directly. Its toggle reflects the current
+  macOS ServiceManagement registration and may direct the user to System
+  Settings when approval is required.
+- Rebuilding replaces and signs the staged bundle again. macOS may ask
+  for login-item approval again or retain a stale entry after a rebuild, so
+  local results do not replace testing a stable Developer ID-signed beta.
 
 ### Troubleshooting
 
@@ -104,30 +111,20 @@ prints `Verified .../dist/NotionPiP.app` with a process ID.
   path.
 - If Xcode reports an incomplete first launch, ask the user to open Xcode and
   finish its prompts, then rerun the script.
-- If the app launched but seems absent, first look for the Notion PiP icon in
+- If the app launched but seems absent, first look for the Perch icon in
   the menu bar. If the icon preference is off, use the configured global
   shortcut; a shortcut registration failure temporarily forces the icon back
   on. Do not treat the missing Dock icon as a crash.
 - If verification fails, rerun the failing command or the build script and
   inspect its actual output before editing code.
-- If the script unexpectedly invokes or fails at npm, an existing
-  `node_modules` directory triggered the optional editor rebuild. Explain that
-  condition before installing Node, replacing dependencies, or moving the
-  directory.
+- If Launch at Login is unavailable, confirm the process was launched through
+  `dist/Perch.app`. If it requires approval, use the button in Settings and
+  allow Perch under General → Login Items & Extensions; returning to the
+  app refreshes the displayed state.
 - For a clean source validation, run:
 
   ```sh
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
-  ```
-
-- Only when working on `Web/QuickCaptureEditor`, install the pinned JavaScript
-  dependencies and run its checks:
-
-  ```sh
-  npm ci
-  npm test
-  npm run typecheck
-  npm run build:editor
   ```
 
 Keep setup fixes minimal and explain any remaining manual action clearly.

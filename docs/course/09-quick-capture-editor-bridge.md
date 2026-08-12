@@ -111,9 +111,9 @@ client to the revision the repository actually committed.
 ### Bundled web code is application code
 
 Quick Capture does not navigate to a hosted editor. SwiftPM copies
-[`Resources/QuickCapture`](../../Sources/NotionPiP/Resources/QuickCapture) as a
+[`Resources/QuickCapture`](../../Sources/Perch/Resources/QuickCapture) as a
 resource directory. `CaptureEditorResources.editorURL` first looks for the
-packaged app's nested `NotionPiP_NotionPiP.bundle/QuickCapture/index.html`, then
+packaged app's nested `Perch_Perch.bundle/QuickCapture/index.html`, then
 the SwiftPM bundle's `QuickCapture/index.html`, and finally returns a deliberate
 missing-file sentinel. A missing editor changes session status to a safe
 failure instead of loading arbitrary fallback content.
@@ -138,15 +138,15 @@ enters the model actor.
 
 | File | Responsibility | Focused evidence |
 |---|---|---|
-| [`AppWindowFactory.swift`](../../Sources/NotionPiP/Platform/AppWindowFactory.swift) | Creates the key-capable Quick Capture window, session, SwiftUI view, close lifecycle, termination flush, and disposal hook | [`CaptureEditorFlowTests.swift`](../../Tests/NotionPiPTests/CaptureEditorFlowTests.swift), window-presenter tests |
-| [`QuickCaptureView.swift`](../../Sources/NotionPiP/Views/QuickCaptureView.swift) | Embeds the session web view and presents native conflict recovery | [`CaptureWebViewConflictTests.swift`](../../Tests/NotionPiPTests/CaptureWebViewConflictTests.swift) |
-| [`CaptureEditorSession.swift`](../../Sources/NotionPiP/Platform/CaptureEditorSession.swift) | Owns local WebKit, repository orchestration, status, transition receipts, conflicts, navigation, reload, termination persistence, and teardown | editor-flow and all `CaptureWebView…Tests.swift` integration suites |
-| [`CaptureBridgeProtocol.swift`](../../Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift) | Defines bridge v1 request/result/error values plus strict native decode and encode | [`CaptureBridgeProtocolTests.swift`](../../Tests/NotionPiPTests/CaptureBridgeProtocolTests.swift) |
-| [`WeakScriptMessageHandler.swift`](../../Sources/NotionPiP/Platform/WeakScriptMessageHandler.swift) | Adapts `WKScriptMessageHandlerWithReply`, derives frame/origin context, and weakly forwards decoded requests | flow/lifecycle teardown tests |
-| [`QuickCaptureLifecycleCoordinator.swift`](../../Sources/NotionPiP/Services/QuickCaptureLifecycleCoordinator.swift) | On close, saves the latest snapshot, discards empty work or enqueues nonempty work after destination/token checks | [`QuickCaptureLifecycleTests.swift`](../../Tests/NotionPiPTests/QuickCaptureLifecycleTests.swift) |
-| [`index.html`](../../Sources/NotionPiP/Resources/QuickCapture/index.html) | Accessible title, status/retry/new-note controls, editor mount, slash listbox, formatting toolbar, CSP | focus, lifecycle, slash-menu, toolbar, and danger-contrast tests |
-| [`composer.css`](../../Sources/NotionPiP/Resources/QuickCapture/composer.css) | Editor/overlay layout, focus styles, task blocks, adaptive danger color, reduced-motion behavior | [`QuickCaptureDangerContrastTests.swift`](../../Tests/NotionPiPTests/QuickCaptureDangerContrastTests.swift) and WebKit UI tests |
-| [`editor.js`](../../Sources/NotionPiP/Resources/QuickCapture/editor.js) | Checked-in generated browser bundle loaded by the app | real WebKit integration tests |
+| [`AppWindowFactory.swift`](../../Sources/Perch/Platform/AppWindowFactory.swift) | Creates the key-capable Quick Capture window, session, SwiftUI view, close lifecycle, termination flush, and disposal hook | [`CaptureEditorFlowTests.swift`](../../Tests/PerchTests/CaptureEditorFlowTests.swift), window-presenter tests |
+| [`QuickCaptureView.swift`](../../Sources/Perch/Views/QuickCaptureView.swift) | Embeds the session web view and presents native conflict recovery | [`CaptureWebViewConflictTests.swift`](../../Tests/PerchTests/CaptureWebViewConflictTests.swift) |
+| [`CaptureEditorSession.swift`](../../Sources/Perch/Platform/CaptureEditorSession.swift) | Owns local WebKit, repository orchestration, status, transition receipts, conflicts, navigation, reload, termination persistence, and teardown | editor-flow and all `CaptureWebView…Tests.swift` integration suites |
+| [`CaptureBridgeProtocol.swift`](../../Sources/Perch/Platform/CaptureBridgeProtocol.swift) | Defines bridge v1 request/result/error values plus strict native decode and encode | [`CaptureBridgeProtocolTests.swift`](../../Tests/PerchTests/CaptureBridgeProtocolTests.swift) |
+| [`WeakScriptMessageHandler.swift`](../../Sources/Perch/Platform/WeakScriptMessageHandler.swift) | Adapts `WKScriptMessageHandlerWithReply`, derives frame/origin context, and weakly forwards decoded requests | flow/lifecycle teardown tests |
+| [`QuickCaptureLifecycleCoordinator.swift`](../../Sources/Perch/Services/QuickCaptureLifecycleCoordinator.swift) | On close, saves the latest snapshot, discards empty work or enqueues nonempty work after destination/token checks | [`QuickCaptureLifecycleTests.swift`](../../Tests/PerchTests/QuickCaptureLifecycleTests.swift) |
+| [`index.html`](../../Sources/Perch/Resources/QuickCapture/index.html) | Accessible title, status/retry/new-note controls, editor mount, slash listbox, formatting toolbar, CSP | focus, lifecycle, slash-menu, toolbar, and danger-contrast tests |
+| [`composer.css`](../../Sources/Perch/Resources/QuickCapture/composer.css) | Editor/overlay layout, focus styles, task blocks, adaptive danger color, reduced-motion behavior | [`QuickCaptureDangerContrastTests.swift`](../../Tests/PerchTests/QuickCaptureDangerContrastTests.swift) and WebKit UI tests |
+| [`editor.js`](../../Sources/Perch/Resources/QuickCapture/editor.js) | Checked-in generated browser bundle loaded by the app | real WebKit integration tests |
 
 `AppWindowFactory` keeps the session alive through the view/presenter, asks the
 session for a live snapshot before close, and delegates final discard/enqueue
@@ -265,7 +265,7 @@ resource directory.
 
 `editor.ts` waits for `DOMContentLoaded` when needed. It starts only if the
 `captureBridge` handler and all required editor/title/status/overlay elements
-exist. The controller installs `window.NotionPiPBridge` and sends `ready`.
+exist. The controller installs `window.PerchBridge` and sends `ready`.
 Controls stay locked until a valid ready snapshot is applied. Teardown removes
 the named handler from the page content world, nils delegates, cancels tasks,
 stops loading, and removes the web view from its superview.
@@ -372,7 +372,7 @@ not-yet-captured state transition and moves to conflict recovery.
 Explicit `save` is part of bridge v1 and native handling, although the current
 HTML has no Save button: ordinary editing uses `changed`, and window close or
 app termination obtains a live snapshot directly from
-`window.NotionPiPBridge.snapshot()`.
+`window.PerchBridge.snapshot()`.
 
 ### Transition gate on both sides
 
@@ -453,7 +453,7 @@ The maintainable source of truth is `Web/QuickCaptureEditor/*.ts` plus pinned
 dependencies in `package.json`. [`build.ts`](../../Web/QuickCaptureEditor/build.ts)
 uses esbuild to bundle `editor.ts` as a minified browser IIFE targeting Safari
 17, with no sourcemap or legal comments. The output is the checked-in, usually
-single-line [`editor.js`](../../Sources/NotionPiP/Resources/QuickCapture/editor.js)
+single-line [`editor.js`](../../Sources/Perch/Resources/QuickCapture/editor.js)
 that SwiftPM copies into the app.
 
 This creates two valid workflows:
@@ -577,7 +577,7 @@ main-frame, origin, exact-document, and protocol checks.
    frame.
 9. A different draft ID is a draft switch; revisions are monotonic only within
    one draft.
-10. `Sources/NotionPiP/Resources/QuickCapture/editor.js` is generated. Run web
+10. `Sources/Perch/Resources/QuickCapture/editor.js` is generated. Run web
     tests, typecheck, and `npm run build:editor`, then review the regenerated
     asset.
 

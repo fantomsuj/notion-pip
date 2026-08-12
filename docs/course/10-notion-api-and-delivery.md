@@ -92,7 +92,7 @@ outcomes are possible:
 3. **Unknown outcome:** the connection fails after the request might have been
    applied. The app must not infer “nothing happened.”
 
-The third case drives the design. Notion PiP retains the local capture, records
+The third case drives the design. Perch retains the local capture, records
 safe error metadata, and either uses durable progress to resume or moves the
 record to `uncertain` for human recovery.
 
@@ -102,16 +102,16 @@ A credential grants API access; a connection state says whether the app has
 validated it; a destination says where a new capture should go. The app keeps
 these responsibilities separate:
 
-- [`PersonalTokenCredentialVault`](../../Sources/NotionPiP/Platform/PersonalTokenCredentialVault.swift)
+- [`PersonalTokenCredentialVault`](../../Sources/Perch/Platform/PersonalTokenCredentialVault.swift)
   validates token shape and stores token bytes as a non-synchronizable generic
   password in Keychain, accessible only when this device is unlocked.
-- [`NotionConnectionController`](../../Sources/NotionPiP/App/NotionConnectionController.swift)
+- [`NotionConnectionController`](../../Sources/Perch/App/NotionConnectionController.swift)
   validates with Notion before saving, publishes connection/search state, and
   rejects late async results with generation checks.
-- [`QuickCaptureDestinationController`](../../Sources/NotionPiP/App/QuickCaptureDestinationController.swift)
+- [`QuickCaptureDestinationController`](../../Sources/Perch/App/QuickCaptureDestinationController.swift)
   searches pages and data sources, debounces automatic queries, paginates with
   cursor-loop protection, and persists only a stable selection.
-- [`QuickCaptureDestinationRepository`](../../Sources/NotionPiP/Persistence/QuickCaptureDestinationRepository.swift)
+- [`QuickCaptureDestinationRepository`](../../Sources/Perch/Persistence/QuickCaptureDestinationRepository.swift)
   owns that single default selection in SwiftData.
 
 At launch, a saved token is loaded and revalidated before the controller reports
@@ -121,7 +121,7 @@ leases; it does not erase durable captures.
 
 ### Domain destinations versus the active transport
 
-[`CaptureDestination`](../../Sources/NotionPiP/Domain/DeliveryState.swift) can
+[`CaptureDestination`](../../Sources/Perch/Domain/DeliveryState.swift) can
 represent four modes:
 
 | Destination | Intended operation | Duplicate-safety model |
@@ -131,7 +131,7 @@ represent four modes:
 | `pageParent(pageID:)` | Create a child page below a page | Persist the created page ID and next block-batch index in a journal |
 | `dataSource(dataSourceID:)` | Create a page in a data source | Resolve its title-property name, then use the same page-creation journal |
 
-The current [`NotionCaptureDeliveryService`](../../Sources/NotionPiP/Services/NotionCaptureDeliveryService.swift)
+The current [`NotionCaptureDeliveryService`](../../Sources/Perch/Services/NotionCaptureDeliveryService.swift)
 implements `pageParent` and `dataSource`. Its legacy `managed` and `manual`
 methods intentionally throw “unavailable.” The `DeliveryEngine` still models all
 four because its protocol and reliability tests preserve the policies. Do not
@@ -142,59 +142,59 @@ describe protocol coverage as current end-user transport support.
 Follow this order to keep policy separate from mechanism:
 
 1. **Composition and triggers**
-   - [`NotionPiPApp.swift`](../../Sources/NotionPiP/App/NotionPiPApp.swift) creates
+   - [`PerchApp.swift`](../../Sources/Perch/App/PerchApp.swift) creates
      the shared vault, repositories, personal-token API, delivery service,
      engine, scheduler, and close lifecycle.
-   - [`AppRuntime.swift`](../../Sources/NotionPiP/App/AppRuntime.swift) starts
+   - [`AppRuntime.swift`](../../Sources/Perch/App/AppRuntime.swift) starts
      token bootstrap, destination restoration, delivery, and capture-history
      refresh. A successful connection calls `trigger(reconnected: true)`.
 2. **Credential and workspace discovery**
-   - [`PersonalTokenCredentialVault.swift`](../../Sources/NotionPiP/Platform/PersonalTokenCredentialVault.swift)
+   - [`PersonalTokenCredentialVault.swift`](../../Sources/Perch/Platform/PersonalTokenCredentialVault.swift)
      is the Keychain boundary.
-   - [`NotionConnectionController.swift`](../../Sources/NotionPiP/App/NotionConnectionController.swift)
+   - [`NotionConnectionController.swift`](../../Sources/Perch/App/NotionConnectionController.swift)
      owns validation, bootstrap, disconnection, and page search state.
-   - [`QuickCaptureDestinationController.swift`](../../Sources/NotionPiP/App/QuickCaptureDestinationController.swift)
+   - [`QuickCaptureDestinationController.swift`](../../Sources/Perch/App/QuickCaptureDestinationController.swift)
      owns page/data-source discovery and selection.
 3. **HTTP boundary**
-   - [`NotionAPIClient.swift`](../../Sources/NotionPiP/Services/NotionAPIClient.swift)
+   - [`NotionAPIClient.swift`](../../Sources/Perch/Services/NotionAPIClient.swift)
      builds versioned requests, bounds response size and time, and decodes
      results or structured Notion errors.
-   - [`PersonalTokenNotionCaptureAPI.swift`](../../Sources/NotionPiP/Services/PersonalTokenNotionCaptureAPI.swift)
+   - [`PersonalTokenNotionCaptureAPI.swift`](../../Sources/Perch/Services/PersonalTokenNotionCaptureAPI.swift)
      loads the current token for each delivery API operation.
 4. **Content conversion and remote progress**
-   - [`NotionBlockConverter.swift`](../../Sources/NotionPiP/Services/NotionBlockConverter.swift)
+   - [`NotionBlockConverter.swift`](../../Sources/Perch/Services/NotionBlockConverter.swift)
      converts editor JSON to Notion block JSON without mutating the local source.
-   - [`NotionCaptureDeliveryService.swift`](../../Sources/NotionPiP/Services/NotionCaptureDeliveryService.swift)
+   - [`NotionCaptureDeliveryService.swift`](../../Sources/Perch/Services/NotionCaptureDeliveryService.swift)
      creates a page, persists progress, and resumes later batches.
 5. **Lifecycle and policy**
-   - [`QuickCaptureLifecycleCoordinator.swift`](../../Sources/NotionPiP/Services/QuickCaptureLifecycleCoordinator.swift)
+   - [`QuickCaptureLifecycleCoordinator.swift`](../../Sources/Perch/Services/QuickCaptureLifecycleCoordinator.swift)
      saves the latest close snapshot, checks configuration, atomically enqueues,
      and triggers delivery.
-   - [`DeliveryEngine.swift`](../../Sources/NotionPiP/Services/DeliveryEngine.swift)
+   - [`DeliveryEngine.swift`](../../Sources/Perch/Services/DeliveryEngine.swift)
      claims records, routes destinations, and maps delivery errors to states.
-   - [`DeliveryScheduler.swift`](../../Sources/NotionPiP/Services/DeliveryScheduler.swift)
+   - [`DeliveryScheduler.swift`](../../Sources/Perch/Services/DeliveryScheduler.swift)
      coalesces triggers, resumes unauthorized work, schedules retries, and runs
      retention after successful startup delivery recovery.
-   - [`CaptureRepository.swift`](../../Sources/NotionPiP/Persistence/CaptureRepository.swift)
+   - [`CaptureRepository.swift`](../../Sources/Perch/Persistence/CaptureRepository.swift)
      makes claims, journals, state transitions, and recovery durable.
-   - [`RetryPolicy.swift`](../../Sources/NotionPiP/Domain/RetryPolicy.swift) defines
+   - [`RetryPolicy.swift`](../../Sources/Perch/Domain/RetryPolicy.swift) defines
      exponential backoff, its six-hour default cap, server-directed delay, and
      the seven-day attention threshold.
 
 High-value tests mirror those boundaries:
 
-- [`PersonalTokenConnectionTests.swift`](../../Tests/NotionPiPTests/PersonalTokenConnectionTests.swift)
-  and [`NotionConnectionControllerTests.swift`](../../Tests/NotionPiPTests/NotionConnectionControllerTests.swift)
+- [`PersonalTokenConnectionTests.swift`](../../Tests/PerchTests/PersonalTokenConnectionTests.swift)
+  and [`NotionConnectionControllerTests.swift`](../../Tests/PerchTests/NotionConnectionControllerTests.swift)
   cover validation-before-save, bootstrap, reconnect, and stale searches.
-- [`NotionAPIClientTests.swift`](../../Tests/NotionPiPTests/NotionAPIClientTests.swift)
+- [`NotionAPIClientTests.swift`](../../Tests/PerchTests/NotionAPIClientTests.swift)
   covers headers, parent-specific bodies, bounded responses, cancellation, and
   error decoding.
-- [`NotionBlockConverterTests.swift`](../../Tests/NotionPiPTests/NotionBlockConverterTests.swift)
+- [`NotionBlockConverterTests.swift`](../../Tests/PerchTests/NotionBlockConverterTests.swift)
   covers supported nodes, chunks, batches, and block-level recovery markers.
-- [`QuickCaptureLifecycleTests.swift`](../../Tests/NotionPiPTests/QuickCaptureLifecycleTests.swift),
-  [`NotionCaptureDeliveryServiceTests.swift`](../../Tests/NotionPiPTests/NotionCaptureDeliveryServiceTests.swift),
-  [`DeliveryEngineTests.swift`](../../Tests/NotionPiPTests/DeliveryEngineTests.swift),
-  and [`DeliverySchedulerTests.swift`](../../Tests/NotionPiPTests/DeliverySchedulerTests.swift)
+- [`QuickCaptureLifecycleTests.swift`](../../Tests/PerchTests/QuickCaptureLifecycleTests.swift),
+  [`NotionCaptureDeliveryServiceTests.swift`](../../Tests/PerchTests/NotionCaptureDeliveryServiceTests.swift),
+  [`DeliveryEngineTests.swift`](../../Tests/PerchTests/DeliveryEngineTests.swift),
+  and [`DeliverySchedulerTests.swift`](../../Tests/PerchTests/DeliverySchedulerTests.swift)
   cover the end-to-end local reliability contract.
 
 ## Runtime trace
@@ -301,7 +301,7 @@ ambiguous transport outcome so `DeliveryEngine` stops automatic duplication.
 `PersonalTokenCredentialVault` sits on the main actor and delegates bytes to a
 small `SecretStoring` boundary. Its production store uses the Security framework:
 
-- service: `com.fantomsuj.NotionPiP.personalIntegration`
+- service: `com.fantomsuj.Perch.personalIntegration`
 - account: `notion-token`
 - class: generic password
 - synchronization: disabled
@@ -379,7 +379,7 @@ split at 2,000 Swift `Character` values, and top-level blocks are grouped into
 batches of at most 100.
 
 Unsupported handling depends on level. An unsupported block-level node produces
-a remote paragraph containing `[Unsupported content preserved in Notion PiP]`
+a remote paragraph containing `[Unsupported content preserved in Perch]`
 and is added to the conversion's local `unsupportedNodes` diagnostics. An
 unsupported inline child encountered inside a supported rich-text block is
 added to `unsupportedNodes` but omitted from the remote rich text; it does not
@@ -514,7 +514,7 @@ to assume.
 
 ### Demonstration script
 
-1. Open `NotionPiPApp.swift` and point out that one repository is shared by the
+1. Open `PerchApp.swift` and point out that one repository is shared by the
    lifecycle, engine, scheduler, and delivery journal.
 2. Open `QuickCaptureLifecycleCoordinator.close` and ask where network work
    begins. Expected answer: it does not begin there directly; close saves and
@@ -611,7 +611,7 @@ outside the 90-minute lecture or use the final five minutes to begin.
 
    ```sh
    git status --short
-   rg -n "testSplitsRichText|testDecodesStructured|testRetryResumes|testRateLimitHonors|testConcurrentTrigger" Tests/NotionPiPTests
+   rg -n "testSplitsRichText|testDecodesStructured|testRetryResumes|testRateLimitHonors|testConcurrentTrigger" Tests/PerchTests
    ```
 
    Expected observation: the matches land in converter, API client, delivery

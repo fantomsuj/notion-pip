@@ -1,4 +1,4 @@
-# Notion PiP Performance Improvements Implementation Plan
+# Perch Performance Improvements Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -22,14 +22,14 @@
 ### Task 1: Targeted capture persistence queries
 
 **Files:**
-- Modify: `Sources/NotionPiP/Domain/CaptureSnapshot.swift`
-- Modify: `Sources/NotionPiP/Persistence/CaptureRepository.swift`
-- Modify: `Sources/NotionPiP/Services/CapturePersistencePorts.swift`
-- Modify: `Sources/NotionPiP/Services/DeliveryScheduler.swift`
-- Modify: `Sources/NotionPiP/App/AppRuntime.swift`
-- Modify: `Sources/NotionPiP/Views/CaptureOutboxStatusView.swift`
-- Test: `Tests/NotionPiPTests/CaptureRepositoryTests.swift`
-- Test: `Tests/NotionPiPTests/DeliverySchedulerTests.swift`
+- Modify: `Sources/Perch/Domain/CaptureSnapshot.swift`
+- Modify: `Sources/Perch/Persistence/CaptureRepository.swift`
+- Modify: `Sources/Perch/Services/CapturePersistencePorts.swift`
+- Modify: `Sources/Perch/Services/DeliveryScheduler.swift`
+- Modify: `Sources/Perch/App/AppRuntime.swift`
+- Modify: `Sources/Perch/Views/CaptureOutboxStatusView.swift`
+- Test: `Tests/PerchTests/CaptureRepositoryTests.swift`
+- Test: `Tests/PerchTests/DeliverySchedulerTests.swift`
 
 **Interfaces:**
 - Produces: `activeDraft()`, `nextRetryDate()`, and `recentRecordSummaries(limit:)` repository operations.
@@ -44,14 +44,14 @@
 ### Task 2: Single canonical Quick Capture document
 
 **Files:**
-- Modify: `Sources/NotionPiP/Domain/CaptureSnapshot.swift`
-- Modify: `Sources/NotionPiP/Platform/CaptureBridgeProtocol.swift`
-- Modify: `Sources/NotionPiP/Platform/WeakScriptMessageHandler.swift`
-- Modify: `Sources/NotionPiP/Platform/CaptureEditorSession.swift`
-- Modify: `Sources/NotionPiP/Persistence/CaptureRepository.swift`
-- Test: `Tests/NotionPiPTests/CaptureBridgeProtocolTests.swift`
-- Test: `Tests/NotionPiPTests/CaptureEditorFlowTests.swift`
-- Test: `Tests/NotionPiPTests/CaptureRepositoryTests.swift`
+- Modify: `Sources/Perch/Domain/CaptureSnapshot.swift`
+- Modify: `Sources/Perch/Platform/CaptureBridgeProtocol.swift`
+- Modify: `Sources/Perch/Platform/WeakScriptMessageHandler.swift`
+- Modify: `Sources/Perch/Platform/CaptureEditorSession.swift`
+- Modify: `Sources/Perch/Persistence/CaptureRepository.swift`
+- Test: `Tests/PerchTests/CaptureBridgeProtocolTests.swift`
+- Test: `Tests/PerchTests/CaptureEditorFlowTests.swift`
+- Test: `Tests/PerchTests/CaptureRepositoryTests.swift`
 
 **Interfaces:**
 - Produces: a validated `CanonicalCaptureDocument` sendable value whose initializer performs the one native canonicalization pass.
@@ -66,12 +66,12 @@
 ### Task 3: Ready-state and repeatable performance intervals
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/PerformanceSignposter.swift`
-- Modify: `Sources/NotionPiP/Platform/CaptureEditorSession.swift`
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Test: `Tests/NotionPiPTests/PerformanceSignposterTests.swift`
-- Test: `Tests/NotionPiPTests/CaptureEditorFlowTests.swift`
-- Test: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
+- Modify: `Sources/Perch/Platform/PerformanceSignposter.swift`
+- Modify: `Sources/Perch/Platform/CaptureEditorSession.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Test: `Tests/PerchTests/PerformanceSignposterTests.swift`
+- Test: `Tests/PerchTests/CaptureEditorFlowTests.swift`
+- Test: `Tests/PerchTests/NotionWebSessionTests.swift`
 
 **Interfaces:**
 - Produces: explicit first-only versus repeatable operation policy.
@@ -85,10 +85,10 @@
 ### Task 4: Bounded interaction-state LRU and fixed toolbar overlay
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/NotionWebSession.swift`
-- Modify: `Sources/NotionPiP/Views/PiPChromeView.swift`
-- Test: `Tests/NotionPiPTests/NotionWebSessionTests.swift`
-- Test: `Tests/NotionPiPTests/PiPChromeViewTests.swift`
+- Modify: `Sources/Perch/Platform/NotionWebSession.swift`
+- Modify: `Sources/Perch/Views/PiPChromeView.swift`
+- Test: `Tests/PerchTests/NotionWebSessionTests.swift`
+- Test: `Tests/PerchTests/PiPChromeViewTests.swift`
 
 **Interfaces:**
 - Produces: a 14-entry recency-ordered opaque interaction-state cache.
@@ -102,11 +102,11 @@
 ### Task 5: Lazy secondary windows
 
 **Files:**
-- Modify: `Sources/NotionPiP/Platform/SettingsWindowPresenter.swift`
-- Modify: `Sources/NotionPiP/Platform/PageURLInputPresenter.swift`
-- Modify: `Sources/NotionPiP/App/NotionPiPApp.swift`
-- Test: `Tests/NotionPiPTests/AppWindowPresenterTests.swift`
-- Test: `Tests/NotionPiPTests/PageURLInputPresenterTests.swift`
+- Modify: `Sources/Perch/Platform/SettingsWindowPresenter.swift`
+- Modify: `Sources/Perch/Platform/PageURLInputPresenter.swift`
+- Modify: `Sources/Perch/App/PerchApp.swift`
+- Test: `Tests/PerchTests/AppWindowPresenterTests.swift`
+- Test: `Tests/PerchTests/PageURLInputPresenterTests.swift`
 
 **Interfaces:**
 - Produces: presenter factories that construct Settings and Pin Page windows on first presentation and retain them thereafter.
@@ -123,7 +123,7 @@
 - Modify: `Web/QuickCaptureEditor/controllers/slash-menu-controller.ts`
 - Test: `Web/QuickCaptureEditor/quick-capture-editor-controller.test.ts`
 - Test: `Web/QuickCaptureEditor/controllers/slash-menu-controller.test.ts`
-- Generated: `Sources/NotionPiP/Resources/QuickCapture/editor.js`
+- Generated: `Sources/Perch/Resources/QuickCapture/editor.js`
 
 **Interfaces:**
 - Produces: transaction-aware overlay refresh and idempotent slash-menu close.

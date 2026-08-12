@@ -1,12 +1,16 @@
-# Product research: making Notion PiP a better thinking surface
+# Product research: making Perch a better thinking surface
 
 **Issue:** SUJ-12
 **Prepared:** 2026-07-30
 **Decision horizon:** the next three product experiments
 
+> Superseded product direction (August 10, 2026): Quick Capture was removed.
+> The `+` action now hands page creation to the native Notion app. This report
+> remains as historical research, not a description of the current product.
+
 ## Executive summary
 
-Notion PiP's strongest thesis is not “Notion in a smaller window.” It is:
+Perch's strongest thesis is not “Notion in a smaller window.” It is:
 
 > Keep the one piece of a person's workspace that matters *right now* close
 > enough to consult or change without breaking their flow.
@@ -76,7 +80,7 @@ third-party prose was copied.
 | Notion URL handoff and clipboard pinning | Other tools can intentionally send a page into the persistent surface. |
 
 These capabilities imply an important strategy constraint: improve the
-*transition* between the user's primary work and Notion PiP before adding more
+*transition* between the user's primary work and Perch before adding more
 Notion surface area.
 
 ### Core frictions to investigate
@@ -158,7 +162,7 @@ intent should become an invocation, not another browsing session.
 
 **Adopt:** searchable commands, role-based aliases, direct shortcuts, and a
 fast return to the previous app.
-**Reject:** turning Notion PiP into a general launcher or command marketplace.
+**Reject:** turning Perch into a general launcher or command marketplace.
 
 ### 4.3 Maccy: keyboard-first recall with privacy made explicit
 
@@ -169,13 +173,13 @@ retention must be transparent.
 
 **Adopt:** bounded history, predictable ranking, fast keyboard selection, and
 clear local-state semantics.
-**Reject:** passive clipboard history. Notion PiP should only use content the
+**Reject:** passive clipboard history. Perch should only use content the
 user explicitly copies, drops, pastes, shares, or hands off.
 
 ### 4.4 Drafts and share extensions: capture first, organize later
 
 Capture tools remove destination decisions from the moment of writing, retain
-an inbox, and make routing a later action. Notion PiP already has a default
+an inbox, and make routing a later action. Perch already has a default
 destination and durable outbox, which is the right substrate.
 
 **Adopt:** open directly into a focused editor, save locally first, show a terse
@@ -213,7 +217,7 @@ Across these products, the winning sequence is consistent:
 4. **Confirm invisibly or tersely.**
 5. **Return the user to where they were.**
 
-Notion PiP is differentiated because the useful context can remain a live,
+Perch is differentiated because the useful context can remain a live,
 editable Notion page after step 2. That continuity—not generic capture—is the
 defensible product center.
 
@@ -526,9 +530,9 @@ thesis even if it is individually attractive.
   references, licensing constraints, and prior product conclusions.
 - [`MANUAL_TEST_MATRIX.md`](MANUAL_TEST_MATRIX.md) for windowing, Spaces,
   display, focus, menu-bar, and shortcut risks.
-- `Sources/NotionPiP/App`, `Platform`, `Views`, `Services`, and `Persistence` for
+- `Sources/Perch/App`, `Platform`, `Views`, `Services`, and `Persistence` for
   the implemented interaction and reliability surface.
-- `Tests/NotionPiPTests` for the behaviors already protected by regression
+- `Tests/PerchTests` for the behaviors already protected by regression
   coverage.
 
 Links were assembled on 2026-07-30. Product behavior and documentation can
