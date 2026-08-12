@@ -5,6 +5,31 @@ import XCTest
 
 @MainActor
 final class RuntimePinnedPagePersistenceTests: XCTestCase {
+    func testEdgeHandleDropPersistsOnlyAfterCompletedActivation() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let drop = try NotionPageDrop(
+            validating: XCTUnwrap(
+                URL(string: "https://www.notion.so/Design-System-\(secondPageID)")
+            ),
+            sourceLabel: "Design System"
+        )
+
+        let previews = await repository.savedPages()
+        XCTAssertTrue(previews.isEmpty)
+        XCTAssertNil(runtime.activePage)
+
+        runtime.activate(page: drop.page, source: .edgeHandleDrop)
+        try await repository.waitUntilSaveCount(1)
+        let savedPages = await repository.savedPages()
+
+        XCTAssertEqual(savedPages, [drop.page])
+        XCTAssertEqual(runtime.activePage, drop.page)
+        XCTAssertEqual(runtime.lastActivationSource, .edgeHandleDrop)
+        XCTAssertEqual(panel.currentPage, drop.page)
+    }
+
     func testReloadSavedPinReusesActivePageWithoutPersistingItAgain() async throws {
         let panel = RuntimePanelCoordinator()
         let repository = RuntimePinnedPageRepository()

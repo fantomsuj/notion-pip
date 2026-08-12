@@ -121,9 +121,11 @@ private final class AppComposition {
         let pageSwitcherRelay = PageSwitcherSelectionRelay()
         let recentPagesController = PiPRecentPagesShelfController(store: pageRepository)
         let recentPageSelectionRelay = PiPRecentPageSelectionRelay()
+        let notionPageDropRelay = NotionPageDropRelay()
         let stashHandle = PiPStashHandleController(
             recentPagesController: recentPagesController,
-            onSelectRecentPage: recentPageSelectionRelay.perform
+            onSelectRecentPage: recentPageSelectionRelay.perform,
+            onDropNotionPage: notionPageDropRelay.perform
         )
         let quickCopyController = QuickCopyController(
             monitor: AccessibilitySelectionMonitor(),
@@ -186,6 +188,9 @@ private final class AppComposition {
                 source: .pageSwitcher,
                 restoration: selection.restoration
             )
+        }
+        notionPageDropRelay.handler = { [weak runtime] drop in
+            runtime?.activate(page: drop.page, source: .edgeHandleDrop)
         }
 
         let settingsWindowPresenter = SettingsWindowPresenter { closeHandler in
@@ -253,5 +258,14 @@ private final class PiPRecentPageSelectionRelay {
 
     func perform(_ selection: PiPRecentPageSelection) {
         handler(selection)
+    }
+}
+
+@MainActor
+final class NotionPageDropRelay {
+    var handler: (NotionPageDrop) -> Void = { _ in }
+
+    func perform(_ drop: NotionPageDrop) {
+        handler(drop)
     }
 }

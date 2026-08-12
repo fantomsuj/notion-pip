@@ -4,6 +4,27 @@ import XCTest
 
 @MainActor
 final class RuntimeActivationAndMenuBarTests: XCTestCase {
+    func testEdgeHandleDropReplacesStashedPageThroughUnifiedActivationPath() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let currentPage = try makePage(id: firstPageID, title: "Roadmap")
+        let droppedPage = try makePage(id: secondPageID, title: "Design System")
+        runtime.activate(page: currentPage, source: .typedURL)
+        try await repository.waitUntilSaveCount(1)
+        panel.simulateStashedState()
+
+        runtime.activate(page: droppedPage, source: .edgeHandleDrop)
+        try await repository.waitUntilSaveCount(2)
+
+        XCTAssertEqual(runtime.activePage, droppedPage)
+        XCTAssertEqual(runtime.lastActivationSource, .edgeHandleDrop)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.currentPage, droppedPage)
+        XCTAssertEqual(panel.shownPages, [currentPage])
+        XCTAssertEqual(panel.replacedPages, [droppedPage])
+    }
+
     func testRecentShelfSelectionUsesRestorationAndUnifiedActivationPath() async throws {
         let panel = RuntimePanelCoordinator()
         let repository = RuntimePinnedPageRepository()
