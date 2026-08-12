@@ -71,11 +71,43 @@ final class PiPStashHandleInteractionTests: XCTestCase {
         interaction.mouseDragged(with: try mouseEvent(.leftMouseDragged))
         interaction.mouseUp(with: try mouseEvent(.leftMouseUp))
 
-        XCTAssertEqual(window.frame.origin, CGPoint(x: 20, y: 100))
+        XCTAssertEqual(window.frame.origin.x, 17, accuracy: 0.1)
+        XCTAssertEqual(window.frame.origin.y, 100)
         XCTAssertEqual(revealDistances, [80])
         XCTAssertEqual(endedDistances, [80])
         XCTAssertEqual(activationCount, 0)
         XCTAssertTrue(completedFrames.isEmpty)
+    }
+
+    func testInwardDragResistsThenSnapsAndPerformsThresholdFeedbackOnce() throws {
+        let pointer = PointerLocation(CGPoint(x: 100, y: 10))
+        var thresholdFeedbackCount = 0
+        let interaction = PiPStashHandleInteractionView(
+            pointerLocation: { pointer.value },
+            side: .right,
+            pullRevealTravel: 150,
+            reducesMotion: { false },
+            performThresholdFeedback: { thresholdFeedbackCount += 1 },
+            onActivate: {},
+            onDragEnded: { _ in }
+        )
+        let window = makeWindow(contentView: interaction)
+
+        interaction.mouseDown(with: try mouseEvent(.leftMouseDown))
+        pointer.value = CGPoint(x: 38.5, y: 10)
+        interaction.mouseDragged(with: try mouseEvent(.leftMouseDragged))
+        let resistedOrigin = window.frame.origin.x
+
+        pointer.value = CGPoint(x: 37, y: 10)
+        interaction.mouseDragged(with: try mouseEvent(.leftMouseDragged))
+        let snappedOrigin = window.frame.origin.x
+
+        pointer.value = CGPoint(x: 20, y: 10)
+        interaction.mouseDragged(with: try mouseEvent(.leftMouseDragged))
+
+        XCTAssertGreaterThan(resistedOrigin, 38.5)
+        XCTAssertLessThan(snappedOrigin, resistedOrigin - 8)
+        XCTAssertEqual(thresholdFeedbackCount, 1)
     }
 
     func testAccessibilityPressRestoresWithoutDragging() {

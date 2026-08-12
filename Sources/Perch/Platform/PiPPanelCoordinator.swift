@@ -63,6 +63,7 @@ extension PiPPanelWindow {
 @MainActor
 protocol PiPStashHandle: AnyObject {
     var isVisible: Bool { get }
+    func configurePullRevealTravel(_ travel: CGFloat)
     func present(
         placement: PanelStashPlacement,
         onRestore: @escaping @MainActor () -> Void,
@@ -88,6 +89,8 @@ enum PiPStashHandleEntrance: Equatable, Sendable {
 }
 
 extension PiPStashHandle {
+    func configurePullRevealTravel(_ travel: CGFloat) {}
+
     func present(
         placement: PanelStashPlacement,
         entrance: PiPStashHandleEntrance,
@@ -922,6 +925,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         entrance: PiPStashHandleEntrance = .immediate
     ) {
         activeStashPlacement = placement
+        stashHandle.configurePullRevealTravel(
+            PanelPullRevealPolicy.revealTravel(forPanelWidth: panel.frame.width)
+        )
         stashHandle.present(
             placement: placement,
             entrance: entrance,
@@ -972,9 +978,13 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             panel.presentForPullReveal(at: hiddenFrame)
         }
         guard let pullRevealState else { return }
-        let progress = PanelPullRevealPolicy.progress(
+        let rawProgress = PanelPullRevealPolicy.progress(
             forInwardDistance: inwardDistance,
             panelWidth: pullRevealState.visibleFrame.width
+        )
+        let progress = PanelPullRevealPolicy.interactiveProgress(
+            forRawProgress: rawProgress,
+            reducesMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         )
         setPanelFrame(
             PanelPullRevealPolicy.interpolatedFrame(

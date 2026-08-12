@@ -18,6 +18,7 @@ final class PiPStashHandleController: PiPStashHandle {
     private var onPlacementChange: (@MainActor (PanelStashPlacement) -> Void)?
     private var onPullRevealChange: (@MainActor (CGFloat) -> Void)?
     private var onPullRevealEnd: (@MainActor (CGFloat) -> Bool)?
+    private var pullRevealTravel: CGFloat = 150
     private var shelfLoadTask: Task<Void, Never>?
     private var shelfDismissTask: Task<Void, Never>?
     private var handleTransitionTask: Task<Void, Never>?
@@ -33,6 +34,10 @@ final class PiPStashHandleController: PiPStashHandle {
 
     var isShelfVisible: Bool {
         shelfPanel.isVisible
+    }
+
+    func configurePullRevealTravel(_ travel: CGFloat) {
+        pullRevealTravel = max(travel, 1)
     }
 
     init(
@@ -307,6 +312,7 @@ final class PiPStashHandleController: PiPStashHandle {
         handlePanel.contentView = NSHostingView(
             rootView: PiPStashHandleView(
                 side: side,
+                pullRevealTravel: pullRevealTravel,
                 onRestore: { [weak self] in
                     self?.restoreCurrentPage()
                 },

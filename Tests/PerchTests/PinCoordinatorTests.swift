@@ -756,7 +756,9 @@ final class PinCoordinatorTests: XCTestCase {
         handle.pull(to: 75)
 
         XCTAssertEqual(panel.pullRevealPresentationCount, 1)
-        XCTAssertEqual(panel.frame, CGRect(x: 810, y: 100, width: 300, height: 400))
+        XCTAssertEqual(panel.frame.origin.x, 803.448, accuracy: 0.001)
+        XCTAssertEqual(panel.frame.origin.y, 100)
+        XCTAssertEqual(panel.frame.size, CGSize(width: 300, height: 400))
         XCTAssertTrue(handle.finishPull(at: 75))
         XCTAssertTrue(panel.isVisible)
         XCTAssertFalse(handle.isVisible)
