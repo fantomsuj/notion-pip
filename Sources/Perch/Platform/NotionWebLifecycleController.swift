@@ -1,5 +1,4 @@
 import Combine
-import Foundation
 
 /// Owns the hosting, suspension, and eviction policy for the live Notion web view.
 ///
@@ -19,30 +18,21 @@ final class NotionWebLifecycleController: ObservableObject {
         case loadActivePage
     }
 
-    static let defaultWarmRetentionInterval: TimeInterval = 60
-
     @Published private(set) var state: NotionWebSessionState
     @Published private(set) var visibility: Visibility = .visible
 
     var onEvictionRequested: (@MainActor () -> Void)?
 
-    private let warmRetentionInterval: TimeInterval
-    private let scheduleEviction: NotionWebEvictionScheduler
     private var stateBeforeSuspension: NotionWebSessionState = .unloaded
-    private var evictionCancellable: AnyCancellable?
     private var evictionIsProtected = false
 
-    init(
-        initialState: NotionWebSessionState = .unloaded,
-        warmRetentionInterval: TimeInterval = defaultWarmRetentionInterval,
-        scheduleEviction: @escaping NotionWebEvictionScheduler
-    ) {
+    init(initialState: NotionWebSessionState = .unloaded) {
         state = initialState
-        self.warmRetentionInterval = warmRetentionInterval
-        self.scheduleEviction = scheduleEviction
     }
 
-    var isVisible: Bool { visibility == .visible }
+    var isVisible: Bool {
+        visibility == .visible
+    }
 
     func shouldHostWebView(hasWebView: Bool) -> Bool {
         isVisible && state != .suspended && hasWebView
@@ -66,8 +56,6 @@ final class NotionWebLifecycleController: ObservableObject {
 
     func panelDidShow(hasWebView: Bool, hasActivePage: Bool) -> ResumeCommand {
         visibility = .visible
-        evictionCancellable?.cancel()
-        evictionCancellable = nil
 
         guard state == .suspended else {
             return !hasWebView && hasActivePage ? .loadActivePage : .none
@@ -94,10 +82,6 @@ final class NotionWebLifecycleController: ObservableObject {
         guard hasWebView, state != .suspended else { return false }
         stateBeforeSuspension = state
         state = .suspended
-        evictionCancellable?.cancel()
-        evictionCancellable = scheduleEviction(warmRetentionInterval) { [weak self] in
-            self?.requestEvictionIfEligible()
-        }
         return true
     }
 
@@ -106,22 +90,18 @@ final class NotionWebLifecycleController: ObservableObject {
     }
 
     @discardableResult
-    func requestEvictionIfEligible() -> Bool {
-        guard state == .suspended, visibility == .hidden, !evictionIsProtected else {
+    func requestEvictionIfEligible(ignoringProtection: Bool = false) -> Bool {
+        guard state == .suspended,
+              visibility == .hidden,
+              ignoringProtection || !evictionIsProtected
+        else {
             return false
         }
-        evictionCancellable?.cancel()
-        evictionCancellable = nil
         onEvictionRequested?()
         return true
     }
 
     func didEvictWebView() {
         state = .unloaded
-    }
-
-    func cancelWarmRetention() {
-        evictionCancellable?.cancel()
-        evictionCancellable = nil
     }
 }

@@ -18,7 +18,6 @@ final class PinCoordinatorTests: XCTestCase {
         let session = NotionWebSession(
             webView: WKWebView(frame: .zero),
             loadRequest: { _, _ in },
-            scheduleEviction: { _, _ in AnyCancellable {} },
             pauseMedia: { _ in }
         )
         let coordinator = PiPPanelCoordinator(
