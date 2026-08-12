@@ -27,7 +27,7 @@ struct StoredPageSnapshot: Equatable, Sendable {
 }
 
 @ModelActor
-actor PageRepository {
+actor PageRepository: NotionPageDropTitleProviding {
     private let logger = Logger(
         subsystem: "com.fantomsuj.Perch",
         category: "page-working-set"
@@ -229,6 +229,23 @@ actor PageRepository {
             from: validRecentPages(),
             pinnedPages: policy.pinnedPages(from: validPinnedPages())
         )
+    }
+
+    func displayTitle(for pageID: String) -> String? {
+        let canonicalPageID = policy.canonicalID(pageID)
+        let pinnedPages = policy.pinnedPages(from: validPinnedPages())
+        let candidates = [validActivePage()].compactMap { $0 }
+            + pinnedPages
+            + policy.recentPages(from: validRecentPages(), pinnedPages: pinnedPages)
+
+        guard let title = candidates.first(where: {
+            policy.canonicalID($0.pageID) == canonicalPageID
+        })?.displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !title.isEmpty
+        else {
+            return nil
+        }
+        return title
     }
 
     private func bootstrapActivePageIfNeeded() throws {
