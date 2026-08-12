@@ -45,6 +45,31 @@ final class NotionPageDropTests: XCTestCase {
         XCTAssertEqual(fallback.displayLabel(localTitle: nil), "Notion page")
     }
 
+    func testDisplayLabelNormalizesControlAndBidirectionalScalarsInSlugFallback() throws {
+        let drop = try NotionPageDrop(
+            validating: try XCTUnwrap(
+                URL(
+                    string: "https://www.notion.so/Alpha%00%E2%80%8EBeta%E2%80%AEGamma%E2%81%A6Delta-0123456789abcdef0123456789abcdef"
+                )
+            ),
+            sourceLabel: nil
+        )
+
+        XCTAssertEqual(drop.displayLabel(localTitle: nil), "Alpha Beta Gamma Delta")
+    }
+
+    func testDisplayLabelCapsSlugFallbackAtEightyCharacters() throws {
+        let slug = String(repeating: "a", count: 81)
+        let drop = try NotionPageDrop(
+            validating: try XCTUnwrap(
+                URL(string: "https://www.notion.so/\(slug)-0123456789abcdef0123456789abcdef")
+            ),
+            sourceLabel: nil
+        )
+
+        XCTAssertEqual(drop.displayLabel(localTitle: nil), String(repeating: "a", count: 80))
+    }
+
     func testValidatingDefersMalformedURLsToNotionPageReference() throws {
         let oversized = try XCTUnwrap(
             URL(

@@ -46,6 +46,15 @@ final class NotionPageDropPasteboardReaderTests: XCTestCase {
         XCTAssertNil(NotionPageDropPasteboardReader.candidate(from: pasteboard))
     }
 
+    func testRejectsWhitespacePaddedURLRepresentation() throws {
+        let pasteboard = makePasteboard()
+        let item = NSPasteboardItem()
+        item.setString(" \(try validURL().absoluteString) ", forType: .URL)
+        XCTAssertTrue(pasteboard.writeObjects([item]))
+
+        XCTAssertNil(NotionPageDropPasteboardReader.candidate(from: pasteboard))
+    }
+
     func testRejectsNoURLOrEmbeddedProse() throws {
         let noURL = makePasteboard()
         writeItem(string: "A page title", to: noURL)

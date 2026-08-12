@@ -84,6 +84,41 @@ final class PageRepositoryTests: XCTestCase {
         XCTAssertNil(unknownTitle)
     }
 
+    func testDisplayTitleSkipsBlankSnapshotsBeforeContinuingPrecedence() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let page = try self.page(slug: "Project", id: firstPageID)
+        context.insert(
+            ActivePageModel(
+                pageID: page.pageID,
+                canonicalURL: page.canonicalURL.absoluteString,
+                displayTitle: " \n ",
+                updatedAt: Date(timeIntervalSince1970: 3)
+            )
+        )
+        context.insert(
+            PinnedPageModel(
+                stableID: page.pageID,
+                canonicalURL: page.canonicalURL.absoluteString,
+                displayTitle: "Pinned title",
+                pinnedAt: Date(timeIntervalSince1970: 2)
+            )
+        )
+        context.insert(
+            RecentPageModel(
+                stableID: page.pageID,
+                canonicalURL: page.canonicalURL.absoluteString,
+                displayTitle: "Recent title",
+                visitedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        try context.save()
+
+        let title = await PageRepository(container: container).displayTitle(for: page.pageID)
+
+        XCTAssertEqual(title, "Pinned title")
+    }
+
     func testRecentPiPPagesIncludesRecentlyVisitedPinnedPageInVisitOrder() async throws {
         let clock = TestDateProvider(Date(timeIntervalSince1970: 100))
         let repository = PageRepository(container: try makeContainer(), clock: clock)

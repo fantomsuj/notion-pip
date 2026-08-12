@@ -16,7 +16,7 @@ struct NotionPageDrop: Equatable, Sendable {
     func displayLabel(localTitle: String?) -> String {
         Self.normalizedLabel(localTitle)
             ?? sourceLabel
-            ?? page.displayTitle
+            ?? Self.normalizedLabel(page.displayTitle)
             ?? "Notion page"
     }
 

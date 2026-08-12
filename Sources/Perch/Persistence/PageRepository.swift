@@ -238,14 +238,15 @@ actor PageRepository: NotionPageDropTitleProviding {
             + pinnedPages
             + policy.recentPages(from: validRecentPages(), pinnedPages: pinnedPages)
 
-        guard let title = candidates.first(where: {
-            policy.canonicalID($0.pageID) == canonicalPageID
-        })?.displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-        !title.isEmpty
-        else {
-            return nil
+        for candidate in candidates where policy.canonicalID(candidate.pageID) == canonicalPageID {
+            guard let title = candidate.displayTitle?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ), !title.isEmpty else {
+                continue
+            }
+            return title
         }
-        return title
+        return nil
     }
 
     private func bootstrapActivePageIfNeeded() throws {
