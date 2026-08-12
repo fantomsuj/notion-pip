@@ -199,6 +199,19 @@ final class WebNavigationDestinationTests: XCTestCase {
     }
 
     @MainActor
+    func testHidingPanelClosesActivePopup() {
+        let popupCoordinator = PopupCoordinatorSpy(webView: WKWebView())
+        let session = NotionWebSession(
+            webView: WKWebView(),
+            popupCoordinator: popupCoordinator
+        )
+
+        session.panelDidHide()
+
+        XCTAssertEqual(popupCoordinator.closeCallCount, 1)
+    }
+
+    @MainActor
     func testNewWindowExternalRequestDefersThenOpensOnceAndReturnsNil() throws {
         var openedURLs: [URL] = []
         var loadedRequests: [URLRequest] = []

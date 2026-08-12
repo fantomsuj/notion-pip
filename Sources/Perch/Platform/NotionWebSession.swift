@@ -522,6 +522,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func panelDidHide() {
+        popupCoordinator.close()
         finishShortcutPresentationMeasurement(outcome: .cancelled)
         lifecycleController.panelDidHide()
         captureSelectionAndSuspendIfNeeded()

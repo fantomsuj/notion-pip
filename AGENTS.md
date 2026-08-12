@@ -64,9 +64,10 @@ user approves the change.
    silently install large system software or accept Xcode's license with
    `sudo`. After installation, Xcode may ask the user to accept its license and
    install additional components.
-4. Check `pgrep -x Perch`. If the app is running, stop and ask the user to
-   finish or save active work and quit it before continuing. The build script
-   terminates running `Perch` processes, which can discard unsaved edits.
+4. Check both `pgrep -x Perch` and `pgrep -x NotionPiP`. If either the current
+   app or a legacy build is running, stop and ask the user to finish or save
+   active work and quit it before continuing. The build script terminates both
+   process names immediately before launch, which can discard unsaved edits.
 5. From the repository root, build, stage, ad-hoc sign, launch, and verify the
    app:
 

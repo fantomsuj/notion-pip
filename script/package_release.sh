@@ -244,6 +244,8 @@ cat >"$INFO_PLIST" <<PLIST
     <string>public.app-category.productivity</string>
     <key>LSMinimumSystemVersion</key>
     <string>$MIN_SYSTEM_VERSION</string>
+    <key>LSMultipleInstancesProhibited</key>
+    <true/>
     <key>LSUIElement</key>
     <true/>
     <key>NSPrincipalClass</key>

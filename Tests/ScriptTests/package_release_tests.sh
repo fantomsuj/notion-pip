@@ -8,6 +8,7 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 
 FAKE_BIN="$TEST_DIR/bin"
 CALL_LOG="$TEST_DIR/calls.log"
+PLIST_LOG="$TEST_DIR/plist.log"
 OUTPUT_DIR="$TEST_DIR/output"
 NOTARY_KEY="$TEST_DIR/AuthKey_TEST.p8"
 
@@ -81,6 +82,11 @@ cat >"$FAKE_BIN/codesign" <<'SCRIPT'
 printf 'codesign' >>"$FAKE_CALL_LOG"
 printf ' %q' "$@" >>"$FAKE_CALL_LOG"
 printf '\n' >>"$FAKE_CALL_LOG"
+last_argument="${!#}"
+if [[ "$last_argument" == *.app ]]; then
+    /usr/libexec/PlistBuddy -c 'Print :LSMultipleInstancesProhibited' \
+        "$last_argument/Contents/Info.plist" >>"$FAKE_PLIST_LOG" 2>/dev/null || true
+fi
 SCRIPT
 
 cat >"$FAKE_BIN/ditto" <<'SCRIPT'
@@ -142,6 +148,7 @@ run_packager() {
         PERCH_NOTARY_KEY_ID="TESTKEYID" \
         PERCH_NOTARY_ISSUER_ID="00000000-0000-0000-0000-000000000000" \
         FAKE_CALL_LOG="$CALL_LOG" \
+        FAKE_PLIST_LOG="$PLIST_LOG" \
         "$PACKAGE_SCRIPT"
 }
 
@@ -152,6 +159,10 @@ DMG_PATH="$OUTPUT_DIR/Perch-0.1.0.dmg"
 CHECKSUM_PATH="$DMG_PATH.sha256"
 if [[ ! -f "$DMG_PATH" || ! -f "$CHECKSUM_PATH" ]]; then
     echo "expected the DMG and checksum artifacts" >&2
+    exit 1
+fi
+if [[ "$(head -n 1 "$PLIST_LOG")" != "true" ]]; then
+    echo "expected the release bundle to prohibit multiple app instances" >&2
     exit 1
 fi
 if ! grep -Fq 'arm64-apple-macosx14.0' "$CALL_LOG" || \

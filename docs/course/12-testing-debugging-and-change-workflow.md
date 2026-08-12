@@ -76,8 +76,9 @@ the produced app targets macOS 14 or newer.
 
 Important safety boundaries:
 
-- `script/build_and_run.sh` terminates every running process named
-  `Perch` before building. Save active work and quit the app first.
+- `script/build_and_run.sh` terminates every running process named `Perch` or
+  legacy `NotionPiP` immediately before launch. Save active work and quit the
+  app first.
 - Do not accept an Xcode license with `sudo`, install large dependencies, edit
   signing/entitlements, or change system configuration merely to make an
   exercise pass.
@@ -248,26 +249,28 @@ window boundary.
 [`build_and_run.sh`](../../script/build_and_run.sh) performs this sequence for
 every mode:
 
-1. validate mode, version strings, and full Xcode location;
-2. terminate running `Perch` processes;
+1. validate mode, version strings, and full Xcode location, then claim the
+   shared cross-worktree build-and-run lock;
+2. preserve any running app while the build and staging work completes;
 3. if both `package.json` and `node_modules` exist, regenerate editor assets;
 4. `swift build --product Perch` and find SwiftPM's binary directory;
 5. replace `dist/Perch.app`, copy the executable and every top-level SwiftPM
    resource bundle;
 6. write and lint `Info.plist` with bundle ID, version, macOS 14 minimum,
-   `LSUIElement = true`, and `perch` URL scheme;
+   `LSUIElement = true`, the single-instance policy, and `perch` URL scheme;
 7. ad-hoc sign with the sandbox/network entitlements and verify the signature;
-8. launch the staged bundle according to the selected mode.
+8. terminate and wait for current `Perch` and legacy `NotionPiP` processes,
+   then launch the staged bundle according to the selected mode.
 
 The mode determines what happens after staging:
 
 | Mode | Behavior | Best use |
 |---|---|---|
-| `run` or no argument | `open -n` the app | Ordinary local trial |
+| `run` or no argument | `open` the app through Launch Services | Ordinary local trial |
 | `--debug` | Launch, wait for PID, attach Xcode's LLDB | Native breakpoint/crash investigation |
 | `--logs` | Stream unified logs for process `Perch` | Lifecycle and framework-visible events |
 | `--telemetry` | Stream `com.fantomsuj.Perch` subsystem at info level | App-owned categories and signpost context |
-| `--verify` | Capture logs before launch; check PID, plist, resource, signature, two-second stability, and absence of two SwiftData concurrency diagnostics | Repeatable local bundle/startup gate |
+| `--verify` | Capture logs before launch; require one PID using the staged executable; check plist, resource, signature, two-second stability, and absence of two SwiftData concurrency diagnostics | Repeatable local bundle/startup gate |
 
 A successful verification prints `Verified .../dist/Perch.app (pid ...)`.
 The result is a development app signed with `-`; it is not Developer ID signed,
@@ -520,8 +523,9 @@ If `node_modules` is absent, do not install it merely for a native-only demo.
 
 7. Why must the app be quit before the build script?
 
-   **Answer:** the script uses `pkill -x Perch` before building. Unsaved work
-   in a running development instance can be lost.
+   **Answer:** immediately before launch, the script terminates both `Perch`
+   and legacy `NotionPiP` processes. Unsaved work in a running development
+   instance can be lost.
 
 8. Which evidence is appropriate for a Mission Control regression?
 
