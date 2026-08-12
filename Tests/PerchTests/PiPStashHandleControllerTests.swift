@@ -5,6 +5,32 @@ import XCTest
 
 @MainActor
 final class PiPStashHandleControllerTests: XCTestCase {
+    func testInjectedTransparentPanelsRemainTransparentWhenPresented() async throws {
+        let handlePanel = makePanel()
+        let shelfPanel = makePanel()
+        handlePanel.alphaValue = 0
+        shelfPanel.alphaValue = 0
+        let recent = PiPRecentPagesShelfController(
+            store: ControllerRecentStore(snapshot: try makeSnapshot(count: 2))
+        )
+        let controller = PiPStashHandleController(
+            visibleFramesProvider: { [self] in visibleFrames },
+            recentPagesController: recent,
+            handlePanel: handlePanel,
+            shelfPanel: shelfPanel,
+            shelfDismissDelay: .zero
+        )
+
+        present(controller)
+        controller.handleHoverChanged(true)
+        await waitUntil { shelfPanel.isVisible }
+
+        XCTAssertTrue(handlePanel.isVisible)
+        XCTAssertTrue(shelfPanel.isVisible)
+        XCTAssertEqual(handlePanel.alphaValue, 0)
+        XCTAssertEqual(shelfPanel.alphaValue, 0)
+    }
+
     func testPresentShowsOnlyHandleAndHoverShowsAttachedShelf() async throws {
         let (controller, handlePanel, shelfPanel, _) = try makeController(itemCount: 3)
 
@@ -320,12 +346,14 @@ final class PiPStashHandleControllerTests: XCTestCase {
     }
 
     private func makePanel() -> NSPanel {
-        NSPanel(
+        let panel = NSPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
+        panel.alphaValue = 0
+        return panel
     }
 
     private func makeSnapshot(count: Int) throws -> PiPRecentPagesSnapshot {

@@ -12,6 +12,8 @@ final class PiPStashHandleController: PiPStashHandle {
     private let shelfDismissDelay: Duration
     private let activateApplication: @MainActor () -> Void
     private let animatesHandleEntrance: Bool
+    private let ownsHandlePanel: Bool
+    private let ownsShelfPanel: Bool
 
     private var currentPlacement: PanelStashPlacement?
     private var onRestore: (@MainActor () -> Void)?
@@ -62,7 +64,9 @@ final class PiPStashHandleController: PiPStashHandle {
         self.onSelectRecentPage = onSelectRecentPage
         self.shelfDismissDelay = shelfDismissDelay
         self.activateApplication = activateApplication
-        animatesHandleEntrance = handlePanel == nil
+        ownsHandlePanel = handlePanel == nil
+        ownsShelfPanel = shelfPanel == nil
+        animatesHandleEntrance = ownsHandlePanel
 
         if let handlePanel {
             self.handlePanel = handlePanel
@@ -130,7 +134,9 @@ final class PiPStashHandleController: PiPStashHandle {
         installHandleContent(side: placement.side)
 
         guard shouldAnimateEntrance else {
-            handlePanel.alphaValue = 1
+            if ownsHandlePanel {
+                handlePanel.alphaValue = 1
+            }
             handlePanel.setFrame(placement.frame, display: true)
             handlePanel.orderFrontRegardless()
             return
@@ -429,7 +435,9 @@ final class PiPStashHandleController: PiPStashHandle {
 
         installShelfContent()
         shelfPanel.setFrame(frame, display: true)
-        shelfPanel.alphaValue = 1
+        if ownsShelfPanel {
+            shelfPanel.alphaValue = 1
+        }
         let shouldActivateApplication = requestsFocus && !isShelfFocusOwned
         isShelfFocusOwned = isShelfFocusOwned || requestsFocus
         if isShelfFocusOwned {
