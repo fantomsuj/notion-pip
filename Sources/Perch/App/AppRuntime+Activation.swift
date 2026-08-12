@@ -83,7 +83,6 @@ extension AppRuntime {
         case let .success(page):
             activate(page: page, source: .typedURL)
             pageURLInputState.showPinned(page: page)
-            pageURLInputPresenter.hide()
         case .failure:
             showValidationFailure("Use an HTTPS Notion page URL with a page ID.")
         }
@@ -292,7 +291,7 @@ extension AppRuntime {
 
     private func handleGlobalShortcutTap() {
         guard pinCoordinator.performGlobalShortcutAction() else {
-            pageURLInputPresenter.presentAndFocus()
+            presentPageURLInput()
             return
         }
     }

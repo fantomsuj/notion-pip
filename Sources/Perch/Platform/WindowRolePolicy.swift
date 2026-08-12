@@ -4,7 +4,6 @@ import AppKit
 enum WindowRole {
     case onboarding
     case settings
-    case pinPage
     case pictureInPicture
     case stashHandle
     case stashShelf
@@ -28,16 +27,6 @@ enum WindowRole {
                 collectionBehavior: [.moveToActiveSpace, .fullScreenAuxiliary],
                 initialContentSize: CGSize(width: 480, height: 460),
                 minimumContentSize: CGSize(width: 440, height: 420)
-            )
-        case .pinPage:
-            WindowRolePolicy(
-                kind: .keyWindow,
-                styleMask: [.titled, .closable],
-                level: .floating,
-                collectionBehavior: [.moveToActiveSpace, .fullScreenAuxiliary],
-                initialContentSize: CGSize(width: 440, height: 180),
-                minimumContentSize: CGSize(width: 440, height: 180),
-                maximumContentSize: CGSize(width: 440, height: 180)
             )
         case .pictureInPicture:
             WindowRolePolicy(

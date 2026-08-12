@@ -344,7 +344,6 @@ final class RuntimePageURLInputPresenter: PageURLInputPresenting {
         presentAndFocusCount += 1
     }
 
-    func hide() {}
 }
 
 enum RuntimeRepositoryError: Error {

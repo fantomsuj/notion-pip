@@ -3,7 +3,6 @@ import SwiftUI
 
 enum PiPTopToolbarPresentation: Equatable {
     case hidden
-    case compact
     case expanded
 }
 
@@ -60,13 +59,9 @@ struct PiPChromeView: View {
     }
 
     static func topToolbarPresentation(
-        hasPositionController: Bool,
         showsTopControls: Bool
     ) -> PiPTopToolbarPresentation {
-        if showsTopControls {
-            return .expanded
-        }
-        return hasPositionController ? .compact : .hidden
+        showsTopControls ? .expanded : .hidden
     }
 
     static func shouldHostNotionWebView(for session: NotionWebSession) -> Bool {
@@ -174,23 +169,21 @@ struct PiPChromeView: View {
         }
         .background(DesignTokens.Colors.background)
         .overlay(alignment: .top) {
-            ZStack(alignment: .topLeading) {
-                if !showsTopControls {
-                    Color.clear
-                        .frame(height: Self.topControlsRevealHeight)
-                        .contentShape(Rectangle())
-                        .onHover { isHovering in
-                            topControlsHover.setHovering(isHovering)
-                        }
-                        .accessibilityHidden(true)
-                }
+            ZStack(alignment: .top) {
+                Color.clear
+                    .frame(height: Self.topControlsRevealHeight)
+                    .contentShape(Rectangle())
+                    .onHover { isHovering in
+                        topControlsHover.setHovering(isHovering)
+                    }
+                    .accessibilityHidden(true)
+
                 let toolbarPresentation = Self.topToolbarPresentation(
-                    hasPositionController: panelPositionController != nil,
                     showsTopControls: showsTopControls
                 )
                 if toolbarPresentation != .hidden {
-                    topControlsOverlay(presentation: toolbarPresentation)
-                        .padding(.leading, DesignTokens.Spacing.control)
+                    topControlsOverlay
+                        .transition(.opacity)
                 }
             }
         }
@@ -216,23 +209,18 @@ struct PiPChromeView: View {
         )
     }
 
-    private func topControlsOverlay(
-        presentation: PiPTopToolbarPresentation
-    ) -> some View {
+    private var topControlsOverlay: some View {
         HStack(spacing: 0) {
             if let panelPositionController {
                 PanelCornerControls(controller: panelPositionController)
             }
 
-            if presentation == .expanded {
-                if panelPositionController != nil {
-                    Divider()
-                        .frame(height: 14)
-                        .padding(.horizontal, DesignTokens.Spacing.compact)
-                }
-                expandedTopControls
-                    .transition(.opacity)
+            if panelPositionController != nil {
+                Divider()
+                    .frame(height: 14)
+                    .padding(.horizontal, DesignTokens.Spacing.compact)
             }
+            expandedTopControls
         }
         .padding(DesignTokens.Spacing.compact)
         .frame(height: Self.topControlsHeight)

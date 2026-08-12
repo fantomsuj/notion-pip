@@ -2,6 +2,8 @@ import SwiftUI
 
 struct OnboardingView: View {
     let globalShortcut: GlobalShortcut
+    @ObservedObject var pageURLInputState: PageURLInputState
+    let onPinPage: @MainActor () -> Void
     let onComplete: @MainActor () -> Void
     let onOpenSettings: @MainActor () -> Void
 
@@ -22,14 +24,9 @@ struct OnboardingView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.container) {
-            Label {
-                Text("Perch")
-                    .font(.headline)
-            } icon: {
-                Image(systemName: "rectangle.on.rectangle")
-                    .foregroundStyle(.tint)
-            }
-            .padding(.horizontal, DesignTokens.Spacing.compact)
+            Text("Perch")
+                .font(.headline)
+                .padding(.horizontal, DesignTokens.Spacing.compact)
 
             VStack(spacing: DesignTokens.Spacing.compact) {
                 ForEach(OnboardingStep.allCases) { step in
@@ -145,7 +142,10 @@ struct OnboardingView: View {
         case .welcome:
             OverlayArtwork()
         case .pinPage:
-            PinPageArtwork()
+            PinPageArtwork(
+                state: pageURLInputState,
+                onSubmit: onPinPage
+            )
         case .panelControls:
             PanelControlsArtwork()
         case .appMenu:
@@ -210,9 +210,9 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         case .welcome:
             "Perch is a floating panel that follows you across desktop Spaces and full-screen apps. It stays out of the Dock so your workspace remains uncluttered."
         case .pinPage:
-            "Paste a Notion page link in Settings to pin it. The page keeps its navigation and session as you move between other apps."
+            "Paste a Notion page link below to pin it now. The page keeps its navigation and session as you move between other apps."
         case .panelControls:
-            "The four corner arrows stay visible. Hover over that toolbar or the top edge of the PiP to reveal the other controls. Double-click the title bar above them to maximize the PiP, then double-click again to restore it."
+            "Hover over the top edge of the PiP to reveal the centered toolbar, including four corner arrows and the other controls. Double-click the title bar above it to maximize the PiP, then double-click again to restore it."
         case .appMenu:
             "Click the Perch icon in the menu bar for Show, Stash, New Notion Page, Settings, and this guide. The ellipsis inside the panel opens the same app commands."
         case .shortcuts:
@@ -307,34 +307,15 @@ private struct OverlayArtwork: View {
 }
 
 private struct PinPageArtwork: View {
+    @ObservedObject var state: PageURLInputState
+    let onSubmit: @MainActor () -> Void
+
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.section) {
             Label("Pinned Page", systemImage: "pin")
                 .font(.headline)
 
-            HStack(spacing: DesignTokens.Spacing.control) {
-                Text("notion.com/Project-Roadmap-…")
-                    .foregroundStyle(DesignTokens.Colors.secondaryText)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
-                    .background(
-                        RoundedRectangle(cornerRadius: DesignTokens.Radius.control)
-                            .fill(DesignTokens.Colors.background)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: DesignTokens.Radius.control)
-                            .stroke(DesignTokens.Colors.border)
-                    }
-
-                Text("Pin Page")
-                    .font(.callout.weight(.medium))
-                    .padding(.horizontal, 12)
-                    .frame(height: 28)
-                    .foregroundStyle(.white)
-                    .background(.tint, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.control))
-            }
+            PageURLInputView(state: state, onSubmit: onSubmit)
 
             Label("Your signed-in Notion session stays in the panel", systemImage: "checkmark.circle.fill")
                 .font(.callout)
@@ -343,7 +324,6 @@ private struct PinPageArtwork: View {
         .padding(18)
         .frame(maxWidth: 440)
         .background(DesignTokens.Colors.surface, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.card))
-        .accessibilityHidden(true)
     }
 }
 
@@ -404,26 +384,34 @@ private struct PanelControlsArtwork: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: DesignTokens.Spacing.compact) {
-            ForEach(PanelCorner.allCases, id: \.self) { corner in
-                Image(systemName: corner.symbolName)
-                    .font(.system(size: 8, weight: .semibold))
-                    .frame(width: 16, height: 20)
+        ZStack {
+            DesignTokens.Colors.background
+
+            HStack(spacing: DesignTokens.Spacing.compact) {
+                ForEach(PanelCorner.allCases, id: \.self) { corner in
+                    Image(systemName: corner.symbolName)
+                        .font(.system(size: 8, weight: .semibold))
+                        .frame(width: 16, height: 20)
+                }
+                Divider()
+                    .frame(height: 14)
+                    .padding(.horizontal, DesignTokens.Spacing.compact)
+                ForEach(OnboardingToolbarControl.all) { control in
+                    controlIcon(control)
+                        .frame(width: 16, height: 20)
+                }
             }
-            Divider()
-                .frame(height: 14)
-                .padding(.horizontal, DesignTokens.Spacing.compact)
-            Text("Hover for more")
-                .font(.caption)
-                .foregroundStyle(DesignTokens.Colors.secondaryText)
-            Spacer()
-            ForEach(OnboardingToolbarControl.all) { control in
-                controlIcon(control)
+            .padding(.horizontal, DesignTokens.Spacing.compact)
+            .background(
+                .regularMaterial,
+                in: RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
+                    .stroke(DesignTokens.Colors.border.opacity(0.7), lineWidth: 0.5)
             }
         }
-        .padding(.horizontal, 12)
         .frame(height: 34)
-        .background(DesignTokens.Colors.background)
     }
 
     private func controlLabel(_ control: OnboardingToolbarControl) -> some View {
@@ -450,7 +438,7 @@ private struct PanelControlsArtwork: View {
     }
 
     private var accessibilitySummary: String {
-        "Panel controls. Four corner movement arrows remain visible. Hover to reveal: "
+        "Panel controls. Hover over the top edge to reveal the centered toolbar with four corner movement arrows and: "
             + OnboardingToolbarControl.all.map(\.title).joined(separator: ", ")
             + ". Double-click the title bar to maximize or restore the PiP."
     }

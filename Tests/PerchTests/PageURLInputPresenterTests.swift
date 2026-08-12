@@ -8,16 +8,6 @@ final class PageURLInputPresenterTests: XCTestCase {
     private let firstPageID = "0123456789abcdef0123456789abcdef"
     private let secondPageID = "fedcba9876543210fedcba9876543210"
 
-    func testDefaultInputWindowIsWindowButNotPanel() {
-        let window = PageURLInputWindowFactory.makeDefault(
-            state: PageURLInputState(),
-            onSubmit: {}
-        )
-
-        XCTAssertTrue(window is NSWindow)
-        XCTAssertFalse(window is NSPanel)
-    }
-
     func testShortcutWithoutCurrentPagePresentsKeysAndFocusesEntryWithoutValidation() {
         let panel = FakePanelCoordinator()
         let inputPresenter = FakePageURLInputPresenter()
@@ -44,44 +34,22 @@ final class PageURLInputPresenterTests: XCTestCase {
         XCTAssertTrue(panel.replacedPages.isEmpty)
     }
 
-    func testProductionPresenterShowsWindowBeforeRequestingFieldFocus() {
-        var events: [String] = []
-        let window = InspectablePageURLInputWindow(events: { events.append($0) })
-        let presenter = PageURLInputPresenter(
-            window: window,
-            requestFieldFocus: { events.append("focus") }
+    func testNoPageInputUsesSettingsAndRequestsFieldFocus() {
+        let settings = PageInputSettingsPresenterSpy()
+        let runtime = AppRuntime(
+            panelCoordinator: FakePanelCoordinator(),
+            pasteboard: PresenterTestPasteboard(value: nil),
+            shortcutRegistrar: PresenterTestShortcutRegistrar()
         )
+        runtime.bind(settingsWindowPresenter: settings)
 
-        presenter.presentAndFocus()
+        runtime.presentPageURLInput()
 
-        XCTAssertTrue(window.isVisible)
-        XCTAssertTrue(window.isKey)
-        XCTAssertEqual(events, ["present", "focus"])
-
-        presenter.hide()
-        XCTAssertFalse(window.isVisible)
+        XCTAssertEqual(settings.showCount, 1)
+        XCTAssertEqual(runtime.pageURLFocusRequest, 1)
     }
 
-    func testProductionPresenterDefersWindowConstructionUntilPresentation() {
-        let window = InspectablePageURLInputWindow(events: { _ in })
-        var factoryCount = 0
-        let presenter = PageURLInputPresenter(
-            makeWindow: {
-                factoryCount += 1
-                return window
-            },
-            requestFieldFocus: {}
-        )
-
-        presenter.hide()
-        XCTAssertEqual(factoryCount, 0)
-
-        presenter.presentAndFocus()
-        presenter.presentAndFocus()
-        XCTAssertEqual(factoryCount, 1)
-    }
-
-    func testValidEntrySubmissionUsesPinCoordinatorAndHidesEntrySurface() throws {
+    func testValidEntrySubmissionUsesPinCoordinator() throws {
         let panel = FakePanelCoordinator()
         let inputPresenter = FakePageURLInputPresenter()
         let runtime = AppRuntime(
@@ -92,15 +60,12 @@ final class PageURLInputPresenterTests: XCTestCase {
         )
         let activePage = try makePage(id: firstPageID, title: "Current")
         runtime.pin(page: activePage)
-        inputPresenter.presentAndFocus()
         runtime.pageURLText = "https://www.notion.so/Next-\(secondPageID)"
 
         runtime.validatePageURL()
 
         XCTAssertEqual(panel.replacedPages.map(\.pageID), [secondPageID])
         XCTAssertEqual(runtime.activePage?.pageID, secondPageID)
-        XCTAssertFalse(inputPresenter.isVisible)
-        XCTAssertEqual(inputPresenter.hideCount, 1)
         XCTAssertFalse(runtime.validationFailed)
     }
 
@@ -112,13 +77,10 @@ final class PageURLInputPresenterTests: XCTestCase {
             shortcutRegistrar: PresenterTestShortcutRegistrar(),
             pageURLInputPresenter: inputPresenter
         )
-        inputPresenter.presentAndFocus()
         runtime.pageURLText = "https://example.com/not-notion"
 
         runtime.validatePageURL()
 
-        XCTAssertTrue(inputPresenter.isVisible)
-        XCTAssertEqual(inputPresenter.hideCount, 0)
         XCTAssertTrue(runtime.validationFailed)
         XCTAssertEqual(
             runtime.validationMessage,
@@ -138,40 +100,20 @@ final class FakePageURLInputPresenter: PageURLInputPresenting {
     private(set) var isVisible = false
     private(set) var isKey = false
     private(set) var focusRequestCount = 0
-    private(set) var hideCount = 0
 
     func presentAndFocus() {
         isVisible = true
         isKey = true
         focusRequestCount += 1
     }
-
-    func hide() {
-        isVisible = false
-        isKey = false
-        hideCount += 1
-    }
 }
 
 @MainActor
-private final class InspectablePageURLInputWindow: PageURLInputWindow {
-    private let record: (String) -> Void
-    private(set) var isVisible = false
-    private(set) var isKey = false
+private final class PageInputSettingsPresenterSpy: SettingsWindowPresenting {
+    private(set) var showCount = 0
 
-    init(events record: @escaping (String) -> Void) {
-        self.record = record
-    }
-
-    func presentAsKey() {
-        isVisible = true
-        isKey = true
-        record("present")
-    }
-
-    func orderOut() {
-        isVisible = false
-        isKey = false
+    func show() {
+        showCount += 1
     }
 }
 

@@ -39,23 +39,6 @@ final class WindowRolePolicyTests: XCTestCase {
         XCTAssertEqual(window.contentMinSize, CGSize(width: 440, height: 420))
     }
 
-    func testPinPageRoleCreatesRetainedFixedFloatingKeyWindow() {
-        let window = WindowRole.pinPage.makeWindow()
-
-        XCTAssertTrue(type(of: window) == KeyCapableAppWindow.self)
-        XCTAssertEqual(window.styleMask, [.titled, .closable])
-        XCTAssertEqual(window.level, .floating)
-        XCTAssertEqual(
-            window.collectionBehavior,
-            [.moveToActiveSpace, .fullScreenAuxiliary]
-        )
-        XCTAssertFalse(window.isReleasedWhenClosed)
-        XCTAssertTrue(window.canBecomeKey)
-        XCTAssertEqual(window.contentRect(forFrameRect: window.frame).size, CGSize(width: 440, height: 180))
-        XCTAssertEqual(window.contentMinSize, CGSize(width: 440, height: 180))
-        XCTAssertEqual(window.contentMaxSize, CGSize(width: 440, height: 180))
-    }
-
     func testPiPRoleCreatesRetainedFloatingKeyOverlayPanel() {
         let window = WindowRole.pictureInPicture.makeWindow()
         let closeButton = window.standardWindowButton(.closeButton)
