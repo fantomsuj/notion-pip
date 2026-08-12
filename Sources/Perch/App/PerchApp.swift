@@ -119,8 +119,11 @@ private final class AppComposition {
         )
         let pageSwitcherController = PageSwitcherController(store: pageRepository)
         let pageSwitcherRelay = PageSwitcherSelectionRelay()
-        let recentPagesController = PiPRecentPagesShelfController(store: pageRepository)
         let recentPageSelectionRelay = PiPRecentPageSelectionRelay()
+        let recentPagesController = PiPRecentPagesShelfController(
+            store: pageRepository,
+            currentPageProvider: recentPageSelectionRelay.currentPage
+        )
         let stashHandle = PiPStashHandleController(
             recentPagesController: recentPagesController,
             onSelectRecentPage: recentPageSelectionRelay.perform
@@ -181,11 +184,10 @@ private final class AppComposition {
             )
         }
         recentPageSelectionRelay.handler = { [weak runtime] selection in
-            runtime?.activate(
-                page: selection.page,
-                source: .pageSwitcher,
-                restoration: selection.restoration
-            )
+            runtime?.activateRecentPage(selection)
+        }
+        recentPageSelectionRelay.currentPageProvider = { [weak runtime] in
+            runtime?.activePage
         }
 
         let settingsWindowPresenter = SettingsWindowPresenter { closeHandler in
@@ -250,8 +252,13 @@ private final class PageSwitcherSelectionRelay {
 @MainActor
 private final class PiPRecentPageSelectionRelay {
     var handler: (PiPRecentPageSelection) -> Void = { _ in }
+    var currentPageProvider: () -> NotionPageReference? = { nil }
 
     func perform(_ selection: PiPRecentPageSelection) {
         handler(selection)
+    }
+
+    func currentPage() -> NotionPageReference? {
+        currentPageProvider()
     }
 }
