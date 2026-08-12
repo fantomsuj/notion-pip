@@ -243,25 +243,17 @@ final class PiPChromeViewTests: XCTestCase {
         XCTAssertEqual(stashCount, 1)
     }
 
-    func testTopControlsAppearOnlyAfterPointerRemainsAtTopEdge() {
-        let scheduler = TestTopControlsHoverScheduler()
-        let controller = TopControlsHoverController(
-            revealDelay: .milliseconds(250),
-            scheduler: scheduler.schedule
-        )
+    func testTopControlsAppearImmediatelyWhenPointerEntersTopEdge() {
+        let controller = TopControlsHoverController()
 
         controller.setHovering(true)
 
-        XCTAssertFalse(controller.isHovering)
-        scheduler.advance(by: .milliseconds(249))
-        XCTAssertFalse(controller.isHovering)
-        scheduler.advance(by: .milliseconds(1))
         XCTAssertTrue(controller.isHovering)
     }
 
     func testTopControlsHoverSurfaceExtendsBeyondVisibleToolbar() {
         XCTAssertEqual(PiPChromeView.topControlsHoverOutset, 12)
-        XCTAssertEqual(PiPChromeView.topControlsRevealHeight, 8)
+        XCTAssertEqual(PiPChromeView.topControlsRevealHeight, 16)
     }
 
     func testTopControlsDoNotAppearWhenPointerLeavesBeforeRevealDelay() {
@@ -282,13 +274,12 @@ final class PiPChromeViewTests: XCTestCase {
     func testTopControlsDismissShortlyAfterPointerLeaves() {
         let scheduler = TestTopControlsHoverScheduler()
         let controller = TopControlsHoverController(
-            revealDelay: .milliseconds(250),
             dismissalDelay: .milliseconds(500),
             scheduler: scheduler.schedule
         )
 
         controller.setHovering(true)
-        scheduler.advance(by: .milliseconds(250))
+        XCTAssertTrue(controller.isHovering)
         controller.setHovering(false)
 
         scheduler.advance(by: .milliseconds(499))
@@ -300,17 +291,15 @@ final class PiPChromeViewTests: XCTestCase {
     func testTopControlsStayVisibleWhenPointerReentersBeforeDismissal() {
         let scheduler = TestTopControlsHoverScheduler()
         let controller = TopControlsHoverController(
-            revealDelay: .milliseconds(250),
             dismissalDelay: .milliseconds(500),
             scheduler: scheduler.schedule
         )
 
         controller.setHovering(true)
-        scheduler.advance(by: .milliseconds(250))
+        XCTAssertTrue(controller.isHovering)
         controller.setHovering(false)
         scheduler.advance(by: .milliseconds(499))
         controller.setHovering(true)
-        scheduler.advance(by: .milliseconds(1))
 
         XCTAssertTrue(controller.isHovering)
     }
