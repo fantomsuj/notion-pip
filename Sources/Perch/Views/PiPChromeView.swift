@@ -17,7 +17,9 @@ struct PiPChromeView: View {
     static let pageSwitcherAccessibilityLabel = "Switch Notion page"
     static let topControlsHeight: CGFloat = 36
     static let topControlsSpacing = DesignTokens.Spacing.compact
-    static let topControlsRevealHeight: CGFloat = 8
+    /// Tall enough to catch the pointer as it approaches the top edge without
+    /// covering a large clickable region of the Notion page underneath.
+    static let topControlsRevealHeight: CGFloat = 16
     static let topControlsHoverOutset: CGFloat = 12
 
     @ObservedObject var webSession: NotionWebSession
@@ -197,7 +199,7 @@ struct PiPChromeView: View {
                 .padding(Self.quickCopyEdgeInsets)
         }
         .animation(
-            reduceMotion ? nil : .easeOut(duration: 0.16),
+            reduceMotion ? nil : .easeOut(duration: 0.12),
             value: showsTopControls
         )
         .onDisappear {

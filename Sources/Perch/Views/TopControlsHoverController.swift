@@ -17,7 +17,7 @@ final class TopControlsHoverController: ObservableObject {
     private var cancelDismissal: TopControlsHoverCancellation?
 
     init(
-        revealDelay: Duration = .milliseconds(250),
+        revealDelay: Duration = .zero,
         dismissalDelay: Duration = .milliseconds(500),
         scheduler: @escaping TopControlsHoverScheduler = scheduleTopControlsHoverOperation
     ) {
@@ -34,6 +34,15 @@ final class TopControlsHoverController: ObservableObject {
             guard !self.isHovering else { return }
 
             cancelReveal?()
+            cancelReveal = nil
+
+            // Reveal immediately so the toolbar tracks pointer intent without a dwell.
+            // Delayed reveal remains available for tests / callers that inject a non-zero delay.
+            if revealDelay == .zero {
+                self.isHovering = true
+                return
+            }
+
             cancelReveal = scheduler(revealDelay) { [weak self] in
                 self?.isHovering = true
             }
