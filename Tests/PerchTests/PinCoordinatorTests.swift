@@ -28,6 +28,7 @@ final class PinCoordinatorTests: XCTestCase {
         let newWindows = NSApp.windows.filter {
             !existingWindows.contains(ObjectIdentifier($0))
         }
+        newWindows.forEach { $0.alphaValue = 0 }
         defer { newWindows.forEach { $0.orderOut(nil) } }
 
         coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
