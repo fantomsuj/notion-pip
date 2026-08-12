@@ -1,11 +1,81 @@
 import AppKit
 import Combine
+import SwiftUI
 import WebKit
 import XCTest
 @testable import Perch
 
 @MainActor
 final class PiPPanelGeometryTests: XCTestCase {
+    func testEdgeHandleDropPreviewIsInertAndCompletionRestoresCommittedFrame() async throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_200, height: 900)
+        let committedFrame = CGRect(x: 240, y: 140, width: 560, height: 640)
+        let panel = EdgeHandleDropFramePanel(frame: committedFrame)
+        let handlePanel = makeDropHandlePanel()
+        let shelfPanel = makeDropHandlePanel()
+        let dropComposition = NotionPageDropComposition(
+            makeStashHandle: { onDropNotionPage in
+                PiPStashHandleController(
+                    visibleFramesProvider: { [visibleFrame] },
+                    onDropNotionPage: onDropNotionPage,
+                    handlePanel: handlePanel,
+                    shelfPanel: shelfPanel,
+                    shelfDismissDelay: .zero
+                )
+            }
+        )
+        let pageLoader = EdgeHandleDropPageLoader()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: pageLoader,
+            stashHandle: dropComposition.stashHandle,
+            visibleFramesProvider: { [visibleFrame] }
+        )
+        let repository = RuntimePinnedPageRepository()
+        let runtime = AppRuntime(
+            panelCoordinator: coordinator,
+            pageRepository: repository
+        )
+        dropComposition.bind(to: runtime)
+        let currentPage = try NotionPageReference(
+            validating: XCTUnwrap(
+                URL(string: "https://www.notion.so/Roadmap-0123456789abcdef0123456789abcdef")
+            )
+        )
+        let drop = try NotionPageDrop(
+            validating: XCTUnwrap(
+                URL(string: "https://www.notion.so/Design-System-fedcba9876543210fedcba9876543210")
+            ),
+            sourceLabel: "Design System"
+        )
+        runtime.activate(page: currentPage, source: .typedURL)
+        try await repository.waitUntilSaveCount(1)
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+        let handleView = try dropHandleView(in: handlePanel)
+
+        handleView.onDropCandidateChanged(drop)
+
+        XCTAssertEqual(runtime.activePage, currentPage)
+        XCTAssertEqual(runtime.lastActivationSource, .typedURL)
+        let previewSavedPages = await repository.savedPages()
+        XCTAssertEqual(previewSavedPages, [currentPage])
+        XCTAssertEqual(pageLoader.activatedPages, [currentPage])
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(panel.frame, committedFrame)
+
+        handleView.onDropPerformed(drop)
+        handleView.onDropPerformed(drop)
+        try await repository.waitUntilSaveCount(2)
+
+        XCTAssertEqual(runtime.activePage, drop.page)
+        XCTAssertEqual(runtime.lastActivationSource, .edgeHandleDrop)
+        let completedSavedPages = await repository.savedPages()
+        XCTAssertEqual(completedSavedPages, [currentPage, drop.page])
+        XCTAssertEqual(pageLoader.activatedPages, [currentPage, drop.page])
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.frame, committedFrame)
+    }
+
     func testCornerLandingCurveIsMonotonicAndNeverOvershoots() {
         let samples = stride(from: CGFloat.zero, through: 1, by: 0.05).map {
             KeyCapablePiPPanel.criticallyDampedSpringProgress($0)
@@ -113,6 +183,21 @@ final class PiPPanelGeometryTests: XCTestCase {
         }
     }
 
+    private func makeDropHandlePanel() -> NSPanel {
+        NSPanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
+    private func dropHandleView(in panel: NSPanel) throws -> PiPStashHandleView {
+        try XCTUnwrap(
+            (panel.contentView as? NSHostingView<PiPStashHandleView>)?.rootView
+        )
+    }
+
     private func assertRealPanelStashRestore(requestedSize: CGSize) throws {
         _ = NSApplication.shared
         let visibleFrame = try XCTUnwrap(NSScreen.main?.visibleFrame)
@@ -195,4 +280,43 @@ private final class GeometryTestStashHandle: PiPStashHandle {
     func restore() {
         onRestore?()
     }
+}
+
+@MainActor
+private final class EdgeHandleDropFramePanel: PiPPanelWindow {
+    private(set) var frame: CGRect
+    private(set) var isVisible = false
+    let isExpanded = false
+    var onClose: (@MainActor () -> Void)?
+
+    init(frame: CGRect) {
+        self.frame = frame
+    }
+
+    func present() {
+        isVisible = true
+    }
+
+    func pulseLocateHalo() {}
+
+    func orderOut() {
+        isVisible = false
+    }
+
+    func restoreFromExpandedState() {}
+
+    func setFrame(_ frame: CGRect, display: Bool) {
+        self.frame = frame
+    }
+}
+
+@MainActor
+private final class EdgeHandleDropPageLoader: NotionPageLoading {
+    private(set) var activatedPages: [NotionPageReference] = []
+
+    func activate(page: NotionPageReference) {
+        activatedPages.append(page)
+    }
+
+    func reloadPinnedPage(_ page: NotionPageReference) {}
 }

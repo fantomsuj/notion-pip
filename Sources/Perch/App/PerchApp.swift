@@ -121,12 +121,11 @@ private final class AppComposition {
         let pageSwitcherRelay = PageSwitcherSelectionRelay()
         let recentPagesController = PiPRecentPagesShelfController(store: pageRepository)
         let recentPageSelectionRelay = PiPRecentPageSelectionRelay()
-        let notionPageDropRelay = NotionPageDropRelay()
-        let stashHandle = PiPStashHandleController(
+        let notionPageDropComposition = NotionPageDropComposition(
             recentPagesController: recentPagesController,
-            onSelectRecentPage: recentPageSelectionRelay.perform,
-            onDropNotionPage: notionPageDropRelay.perform
+            onSelectRecentPage: recentPageSelectionRelay.perform
         )
+        let stashHandle = notionPageDropComposition.stashHandle
         let quickCopyController = QuickCopyController(
             monitor: AccessibilitySelectionMonitor(),
             target: webSession
@@ -189,9 +188,7 @@ private final class AppComposition {
                 restoration: selection.restoration
             )
         }
-        notionPageDropRelay.handler = { [weak runtime] drop in
-            runtime?.activate(page: drop.page, source: .edgeHandleDrop)
-        }
+        notionPageDropComposition.bind(to: runtime)
 
         let settingsWindowPresenter = SettingsWindowPresenter { closeHandler in
             AppWindowFactory.makeSettings(
@@ -267,5 +264,34 @@ final class NotionPageDropRelay {
 
     func perform(_ drop: NotionPageDrop) {
         handler(drop)
+    }
+}
+
+@MainActor
+final class NotionPageDropComposition {
+    let stashHandle: PiPStashHandleController
+
+    private let relay = NotionPageDropRelay()
+
+    init(
+        recentPagesController: PiPRecentPagesShelfController? = nil,
+        onSelectRecentPage: @escaping @MainActor (PiPRecentPageSelection) -> Void = { _ in },
+        makeStashHandle: ((@escaping @MainActor (NotionPageDrop) -> Void) -> PiPStashHandleController)? = nil
+    ) {
+        if let makeStashHandle {
+            stashHandle = makeStashHandle(relay.perform)
+        } else {
+            stashHandle = PiPStashHandleController(
+                recentPagesController: recentPagesController,
+                onSelectRecentPage: onSelectRecentPage,
+                onDropNotionPage: relay.perform
+            )
+        }
+    }
+
+    func bind(to runtime: AppRuntime) {
+        relay.handler = { [weak runtime] drop in
+            runtime?.activate(page: drop.page, source: .edgeHandleDrop)
+        }
     }
 }
