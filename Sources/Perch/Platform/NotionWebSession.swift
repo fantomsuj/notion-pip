@@ -80,6 +80,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     var state: NotionWebSessionState { lifecycleController.state }
     @Published private(set) var browserLoginState: NotionBrowserLoginState = .idle
     @Published private(set) var isTypingInPage = false
+    @Published private(set) var isScrollingInPage = false
+    @Published private(set) var isInteractingWithPage = false
     private(set) var activePage: NotionPageReference?
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
     private let openURL: @MainActor (URL) -> Void
@@ -826,10 +828,34 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func handleEditorActivity(_ activity: NotionEditorActivity) {
-        let isTyping = activity == .typingStarted
-        guard isTypingInPage != isTyping else { return }
-        isTypingInPage = isTyping
-        lifecycleController.setEvictionProtected(isTyping)
+        let previousTypingState = isTypingInPage
+        switch activity {
+        case .typingStarted:
+            if !isTypingInPage {
+                isTypingInPage = true
+            }
+        case .editingEnded:
+            if isTypingInPage {
+                isTypingInPage = false
+            }
+        case .scrollingStarted:
+            if !isScrollingInPage {
+                isScrollingInPage = true
+            }
+        case .scrollingEnded:
+            if isScrollingInPage {
+                isScrollingInPage = false
+            }
+        }
+
+        if isTypingInPage != previousTypingState {
+            lifecycleController.setEvictionProtected(isTypingInPage)
+        }
+
+        let isInteracting = isTypingInPage || isScrollingInPage
+        if isInteractingWithPage != isInteracting {
+            isInteractingWithPage = isInteracting
+        }
     }
 
     func handleScrollSnapshot(_ snapshot: NotionScrollSnapshot) {
@@ -930,6 +956,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     func revealTopControls() {
         handleEditorActivity(.editingEnded)
+        handleEditorActivity(.scrollingEnded)
     }
 
     func handleMemoryPressure() {

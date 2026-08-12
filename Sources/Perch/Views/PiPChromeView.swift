@@ -3,7 +3,6 @@ import SwiftUI
 
 enum PiPTopToolbarPresentation: Equatable {
     case hidden
-    case compact
     case expanded
 }
 
@@ -36,6 +35,7 @@ struct PiPChromeView: View {
     let onPageSwitcherSelection: (PageSwitcherSelection) -> Void
     var showsTopControls: Bool {
         Self.shouldShowTopControls(
+            isInteractingWithPage: webSession.isInteractingWithPage,
             isHoveringTopEdge: topControlsHover.isHovering,
             isVoiceOverEnabled: voiceOverEnabled,
             isSwitchControlEnabled: switchControlEnabled,
@@ -44,12 +44,14 @@ struct PiPChromeView: View {
     }
 
     static func shouldShowTopControls(
+        isInteractingWithPage: Bool,
         isHoveringTopEdge: Bool,
         isVoiceOverEnabled: Bool,
         isSwitchControlEnabled: Bool,
         isFullKeyboardAccessEnabled: Bool
     ) -> Bool {
-        isHoveringTopEdge
+        !isInteractingWithPage
+            || isHoveringTopEdge
             || isVoiceOverEnabled
             || isSwitchControlEnabled
             || isFullKeyboardAccessEnabled
@@ -60,13 +62,9 @@ struct PiPChromeView: View {
     }
 
     static func topToolbarPresentation(
-        hasPositionController: Bool,
         showsTopControls: Bool
     ) -> PiPTopToolbarPresentation {
-        if showsTopControls {
-            return .expanded
-        }
-        return hasPositionController ? .compact : .hidden
+        showsTopControls ? .expanded : .hidden
     }
 
     static func shouldHostNotionWebView(for session: NotionWebSession) -> Bool {
@@ -185,12 +183,12 @@ struct PiPChromeView: View {
                         .accessibilityHidden(true)
                 }
                 let toolbarPresentation = Self.topToolbarPresentation(
-                    hasPositionController: panelPositionController != nil,
                     showsTopControls: showsTopControls
                 )
                 if toolbarPresentation != .hidden {
                     topControlsOverlay(presentation: toolbarPresentation)
                         .padding(.leading, DesignTokens.Spacing.control)
+                        .transition(.opacity)
                 }
             }
         }

@@ -29,34 +29,75 @@ final class PiPChromeViewTests: XCTestCase {
         XCTAssertEqual(PanelCornerControls.minimumHitTarget, 24)
     }
 
-    func testTopToolbarKeepsCornerControlsInItsCompactPresentation() {
-        XCTAssertEqual(
-            PiPChromeView.topToolbarPresentation(
-                hasPositionController: true,
-                showsTopControls: false
-            ),
-            .compact
+    func testTopToolbarIsExpandedWhileIdleAndHidesEveryControlDuringPageInteraction() {
+        XCTAssertTrue(
+            PiPChromeView.shouldShowTopControls(
+                isInteractingWithPage: false,
+                isHoveringTopEdge: false,
+                isVoiceOverEnabled: false,
+                isSwitchControlEnabled: false,
+                isFullKeyboardAccessEnabled: false
+            )
+        )
+        XCTAssertFalse(
+            PiPChromeView.shouldShowTopControls(
+                isInteractingWithPage: true,
+                isHoveringTopEdge: false,
+                isVoiceOverEnabled: false,
+                isSwitchControlEnabled: false,
+                isFullKeyboardAccessEnabled: false
+            )
         )
         XCTAssertEqual(
             PiPChromeView.topToolbarPresentation(
-                hasPositionController: true,
-                showsTopControls: true
-            ),
-            .expanded
-        )
-        XCTAssertEqual(
-            PiPChromeView.topToolbarPresentation(
-                hasPositionController: false,
                 showsTopControls: false
             ),
             .hidden
         )
         XCTAssertEqual(
             PiPChromeView.topToolbarPresentation(
-                hasPositionController: false,
                 showsTopControls: true
             ),
             .expanded
+        )
+    }
+
+    func testTopToolbarCanBeRevealedDuringPageInteractionForAccess() {
+        XCTAssertTrue(
+            PiPChromeView.shouldShowTopControls(
+                isInteractingWithPage: true,
+                isHoveringTopEdge: true,
+                isVoiceOverEnabled: false,
+                isSwitchControlEnabled: false,
+                isFullKeyboardAccessEnabled: false
+            )
+        )
+        XCTAssertTrue(
+            PiPChromeView.shouldShowTopControls(
+                isInteractingWithPage: true,
+                isHoveringTopEdge: false,
+                isVoiceOverEnabled: true,
+                isSwitchControlEnabled: false,
+                isFullKeyboardAccessEnabled: false
+            )
+        )
+        XCTAssertTrue(
+            PiPChromeView.shouldShowTopControls(
+                isInteractingWithPage: true,
+                isHoveringTopEdge: false,
+                isVoiceOverEnabled: false,
+                isSwitchControlEnabled: true,
+                isFullKeyboardAccessEnabled: false
+            )
+        )
+        XCTAssertTrue(
+            PiPChromeView.shouldShowTopControls(
+                isInteractingWithPage: true,
+                isHoveringTopEdge: false,
+                isVoiceOverEnabled: false,
+                isSwitchControlEnabled: false,
+                isFullKeyboardAccessEnabled: true
+            )
         )
     }
 

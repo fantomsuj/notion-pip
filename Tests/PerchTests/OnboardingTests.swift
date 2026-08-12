@@ -19,16 +19,18 @@ final class OnboardingPreferenceStoreTests: XCTestCase {
 }
 
 final class OnboardingContentTests: XCTestCase {
-    func testPanelControlsStepExplainsDiscoveryAndTitleBarMaximizeGesture() {
+    func testPanelControlsStepExplainsAdaptiveVisibilityAndTitleBarMaximizeGesture() {
         XCTAssertEqual(OnboardingStep.allCases.count, 5)
         XCTAssertEqual(OnboardingStep.panelControls.sidebarTitle, "Panel controls")
+        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("full toolbar"))
+        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("idle"))
+        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("type or scroll"))
         XCTAssertTrue(OnboardingStep.panelControls.detail.contains("top edge"))
-        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("corner arrows"))
         XCTAssertTrue(OnboardingStep.panelControls.detail.contains("Double-click"))
         XCTAssertTrue(OnboardingStep.panelControls.detail.contains("maximize"))
     }
 
-    func testPanelControlsStepCoversEveryHoverRevealedToolbarAction() {
+    func testPanelControlsStepCoversEveryAdaptiveToolbarAction() {
         XCTAssertEqual(
             OnboardingToolbarControl.all.map(\.title),
             [
@@ -42,7 +44,7 @@ final class OnboardingContentTests: XCTestCase {
         )
     }
 
-    func testPanelControlsStepUsesEveryPersistentCornerArrow() {
+    func testPanelControlsStepUsesEveryCornerArrow() {
         XCTAssertEqual(
             PanelCorner.allCases.map(\.symbolName),
             [
