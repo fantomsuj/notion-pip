@@ -110,6 +110,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let scriptMessageCoordinator: NotionWebScriptMessageCoordinator
     private let performanceSignposter: (any PerformanceSignposting)?
     private var urlObservation: NSKeyValueObservation?
+    private var titleObservation: NSKeyValueObservation?
     private var lifecycleObservation: AnyCancellable?
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     private var panelIsVisible: Bool { lifecycleController.isVisible }
@@ -387,6 +388,16 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
                 self?.retryPendingUsefulContentMessage()
             }
         }
+        titleObservation = webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
+            MainActor.assumeIsolated {
+                self?.adoptResolvedPage(
+                    at: webView.url,
+                    from: webView,
+                    generation: generation,
+                    documentTitle: webView.title
+                )
+            }
+        }
     }
 
     private func refreshDOMBridges(afterTerminationOf webView: WKWebView) {
@@ -395,6 +406,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             invalidateURLObservation(urlObservation)
             self.urlObservation = nil
         }
+        titleObservation?.invalidate()
+        titleObservation = nil
         scriptMessageCoordinator.remove(from: webView.configuration.userContentController)
         configure(webView)
     }
@@ -966,6 +979,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             invalidateURLObservation(urlObservation)
             self.urlObservation = nil
         }
+        titleObservation?.invalidate()
+        titleObservation = nil
         scriptMessageCoordinator.remove(from: webView.configuration.userContentController)
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -1353,7 +1368,8 @@ extension NotionWebSession: WKNavigationDelegate {
         adoptResolvedPage(
             at: webView.url,
             from: webView,
-            generation: scriptMessageCoordinator.generation
+            generation: scriptMessageCoordinator.generation,
+            documentTitle: webView.title
         )
         browserLoginRouteDidChange(to: webView.url)
         finishBrowserLoginRestorationIfNeeded(at: webView.url)
@@ -1410,25 +1426,37 @@ extension NotionWebSession: WKNavigationDelegate {
     private func adoptResolvedPage(
         at url: URL?,
         from webView: WKWebView,
-        generation: UInt
+        generation: UInt,
+        documentTitle: String? = nil
     ) {
         guard let url,
               isCurrent(webView, generation: generation),
-              let resolvedPage = try? NotionPageReference(validating: url),
+              var resolvedPage = try? NotionPageReference(validating: url),
               webView.url == url,
-              loadedPageID == activePage?.pageID,
-              resolvedPage.pageID != activePage?.pageID
+              loadedPageID == activePage?.pageID
         else {
             return
         }
 
-        revealTopControls()
-        invalidateEditorSelection()
+        let previousPage = activePage
+        let changesPage = resolvedPage.pageID != previousPage?.pageID
+        if !changesPage {
+            resolvedPage = resolvedPage.resolvingDisplayTitle(documentTitle)
+            if resolvedPage.displayTitle == nil {
+                resolvedPage = resolvedPage.resolvingDisplayTitle(previousPage?.displayTitle)
+            }
+        }
+        guard resolvedPage != previousPage else { return }
+
+        if changesPage {
+            revealTopControls()
+            invalidateEditorSelection()
+        }
         activePage = resolvedPage
         loadedPageID = resolvedPage.pageID
         loadedRequestURL = url
         pageStateRestoration.recordResolvedPage(resolvedPage, at: url)
-        if case .attempting = webContentRecoveryState {
+        if changesPage, case .attempting = webContentRecoveryState {
             // A trusted Notion redirect can resolve the recovery navigation to a
             // different document before didFinish. Follow the adopted document so
             // completion cannot leave recovery stuck, but discard the old page's
