@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbfcff"/>
+      <stop offset="0.52" stop-color="#f4f8ff"/>
+      <stop offset="1" stop-color="#edf4ff"/>
+    </linearGradient>
+    <radialGradient id="warmLight" cx="0.14" cy="0.08" r="0.76">
+      <stop offset="0" stop-color="#fff6e9" stop-opacity="0.88"/>
+      <stop offset="0.52" stop-color="#fffaf3" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#fffaf3" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blueLight" cx="0.89" cy="0.86" r="0.66">
+      <stop offset="0" stop-color="#99c7ff" stop-opacity="0.46"/>
+      <stop offset="0.52" stop-color="#cfe4ff" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#dfeeff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="well" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.88"/>
+      <stop offset="1" stop-color="#e9f2ff" stop-opacity="0.67"/>
+    </linearGradient>
+    <linearGradient id="wellEdge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.98"/>
+      <stop offset="0.48" stop-color="#bdd8fa" stop-opacity="0.66"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.72"/>
+    </linearGradient>
+    <linearGradient id="current" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8fc7ff" stop-opacity="0"/>
+      <stop offset="0.2" stop-color="#6aacff" stop-opacity="0.45"/>
+      <stop offset="0.52" stop-color="#1677ff" stop-opacity="0.92"/>
+      <stop offset="0.76" stop-color="#3d95ff" stop-opacity="0.56"/>
+      <stop offset="1" stop-color="#9fd0ff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="currentHighlight" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="0.48" stop-color="#ffffff" stop-opacity="0.68"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="wellShadow" x="-35%" y="-35%" width="170%" height="180%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#376aa8" flood-opacity="0.13"/>
+      <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#ffffff" flood-opacity="0.9"/>
+    </filter>
+    <filter id="softGlow" x="-45%" y="-80%" width="190%" height="260%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+    <filter id="arrowShadow" x="-40%" y="-60%" width="180%" height="220%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2.4" flood-color="#074ba2" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+
+  <!-- Pearl canvas with restrained warm and cool atmospheric light. -->
+  <rect width="640" height="400" fill="url(#canvas)"/>
+  <rect width="640" height="400" fill="url(#warmLight)"/>
+  <rect width="640" height="400" fill="url(#blueLight)"/>
+
+  <!-- Large glass contours keep the frame dimensional without competing with icons. -->
+  <path d="M-72 184 C42 53 180 28 304 77 C440 131 511 30 704 9"
+        fill="none" stroke="#ffffff" stroke-width="2" stroke-opacity="0.74"/>
+  <path d="M-56 194 C50 76 174 54 292 98 C438 153 521 56 688 36"
+        fill="none" stroke="#bfdcff" stroke-width="1" stroke-opacity="0.42"/>
+  <path d="M492 -45 C575 45 602 118 596 190 C591 253 617 291 693 329"
+        fill="none" stroke="#a8cdfa" stroke-width="2" stroke-opacity="0.36"/>
+
+  <!-- Editorial header: native typography, deliberately left aligned. -->
+  <circle cx="43" cy="36" r="4" fill="#1476ff"/>
+  <text x="56" y="40"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif"
+        font-size="10" font-weight="700" letter-spacing="1.8" fill="#426181">
+    PERCH FOR MAC
+  </text>
+  <text x="42" y="72"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif"
+        font-size="25" font-weight="650" letter-spacing="-0.35" fill="#17283f">
+    Drag Perch to Applications
+  </text>
+  <text x="43" y="96"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif"
+        font-size="12.5" fill="#536b86">
+    Move it first for reliable updates and Launch at Login.
+  </text>
+  <path d="M43 111 H597" stroke="#7297bf" stroke-width="1" stroke-opacity="0.22"/>
+
+  <!-- Finder icon landing wells. -->
+  <g filter="url(#wellShadow)">
+    <rect x="104" y="132" width="152" height="152" rx="47"
+          fill="url(#well)" stroke="url(#wellEdge)" stroke-width="1.5"/>
+    <rect x="384" y="132" width="152" height="152" rx="47"
+          fill="url(#well)" stroke="url(#wellEdge)" stroke-width="1.5"/>
+  </g>
+  <path d="M124 153 C150 137 214 137 239 153"
+        fill="none" stroke="#ffffff" stroke-width="2" stroke-opacity="0.84"/>
+  <path d="M404 153 C430 137 494 137 519 153"
+        fill="none" stroke="#ffffff" stroke-width="2" stroke-opacity="0.84"/>
+
+  <!-- A single purposeful transfer gesture between the two destinations. -->
+  <g fill="#1476ff" opacity="0.52">
+    <circle cx="278" cy="208" r="2"/>
+    <circle cx="288" cy="208" r="2" opacity="0.72"/>
+    <circle cx="298" cy="208" r="2" opacity="0.9"/>
+  </g>
+  <g filter="url(#arrowShadow)" fill="none" stroke="#1476ff" stroke-width="5.5"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M309 208 H355"/>
+    <path d="M341 194 L355 208 L341 222"/>
+  </g>
+
+  <!-- The cobalt current is the memorable brand gesture and reinforces left-to-right movement. -->
+  <path d="M-52 338 C55 279 140 310 222 347 C304 384 371 376 440 332 C510 287 576 283 694 335"
+        fill="none" stroke="#4399ff" stroke-width="34" stroke-opacity="0.12"
+        filter="url(#softGlow)"/>
+  <path d="M-44 340 C55 286 140 314 221 348 C300 382 368 376 439 333 C513 289 582 291 688 337"
+        fill="none" stroke="url(#current)" stroke-width="19" stroke-linecap="round"/>
+  <path d="M-41 333 C58 283 142 311 223 344 C302 377 368 370 437 329 C509 286 578 288 685 333"
+        fill="none" stroke="url(#currentHighlight)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M-38 367 C71 323 155 345 235 373 C320 403 392 392 460 356 C532 318 590 322 682 365"
+        fill="none" stroke="#ffffff" stroke-width="1.4" stroke-opacity="0.58"/>
+
+  <!-- Fine perimeter accents provide finish at the exact Finder crop. -->
+  <circle cx="604" cy="45" r="2.2" fill="#1476ff" fill-opacity="0.7"/>
+  <circle cx="613" cy="45" r="1.2" fill="#1476ff" fill-opacity="0.32"/>
+  <path d="M596 377 H616" stroke="#4d7ead" stroke-width="1" stroke-opacity="0.28"/>
+</svg>
