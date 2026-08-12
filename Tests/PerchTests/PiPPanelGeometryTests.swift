@@ -19,24 +19,53 @@ final class PiPPanelGeometryTests: XCTestCase {
         XCTAssertGreaterThan(samples.last ?? 0, 0.99)
     }
 
-    func testStashAnimationMovesTowardChosenEdgeWithoutChangingPanelSize() {
+    func testStashAnimationCompressesTowardChosenHandle() {
         let frame = CGRect(x: 120, y: 80, width: 480, height: 720)
+        let leftPlacement = PanelStashPlacement(
+            side: .left,
+            frame: CGRect(x: 0, y: 392, width: 36, height: 96)
+        )
+        let rightPlacement = PanelStashPlacement(
+            side: .right,
+            frame: CGRect(x: 964, y: 392, width: 36, height: 96)
+        )
 
         let leftTarget = KeyCapablePiPPanel.stashAnimationTargetFrame(
             from: frame,
-            toward: .left
+            toward: leftPlacement
         )
         let rightTarget = KeyCapablePiPPanel.stashAnimationTargetFrame(
             from: frame,
-            toward: .right
+            toward: rightPlacement
         )
 
-        XCTAssertLessThan(leftTarget.minX, frame.minX)
+        XCTAssertLessThan(leftTarget.maxX, frame.maxX)
         XCTAssertGreaterThan(rightTarget.minX, frame.minX)
-        XCTAssertEqual(leftTarget.size, frame.size)
-        XCTAssertEqual(rightTarget.size, frame.size)
-        XCTAssertEqual(leftTarget.minY, frame.minY)
-        XCTAssertEqual(rightTarget.minY, frame.minY)
+        XCTAssertEqual(leftTarget.width, frame.width * 0.88, accuracy: 0.001)
+        XCTAssertEqual(rightTarget.width, frame.width * 0.88, accuracy: 0.001)
+        XCTAssertEqual(leftTarget.height, frame.height * 0.94, accuracy: 0.001)
+        XCTAssertEqual(rightTarget.height, frame.height * 0.94, accuracy: 0.001)
+        XCTAssertEqual(leftTarget.midY, frame.midY, accuracy: 0.001)
+        XCTAssertEqual(rightTarget.midY, frame.midY, accuracy: 0.001)
+    }
+
+    func testHandleSettleEndpointsMirrorAcrossScreenEdges() {
+        let leftPlacement = PanelStashPlacement(
+            side: .left,
+            frame: CGRect(x: 0, y: 220, width: 36, height: 96)
+        )
+        let rightPlacement = PanelStashPlacement(
+            side: .right,
+            frame: CGRect(x: 964, y: 220, width: 36, height: 96)
+        )
+
+        let leftStart = PanelStashTransition.unsettledHandleFrame(for: leftPlacement)
+        let rightStart = PanelStashTransition.unsettledHandleFrame(for: rightPlacement)
+
+        XCTAssertEqual(leftStart.minX, leftPlacement.frame.minX - 12)
+        XCTAssertEqual(rightStart.minX, rightPlacement.frame.minX + 12)
+        XCTAssertEqual(leftStart.size, leftPlacement.frame.size)
+        XCTAssertEqual(rightStart.size, rightPlacement.frame.size)
     }
 
     func testHorizontalFrameSurvivesRealPanelStashRestore() throws {
@@ -107,7 +136,7 @@ final class PiPPanelGeometryTests: XCTestCase {
     }
 
     private func drainMainRunLoop() {
-        let deadline = Date().addingTimeInterval(0.25)
+        let deadline = Date().addingTimeInterval(0.35)
         while Date() < deadline {
             RunLoop.main.run(mode: .default, before: deadline)
         }
