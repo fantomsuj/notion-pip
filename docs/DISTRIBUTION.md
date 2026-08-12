@@ -2,8 +2,9 @@
 
 Perch is distributed outside the Mac App Store as a Universal 2 disk image.
 The release artifact contains a Developer ID-signed, hardened-runtime app and
-an `/Applications` symlink. Apple notarizes the disk image, and the release
-pipeline staples the resulting ticket before publication.
+an `/Applications` symlink. Its Finder window presents the app and Applications
+shortcut beneath a clear drag-to-install instruction. Apple notarizes the disk
+image, and the release pipeline staples the resulting ticket before publication.
 
 The development build remains intentionally separate. Running
 `script/build_and_run.sh` may use an Apple Development, local-development, or
@@ -51,7 +52,9 @@ The script performs these release gates:
    icon, and resources.
 4. Signs the app with Developer ID, hardened runtime, a secure timestamp, and
    the checked-in release entitlements.
-5. Builds and signs `Perch-VERSION.dmg` with an Applications shortcut.
+5. Builds and signs `Perch-VERSION.dmg` with a guided drag-to-Applications
+   Finder layout. The code-authored vector artwork in `Support/` is rendered at
+   1× and 2× and packaged as a multi-resolution Finder background.
 6. Submits the DMG to Apple, waits for acceptance, staples the ticket, and
    validates it with `stapler`, `hdiutil`, and Gatekeeper.
 7. Writes `dist/Perch-VERSION.dmg.sha256`.
@@ -105,7 +108,8 @@ before publishing it. A failed build never creates a public release.
 Before publishing the draft release:
 
 - Download the DMG through a browser on a Mac that did not build Perch.
-- Confirm the disk image opens and Perch can be dragged to Applications.
+- Confirm the disk image opens with the guided layout and Perch can be dragged
+  to Applications.
 - Launch the installed copy and confirm Gatekeeper identifies the verified
   developer without requiring a Security Settings override.
 - Complete the critical tests in `docs/BETA_READINESS.md`, including Notion
