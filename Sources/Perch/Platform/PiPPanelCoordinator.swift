@@ -615,7 +615,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         cancelPendingStashDismissal()
         prepareInitialFrameIfNeeded()
         restoreCommittedPanelFrame()
-        presentPanel()
+        presentPanel(animateFromStash: false)
         panel.pulseLocateHalo()
         measurement.signposter.end(
             measurement.requestToken,
@@ -878,10 +878,16 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         onPresentationStateChange?()
     }
 
-    private func presentPanel() {
+    private func presentPanel(animateFromStash: Bool = true) {
         guard let placement = activeStashPlacement,
             stashHandle?.isVisible == true
         else {
+            panel.present()
+            dismissStashHandle()
+            return
+        }
+
+        guard animateFromStash else {
             panel.present()
             dismissStashHandle()
             return
