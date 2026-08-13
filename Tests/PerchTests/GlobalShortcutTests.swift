@@ -255,6 +255,7 @@ private final class ShortcutRegistrationEngineSpy: GlobalShortcutRegistrationEng
 
 @MainActor
 private final class ShortcutTestPanelCoordinator: PiPPanelCoordinating {
+    var onPresentationStateChange: (@MainActor () -> Void)?
     var currentPage: NotionPageReference?
     var isVisible = false
     var presentationState: PiPPresentationState { .unavailable }
