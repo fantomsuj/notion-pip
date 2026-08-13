@@ -149,7 +149,7 @@ git commit -m "Fix Notion subframe navigation routing"
 - Create: `Tests/PerchTests/NotionWebPopupCoordinatorTests.swift`
 
 **Interfaces:**
-- Consumes: `WebNavigationDestination.classify(_:)` for supported HTTP(S) popup navigation.
+- Consumes: `WebNavigationDestination.classify(_:)` for supported HTTPS popup navigation.
 - Produces: `NotionWebPopupCoordinating.present(using:) -> WKWebView` and `close()`.
 - Produces: a default `NotionWebPopupCoordinator` that owns one child WebView and one temporary AppKit window.
 - Produces: `NotionWebPopupWindowing`, a narrow production boundary implemented by the default window and deterministic test doubles.
@@ -273,7 +273,7 @@ final class NotionWebPopupCoordinator: NSObject, NotionWebPopupCoordinating {
 }
 ```
 
-The concrete window uses a `640 x 720` content rect, `.titled`, `.closable`, `.resizable`, and `.miniaturizable` style masks, title `Sign in to Notion`, `isReleasedWhenClosed = false`, and `makeKeyAndOrderFront(nil)`. The coordinator allows `.trustedNotion` and `.externalWeb` popup navigations, cancels `.unsupported`, closes on `webViewDidClose`, loads nested trusted Notion windows in the same popup, and opens nested external windows through the injected `openURL` closure.
+The concrete window uses a `640 x 720` content rect, `.titled`, `.closable`, `.resizable`, and `.miniaturizable` style masks, title `Sign in to Notion`, `isReleasedWhenClosed = false`, and `makeKeyAndOrderFront(nil)`. The coordinator allows HTTPS `.trustedNotion` and `.externalWeb` popup navigations, cancels plaintext HTTP and `.unsupported`, closes on `webViewDidClose` or popup renderer termination, loads nested trusted Notion windows in the same popup, and opens nested external windows through the injected `openURL` closure.
 
 - [ ] **Step 4: Run popup tests and verify GREEN**
 
