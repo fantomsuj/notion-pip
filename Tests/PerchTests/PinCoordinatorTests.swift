@@ -1875,6 +1875,7 @@ private final class MutableBoolean {
 
 @MainActor
 final class FakePanelCoordinator: PiPPanelCoordinating {
+    var onPresentationStateChange: (@MainActor () -> Void)?
     private(set) var currentPage: NotionPageReference?
     private(set) var shownPages: [NotionPageReference] = []
     private(set) var replacedPages: [NotionPageReference] = []

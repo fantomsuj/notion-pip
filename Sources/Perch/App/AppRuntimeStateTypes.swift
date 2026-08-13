@@ -55,3 +55,8 @@ enum ShortcutPeekGestureState: Equatable, Sendable {
     case persistent(generation: UInt)
     case suppressingRelease(generation: UInt)
 }
+
+enum StatusItemPeekState: Equatable, Sendable {
+    case idle
+    case peeking(generation: UInt)
+}

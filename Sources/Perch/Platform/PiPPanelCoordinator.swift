@@ -158,6 +158,7 @@ enum PiPPresentationState: Equatable, Sendable {
 @MainActor
 protocol PiPPanelCoordinating: AnyObject {
     var onExternalPresentationAction: (@MainActor () -> Void)? { get set }
+    var onPresentationStateChange: (@MainActor () -> Void)? { get set }
     var currentPage: NotionPageReference? { get }
     var presentationState: PiPPresentationState { get }
     func show(page: NotionPageReference)
@@ -176,6 +177,11 @@ protocol PiPPanelCoordinating: AnyObject {
 
 extension PiPPanelCoordinating {
     var onExternalPresentationAction: (@MainActor () -> Void)? {
+        get { nil }
+        set {}
+    }
+
+    var onPresentationStateChange: (@MainActor () -> Void)? {
         get { nil }
         set {}
     }
@@ -260,6 +266,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     var onPinnedPageAvailabilityChange: (@MainActor () -> Void)?
     var onGeometryPersistenceFailure: (@MainActor () -> Void)?
     var onExternalPresentationAction: (@MainActor () -> Void)?
+    var onPresentationStateChange: (@MainActor () -> Void)?
     var onPanelPositionChange: (@MainActor () -> Void)?
 
     var presentationState: PiPPresentationState {
@@ -551,7 +558,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         restoreCommittedPanelFrame()
         presentPanel()
         endFirstPresentation(measurement)
-        pageLoader.panelDidShow()
+        notifyPanelDidShow()
         if !hadPinnedPage {
             onPinnedPageAvailabilityChange?()
         }
@@ -568,7 +575,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         currentPage = page
         presentPanel()
         endFirstPresentation(measurement)
-        pageLoader.panelDidShow()
+        notifyPanelDidShow()
         pageLoader.reloadPinnedPage(page)
         if !hadPinnedPage {
             onPinnedPageAvailabilityChange?()
@@ -585,7 +592,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         restoreCommittedPanelFrame()
         presentPanel()
         endFirstPresentation(measurement)
-        pageLoader.panelDidShow()
+        notifyPanelDidShow()
         logger.notice("Existing panel show requested")
         return true
     }
@@ -616,7 +623,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             metadata: PerformanceMetadata(webViewRetention: retention)
         )
         endFirstPresentation(firstPresentationMeasurement)
-        pageLoader.panelDidShow()
+        notifyPanelDidShow()
         logger.notice("Existing panel show requested from shortcut")
         return true
     }
@@ -715,7 +722,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
 
         if !wasVisible {
             presentPanel()
-            pageLoader.panelDidShow()
+            notifyPanelDidShow()
         } else {
             dismissStashHandle()
         }
@@ -768,7 +775,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         panel.dismissForStash(toward: placement) { [weak self] in
             guard let self else { return }
             isStashDismissalActive = false
-            pageLoader.panelDidHide()
+            notifyPanelDidHide()
         }
         logger.notice("Panel stashed to screen edge")
         return true
@@ -794,7 +801,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         presentStashHandle(stashHandle, placement: placement)
         cancelPendingStashDismissal()
         panel.orderOut()
-        pageLoader.panelDidHide()
+        notifyPanelDidHide()
         logger.notice("Temporary peek stashed immediately")
         return true
     }
@@ -811,7 +818,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         restoreCommittedPanelFrame()
         presentPanel()
         endFirstPresentation(measurement)
-        pageLoader.panelDidShow()
+        notifyPanelDidShow()
         logger.notice("Panel restored from screen edge")
     }
 
@@ -859,6 +866,16 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             presentStashHandle(stashHandle, placement: placement)
         }
         onPanelPositionChange?()
+    }
+
+    private func notifyPanelDidShow() {
+        pageLoader.panelDidShow()
+        onPresentationStateChange?()
+    }
+
+    private func notifyPanelDidHide() {
+        pageLoader.panelDidHide()
+        onPresentationStateChange?()
     }
 
     private func presentPanel() {
@@ -1020,6 +1037,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
                 if !pullRevealState.pageLifecycleWasHidden {
                     pageLoader.panelDidHide()
                 }
+                onPresentationStateChange?()
             }
             return false
         }
@@ -1030,6 +1048,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         if pullRevealState.pageLifecycleWasHidden {
             pageLoader.panelDidShow()
         }
+        onPresentationStateChange?()
         onPanelPositionChange?()
         logger.notice("Panel restored by pulling its edge handle")
         return true

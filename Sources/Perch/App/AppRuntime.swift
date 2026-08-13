@@ -13,6 +13,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var savedMenuBarIconVisibility: Bool
     @Published private(set) var effectiveMenuBarIconVisibility: Bool
     @Published private(set) var isMenuBarIconVisibilityForced: Bool
+    @Published private(set) var statusItemGlyph: StatusItemGlyph
+    @Published private(set) var statusItemSummonGeneration: UInt = 0
 
     let pageURLInputState: PageURLInputState
 
@@ -57,6 +59,10 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     var shortcutGestureTimer: (any ShortcutGestureTimer)?
     var shortcutGestureState = ShortcutPeekGestureState.idle
     var shortcutGestureGeneration: UInt = 0
+    var statusItemPeekState = StatusItemPeekState.idle
+    var statusItemPeekGeneration: UInt = 0
+    var statusItemSessionState: NotionWebSessionState = .unloaded
+    var statusItemLoginState: NotionBrowserLoginState = .idle
     private var started = false
 
     init(
@@ -111,8 +117,16 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         savedMenuBarIconVisibility = iconState.saved
         effectiveMenuBarIconVisibility = iconState.effective
         isMenuBarIconVisibilityForced = iconState.forced
+        statusItemGlyph = StatusItemGlyphPolicy.glyph(
+            presentation: .unavailable,
+            sessionState: .unloaded,
+            loginState: .idle
+        )
         pinCoordinator.onExternalPresentationAction = { [weak self] in
             self?.cancelShortcutGesture(restashTransientPanel: false)
+        }
+        pinCoordinator.onPresentationStateChange = { [weak self] in
+            self?.refreshStatusItemGlyph()
         }
         inputRequestRelay.handler = { [weak self] in
             self?.presentCurrentPageSetup()
@@ -180,6 +194,29 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     func publishMenuBarIconVisibility(_ isVisible: Bool) {
         savedMenuBarIconVisibility = isVisible
         updateEffectiveMenuBarIconVisibility()
+    }
+
+    func publishStatusItemSession(
+        sessionState: NotionWebSessionState,
+        loginState: NotionBrowserLoginState
+    ) {
+        statusItemSessionState = sessionState
+        statusItemLoginState = loginState
+        refreshStatusItemGlyph()
+    }
+
+    func acknowledgeSummon() {
+        statusItemSummonGeneration &+= 1
+    }
+
+    func refreshStatusItemGlyph() {
+        let glyph = StatusItemGlyphPolicy.glyph(
+            presentation: pipPresentationState,
+            sessionState: statusItemSessionState,
+            loginState: statusItemLoginState
+        )
+        guard glyph != statusItemGlyph else { return }
+        statusItemGlyph = glyph
     }
 
     func reportServiceIssue(_ issue: ServiceHealthIssue) {

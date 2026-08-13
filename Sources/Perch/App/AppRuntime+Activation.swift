@@ -169,9 +169,46 @@ extension AppRuntime {
         }
     }
 
+    func beginStatusItemPeek() -> Bool {
+        cancelShortcutGesture(restashTransientPanel: false)
+        guard pinCoordinator.presentationState == .stashed else { return false }
+        statusItemPeekGeneration &+= 1
+        let generation = statusItemPeekGeneration
+        peekFocusRestorer.beginPeek()
+        guard pinCoordinator.showCurrentPage() else {
+            peekFocusRestorer.cancelPeek()
+            return false
+        }
+        statusItemPeekState = .peeking(generation: generation)
+        return true
+    }
+
+    func commitStatusItemPeek() {
+        guard case .peeking = statusItemPeekState else { return }
+        statusItemPeekState = .idle
+        peekFocusRestorer.cancelPeek()
+        accessibilityAnnouncementPoster.announce("Perch will stay open")
+    }
+
+    func cancelStatusItemPeek(restashTransientPanel: Bool = true) {
+        guard case .peeking = statusItemPeekState else { return }
+        statusItemPeekState = .idle
+        statusItemPeekGeneration &+= 1
+        guard restashTransientPanel,
+              pinCoordinator.presentationState == .visible,
+              pinCoordinator.stashCurrentPageImmediately()
+        else {
+            peekFocusRestorer.cancelPeek()
+            return
+        }
+        peekFocusRestorer.finishPeek()
+    }
+
     private func handleGlobalShortcut(_ event: GlobalShortcutEvent) {
         switch event {
         case .pressed:
+            acknowledgeSummon()
+            cancelStatusItemPeek(restashTransientPanel: false)
             guard holdToPeekEnabled else {
                 handleImmediateShortcutPress()
                 return
@@ -281,6 +318,9 @@ extension AppRuntime {
         shortcutGestureTimer?.cancel()
         shortcutGestureTimer = nil
         shortcutGestureState = .idle
+        if statusItemPeekState != .idle {
+            cancelStatusItemPeek(restashTransientPanel: restashTransientPanel)
+        }
         guard wasTransient else { return }
         guard restashTransientPanel,
               pinCoordinator.presentationState == .visible,

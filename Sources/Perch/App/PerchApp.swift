@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import OSLog
 
 @main
@@ -78,6 +79,7 @@ private final class AppComposition {
     private let panelSizeController: PanelSizeController
     private let panelPositionController: PanelPositionController
     private let launchAtLoginService: LaunchAtLoginService
+    private var statusItemAppearanceCancellable: AnyCancellable?
 
     init() {
         let actionRelay = AppCommandActionRelay()
@@ -218,6 +220,20 @@ private final class AppComposition {
             commandModel: commandModel,
             panelSizeController: panelSizeController
         )
+        runtime.publishStatusItemSession(
+            sessionState: webSession.state,
+            loginState: webSession.browserLoginState
+        )
+        statusItemAppearanceCancellable = webSession.objectWillChange.sink {
+            [weak runtime, weak webSession] in
+            Task { @MainActor in
+                guard let runtime, let webSession else { return }
+                runtime.publishStatusItemSession(
+                    sessionState: webSession.state,
+                    loginState: webSession.browserLoginState
+                )
+            }
+        }
 
         actionRelay.settingsWindowPresenter = settingsWindowPresenter
         actionRelay.gettingStartedAction = { [weak onboardingCoordinator] in

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import QuartzCore
 
 enum StatusMenuContextCommand: Int, Equatable, Sendable {
     case stash = -1
@@ -43,11 +44,26 @@ final class StatusItemController: NSObject {
     private let runtime: AppRuntime
     private let commandModel: AppCommandModel
     private let panelSizeController: PanelSizeController?
-    private var visibilityCancellable: AnyCancellable?
+    private let reducesMotion: @MainActor () -> Bool
+    private var cancellables = Set<AnyCancellable>()
+    private var currentGlyph: StatusItemGlyph?
+    private var lastSummonGeneration: UInt = 0
+    private var nodRestoreTask: Task<Void, Never>?
 
     private lazy var eventRouter = StatusItemEventRouter(
+        holdDuration: runtime.shortcutHoldDuration,
+        scheduler: runtime.shortcutGestureScheduler,
         onMenu: { [weak self] in
             self?.showCommandMenu()
+        },
+        onBeginPeek: { [weak self] in
+            self?.runtime.beginStatusItemPeek() ?? false
+        },
+        onCommitPeek: { [weak self] in
+            self?.runtime.commitStatusItemPeek()
+        },
+        onCancelPeek: { [weak self] in
+            self?.runtime.cancelStatusItemPeek()
         }
     )
 
@@ -55,41 +71,107 @@ final class StatusItemController: NSObject {
         runtime: AppRuntime,
         commandModel: AppCommandModel,
         panelSizeController: PanelSizeController? = nil,
-        statusBar: NSStatusBar = .system
+        statusBar: NSStatusBar = .system,
+        reducesMotion: @escaping @MainActor () -> Bool = {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
     ) {
         statusItem = statusBar.statusItem(withLength: NSStatusItem.squareLength)
         self.runtime = runtime
         self.commandModel = commandModel
         self.panelSizeController = panelSizeController
+        self.reducesMotion = reducesMotion
         super.init()
 
         guard let button = statusItem.button else { return }
-        let image = NSImage(
-            systemSymbolName: "rectangle.on.rectangle",
-            accessibilityDescription: "Perch"
-        )
-        image?.isTemplate = true
-        button.image = image
         button.imagePosition = .imageOnly
         button.toolTip = "Perch"
-        button.setAccessibilityLabel("Perch")
-        button.setAccessibilityHelp("Open commands for the current Notion page and app.")
+        button.setAccessibilityHelp(
+            "Open commands for the current Notion page and app. Press and hold to peek the panel."
+        )
         button.target = self
         button.action = #selector(handleStatusItemAction(_:))
-        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        button.sendAction(on: [.leftMouseDown, .leftMouseUp, .rightMouseUp])
 
+        applyGlyph(runtime.statusItemGlyph, animated: false)
+        lastSummonGeneration = runtime.statusItemSummonGeneration
         statusItem.isVisible = runtime.effectiveMenuBarIconVisibility
-        visibilityCancellable = runtime.$effectiveMenuBarIconVisibility
+
+        runtime.$effectiveMenuBarIconVisibility
             .removeDuplicates()
             .sink { [weak statusItem] isVisible in
                 statusItem?.isVisible = isVisible
             }
+            .store(in: &cancellables)
+        runtime.$statusItemGlyph
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] glyph in
+                self?.applyGlyph(glyph, animated: true)
+            }
+            .store(in: &cancellables)
+        runtime.$statusItemSummonGeneration
+            .sink { [weak self] generation in
+                self?.handleSummon(generation)
+            }
+            .store(in: &cancellables)
     }
 
     @objc
     private func handleStatusItemAction(_ sender: NSStatusBarButton) {
-        guard let eventType = NSApp.currentEvent?.type else { return }
-        eventRouter.handle(eventType: eventType)
+        guard let event = NSApp.currentEvent else { return }
+        let location = sender.convert(event.locationInWindow, from: nil)
+        eventRouter.handle(
+            eventType: event.type,
+            isPointerInside: sender.bounds.contains(location)
+        )
+    }
+
+    private func handleSummon(_ generation: UInt) {
+        guard generation != lastSummonGeneration else { return }
+        lastSummonGeneration = generation
+        playSummonNod()
+    }
+
+    private func applyGlyph(_ glyph: StatusItemGlyph, animated: Bool) {
+        guard let button = statusItem.button else { return }
+        currentGlyph = glyph
+        button.image = StatusItemGlyphPolicy.makeImage(for: glyph)
+        button.setAccessibilityLabel(glyph.accessibilityLabel)
+        guard animated, StatusItemMotionPolicy.shouldAnimate(reducesMotion: reducesMotion()) else {
+            return
+        }
+        playMorphPulse(on: button)
+    }
+
+    private func playSummonNod() {
+        guard let button = statusItem.button, let glyph = currentGlyph else { return }
+        let offset = StatusItemMotionPolicy.nodOffset(reducesMotion: reducesMotion())
+        guard offset != 0 else { return }
+
+        nodRestoreTask?.cancel()
+        button.image = StatusItemGlyphPolicy.makeImage(for: glyph, verticalOffset: offset)
+        nodRestoreTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(StatusItemMotionPolicy.nodDuration))
+            guard let self, !Task.isCancelled else { return }
+            guard let currentGlyph = self.currentGlyph else { return }
+            button.image = StatusItemGlyphPolicy.makeImage(for: currentGlyph)
+        }
+    }
+
+    private func playMorphPulse(on button: NSStatusBarButton) {
+        button.wantsLayer = true
+        let layer = button.layer
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.transform = CATransform3DMakeScale(StatusItemMotionPolicy.morphScale, StatusItemMotionPolicy.morphScale, 1)
+        CATransaction.commit()
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = StatusItemMotionPolicy.morphDuration
+            context.allowsImplicitAnimation = true
+            layer?.transform = CATransform3DIdentity
+        }
     }
 
     private func showCommandMenu() {
