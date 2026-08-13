@@ -735,6 +735,7 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(loader.shortcutMeasurementRetentions, [.warm])
         XCTAssertEqual(signposter.endCalls.last?.metadata.webViewRetention, .warm)
         XCTAssertEqual(panel.locateHaloCount, 1)
+        XCTAssertTrue(panel.restoreTransitionPlacements.isEmpty)
     }
 
     func testPullRevealScrubsRetainedPanelAndRestoresPastThreshold() throws {
