@@ -68,6 +68,19 @@ final class NotionWebPopupCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testRendererTerminationDetachesPopupAndClosesWindow() {
+        let window = PopupWindowSpy()
+        let coordinator = NotionWebPopupCoordinator(makeWindow: { window })
+        let popup = coordinator.present(using: WKWebViewConfiguration())
+
+        coordinator.webViewWebContentProcessDidTerminate(popup)
+
+        XCTAssertNil(popup.navigationDelegate)
+        XCTAssertNil(popup.uiDelegate)
+        XCTAssertEqual(window.closeCallCount, 1)
+    }
+
+    @MainActor
     func testPopupAllowsWebIdentityProviderAndRejectsUnsupportedScheme() throws {
         let coordinator = NotionWebPopupCoordinator()
 
@@ -89,6 +102,17 @@ final class NotionWebPopupCoordinatorTests: XCTestCase {
             ),
             .cancel
         )
+        for rawURL in [
+            "http://app.notion.com/login",
+            "http://login.example.com/saml",
+        ] {
+            XCTAssertEqual(
+                coordinator.navigationPolicy(
+                    for: try XCTUnwrap(URL(string: rawURL))
+                ),
+                .cancel
+            )
+        }
         XCTAssertEqual(coordinator.navigationPolicy(for: nil), .cancel)
     }
 
