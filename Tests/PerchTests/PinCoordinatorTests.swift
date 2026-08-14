@@ -12,6 +12,7 @@ final class PinCoordinatorTests: XCTestCase {
     private let secondPageID = "fedcba9876543210fedcba9876543210"
 
     func testProductionInitializerUsesInjectedStashHandle() throws {
+        try requireInteractiveAppKitTests()
         _ = NSApplication.shared
         let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
         let handle = FakeStashHandle()
