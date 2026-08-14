@@ -513,6 +513,33 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertTrue(handle.isVisible)
     }
 
+    func testScreenChangeDuringStashTransitionRepositionsHandleAsStashed() throws {
+        let originalScreen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let replacementScreen = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 620, y: 100, width: 360, height: 680),
+            defersStashDismissal: true,
+            usesStashTransitionFrame: true
+        )
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [originalScreen] }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.stash(visibleFrames: [originalScreen]))
+        XCTAssertTrue(panel.isVisible)
+
+        coordinator.reclampPanelFrame(visibleFrames: [replacementScreen])
+
+        XCTAssertEqual(handle.placements.count, 2)
+        XCTAssertEqual(handle.placements.last?.frame.maxX, replacementScreen.maxX)
+        XCTAssertEqual(handle.pullRevealTravels, [151.2, 151.2])
+        XCTAssertTrue(handle.isVisible)
+    }
+
     func testEmptyScreenConfigurationRetainsHandleUntilAValidScreenReturns() throws {
         let panel = FakePanelWindow(
             frame: CGRect(x: 620, y: 100, width: 300, height: 400)
@@ -1296,6 +1323,120 @@ final class PinCoordinatorTests: XCTestCase {
         }
     }
 
+    func testMovePanelCommitsTargetWhileFrameAnimationIsInFlight() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let originalFrame = CGRect(x: 300, y: 150, width: 400, height: 500)
+        let targetFrame = CGRect(x: 24, y: 276, width: 400, height: 500)
+        let panel = FakePanelWindow(
+            frame: originalFrame,
+            defersAnimatedFrameChanges: true
+        )
+        let geometryStore = TransientPanelGeometryStore()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: { [screen] },
+            initialPreferredContentSize: originalFrame.size,
+            geometryStore: geometryStore
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        XCTAssertTrue(coordinator.movePanel(to: .topLeft))
+
+        XCTAssertEqual(panel.frame, originalFrame)
+        XCTAssertEqual(geometryStore.load()?.frame, targetFrame)
+        XCTAssertEqual(coordinator.selectedCorner, .topLeft)
+    }
+
+    func testRestashingDuringFrameAnimationUsesTargetGeometry() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let originalFrame = CGRect(x: 300, y: 150, width: 400, height: 500)
+        let targetFrame = CGRect(x: 576, y: 276, width: 400, height: 500)
+        let panel = FakePanelWindow(
+            frame: originalFrame,
+            defersAnimatedFrameChanges: true
+        )
+        let handle = FakeStashHandle()
+        let geometryStore = TransientPanelGeometryStore()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [screen] },
+            initialPreferredContentSize: originalFrame.size,
+            geometryStore: geometryStore
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.movePanel(to: .topRight))
+
+        XCTAssertTrue(coordinator.stash(visibleFrames: [screen]))
+
+        XCTAssertEqual(panel.frame, targetFrame)
+        XCTAssertEqual(geometryStore.load()?.frame, targetFrame)
+    }
+
+    func testProgrammaticMoveNotificationsRemainSuppressedUntilAnimationCompletes() async throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let originalFrame = CGRect(x: 300, y: 150, width: 400, height: 500)
+        let targetFrame = CGRect(x: 24, y: 276, width: 400, height: 500)
+        let panel = FakePanelWindow(
+            frame: originalFrame,
+            defersAnimatedFrameChanges: true
+        )
+        let geometryStore = TransientPanelGeometryStore()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: { [screen] },
+            initialPreferredContentSize: originalFrame.size,
+            geometryStore: geometryStore
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.movePanel(to: .topLeft))
+        await Task.yield()
+
+        panel.move(to: CGRect(x: 160, y: 220, width: 400, height: 500))
+        coordinator.recordPanelMove()
+
+        XCTAssertEqual(geometryStore.load()?.frame, targetFrame)
+        panel.completeFrameAnimation()
+        XCTAssertEqual(panel.frame, targetFrame)
+    }
+
+    func testStaleTopologyDoesNotSettleActiveFrameAnimation() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let originalFrame = CGRect(x: 300, y: 150, width: 400, height: 500)
+        let panel = FakePanelWindow(
+            frame: originalFrame,
+            defersAnimatedFrameChanges: true
+        )
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: { [screen] },
+            initialPreferredContentSize: originalFrame.size
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.movePanel(to: .topLeft))
+
+        coordinator.applyDisplayTopology(
+            DisplayTopology(
+                revision: 0,
+                displays: [
+                    DisplayDescriptor(
+                        identifier: 11,
+                        frame: screen,
+                        visibleFrame: screen,
+                        backingScaleFactor: 2,
+                        isPrimary: true
+                    )
+                ]
+            )
+        )
+
+        XCTAssertEqual(panel.frame, originalFrame)
+    }
+
     func testManualMoveAwayFromExplicitCornerClearsPublishedSelection() async throws {
         let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let panel = FakePanelWindow(
@@ -1653,20 +1794,29 @@ private final class FakePanelWindow: PiPPanelWindow {
     private let recordEvent: (String) -> Void
     private let defersStashDismissal: Bool
     private let defersRestorePresentation: Bool
+    private let defersAnimatedFrameChanges: Bool
+    private let usesStashTransitionFrame: Bool
     private var pendingStashCompletion: (@MainActor () -> Void)?
+    private var pendingStashOriginalFrame: CGRect?
     private var pendingRestoreOriginalFrame: CGRect?
+    private var pendingAnimatedFrame: CGRect?
+    private var pendingFrameAnimationCompletion: (@MainActor () -> Void)?
 
     init(
         frame: CGRect = .zero,
         isExpanded: Bool = false,
         defersStashDismissal: Bool = false,
         defersRestorePresentation: Bool = false,
+        defersAnimatedFrameChanges: Bool = false,
+        usesStashTransitionFrame: Bool = false,
         recordEvent: @escaping (String) -> Void = { _ in }
     ) {
         self.frame = frame
         self.isExpanded = isExpanded
         self.defersStashDismissal = defersStashDismissal
         self.defersRestorePresentation = defersRestorePresentation
+        self.defersAnimatedFrameChanges = defersAnimatedFrameChanges
+        self.usesStashTransitionFrame = usesStashTransitionFrame
         self.recordEvent = recordEvent
     }
 
@@ -1713,16 +1863,43 @@ private final class FakePanelWindow: PiPPanelWindow {
     }
 
     func setFrame(_ frame: CGRect, display: Bool) {
+        pendingAnimatedFrame = nil
+        pendingFrameAnimationCompletion = nil
         self.frame = frame
         setFrames.append(frame)
         setFrameDisplays.append(display)
     }
 
     func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
+        setFrame(frame, display: display, animate: animate, completion: {})
+    }
+
+    func setFrame(
+        _ frame: CGRect,
+        display: Bool,
+        animate: Bool,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        if animate, defersAnimatedFrameChanges {
+            animatedSetFrames.append(frame)
+            pendingAnimatedFrame = frame
+            pendingFrameAnimationCompletion = completion
+            return
+        }
         setFrame(frame, display: display)
         if animate {
             animatedSetFrames.append(frame)
         }
+        completion()
+    }
+
+    func completeFrameAnimation() {
+        guard let pendingAnimatedFrame else { return }
+        self.pendingAnimatedFrame = nil
+        frame = pendingAnimatedFrame
+        let completion = pendingFrameAnimationCompletion
+        pendingFrameAnimationCompletion = nil
+        completion?()
     }
 
     func move(to frame: CGRect) {
@@ -1743,18 +1920,30 @@ private final class FakePanelWindow: PiPPanelWindow {
             completion()
             return
         }
+        if usesStashTransitionFrame {
+            pendingStashOriginalFrame = frame
+            frame = PanelStashTransition.panelTargetFrame(from: frame, toward: placement)
+        }
         pendingStashCompletion = completion
     }
 
     func completeStashDismissal() {
         guard let completion = pendingStashCompletion else { return }
         orderOut()
+        if let pendingStashOriginalFrame {
+            frame = pendingStashOriginalFrame
+        }
+        pendingStashOriginalFrame = nil
         completion()
         pendingStashCompletion = nil
     }
 
     func cancelPendingStashDismissal() {
         pendingStashCompletion = nil
+        if let pendingStashOriginalFrame {
+            frame = pendingStashOriginalFrame
+        }
+        pendingStashOriginalFrame = nil
         if let pendingRestoreOriginalFrame {
             frame = pendingRestoreOriginalFrame
         }
@@ -1841,6 +2030,7 @@ private final class FakeStashHandle: PiPStashHandle {
     private(set) var entrances: [PiPStashHandleEntrance] = []
     private(set) var orderOutCount = 0
     private(set) var dismissForRestoreCount = 0
+    private(set) var pullRevealTravels: [CGFloat] = []
     private var onRestore: (@MainActor () -> Void)?
     private var onPlacementChange: (@MainActor (PanelStashPlacement) -> Void)?
     private var onPullRevealChange: (@MainActor (CGFloat) -> Void)?
@@ -1849,6 +2039,10 @@ private final class FakeStashHandle: PiPStashHandle {
 
     init(recordEvent: @escaping (String) -> Void = { _ in }) {
         self.recordEvent = recordEvent
+    }
+
+    func configurePullRevealTravel(_ travel: CGFloat) {
+        pullRevealTravels.append(travel)
     }
 
     func present(
