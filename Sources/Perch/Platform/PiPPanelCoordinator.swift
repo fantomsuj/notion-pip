@@ -312,7 +312,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         webSession: NotionWebSession = NotionWebSession(),
         pageSwitcherController: PageSwitcherController = PageSwitcherController(),
         commandModel: AppCommandModel = .noOp,
-        quickCopyController: QuickCopyController? = nil,
         onReloadSavedPin: @escaping () -> Void = {},
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
@@ -321,10 +320,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
         let stashHandle = stashHandle ?? PiPStashHandleController()
-        let quickCopyController = quickCopyController ?? QuickCopyController(
-            monitor: AccessibilitySelectionMonitor(),
-            target: webSession
-        )
         let displayTopologyObserver = AppKitDisplayTopologyObserver()
         let initialTopology = displayTopologyObserver.currentTopology
         let visibleFrames = initialTopology.visibleFrames
@@ -424,7 +419,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
                 commandModel: commandModel,
                 panelSizeController: panelSizeController,
                 panelPositionController: panelPositionController,
-                quickCopyController: quickCopyController,
                 onReloadSavedPin: onReloadSavedPin,
                 onStash: { [weak self] in
                     self?.onExternalPresentationAction?()

@@ -103,7 +103,7 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertEqual(pasteboard.readCount, 0)
     }
 
-    func testShortcutStashesExpandedPiPImmediately() throws {
+    func testShortcutCollapsesExpandedPiPBeforeStashingIt() throws {
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
         let runtime = makeRuntime(panel: panel, shortcutRegistrar: shortcut)
@@ -116,9 +116,9 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
 
         shortcut.handler?()
 
-        XCTAssertEqual(panel.globalShortcutActionCount, 0)
-        XCTAssertFalse(panel.isVisible)
-        XCTAssertTrue(panel.isStashed)
+        XCTAssertEqual(panel.globalShortcutActionCount, 1)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertFalse(panel.isStashed)
     }
 
     func testShortcutRestoresStashedPinnedPanelWithoutRepinning() throws {

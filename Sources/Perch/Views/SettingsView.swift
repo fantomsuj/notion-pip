@@ -2,6 +2,13 @@ import AppKit
 import SwiftUI
 
 struct SettingsView: View {
+    private static let privacyURLString =
+        "https://github.com/fantomsuj/notion-pip/blob/master/docs/PRIVACY.md"
+    private static let supportURLString =
+        "https://github.com/fantomsuj/notion-pip/issues/new"
+    private static let installationURLString =
+        "https://github.com/fantomsuj/notion-pip/blob/master/docs/SUPPORT.md"
+
     @ObservedObject var runtime: AppRuntime
     @ObservedObject var panelSizeController: PanelSizeController
     @ObservedObject var launchAtLoginService: LaunchAtLoginService
@@ -31,7 +38,7 @@ struct SettingsView: View {
                 Section("Global Shortcut") {
                     GlobalShortcutRecorderView(runtime: runtime)
                     Toggle(
-                        "Press and hold to peek",
+                        "Press and hold to peek (Experimental)",
                         isOn: Binding(
                             get: { runtime.holdToPeekEnabled },
                             set: { runtime.setHoldToPeekEnabled($0) }
@@ -39,16 +46,8 @@ struct SettingsView: View {
                     )
                     Text(
                         runtime.holdToPeekEnabled
-                            ? "Hold to peek. Double-press to keep the panel open."
+                            ? "Hold to peek. Double-press to keep the panel open. Turn this off if shortcut timing feels unpredictable."
                             : "Show or hide the panel as soon as the shortcut is pressed."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Colors.secondaryText)
-                }
-
-                Section("Quick Copy") {
-                    Text(
-                        "Quick Copy uses Accessibility only while its bottom-left control is visibly on. Selected text is inserted at your saved Notion cursor, stays in memory only, and never changes the clipboard."
                     )
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
@@ -122,14 +121,29 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
+                    let metadata = AppMetadata.current
                     LabeledContent("Application", value: "Perch")
-                    LabeledContent("Minimum macOS", value: "14.0")
+                    LabeledContent("Version", value: metadata.versionAndBuild)
+                    LabeledContent("Requires macOS", value: metadata.minimumSystemVersion)
+                    if let privacyURL = URL(string: Self.privacyURLString) {
+                        Link("Privacy Policy", destination: privacyURL)
+                    }
+                    if let supportURL = URL(string: Self.supportURLString) {
+                        Link("Support and Feedback", destination: supportURL)
+                    }
+                    if let installationURL = URL(string: Self.installationURLString) {
+                        Link("Installation and Uninstall Help", destination: installationURL)
+                    }
                     Text(
                         "The app runs as an accessory with optional menu-bar presence and keeps credentials out of page URLs and logs."
                     )
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
-                    DeveloperStatusView()
+                    if let copyright = metadata.copyright {
+                        Text(copyright)
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.Colors.secondaryText)
+                    }
                 }
             }
         }

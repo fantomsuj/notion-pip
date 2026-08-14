@@ -3,7 +3,7 @@ final class OnboardingCoordinator {
     static let currentVersion = 1
 
     typealias WindowPresenterFactory = @MainActor (
-        @escaping @MainActor () -> Void,
+        @escaping @MainActor () -> Bool,
         @escaping @MainActor () -> Void,
         @escaping @MainActor () -> Void
     ) -> any AppWindowPresenting
@@ -53,9 +53,8 @@ final class OnboardingCoordinator {
         settingsWindowPresenter?.show()
     }
 
-    private func openPage() {
-        guard openCurrentPage() else { return }
-        finishCompletion()
+    private func openPage() -> Bool {
+        openCurrentPage()
     }
 
     private func presenterOrCreate() -> any AppWindowPresenting {
@@ -63,7 +62,7 @@ final class OnboardingCoordinator {
             return windowPresenter
         }
         let windowPresenter = makeWindowPresenter(
-            { [weak self] in self?.openPage() },
+            { [weak self] in self?.openPage() ?? false },
             { [weak self] in self?.complete() },
             { [weak self] in self?.openSettings() }
         )

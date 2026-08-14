@@ -6,6 +6,44 @@ enum PiPTopToolbarPresentation: Equatable {
     case expanded
 }
 
+enum FailedLoadBannerAccessibilityChild: Equatable {
+    case message(String)
+    case retryButton(String)
+}
+
+enum FailedLoadBannerAccessibilityChildBehavior: Equatable {
+    case contain
+    case combine
+
+    var swiftUIValue: AccessibilityChildBehavior {
+        switch self {
+        case .contain:
+            .contain
+        case .combine:
+            .combine
+        }
+    }
+}
+
+struct FailedLoadBannerAccessibilityPresentation: Equatable {
+    let message: String
+    let retryAccessibilityLabel: String
+    let childBehavior: FailedLoadBannerAccessibilityChildBehavior
+
+    var children: [FailedLoadBannerAccessibilityChild] {
+        [
+            .message(message),
+            .retryButton(retryAccessibilityLabel),
+        ]
+    }
+
+    static let failedLoad = Self(
+        message: "Notion couldn't load this page.",
+        retryAccessibilityLabel: "Retry loading Notion page",
+        childBehavior: .contain
+    )
+}
+
 struct PiPChromeView: View {
     static let primaryActionID = AppCommandID.newNotionPage
     static let primaryActionAccessibilityLabel = "New Notion Page"
@@ -23,7 +61,6 @@ struct PiPChromeView: View {
     static let topControlsHoverOutset: CGFloat = 12
 
     @ObservedObject var webSession: NotionWebSession
-    @ObservedObject var quickCopyController: QuickCopyController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
@@ -80,16 +117,11 @@ struct PiPChromeView: View {
         commandModel: AppCommandModel = .noOp,
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
-        quickCopyController: QuickCopyController? = nil,
         onReloadSavedPin: @escaping () -> Void = {},
         onStash: @escaping () -> Void = {},
         onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in }
     ) {
         self.webSession = webSession
-        self.quickCopyController = quickCopyController ?? QuickCopyController(
-            monitor: AccessibilitySelectionMonitor(),
-            target: webSession
-        )
         self.pageSwitcherController = pageSwitcherController
         self.commandModel = commandModel
         self.panelSizeController = panelSizeController
@@ -146,18 +178,19 @@ struct PiPChromeView: View {
 
                 Divider()
             } else if case .failed = webSession.state {
+                let presentation = FailedLoadBannerAccessibilityPresentation.failedLoad
                 HStack(spacing: DesignTokens.Spacing.control) {
                     Label("Notion couldn't load this page.", systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(DesignTokens.Colors.error)
+                        .accessibilityLabel(presentation.message)
                     Spacer()
                     Button("Try Again", action: repinCurrentPage)
-                        .accessibilityLabel("Retry loading Notion page")
+                        .accessibilityLabel(presentation.retryAccessibilityLabel)
                 }
                 .padding(.horizontal, DesignTokens.Spacing.control)
                 .padding(.vertical, DesignTokens.Spacing.compact)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Notion couldn't load this page.")
+                .accessibilityElement(children: presentation.childBehavior.swiftUIValue)
 
                 Divider()
             }
@@ -194,10 +227,6 @@ struct PiPChromeView: View {
                 }
             }
         }
-        .overlay(alignment: .bottomLeading) {
-            QuickCopyButton(controller: quickCopyController)
-                .padding(Self.quickCopyEdgeInsets)
-        }
         .animation(
             reduceMotion ? nil : .easeOut(duration: 0.12),
             value: showsTopControls
@@ -222,15 +251,6 @@ struct PiPChromeView: View {
                 reloadFeedbackPending = false
             }
         }
-    }
-
-    private static var quickCopyEdgeInsets: EdgeInsets {
-        EdgeInsets(
-            top: QuickCopyButton.edgeInset,
-            leading: QuickCopyButton.edgeInset,
-            bottom: QuickCopyButton.edgeInset,
-            trailing: QuickCopyButton.edgeInset
-        )
     }
 
     private var topControlsOverlay: some View {

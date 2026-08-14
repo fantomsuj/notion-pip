@@ -6,7 +6,7 @@ enum AppWindowFactory {
     static func makeOnboarding(
         globalShortcut: GlobalShortcut,
         pageURLInputState: PageURLInputState,
-        onPinPage: @escaping @MainActor () -> Void,
+        onPinPage: @escaping @MainActor () -> Bool,
         onComplete: @escaping @MainActor () -> Void,
         onOpenSettings: @escaping @MainActor () -> Void
     ) -> AppWindowPresenter {

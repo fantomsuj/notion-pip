@@ -137,6 +137,11 @@ final class RuntimePeekGestureTests: XCTestCase {
     }
 
     private func makeHarness(stashed: Bool = true) throws -> Harness {
+        let defaults = try XCTUnwrap(
+            UserDefaults(suiteName: "RuntimePeekGestureTests.\(UUID().uuidString)")
+        )
+        let holdToPeekPreferenceStore = HoldToPeekPreferenceStore(defaults: defaults)
+        holdToPeekPreferenceStore.save(true)
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
         let scheduler = RuntimeShortcutGestureScheduler()
@@ -147,6 +152,7 @@ final class RuntimePeekGestureTests: XCTestCase {
             shortcutRegistrar: shortcut,
             shortcutGestureScheduler: scheduler,
             accessibilityAnnouncementPoster: announcer,
+            holdToPeekPreferenceStore: holdToPeekPreferenceStore,
             peekFocusRestorer: focus
         )
         runtime.activate(

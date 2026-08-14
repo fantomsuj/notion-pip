@@ -19,41 +19,67 @@ final class OnboardingPreferenceStoreTests: XCTestCase {
 }
 
 final class OnboardingContentTests: XCTestCase {
-    func testPanelControlsStepExplainsDiscoveryAndTitleBarMaximizeGesture() {
-        XCTAssertEqual(OnboardingStep.allCases.count, 5)
-        XCTAssertEqual(OnboardingStep.panelControls.sidebarTitle, "Panel controls")
-        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("top edge"))
-        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("corner arrows"))
-        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("centered toolbar"))
-        XCTAssertFalse(OnboardingStep.panelControls.detail.contains("stay visible"))
-        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("Double-click"))
-        XCTAssertTrue(OnboardingStep.panelControls.detail.contains("maximize"))
-    }
-
-    func testPanelControlsStepCoversEveryHoverRevealedToolbarAction() {
+    func testFirstRunTeachesOnlyPageShortcutAndStash() {
+        XCTAssertEqual(OnboardingStep.allCases.count, 3)
         XCTAssertEqual(
-            OnboardingToolbarControl.all.map(\.title),
+            OnboardingStep.allCases.map(\.sidebarTitle),
             [
-                "New Notion page",
-                "Switch page",
-                "Reload current page",
-                "Open in browser",
-                "App menu & sizes",
-                "Stash to edge",
+                "Open a page",
+                "Bring it back",
+                "Stash it",
             ]
         )
     }
 
-    func testPanelControlsStepUsesEveryCornerArrow() {
-        XCTAssertEqual(
-            PanelCorner.allCases.map(\.symbolName),
-            [
-                "arrow.up.left",
-                "arrow.up.right",
-                "arrow.down.left",
-                "arrow.down.right",
-            ]
-        )
+    func testFirstRunDoesNotTeachDeferredControlsOrShortcutTiming() {
+        let copy = OnboardingStep.allCases
+            .map { "\($0.sidebarTitle) \($0.heading) \($0.detail)" }
+            .joined(separator: " ")
+            .lowercased()
+
+        [
+            "corner",
+            "toolbar",
+            "menu",
+            "role",
+            "size",
+            "double-click",
+            "hold",
+            "double-press",
+        ].forEach { excludedTerm in
+            XCTAssertFalse(copy.contains(excludedTerm), "Unexpected onboarding copy: \(excludedTerm)")
+        }
+    }
+}
+
+final class OnboardingFlowTests: XCTestCase {
+    func testPageSubmissionAdvancesOnlyAfterThePageOpens() {
+        var flow = OnboardingFlow()
+
+        XCTAssertEqual(flow.perform(.submitPage, pageOpeningSucceeds: false), .none)
+        XCTAssertEqual(flow.step, .openPage)
+
+        XCTAssertEqual(flow.perform(.submitPage, pageOpeningSucceeds: true), .none)
+        XCTAssertEqual(flow.step, .bringItBack)
+    }
+
+    func testNavigationCoversTheThreeStepLoop() {
+        var flow = OnboardingFlow()
+
+        XCTAssertEqual(flow.perform(.setUpLater), .none)
+        XCTAssertEqual(flow.step, .bringItBack)
+        XCTAssertEqual(flow.perform(.continue), .none)
+        XCTAssertEqual(flow.step, .stashIt)
+        XCTAssertEqual(flow.perform(.back), .none)
+        XCTAssertEqual(flow.step, .bringItBack)
+    }
+
+    func testTerminalActionsRequestTheirExternalEffect() {
+        var flow = OnboardingFlow()
+
+        XCTAssertEqual(flow.perform(.skip), .complete)
+        XCTAssertEqual(flow.perform(.openSettings), .openSettings)
+        XCTAssertEqual(flow.perform(.finish), .complete)
     }
 }
 
@@ -120,15 +146,15 @@ final class OnboardingCoordinatorTests: XCTestCase {
         XCTAssertFalse(harness.store.shouldPresent(version: OnboardingCoordinator.currentVersion))
     }
 
-    func testSuccessfulPageOpeningCompletesAndClosesOnboarding() throws {
+    func testSuccessfulPageOpeningLeavesOnboardingAvailableForTheRemainingInstructions() throws {
         let harness = try makeHarness(pageOpeningSucceeds: true)
         harness.coordinator.showIfNeeded()
 
         harness.openPage?()
 
-        XCTAssertEqual(harness.presenter.hideCount, 1)
-        XCTAssertEqual(harness.finish.finishCount, 1)
-        XCTAssertFalse(harness.store.shouldPresent(version: OnboardingCoordinator.currentVersion))
+        XCTAssertEqual(harness.presenter.hideCount, 0)
+        XCTAssertEqual(harness.finish.finishCount, 0)
+        XCTAssertTrue(harness.store.shouldPresent(version: OnboardingCoordinator.currentVersion))
     }
 
     func testFailedPageOpeningLeavesOnboardingOpen() throws {
@@ -165,7 +191,7 @@ final class OnboardingCoordinatorTests: XCTestCase {
         let presenter = OnboardingWindowPresenterSpy()
         let settings = OnboardingSettingsPresenterSpy()
         let finish = OnboardingFinishSpy()
-        var openPage: (() -> Void)?
+        var openPage: (() -> Bool)?
         var complete: (() -> Void)?
         var openSettings: (() -> Void)?
         let coordinator = OnboardingCoordinator(
@@ -186,7 +212,7 @@ final class OnboardingCoordinatorTests: XCTestCase {
             presenter: presenter,
             settings: settings,
             finish: finish,
-            openPage: { openPage?() },
+            openPage: { _ = openPage?() },
             complete: { complete?() },
             openSettings: { openSettings?() }
         )

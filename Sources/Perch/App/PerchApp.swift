@@ -28,9 +28,6 @@ enum PerchApp {
                         coldLaunchToken: coldLaunchToken,
                         applicationDidFinishLaunching: {
                             composition.onboardingCoordinator.showIfNeeded()
-                        },
-                        quickCopyTerminationAction: {
-                            composition.quickCopyController.prepareForTermination()
                         }
                     )
                     application.run()
@@ -50,8 +47,7 @@ enum AppStartup {
         appDelegate: AppDelegate,
         coldLaunchToken: PerformanceIntervalToken? = nil,
         performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
-        applicationDidFinishLaunching: @escaping @MainActor () -> Void = {},
-        quickCopyTerminationAction: @escaping @MainActor () -> Void = {}
+        applicationDidFinishLaunching: @escaping @MainActor () -> Void = {}
     ) {
         runtime.start()
         appDelegate.bind(
@@ -60,7 +56,6 @@ enum AppStartup {
         )
         appDelegate.bind(applicationDidFinishLaunching: applicationDidFinishLaunching)
         appDelegate.bind {
-            quickCopyTerminationAction()
             await runtime.prepareForTermination()
             return true
         }
@@ -72,7 +67,6 @@ enum AppStartup {
 private final class AppComposition {
     let runtime: AppRuntime
     let onboardingCoordinator: OnboardingCoordinator
-    let quickCopyController: QuickCopyController
 
     private let settingsWindowPresenter: SettingsWindowPresenter
     private let statusItemController: StatusItemController
@@ -130,15 +124,10 @@ private final class AppComposition {
             recentPagesController: recentPagesController,
             onSelectRecentPage: recentPageSelectionRelay.perform
         )
-        let quickCopyController = QuickCopyController(
-            monitor: AccessibilitySelectionMonitor(),
-            target: webSession
-        )
         let panelCoordinator = PiPPanelCoordinator(
             webSession: webSession,
             pageSwitcherController: pageSwitcherController,
             commandModel: commandModel,
-            quickCopyController: quickCopyController,
             onReloadSavedPin: { actionRelay.reloadSavedPin() },
             panelSizeController: panelSizeController,
             panelPositionController: panelPositionController,
@@ -246,7 +235,6 @@ private final class AppComposition {
 
         self.runtime = runtime
         self.onboardingCoordinator = onboardingCoordinator
-        self.quickCopyController = quickCopyController
         self.settingsWindowPresenter = settingsWindowPresenter
         self.statusItemController = statusItemController
         self.panelSizeController = panelSizeController
