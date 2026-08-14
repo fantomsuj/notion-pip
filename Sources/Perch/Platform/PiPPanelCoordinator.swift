@@ -25,6 +25,12 @@ protocol PiPPanelWindow: AnyObject {
     func restoreFromExpandedState()
     func setFrame(_ frame: CGRect, display: Bool)
     func setFrame(_ frame: CGRect, display: Bool, animate: Bool)
+    func setFrame(
+        _ frame: CGRect,
+        display: Bool,
+        animate: Bool,
+        completion: @escaping @MainActor () -> Void
+    )
 }
 
 extension PiPPanelWindow {
@@ -47,6 +53,16 @@ extension PiPPanelWindow {
 
     func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
         setFrame(frame, display: display)
+    }
+
+    func setFrame(
+        _ frame: CGRect,
+        display: Bool,
+        animate: Bool,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        setFrame(frame, display: display, animate: animate)
+        completion()
     }
 }
 
@@ -253,6 +269,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     private var isStashDismissalActive = false
     private var programmaticFrameChangeGeneration = 0
     private var isApplyingProgrammaticFrame = false
+    private var activeProgrammaticFrameTarget: CGRect?
     private var pullRevealState: PullRevealState?
 
     private struct PullRevealState {
@@ -285,14 +302,14 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     var selectedCorner: PanelCorner? {
         guard canPositionPanel else { return nil }
         return PanelFramePolicy.corner(
-            for: panel.frame,
+            for: logicalPanelFrame,
             visibleFrames: currentTopology().visibleFrames
         )
     }
 
     var currentPanelContentSize: CGSize {
         PanelFramePolicy.contentSize(
-            forFrame: panel.frame,
+            forFrame: logicalPanelFrame,
             contentRectForFrameRect: contentRectForFrameRect
         )
     }
@@ -672,7 +689,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         guard let placement = PanelFramePolicy.cornerPlacement(
             preferredContentSize: desiredContentSize,
             at: corner,
-            relativeTo: panel.frame,
+            relativeTo: logicalPanelFrame,
             visibleFrames: topology.visibleFrames,
             minimumContentSize: WindowRole.pictureInPicture.policy.minimumContentSize,
             frameForContentRect: frameForContentRect
@@ -747,6 +764,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         if isStashDismissalActive {
             cancelPendingStashDismissal()
         }
+        settleActiveProgrammaticFrameChange()
         guard currentPage != nil,
             let stashHandle,
             let placement = PanelStashPolicy.placement(
@@ -782,6 +800,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         if isStashDismissalActive {
             cancelPendingStashDismissal()
         }
+        settleActiveProgrammaticFrameChange()
         guard currentPage != nil,
             let stashHandle,
             let placement = PanelStashPolicy.placement(
@@ -833,9 +852,16 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     func applyDisplayTopology(_ topology: DisplayTopology) {
+        guard topology.revision > lastAcceptedTopologyRevision else { return }
+        settleActiveProgrammaticFrameChange()
         let presentation: PanelTopologyPresentation
         if panel.isVisible, panel.isExpanded {
             presentation = .expanded
+        } else if isStashDismissalActive,
+            stashHandle?.isVisible == true,
+            let activeStashIntent
+        {
+            presentation = .stashed(activeStashIntent)
         } else if panel.isVisible {
             presentation = .visible
         } else if stashHandle?.isVisible == true, let activeStashIntent {
@@ -954,7 +980,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     ) {
         activeStashPlacement = placement
         stashHandle.configurePullRevealTravel(
-            PanelPullRevealPolicy.revealTravel(forPanelWidth: panel.frame.width)
+            PanelPullRevealPolicy.revealTravel(forPanelWidth: pullRevealPanelWidth)
         )
         stashHandle.present(
             placement: placement,
@@ -1079,7 +1105,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         topology: DisplayTopology? = nil
     ) {
         guard let geometry = PanelGeometryPolicy.capture(
-            frame: panel.frame,
+            frame: logicalPanelFrame,
             topology: topology ?? currentTopology(),
             desiredContentSize: desiredContentSize,
             anchor: anchor,
@@ -1158,7 +1184,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     func snapPanelToCorner() {
         snapTargetPresenter?.dismiss()
         let visibleFrames = currentTopology().visibleFrames
-        let originalFrame = panel.frame
+        let originalFrame = logicalPanelFrame
         let snappedFrame = PanelFramePolicy.cornerSnapped(
             originalFrame,
             visibleFrames: visibleFrames
@@ -1230,7 +1256,23 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         programmaticFrameChangeGeneration &+= 1
         let generation = programmaticFrameChangeGeneration
         isApplyingProgrammaticFrame = true
-        panel.setFrame(frame, display: display, animate: animate)
+        activeProgrammaticFrameTarget = animate ? frame : nil
+        panel.setFrame(
+            frame,
+            display: display,
+            animate: animate
+        ) { [weak self] in
+            guard let self,
+                programmaticFrameChangeGeneration == generation
+            else {
+                return
+            }
+            activeProgrammaticFrameTarget = nil
+            if animate {
+                isApplyingProgrammaticFrame = false
+            }
+        }
+        guard !animate else { return }
         Task { @MainActor [weak self] in
             guard let self,
                 programmaticFrameChangeGeneration == generation
@@ -1239,6 +1281,25 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             }
             isApplyingProgrammaticFrame = false
         }
+    }
+
+    private var logicalPanelFrame: CGRect {
+        activeProgrammaticFrameTarget ?? panel.frame
+    }
+
+    private var pullRevealPanelWidth: CGFloat {
+        guard let committedGeometry else { return logicalPanelFrame.width }
+        return PanelGeometryPolicy.resolvedFrame(
+            for: committedGeometry,
+            topology: currentTopology(),
+            minimumContentSize: WindowRole.pictureInPicture.policy.minimumContentSize,
+            frameForContentRect: frameForContentRect
+        ).width
+    }
+
+    private func settleActiveProgrammaticFrameChange() {
+        guard let activeProgrammaticFrameTarget else { return }
+        setPanelFrame(activeProgrammaticFrameTarget, display: panel.isVisible)
     }
 }
 
@@ -1420,12 +1481,22 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     }
 
     override func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
+        setFrame(frame, display: display, animate: animate, completion: {})
+    }
+
+    func setFrame(
+        _ frame: CGRect,
+        display: Bool,
+        animate: Bool,
+        completion: @escaping @MainActor () -> Void
+    ) {
         frameAnimationTask?.cancel()
         guard animate,
             !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             frame != self.frame
         else {
             setFrame(frame, display: display)
+            completion()
             return
         }
 
@@ -1447,6 +1518,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
             guard !Task.isCancelled else { return }
             setFrame(frame, display: display)
             frameAnimationTask = nil
+            completion()
         }
     }
 
