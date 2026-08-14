@@ -15,15 +15,11 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
-            Text(selection.heading)
-                .font(.system(size: 28, weight: .semibold))
-                .padding(.top, DesignTokens.Spacing.section)
-
-            Text(selection.detail)
-                .font(.body)
-                .foregroundStyle(DesignTokens.Colors.secondaryText)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, DesignTokens.Spacing.control)
+            TextsRevealCopy(
+                heading: selection.heading,
+                detail: selection.detail
+            )
+            .padding(.top, DesignTokens.Spacing.section)
 
             artwork
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

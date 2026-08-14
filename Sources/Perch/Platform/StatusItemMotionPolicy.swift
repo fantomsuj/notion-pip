@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 enum StatusItemMotionPolicy {
-    static let morphDuration: TimeInterval = 0.08
+    static let morphDuration = MotionTokens.Duration.micro
     static let nodDuration: TimeInterval = 0.016
     static let nodTranslation: CGFloat = 2
     static let morphScale: CGFloat = 0.86

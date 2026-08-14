@@ -67,7 +67,8 @@ struct PiPChromeView: View {
     @StateObject private var topControlsHover = TopControlsHoverController()
     @State private var presentsPageSwitcher = false
     @State private var reloadFeedbackPending = false
-    @State private var reloadRotationDegrees: Double = 0
+    @State private var reloadSuccessHoldExpiresAt: Date?
+    @State private var failedLoadShakeToken = 0
     @ObservedObject var pageSwitcherController: PageSwitcherController
     let commandModel: AppCommandModel
     let panelSizeController: PanelSizeController?
@@ -146,53 +147,18 @@ struct PiPChromeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let browserLogin = NotionBrowserLoginPresentation(
-                state: webSession.browserLoginState
-            ) {
-                HStack(spacing: DesignTokens.Spacing.control) {
-                    Label(browserLogin.message, systemImage: "person.badge.key")
-                        .font(.caption)
-                    Spacer()
-                    if browserLogin.showsProgress {
-                        ProgressView()
-                            .controlSize(.small)
-                            .accessibilityLabel("Waiting for browser sign-in")
+            if let banner = statusBannerKind {
+                statusBanner(banner)
+                    .transition(.statusBannerReveal)
+                    .errorShake(
+                        trigger: failedLoadShakeToken,
+                        reducesMotion: reduceMotion
+                    )
+                    .onAppear {
+                        if banner == .failedLoad {
+                            failedLoadShakeToken += 1
+                        }
                     }
-                    Button(browserLogin.actionTitle, action: continueLoginInBrowser)
-                        .disabled(!browserLogin.actionIsEnabled)
-                        .accessibilityLabel(browserLogin.actionTitle)
-                }
-                .padding(.horizontal, DesignTokens.Spacing.control)
-                .padding(.vertical, DesignTokens.Spacing.compact)
-                .accessibilityElement(children: .contain)
-
-                Divider()
-            } else if webSession.state == .offline {
-                HStack(spacing: DesignTokens.Spacing.control) {
-                    Label("You're offline. Notion will reconnect when the network is available.", systemImage: "wifi.slash")
-                        .font(.caption)
-                }
-                .padding(.horizontal, DesignTokens.Spacing.control)
-                .padding(.vertical, DesignTokens.Spacing.compact)
-                .accessibilityElement(children: .contain)
-
-                Divider()
-            } else if case .failed = webSession.state {
-                let presentation = FailedLoadBannerAccessibilityPresentation.failedLoad
-                HStack(spacing: DesignTokens.Spacing.control) {
-                    Label("Notion couldn't load this page.", systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.Colors.error)
-                        .accessibilityLabel(presentation.message)
-                    Spacer()
-                    Button("Try Again", action: repinCurrentPage)
-                        .accessibilityLabel(presentation.retryAccessibilityLabel)
-                }
-                .padding(.horizontal, DesignTokens.Spacing.control)
-                .padding(.vertical, DesignTokens.Spacing.compact)
-                .accessibilityElement(children: presentation.childBehavior.swiftUIValue)
-
-                Divider()
             }
 
             if Self.shouldHostNotionWebView(for: webSession),
@@ -223,25 +189,39 @@ struct PiPChromeView: View {
                 )
                 if toolbarPresentation != .hidden {
                     topControlsOverlay
-                        .transition(.opacity)
+                        .transition(.pipChromeReveal)
                 }
             }
         }
         .animation(
-            reduceMotion ? nil : .easeOut(duration: 0.12),
-            value: showsTopControls
+            StatusBannerMotion.animation(
+                isAppearing: statusBannerKind != nil,
+                reducesMotion: reduceMotion
+            ),
+            value: statusBannerKind
+        )
+        .animation(
+            PiPChromeRevealMotion.animation(
+                isAppearing: showsTopControls || presentsPageSwitcher,
+                reducesMotion: reduceMotion
+            ),
+            value: Self.topToolbarPresentation(
+                showsTopControls: showsTopControls,
+                isPageSwitcherPresented: presentsPageSwitcher
+            )
         )
         .onDisappear {
             topControlsHover.cancel()
         }
         .onChange(of: webSession.state) { previousState, currentState in
-            if ReloadCompletionMotionPolicy.shouldAnimate(
+            if let expiresAt = ReloadIconSwapPolicy.successHoldExpiresAt(
                 isPending: reloadFeedbackPending,
                 previousState: previousState,
                 currentState: currentState,
-                reducesMotion: reduceMotion
+                reducesMotion: reduceMotion,
+                now: Date()
             ) {
-                reloadRotationDegrees += 360
+                reloadSuccessHoldExpiresAt = expiresAt
             }
             if reloadFeedbackPending,
                 ReloadCompletionMotionPolicy.shouldFinishPendingReload(
@@ -250,6 +230,15 @@ struct PiPChromeView: View {
             {
                 reloadFeedbackPending = false
             }
+        }
+        .task(id: reloadSuccessHoldExpiresAt) {
+            guard let expiresAt = reloadSuccessHoldExpiresAt else { return }
+            let remaining = expiresAt.timeIntervalSinceNow
+            if remaining > 0 {
+                try? await Task.sleep(for: .seconds(remaining))
+            }
+            guard !Task.isCancelled else { return }
+            reloadSuccessHoldExpiresAt = nil
         }
     }
 
@@ -286,16 +275,6 @@ struct PiPChromeView: View {
 
     private var expandedTopControls: some View {
         HStack(spacing: Self.topControlsSpacing) {
-            if webSession.state == .loading {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(
-                        width: PanelCornerControls.minimumHitTarget,
-                        height: PanelCornerControls.minimumHitTarget
-                    )
-                    .accessibilityLabel("Loading Notion page")
-            }
-
             Button {
                 commandModel.perform(Self.primaryActionID)
             } label: {
@@ -334,14 +313,10 @@ struct PiPChromeView: View {
                 reloadFeedbackPending = true
                 repinCurrentPage()
             } label: {
-                ToolbarMotionIcon(
-                    style: .reload,
-                    systemImage: "arrow.clockwise",
-                    rotationDegrees: reloadRotationDegrees
-                )
+                ReloadGlyphView(glyph: reloadGlyph)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Self.reloadAccessibilityLabel)
+            .accessibilityLabel(reloadControlAccessibilityLabel)
             .help(Self.reloadHelp)
 
             Button(action: openInNotionAndStash) {
@@ -369,6 +344,109 @@ struct PiPChromeView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(Self.stashAccessibilityLabel)
             .help(Self.stashHelp)
+        }
+    }
+
+    private var statusBannerKind: PiPStatusBannerKind? {
+        PiPStatusBannerKind(
+            sessionState: webSession.state,
+            browserLogin: NotionBrowserLoginPresentation(
+                state: webSession.browserLoginState
+            )
+        )
+    }
+
+    private var reloadGlyph: ReloadGlyph {
+        ReloadIconSwapPolicy.glyph(
+            sessionState: webSession.state,
+            successHoldExpiresAt: reloadSuccessHoldExpiresAt,
+            now: Date()
+        )
+    }
+
+    private var reloadControlAccessibilityLabel: String {
+        switch reloadGlyph {
+        case .idle:
+            Self.reloadAccessibilityLabel
+        case .loading:
+            "Loading Notion page"
+        case .success:
+            "Reload complete"
+        }
+    }
+
+    @ViewBuilder
+    private func statusBanner(_ banner: PiPStatusBannerKind) -> some View {
+        switch banner {
+        case let .browserLogin(browserLogin):
+            HStack(spacing: DesignTokens.Spacing.control) {
+                Label(browserLogin.message, systemImage: "person.badge.key")
+                    .font(.caption)
+                Spacer()
+                if browserLogin.showsProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Waiting for browser sign-in")
+                }
+                Button(browserLogin.actionTitle, action: continueLoginInBrowser)
+                    .disabled(!browserLogin.actionIsEnabled)
+                    .accessibilityLabel(browserLogin.actionTitle)
+            }
+            .padding(.horizontal, DesignTokens.Spacing.control)
+            .padding(.vertical, DesignTokens.Spacing.compact)
+            .accessibilityElement(children: .contain)
+
+            Divider()
+        case .offline:
+            HStack(spacing: DesignTokens.Spacing.control) {
+                Label(
+                    "You're offline. Notion will reconnect when the network is available.",
+                    systemImage: "wifi.slash"
+                )
+                .font(.caption)
+            }
+            .padding(.horizontal, DesignTokens.Spacing.control)
+            .padding(.vertical, DesignTokens.Spacing.compact)
+            .accessibilityElement(children: .contain)
+
+            Divider()
+        case .failedLoad:
+            let presentation = FailedLoadBannerAccessibilityPresentation.failedLoad
+            HStack(spacing: DesignTokens.Spacing.control) {
+                Label("Notion couldn't load this page.", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Colors.error)
+                    .accessibilityLabel(presentation.message)
+                Spacer()
+                Button("Try Again", action: repinCurrentPage)
+                    .accessibilityLabel(presentation.retryAccessibilityLabel)
+            }
+            .padding(.horizontal, DesignTokens.Spacing.control)
+            .padding(.vertical, DesignTokens.Spacing.compact)
+            .accessibilityElement(children: presentation.childBehavior.swiftUIValue)
+
+            Divider()
+        }
+    }
+}
+
+enum PiPStatusBannerKind: Equatable {
+    case browserLogin(NotionBrowserLoginPresentation)
+    case offline
+    case failedLoad
+
+    init?(
+        sessionState: NotionWebSessionState,
+        browserLogin: NotionBrowserLoginPresentation?
+    ) {
+        if let browserLogin {
+            self = .browserLogin(browserLogin)
+        } else if sessionState == .offline {
+            self = .offline
+        } else if case .failed = sessionState {
+            self = .failedLoad
+        } else {
+            return nil
         }
     }
 }
@@ -401,7 +479,10 @@ private struct NotionToolbarMark: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .animation(
-            reduceMotion ? nil : .easeOut(duration: ToolbarIconMotionPolicy.hoverDuration),
+            ToolbarHoverMotion.animation(
+                isHovering: isHovering,
+                reducesMotion: reduceMotion
+            ),
             value: isHovering
         )
         .accessibilityHidden(true)

@@ -32,6 +32,8 @@ struct PanelCornerControls: View {
     static let minimumHitTarget: CGFloat = 28
 
     @ObservedObject var controller: PanelPositionController
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var selectionPill
 
     var body: some View {
         HStack(spacing: 0) {
@@ -61,6 +63,7 @@ struct PanelCornerControls: View {
                 .background {
                     if controller.selectedCorner == corner {
                         DesignTokens.Colors.action.opacity(0.14)
+                            .matchedGeometryEffect(id: "corner-pill", in: selectionPill)
                     }
                 }
                 .disabled(!controller.canPosition)
@@ -71,6 +74,10 @@ struct PanelCornerControls: View {
                 .help(corner.accessibilityLabel)
             }
         }
+        .animation(
+            CornerSelectionMotion.animation(reducesMotion: reduceMotion),
+            value: controller.selectedCorner
+        )
         .accessibilityElement(children: .contain)
     }
 }

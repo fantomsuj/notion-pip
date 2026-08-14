@@ -114,8 +114,8 @@ extension PiPStashHandle {
 }
 
 enum PanelStashTransition {
-    static let duration: TimeInterval = 0.24
-    static let handleSettleDuration: TimeInterval = 0.10
+    static let duration = MotionTokens.Duration.fast
+    static let handleSettleDuration = MotionTokens.Duration.quick
     static let handleSettleDelay: Duration = .milliseconds(140)
     static let handleSettleOffset: CGFloat = 12
 
@@ -1239,7 +1239,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
 final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     static let stashCloseButtonLabel = "Stash Perch to Side"
     static let stashCloseButtonHelp = "Move Perch to the nearest screen edge"
-    private static let springAnimationDuration: TimeInterval = 0.34
+    private static let springAnimationDuration = MotionTokens.Duration.medium
     private var stashAnimationGeneration = 0
     private var pendingStashOriginalFrame: CGRect?
     private var frameAnimationTask: Task<Void, Never>?
@@ -1367,17 +1367,21 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         locateHaloTask = Task { @MainActor [weak self, weak haloPanel] in
             guard let self, let haloPanel else { return }
             if reducesMotion {
-                try? await Task.sleep(for: .milliseconds(180))
+                try? await Task.sleep(for: .milliseconds(
+                    Int(MotionTokens.Duration.fast * 1000)
+                ))
             } else {
                 await NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.10
+                    context.duration = MotionTokens.Duration.micro
                     context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                     haloPanel.animator().alphaValue = 1
                 }
-                try? await Task.sleep(for: .milliseconds(110))
+                try? await Task.sleep(for: .milliseconds(
+                    Int(MotionTokens.Duration.quick * 1000)
+                ))
                 guard !Task.isCancelled else { return }
                 await NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.17
+                    context.duration = MotionTokens.Duration.quick
                     context.timingFunction = CAMediaTimingFunction(name: .easeIn)
                     haloPanel.animator().alphaValue = 0
                 }

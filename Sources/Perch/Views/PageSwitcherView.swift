@@ -7,6 +7,9 @@ struct PageSwitcherView: View {
     @FocusState private var searchIsFocused: Bool
     @State private var editingPageID: String?
     @State private var roleDraft = ""
+    @State private var isOpen = false
+    @State private var feedbackShakeToken = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -86,12 +89,33 @@ struct PageSwitcherView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(DesignTokens.Spacing.control)
                     .accessibilityLabel(feedback)
+                    .errorShake(trigger: feedbackShakeToken, reducesMotion: reduceMotion)
             }
         }
         .frame(width: 320)
+        .opacity(isOpen ? 1 : 0)
+        .scaleEffect(
+            PageSwitcherDropdownMotion.scale(isOpen: isOpen, isClosing: false),
+            anchor: .top
+        )
+        .animation(
+            PageSwitcherDropdownMotion.animation(
+                isAppearing: isOpen,
+                reducesMotion: reduceMotion
+            ),
+            value: isOpen
+        )
+        .onAppear {
+            isOpen = true
+        }
         .task {
             await controller.load()
             searchIsFocused = true
+        }
+        .onChange(of: controller.inlineFeedback) { _, feedback in
+            if feedback != nil {
+                feedbackShakeToken += 1
+            }
         }
         .onKeyPress(.downArrow) {
             guard editingPageID == nil else { return .ignored }
@@ -173,6 +197,7 @@ struct PageSwitcherRow: View {
     let onTogglePin: () -> Void
     let onEditRole: () -> Void
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: DesignTokens.Spacing.control) {
@@ -204,7 +229,16 @@ struct PageSwitcherRow: View {
                 }
 
                 Button(action: onTogglePin) {
-                    Image(systemName: item.isPinned ? "pin.fill" : "pin")
+                    ZStack {
+                        Image(systemName: "pin.fill")
+                            .iconSwapActive(item.isPinned, reducesMotion: reduceMotion)
+                        Image(systemName: "pin")
+                            .iconSwapActive(!item.isPinned, reducesMotion: reduceMotion)
+                    }
+                    .animation(
+                        IconSwapMotion.animation(reducesMotion: reduceMotion),
+                        value: item.isPinned
+                    )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(item.isPinned ? "Unpin page" : "Pin page")

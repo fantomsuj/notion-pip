@@ -59,6 +59,7 @@ private struct PiPRecentPageShelfRow: View {
 
     @Environment(\.locale) private var locale
     @Environment(\.calendar) private var calendar
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
     private var title: String {
@@ -101,6 +102,13 @@ private struct PiPRecentPageShelfRow: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .opacity(isHovering ? 1 : 0)
+                    .animation(
+                        ToolbarHoverMotion.animation(
+                            isHovering: isHovering,
+                            reducesMotion: reduceMotion
+                        ),
+                        value: isHovering
+                    )
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, DesignTokens.Spacing.container)

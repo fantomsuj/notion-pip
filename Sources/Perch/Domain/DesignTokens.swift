@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+/// Color, spacing, and radius. Timed motion lives in ``MotionTokens``.
 enum DesignTokens {
     enum Spacing {
         static let compact: CGFloat = 4
