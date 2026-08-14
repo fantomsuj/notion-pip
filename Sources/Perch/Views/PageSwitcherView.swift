@@ -181,13 +181,15 @@ struct PageSwitcherRow: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(item.page.role ?? PageSwitcherAccessibility.pageTitle(for: item))
+                Text(presentation.primaryText)
                     .fontWeight(item.page.role == nil ? .regular : .semibold)
                     .lineLimit(1)
-                Text(secondaryText)
-                    .font(item.page.role == nil ? .caption2.monospaced() : .caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let secondaryText = presentation.secondaryText {
+                    Text(secondaryText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
             Spacer(minLength: DesignTokens.Spacing.compact)
@@ -225,10 +227,23 @@ struct PageSwitcherRow: View {
         .accessibilityAction(.default, onSelect)
     }
 
-    private var secondaryText: String {
-        item.page.role == nil
-            ? item.page.pageID
-            : PageSwitcherAccessibility.pageTitle(for: item)
+    private var presentation: PageSwitcherRowPresentation {
+        PageSwitcherRowPresentation(item: item)
+    }
+}
+
+struct PageSwitcherRowPresentation: Equatable {
+    let primaryText: String
+    let secondaryText: String?
+
+    init(item: PageSwitcherItem) {
+        if let role = item.page.role {
+            primaryText = role
+            secondaryText = PageSwitcherAccessibility.pageTitle(for: item)
+        } else {
+            primaryText = PageSwitcherAccessibility.pageTitle(for: item)
+            secondaryText = nil
+        }
     }
 }
 

@@ -29,15 +29,19 @@ final class GlobalShortcutTests: XCTestCase {
         XCTAssertEqual(store.load(), .default)
     }
 
-    func testHoldToPeekDefaultsOnAndPersistsOptOut() throws {
+    func testHoldToPeekDefaultsOffAndPersistsExplicitChoices() throws {
         let defaults = try makeDefaults()
         let store = HoldToPeekPreferenceStore(defaults: defaults)
 
-        XCTAssertTrue(store.load())
+        XCTAssertFalse(store.load())
 
         store.save(false)
 
         XCTAssertFalse(store.load())
+
+        store.save(true)
+
+        XCTAssertTrue(store.load())
     }
 
     func testLegacyQuickCapturePreferenceRemovalDeletesOnlyRetiredKeys() throws {

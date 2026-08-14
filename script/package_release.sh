@@ -265,6 +265,8 @@ cat >"$INFO_PLIST" <<PLIST
     <true/>
     <key>LSUIElement</key>
     <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Sujay Jayakar</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

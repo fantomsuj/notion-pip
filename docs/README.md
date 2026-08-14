@@ -18,6 +18,12 @@ orientation or rationale, but they do not override the current implementation.
   windowing, Spaces, shortcuts, login items, and other macOS integrations.
 - [External beta readiness](BETA_READINESS.md) — the current release gate and
   beta checklist.
+- [Privacy policy](PRIVACY.md) — user-facing data, permission, retention, and
+  deletion commitments.
+- [Support guide](SUPPORT.md) — feedback, installation, recovery, uninstall,
+  and permission-removal instructions.
+- [Direct distribution](DISTRIBUTION.md) — Developer ID, notarization, and
+  clean-Mac release workflow.
 - [Upstream reuse record](UPSTREAM_REUSE.md) — provenance, licensing context,
   reused behavior, and explicit reuse exclusions.
 

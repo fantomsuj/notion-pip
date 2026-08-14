@@ -113,8 +113,9 @@ Before publishing the draft release:
 - Launch the installed copy and confirm Gatekeeper identifies the verified
   developer without requiring a Security Settings override.
 - Complete the critical tests in `docs/BETA_READINESS.md`, including Notion
-  sign-in, Accessibility approval for Quick Copy, and a real Launch at Login
-  logout/login cycle.
+  sign-in and a real Launch at Login logout/login cycle. Perch 0.1 must not
+  request Accessibility permission; remove any grant retained from an older
+  experimental build before testing.
 - Confirm the version and SHA-256 checksum shown in the release.
 
 Perch currently uses manual downloads for updates. Sparkle can be added later,

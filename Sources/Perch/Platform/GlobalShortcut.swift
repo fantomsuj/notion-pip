@@ -88,7 +88,7 @@ struct HoldToPeekPreferenceStore {
     }
 
     func load() -> Bool {
-        guard defaults.object(forKey: Self.key) != nil else { return true }
+        guard defaults.object(forKey: Self.key) != nil else { return false }
         return defaults.bool(forKey: Self.key)
     }
 

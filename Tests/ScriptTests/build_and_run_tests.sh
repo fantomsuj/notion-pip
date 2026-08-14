@@ -174,6 +174,12 @@ if [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMultipleInstancesProhibited' \
     echo "expected the development bundle to prohibit multiple app instances" >&2
     exit 1
 fi
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :NSHumanReadableCopyright' \
+    "$FIXTURE_ROOT/dist/Perch.app/Contents/Info.plist" 2>/dev/null || true)" \
+    != "Copyright © 2026 Sujay Jayakar" ]]; then
+    echo "expected the development bundle to include product ownership metadata" >&2
+    exit 1
+fi
 
 # Verification succeeds only for one process whose executable is the staged app.
 : >"$CALL_LOG"

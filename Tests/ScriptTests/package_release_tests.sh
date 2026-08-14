@@ -87,6 +87,8 @@ last_argument="${!#}"
 if [[ "$last_argument" == *.app ]]; then
     /usr/libexec/PlistBuddy -c 'Print :LSMultipleInstancesProhibited' \
         "$last_argument/Contents/Info.plist" >>"$FAKE_PLIST_LOG" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c 'Print :NSHumanReadableCopyright' \
+        "$last_argument/Contents/Info.plist" >>"$FAKE_PLIST_LOG" 2>/dev/null || true
 fi
 SCRIPT
 
@@ -188,6 +190,10 @@ if [[ ! -f "$DMG_PATH" || ! -f "$CHECKSUM_PATH" ]]; then
 fi
 if [[ "$(head -n 1 "$PLIST_LOG")" != "true" ]]; then
     echo "expected the release bundle to prohibit multiple app instances" >&2
+    exit 1
+fi
+if [[ "$(sed -n '2p' "$PLIST_LOG")" != "Copyright © 2026 Sujay Jayakar" ]]; then
+    echo "expected the release bundle to include product ownership metadata" >&2
     exit 1
 fi
 if ! grep -Fq 'arm64-apple-macosx14.0' "$CALL_LOG" || \

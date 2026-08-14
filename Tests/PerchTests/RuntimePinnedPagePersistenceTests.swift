@@ -66,6 +66,11 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
     }
 
     func testHoldingShortcutPeeksAtStashedPanelUntilRelease() async throws {
+        let defaults = try XCTUnwrap(
+            UserDefaults(suiteName: "RuntimePinnedPagePersistenceTests.\(UUID().uuidString)")
+        )
+        let holdToPeekPreferenceStore = HoldToPeekPreferenceStore(defaults: defaults)
+        holdToPeekPreferenceStore.save(true)
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
         let previousApplication = FocusApplicationSpy(processIdentifier: 101)
@@ -83,6 +88,7 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
             shortcutRegistrar: shortcut,
             pageRepository: repository,
             shortcutGestureScheduler: gestureScheduler,
+            holdToPeekPreferenceStore: holdToPeekPreferenceStore,
             peekFocusRestorer: focusRestorer
         )
         let storedPage = try makeStoredPage(id: firstPageID, title: "Restored")
