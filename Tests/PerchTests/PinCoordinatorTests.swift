@@ -291,6 +291,32 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(geometryStore.load()?.frame, originalFrame)
     }
 
+    func testImmediateRestashDuringRestoreTransitionPreservesCommittedFrame() throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let originalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
+        let panel = FakePanelWindow(
+            frame: originalFrame,
+            defersRestorePresentation: true
+        )
+        let handle = FakeStashHandle()
+        let geometryStore = TransientPanelGeometryStore()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [visibleFrame] },
+            geometryStore: geometryStore
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+
+        handle.restore()
+        XCTAssertNotEqual(panel.frame, originalFrame)
+        XCTAssertTrue(coordinator.stashCurrentPageImmediately())
+
+        XCTAssertEqual(geometryStore.load()?.frame, originalFrame)
+    }
+
     func testLateStashCompletionCannotHideRestoredPanel() throws {
         let originalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
         let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
