@@ -265,6 +265,32 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.currentPage, page)
     }
 
+    func testRestashingDuringRestoreTransitionPreservesCommittedFrame() throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let originalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
+        let panel = FakePanelWindow(
+            frame: originalFrame,
+            defersRestorePresentation: true
+        )
+        let handle = FakeStashHandle()
+        let geometryStore = TransientPanelGeometryStore()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [visibleFrame] },
+            geometryStore: geometryStore
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+
+        handle.restore()
+        XCTAssertNotEqual(panel.frame, originalFrame)
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+
+        XCTAssertEqual(geometryStore.load()?.frame, originalFrame)
+    }
+
     func testLateStashCompletionCannotHideRestoredPanel() throws {
         let originalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
         let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
@@ -1599,17 +1625,21 @@ private final class FakePanelWindow: PiPPanelWindow {
     var onClose: (@MainActor () -> Void)?
     private let recordEvent: (String) -> Void
     private let defersStashDismissal: Bool
+    private let defersRestorePresentation: Bool
     private var pendingStashCompletion: (@MainActor () -> Void)?
+    private var pendingRestoreOriginalFrame: CGRect?
 
     init(
         frame: CGRect = .zero,
         isExpanded: Bool = false,
         defersStashDismissal: Bool = false,
+        defersRestorePresentation: Bool = false,
         recordEvent: @escaping (String) -> Void = { _ in }
     ) {
         self.frame = frame
         self.isExpanded = isExpanded
         self.defersStashDismissal = defersStashDismissal
+        self.defersRestorePresentation = defersRestorePresentation
         self.recordEvent = recordEvent
     }
 
@@ -1624,8 +1654,14 @@ private final class FakePanelWindow: PiPPanelWindow {
         completion: @escaping @MainActor () -> Void
     ) {
         restoreTransitionPlacements.append(placement)
+        guard defersRestorePresentation else {
+            present()
+            completion()
+            return
+        }
+        pendingRestoreOriginalFrame = frame
+        frame = PanelStashTransition.panelTargetFrame(from: frame, toward: placement)
         present()
-        completion()
     }
 
     func presentForPullReveal(at frame: CGRect) {
@@ -1692,6 +1728,10 @@ private final class FakePanelWindow: PiPPanelWindow {
 
     func cancelPendingStashDismissal() {
         pendingStashCompletion = nil
+        if let pendingRestoreOriginalFrame {
+            frame = pendingRestoreOriginalFrame
+        }
+        pendingRestoreOriginalFrame = nil
     }
 }
 

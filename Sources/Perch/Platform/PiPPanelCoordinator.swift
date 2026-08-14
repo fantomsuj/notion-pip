@@ -744,6 +744,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
 
     @discardableResult
     private func stash(topology: DisplayTopology) -> Bool {
+        if isStashDismissalActive {
+            cancelPendingStashDismissal()
+        }
         guard currentPage != nil,
             let stashHandle,
             let placement = PanelStashPolicy.placement(
@@ -776,6 +779,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     private func stashImmediately(topology: DisplayTopology) -> Bool {
+        if isStashDismissalActive {
+            cancelPendingStashDismissal()
+        }
         guard currentPage != nil,
             let stashHandle,
             let placement = PanelStashPolicy.placement(
