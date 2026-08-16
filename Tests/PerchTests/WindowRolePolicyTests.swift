@@ -98,4 +98,24 @@ final class WindowRolePolicyTests: XCTestCase {
         XCTAssertEqual(window.backgroundColor, .clear)
         XCTAssertTrue(window.hasShadow)
     }
+
+    func testContextSuggestionRoleCreatesRetainedNonactivatingOverlayPanel() {
+        let window = WindowRole.contextSuggestion.makeWindow()
+
+        XCTAssertTrue(type(of: window) == NSPanel.self)
+        XCTAssertEqual(window.styleMask, [.borderless, .nonactivatingPanel])
+        XCTAssertEqual(window.level, .floating)
+        XCTAssertEqual(
+            window.collectionBehavior,
+            [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
+        )
+        XCTAssertFalse(window.canBecomeKey)
+        XCTAssertFalse(window.isOpaque)
+        XCTAssertEqual(window.backgroundColor, .clear)
+        XCTAssertTrue(window.hasShadow)
+        XCTAssertEqual(
+            window.contentRect(forFrameRect: window.frame).size,
+            CGSize(width: 320, height: 112)
+        )
+    }
 }

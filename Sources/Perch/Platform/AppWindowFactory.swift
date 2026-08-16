@@ -31,6 +31,7 @@ enum AppWindowFactory {
         runtime: AppRuntime,
         panelSizeController: PanelSizeController,
         launchAtLoginService: LaunchAtLoginService,
+        contextSuggestionController: ContextSuggestionController,
         closeRequestHandler: @escaping @MainActor () -> Void
     ) -> AppWindowPresenter {
         AppWindowPresenter(
@@ -41,7 +42,8 @@ enum AppWindowFactory {
                     SettingsView(
                         runtime: runtime,
                         panelSizeController: panelSizeController,
-                        launchAtLoginService: launchAtLoginService
+                        launchAtLoginService: launchAtLoginService,
+                        contextSuggestionController: contextSuggestionController
                     )
                 )
             ),

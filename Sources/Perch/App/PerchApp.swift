@@ -73,7 +73,10 @@ private final class AppComposition {
     private let panelSizeController: PanelSizeController
     private let panelPositionController: PanelPositionController
     private let launchAtLoginService: LaunchAtLoginService
+    private let contextSuggestionController: ContextSuggestionController
+    private let contextSuggestionPanelController: ContextSuggestionPanelController
     private var statusItemAppearanceCancellable: AnyCancellable?
+    private var contextSuggestionActivePageCancellable: AnyCancellable?
 
     init() {
         let actionRelay = AppCommandActionRelay()
@@ -144,6 +147,22 @@ private final class AppComposition {
                 )
             }
         )
+        let contextSuggestionController = ContextSuggestionController(
+            monitor: AccessibilityContextMonitor(),
+            store: pageRepository,
+            preferenceStore: ContextSuggestionPreferenceStore(),
+            activePageID: { [weak runtime] in runtime?.activePage?.pageID },
+            onActivate: { [weak runtime] page, restoration in
+                runtime?.activate(
+                    page: page,
+                    source: .contextSuggestion,
+                    restoration: restoration
+                )
+            }
+        )
+        let contextSuggestionPanelController = ContextSuggestionPanelController(
+            controller: contextSuggestionController
+        )
 
         actionRelay.reloadSavedPinAction = { [weak runtime] in
             runtime?.reloadSavedPin()
@@ -186,6 +205,7 @@ private final class AppComposition {
                 runtime: runtime,
                 panelSizeController: panelSizeController,
                 launchAtLoginService: launchAtLoginService,
+                contextSuggestionController: contextSuggestionController,
                 closeRequestHandler: closeHandler
             )
         }
@@ -223,6 +243,13 @@ private final class AppComposition {
                 )
             }
         }
+        contextSuggestionActivePageCancellable = runtime.$activePage
+            .dropFirst()
+            .sink { [weak contextSuggestionController] _ in
+                Task { @MainActor in
+                    contextSuggestionController?.activePageDidChange()
+                }
+            }
 
         actionRelay.settingsWindowPresenter = settingsWindowPresenter
         actionRelay.gettingStartedAction = { [weak onboardingCoordinator] in
@@ -232,6 +259,7 @@ private final class AppComposition {
         panelSizeController.onManagePanelSizes = {
             actionRelay.showSettings()
         }
+        contextSuggestionController.start()
 
         self.runtime = runtime
         self.onboardingCoordinator = onboardingCoordinator
@@ -240,6 +268,8 @@ private final class AppComposition {
         self.panelSizeController = panelSizeController
         self.panelPositionController = panelPositionController
         self.launchAtLoginService = launchAtLoginService
+        self.contextSuggestionController = contextSuggestionController
+        self.contextSuggestionPanelController = contextSuggestionPanelController
     }
 }
 
