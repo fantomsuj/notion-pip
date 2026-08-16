@@ -12,6 +12,7 @@ struct SettingsView: View {
     @ObservedObject var runtime: AppRuntime
     @ObservedObject var panelSizeController: PanelSizeController
     @ObservedObject var launchAtLoginService: LaunchAtLoginService
+    @ObservedObject var contextSuggestionController: ContextSuggestionController
 
     var body: some View {
         ScrollView {
@@ -68,6 +69,36 @@ struct SettingsView: View {
                         Text("The menu-bar icon is temporarily visible because the global shortcut is unavailable. Retry the shortcut to return to your saved setting.")
                             .font(.caption)
                             .foregroundStyle(DesignTokens.Colors.secondaryText)
+                    }
+                }
+
+                Section("Context Suggestions") {
+                    Toggle(
+                        "Suggest pages for the app I'm using",
+                        isOn: Binding(
+                            get: { contextSuggestionController.isEnabled },
+                            set: { contextSuggestionController.setEnabled($0) }
+                        )
+                    )
+
+                    Text(
+                        "Perch locally compares the active app, window title, and an available page URL with your pinned and recent page titles and roles. This context is never saved or uploaded."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Colors.secondaryText)
+
+                    if contextSuggestionController.permissionState == .needsPermission {
+                        Label(
+                            "Allow Perch in Privacy & Security → Accessibility, then return here.",
+                            systemImage: "hand.raised"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Colors.secondaryText)
+                        if let accessibilitySettings = URL(
+                            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                        ) {
+                            Link("Open Accessibility Settings", destination: accessibilitySettings)
+                        }
                     }
                 }
 
@@ -153,6 +184,7 @@ struct SettingsView: View {
         .disablesAnimationOnColorSchemeChange()
         .onAppear {
             launchAtLoginService.refresh()
+            contextSuggestionController.refreshPermission()
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -160,6 +192,7 @@ struct SettingsView: View {
             )
         ) { _ in
             launchAtLoginService.refresh()
+            contextSuggestionController.refreshPermission()
         }
     }
 }

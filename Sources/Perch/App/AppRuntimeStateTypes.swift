@@ -46,6 +46,7 @@ enum PageActivationSource: Equatable, Sendable {
     case notionWebSession
     case pagePicker
     case pageSwitcher
+    case contextSuggestion
 }
 
 enum ShortcutPeekGestureState: Equatable, Sendable {
