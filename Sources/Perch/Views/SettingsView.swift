@@ -122,7 +122,9 @@ struct SettingsView: View {
 
                 Section("About") {
                     let metadata = AppMetadata.current
-                    LabeledContent("Application", value: "Perch")
+                    LabeledContent("Application") {
+                        PerchIdentityLabel(title: "Perch")
+                    }
                     LabeledContent("Version", value: metadata.versionAndBuild)
                     LabeledContent("Requires macOS", value: metadata.minimumSystemVersion)
                     if let privacyURL = URL(string: Self.privacyURLString) {

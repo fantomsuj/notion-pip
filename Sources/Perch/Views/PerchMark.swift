@@ -36,3 +36,16 @@ struct PerchMark: View {
         .accessibilityHidden(true)
     }
 }
+
+struct PerchIdentityLabel: View {
+    let title: String
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            PerchMark(isActive: isHovering)
+            Text(title)
+        }
+        .onHover { isHovering = $0 }
+    }
+}
