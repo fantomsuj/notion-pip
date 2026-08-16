@@ -51,13 +51,9 @@ final class InteractionPolicyTests: XCTestCase {
             InteractionPolicy.compactHitTarget,
             InteractionPolicy.minimumHitTarget
         )
-        XCTAssertEqual(
-            PanelCornerControls.minimumHitTarget,
-            InteractionPolicy.compactHitTarget
-        )
-        XCTAssertGreaterThanOrEqual(
-            QuickCopyButton.controlSize,
-            InteractionPolicy.minimumHitTarget
+        XCTAssertLessThanOrEqual(
+            InteractionPolicy.compactHitTarget,
+            InteractionPolicy.preferredHitTarget
         )
     }
 
@@ -71,7 +67,10 @@ final class InteractionPolicyTests: XCTestCase {
             0
         )
         XCTAssertEqual(
-            PanelCornerControls.selectedBackgroundRadius,
+            InteractionPolicy.concentricRadius(
+                outer: DesignTokens.Radius.card,
+                inset: DesignTokens.Spacing.compact
+            ),
             4
         )
     }

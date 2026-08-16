@@ -27,6 +27,10 @@ final class PiPChromeViewTests: XCTestCase {
             ]
         )
         XCTAssertEqual(PanelCornerControls.minimumHitTarget, 28)
+        XCTAssertEqual(
+            PanelCornerControls.minimumHitTarget,
+            InteractionPolicy.compactHitTarget
+        )
         XCTAssertEqual(PanelCornerControls.selectedBackgroundRadius, 4)
     }
 
