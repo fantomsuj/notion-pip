@@ -108,20 +108,27 @@ struct QuickCopyButton: View {
         "Place the cursor in Notion, turn on Quick Copy, then select text in another app"
 
     @ObservedObject var controller: QuickCopyController
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let presentation = QuickCopyButtonPresentation(state: controller.state)
         HStack(spacing: DesignTokens.Spacing.compact) {
             Button(action: controller.toggle) {
                 HStack(spacing: DesignTokens.Spacing.compact) {
-                    if presentation.showsProgress {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .frame(width: 14, height: 14)
-                    } else {
-                        Image(systemName: presentation.systemImage)
-                            .frame(width: 14, height: 14)
+                    ZStack {
+                        if presentation.showsProgress {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .frame(width: 14, height: 14)
+                        } else {
+                            CrossfadeSymbol(systemName: presentation.systemImage)
+                                .id(presentation.systemImage)
+                                .frame(width: 14, height: 14)
+                        }
                     }
+                    .frame(width: 14, height: 14)
+                    .animation(iconCrossfadeAnimation, value: presentation.systemImage)
+                    .animation(iconCrossfadeAnimation, value: presentation.showsProgress)
 
                     Text(presentation.title)
                         .font(.caption.weight(.medium))
@@ -130,7 +137,7 @@ struct QuickCopyButton: View {
                 .frame(minHeight: Self.controlSize)
                 .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .chromePressStyle(cornerRadius: Self.controlSize / 2)
             .foregroundStyle(foregroundStyle(for: presentation.appearance))
             .background {
                 Capsule().fill(backgroundStyle(for: presentation.appearance))
@@ -149,7 +156,10 @@ struct QuickCopyButton: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, DesignTokens.Spacing.control)
                     .padding(.vertical, DesignTokens.Spacing.compact)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .background(
+                        .regularMaterial,
+                        in: RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
+                    )
             }
         }
     }
@@ -182,5 +192,9 @@ struct QuickCopyButton: View {
         case .off, .requesting:
             Color(nsColor: .controlBackgroundColor).opacity(0.9)
         }
+    }
+
+    private var iconCrossfadeAnimation: Animation? {
+        reduceMotion ? nil : .easeOut(duration: InteractionPolicy.iconCrossfadeDuration)
     }
 }

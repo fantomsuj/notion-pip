@@ -1251,6 +1251,14 @@ final class PinCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(title, "12345678901234567890123456789…")
         XCTAssertEqual(title.count, 30)
+        XCTAssertEqual(
+            PagePickerDisplay.helpText(for: page),
+            "12345678901234567890123456789012345"
+        )
+        XCTAssertEqual(
+            PagePickerDisplay.fullTitle(for: page),
+            "12345678901234567890123456789012345"
+        )
     }
 
     func testAppRuntimeRegistersShortcutOnlyOnce() {

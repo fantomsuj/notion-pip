@@ -25,6 +25,20 @@ enum FailedLoadBannerAccessibilityChildBehavior: Equatable {
     }
 }
 
+struct EmptyPageChromePresentation: Equatable {
+    let title: String
+    let description: String
+    let actionTitle: String
+    let actionAccessibilityLabel: String
+
+    static let missingPage = Self(
+        title: "No Notion page is open",
+        description: "Open a page from Settings to keep it beside your other work.",
+        actionTitle: "Open Settings",
+        actionAccessibilityLabel: "Open Settings to choose a Notion page"
+    )
+}
+
 struct FailedLoadBannerAccessibilityPresentation: Equatable {
     let message: String
     let retryAccessibilityLabel: String
@@ -200,13 +214,21 @@ struct PiPChromeView: View {
             {
                 NotionWebView(webView: webView)
             } else {
-                ContentUnavailableView(
-                    "No Notion page selected",
-                    systemImage: "doc.text.magnifyingglass"
-                )
+                let emptyPage = EmptyPageChromePresentation.missingPage
+                ContentUnavailableView {
+                    Label(emptyPage.title, systemImage: "doc.text.magnifyingglass")
+                } description: {
+                    Text(emptyPage.description)
+                } actions: {
+                    Button(emptyPage.actionTitle) {
+                        commandModel.perform(.settings)
+                    }
+                    .accessibilityLabel(emptyPage.actionAccessibilityLabel)
+                }
             }
         }
         .background(DesignTokens.Colors.background)
+        .disablesAnimationOnColorSchemeChange()
         .overlay(alignment: .top) {
             ZStack(alignment: .top) {
                 Color.clear
@@ -306,7 +328,7 @@ struct PiPChromeView: View {
                     )
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .chromePressStyle()
             .disabled(!(commandModel.command(for: Self.primaryActionID)?.isEnabled ?? false))
             .accessibilityLabel(Self.primaryActionAccessibilityLabel)
             .help(Self.primaryActionHelp)
@@ -316,7 +338,7 @@ struct PiPChromeView: View {
             } label: {
                 ToolbarMotionIcon(style: .pageStack)
             }
-            .buttonStyle(.plain)
+            .chromePressStyle()
             .accessibilityLabel(Self.pageSwitcherAccessibilityLabel)
             .help("Resume a pinned or recent Notion page")
             .popover(isPresented: $presentsPageSwitcher, arrowEdge: .top) {
@@ -340,7 +362,7 @@ struct PiPChromeView: View {
                     rotationDegrees: reloadRotationDegrees
                 )
             }
-            .buttonStyle(.plain)
+            .chromePressStyle()
             .accessibilityLabel(Self.reloadAccessibilityLabel)
             .help(Self.reloadHelp)
 
@@ -352,8 +374,9 @@ struct PiPChromeView: View {
                     )
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .chromePressStyle()
             .accessibilityLabel("Open Notion page in browser")
+            .help("Open this page in the Notion app and stash Perch")
 
             PiPAppCommandMenu(
                 commandModel: commandModel,
@@ -366,7 +389,7 @@ struct PiPChromeView: View {
                     systemImage: "arrow.down.right.and.arrow.up.left"
                 )
             }
-            .buttonStyle(.plain)
+            .chromePressStyle()
             .accessibilityLabel(Self.stashAccessibilityLabel)
             .help(Self.stashHelp)
         }

@@ -316,14 +316,17 @@ final class PageSwitcherMatcherTests: XCTestCase {
         let roleBearingPresentation = PageSwitcherRowPresentation(item: roleBearing)
         XCTAssertEqual(roleBearingPresentation.primaryText, "Today")
         XCTAssertEqual(roleBearingPresentation.secondaryText, "Daily Planner")
+        XCTAssertEqual(roleBearingPresentation.helpText, "Today — Daily Planner")
 
         let titledPresentation = PageSwitcherRowPresentation(item: titled)
         XCTAssertEqual(titledPresentation.primaryText, "Project Roadmap")
         XCTAssertNil(titledPresentation.secondaryText)
+        XCTAssertEqual(titledPresentation.helpText, "Project Roadmap")
 
         let titlelessPresentation = PageSwitcherRowPresentation(item: titleless)
         XCTAssertEqual(titlelessPresentation.primaryText, "Untitled Notion page")
         XCTAssertNil(titlelessPresentation.secondaryText)
+        XCTAssertEqual(titlelessPresentation.helpText, "Untitled Notion page")
     }
 
     private func item(

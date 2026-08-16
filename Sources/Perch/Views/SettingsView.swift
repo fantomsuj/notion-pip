@@ -150,6 +150,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .padding(DesignTokens.Spacing.container)
         .frame(minWidth: 440, minHeight: 420)
+        .disablesAnimationOnColorSchemeChange()
         .onAppear {
             launchAtLoginService.refresh()
         }
