@@ -96,28 +96,20 @@ final class PiPChromeViewTests: XCTestCase {
         XCTAssertEqual(reduced, .identity)
     }
 
-    func testPageStackSeparatesOnlyForPointerHoverWithMotionEnabled() {
+    func testPerchMarkSeparatesOnlyForInteractionWithMotionEnabled() {
         XCTAssertEqual(
-            ToolbarIconMotionPolicy.pageStackSeparation(
-                isHovering: false,
-                reducesMotion: false
-            ),
-            0
-        )
-        XCTAssertGreaterThan(
-            ToolbarIconMotionPolicy.pageStackSeparation(
-                isHovering: true,
-                reducesMotion: false
-            ),
+            PerchMarkMotionPolicy.separation(isActive: false, reducesMotion: false),
             0
         )
         XCTAssertEqual(
-            ToolbarIconMotionPolicy.pageStackSeparation(
-                isHovering: true,
-                reducesMotion: true
-            ),
+            PerchMarkMotionPolicy.separation(isActive: true, reducesMotion: false),
+            1.5
+        )
+        XCTAssertEqual(
+            PerchMarkMotionPolicy.separation(isActive: true, reducesMotion: true),
             0
         )
+        XCTAssertEqual(PerchMarkMotionPolicy.duration, 0.12)
     }
 
     func testReloadMotionRunsOnceOnlyAfterSuccessfulLoadCompletion() {
