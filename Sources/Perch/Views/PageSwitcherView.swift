@@ -19,10 +19,18 @@ struct PageSwitcherView: View {
             Divider()
 
             if controller.sections.isEmpty {
-                ContentUnavailableView(
-                    "No matching pages",
-                    systemImage: "magnifyingglass"
-                )
+                let emptyState = PageSwitcherEmptyState(query: controller.query)
+                ContentUnavailableView {
+                    Label(emptyState.title, systemImage: emptyState.systemImage)
+                } description: {
+                    Text(emptyState.description)
+                } actions: {
+                    if let actionTitle = emptyState.actionTitle {
+                        Button(actionTitle) {
+                            controller.query = ""
+                        }
+                    }
+                }
                 .frame(maxWidth: .infinity, minHeight: 120)
             } else {
                 ScrollViewReader { proxy in
@@ -89,6 +97,7 @@ struct PageSwitcherView: View {
             }
         }
         .frame(width: 320)
+        .disablesAnimationOnColorSchemeChange()
         .task {
             await controller.load()
             searchIsFocused = true
@@ -184,11 +193,13 @@ struct PageSwitcherRow: View {
                 Text(presentation.primaryText)
                     .fontWeight(item.page.role == nil ? .regular : .semibold)
                     .lineLimit(1)
+                    .help(presentation.helpText)
                 if let secondaryText = presentation.secondaryText {
                     Text(secondaryText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .help(secondaryText)
                 }
             }
 
@@ -198,15 +209,25 @@ struct PageSwitcherRow: View {
                 if item.isPinned {
                     Button(action: onEditRole) {
                         Image(systemName: item.page.role == nil ? "tag" : "pencil")
+                            .frame(
+                                width: InteractionPolicy.minimumHitTarget,
+                                height: InteractionPolicy.minimumHitTarget
+                            )
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .chromePressStyle()
                     .accessibilityLabel(PageSwitcherAccessibility.roleActionLabel(for: item))
                 }
 
                 Button(action: onTogglePin) {
                     Image(systemName: item.isPinned ? "pin.fill" : "pin")
+                        .frame(
+                            width: InteractionPolicy.minimumHitTarget,
+                            height: InteractionPolicy.minimumHitTarget
+                        )
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .chromePressStyle()
                 .accessibilityLabel(item.isPinned ? "Unpin page" : "Pin page")
             }
         }
@@ -219,6 +240,8 @@ struct PageSwitcherRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
+        .instantListHoverColor(value: isHovering)
+        .instantListHoverColor(value: isSelected)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(PageSwitcherAccessibility.rowLabel(for: item))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -235,14 +258,44 @@ struct PageSwitcherRow: View {
 struct PageSwitcherRowPresentation: Equatable {
     let primaryText: String
     let secondaryText: String?
+    let helpText: String
 
     init(item: PageSwitcherItem) {
         if let role = item.page.role {
             primaryText = role
             secondaryText = PageSwitcherAccessibility.pageTitle(for: item)
+            helpText = "\(role) — \(PageSwitcherAccessibility.pageTitle(for: item))"
         } else {
             primaryText = PageSwitcherAccessibility.pageTitle(for: item)
             secondaryText = nil
+            helpText = primaryText
+        }
+    }
+}
+
+struct PageSwitcherEmptyState: Equatable {
+    let title: String
+    let systemImage: String
+    let description: String
+    let actionTitle: String?
+}
+
+extension PageSwitcherEmptyState {
+    init(query: String) {
+        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            self.init(
+                title: "No pages yet",
+                systemImage: "doc.text.magnifyingglass",
+                description: "Open a Notion page in Perch to see it here.",
+                actionTitle: nil
+            )
+        } else {
+            self.init(
+                title: "No matching pages",
+                systemImage: "magnifyingglass",
+                description: "Try a different name, or clear the search.",
+                actionTitle: "Clear search"
+            )
         }
     }
 }

@@ -27,6 +27,7 @@ final class PiPChromeViewTests: XCTestCase {
             ]
         )
         XCTAssertEqual(PanelCornerControls.minimumHitTarget, 28)
+        XCTAssertEqual(PanelCornerControls.selectedBackgroundRadius, 4)
     }
 
     func testTopToolbarRevealsCornerControlsWithEveryOtherAction() {
@@ -174,6 +175,18 @@ final class PiPChromeViewTests: XCTestCase {
                 .message("Notion couldn't load this page."),
                 .retryButton("Retry loading Notion page"),
             ]
+        )
+    }
+
+    func testMissingPageChromeExposesANextActionInsteadOfABareEmptyLabel() {
+        XCTAssertEqual(
+            EmptyPageChromePresentation.missingPage,
+            EmptyPageChromePresentation(
+                title: "No Notion page is open",
+                description: "Open a page from Settings to keep it beside your other work.",
+                actionTitle: "Open Settings",
+                actionAccessibilityLabel: "Open Settings to choose a Notion page"
+            )
         )
     }
 
