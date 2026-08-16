@@ -28,22 +28,27 @@ final class StatusItemGlyphPolicyTests: XCTestCase {
             ),
             .visible
         )
-        XCTAssertEqual(
-            StatusItemGlyph.visible.systemSymbolName,
-            "rectangle.on.rectangle"
-        )
-        XCTAssertEqual(
-            StatusItemGlyph.stashed.systemSymbolName,
-            "rectangle.bottomhalf.inset.filled"
-        )
-        XCTAssertEqual(
-            StatusItemGlyph.loading.systemSymbolName,
-            "rectangle.dashed"
-        )
-        XCTAssertEqual(
-            StatusItemGlyph.needsSignIn.systemSymbolName,
-            "rectangle.badge.person.crop"
-        )
+    }
+
+    func testEveryGlyphRendersAsANonemptyTemplateImage() {
+        for glyph in [
+            StatusItemGlyph.visible,
+            .stashed,
+            .loading,
+            .needsSignIn,
+        ] {
+            let image = StatusItemGlyphPolicy.makeImage(for: glyph)
+            XCTAssertTrue(image.isTemplate)
+            XCTAssertGreaterThan(image.size.width, 0)
+            XCTAssertGreaterThan(image.size.height, 0)
+        }
+    }
+
+    func testHoveredVisibleMarkKeepsItsCanvasSize() {
+        let resting = StatusItemGlyphPolicy.makeImage(for: .visible)
+        let hovered = StatusItemGlyphPolicy.makeImage(for: .visible, separation: 1.5)
+        XCTAssertEqual(resting.size, hovered.size)
+        XCTAssertTrue(hovered.isTemplate)
     }
 
     func testLoadingAndSignInOverridePresentationAndPreferSignIn() {

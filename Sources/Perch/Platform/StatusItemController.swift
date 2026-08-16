@@ -49,6 +49,7 @@ final class StatusItemController: NSObject {
     private var currentGlyph: StatusItemGlyph?
     private var lastSummonGeneration: UInt = 0
     private var nodRestoreTask: Task<Void, Never>?
+    private var hoverTrackingArea: NSTrackingArea?
 
     private lazy var eventRouter = StatusItemEventRouter(
         holdDuration: runtime.shortcutHoldDuration,
@@ -92,6 +93,14 @@ final class StatusItemController: NSObject {
         button.target = self
         button.action = #selector(handleStatusItemAction(_:))
         button.sendAction(on: [.leftMouseDown, .leftMouseUp, .rightMouseUp])
+        let hoverTrackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        button.addTrackingArea(hoverTrackingArea)
+        self.hoverTrackingArea = hoverTrackingArea
 
         applyGlyph(runtime.statusItemGlyph, animated: false)
         lastSummonGeneration = runtime.statusItemSummonGeneration
@@ -115,6 +124,29 @@ final class StatusItemController: NSObject {
                 self?.handleSummon(generation)
             }
             .store(in: &cancellables)
+    }
+
+    isolated deinit {
+        nodRestoreTask?.cancel()
+        if let button = statusItem.button, let hoverTrackingArea {
+            button.removeTrackingArea(hoverTrackingArea)
+        }
+    }
+
+    @objc
+    func mouseEntered(with event: NSEvent) {
+        guard let button = statusItem.button, let glyph = currentGlyph else { return }
+        let separation = StatusItemMotionPolicy.hoverSeparation(reducesMotion: reducesMotion())
+        button.image = StatusItemGlyphPolicy.makeImage(for: glyph, separation: separation)
+        if separation > 0 {
+            playMorphPulse(on: button)
+        }
+    }
+
+    @objc
+    func mouseExited(with event: NSEvent) {
+        guard let button = statusItem.button, let glyph = currentGlyph else { return }
+        button.image = StatusItemGlyphPolicy.makeImage(for: glyph)
     }
 
     @objc
