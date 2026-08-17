@@ -14,8 +14,8 @@ without changing scrolling inside the Notion page.
   of the PiP content. This includes the hidden reveal strip and the entire
   visible toolbar.
 - Once a qualifying gesture begins, the PiP consumes that gesture until its
-  ended or cancelled phase even if the moving panel changes the event's local
-  pointer position.
+  ended or cancelled phase, including stationary events, even if the moving
+  panel changes the event's local pointer position.
 - Horizontal and vertical scrolling deltas move the panel in both axes and
   honor the user's macOS scrolling-direction preference.
 - The panel stops when the physical gesture ends. Momentum events are consumed
@@ -45,7 +45,9 @@ to the visible frame of the display captured when the gesture begins. Other
 events continue through `super.sendEvent(_:)`. Moving the actual panel already
 posts `NSWindow.didMoveNotification`, so `PiPPanelCoordinator` continues to own
 geometry persistence, panel-position state, snap-target presentation, and
-corner snapping without a parallel code path.
+corner snapping without a parallel code path. The panel exposes whether the
+trackpad gesture remains active so the coordinator defers its existing delayed
+snap until the physical gesture ends.
 
 `PiPChromeView.topControlsHeight` uses the controller's shared 36-point active
 height so the rendered toolbar and the panel-level gesture zone cannot drift.
@@ -62,8 +64,9 @@ event is forwarded and no gesture state is retained.
 
 Ended and cancelled events clear active movement. Momentum is suppressed until
 its own ended or cancelled phase, after which unrelated scrolling is forwarded
-normally. Zero-delta gesture events are consumed while active but do not issue
-redundant frame changes.
+normally. Stationary and zero-delta gesture events are consumed while active
+but do not issue redundant frame changes. Ordering the panel out resets an
+interrupted gesture so stale activity cannot affect a later presentation.
 
 ## Testing
 

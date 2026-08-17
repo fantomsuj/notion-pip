@@ -103,7 +103,7 @@
 
 - [ ] **Step 3: Implement panel event adaptation**
 
-  Give `KeyCapablePiPPanel` one controller instance. Override `sendEvent(_:)`; forward all non-scroll events, convert scroll event fields into the value input, resolve the gesture-starting display from `NSScreen.screens`, and apply `.move` decisions with `PanelFramePolicy.clamped(_:visibleFrames:)`. Consume accepted/end/momentum events and forward `.forward` decisions to AppKit. Keep the test entry point internal and route it through the same decision application method as `sendEvent(_:)`.
+  Give `KeyCapablePiPPanel` one controller instance. Override `sendEvent(_:)`; forward all non-scroll events, convert every AppKit scroll phase into the value input, resolve the gesture-starting display from `NSScreen.screens`, and apply `.move` decisions with `PanelFramePolicy.clamped(_:visibleFrames:)`. Consume accepted/stationary/end/momentum events and forward `.forward` decisions to AppKit. Expose active gesture state through `PiPPanelWindow` so corner snapping waits for physical completion, and reset interrupted state when the panel orders out. Keep the test entry point internal and route it through the same decision application method as `sendEvent(_:)`.
 
 - [ ] **Step 4: Share the active height with SwiftUI**
 

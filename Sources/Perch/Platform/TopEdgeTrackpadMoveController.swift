@@ -1,11 +1,31 @@
+import AppKit
 import CoreGraphics
 
 enum TopEdgeTrackpadMovePhase: Equatable, Sendable {
     case none
     case began
     case changed
+    case stationary
     case ended
     case cancelled
+}
+
+extension TopEdgeTrackpadMovePhase {
+    init(appKitPhase phase: NSEvent.Phase) {
+        if phase.contains(.began) {
+            self = .began
+        } else if phase.contains(.changed) {
+            self = .changed
+        } else if phase.contains(.stationary) {
+            self = .stationary
+        } else if phase.contains(.ended) {
+            self = .ended
+        } else if phase.contains(.cancelled) {
+            self = .cancelled
+        } else {
+            self = .none
+        }
+    }
 }
 
 struct TopEdgeTrackpadMoveInput: Equatable, Sendable {
@@ -33,6 +53,15 @@ final class TopEdgeTrackpadMoveController {
     private var activeVisibleFrame: CGRect?
     private var suppressesMomentum = false
 
+    var isActive: Bool {
+        activeVisibleFrame != nil
+    }
+
+    func reset() {
+        activeVisibleFrame = nil
+        suppressesMomentum = false
+    }
+
     func handle(_ input: TopEdgeTrackpadMoveInput) -> TopEdgeTrackpadMoveDecision {
         if input.momentumPhase != .none {
             let shouldConsume = suppressesMomentum || activeVisibleFrame != nil
@@ -40,7 +69,7 @@ final class TopEdgeTrackpadMoveController {
             switch input.momentumPhase {
             case .ended, .cancelled:
                 suppressesMomentum = false
-            case .began, .changed:
+            case .began, .changed, .stationary:
                 suppressesMomentum = shouldConsume
             case .none:
                 break
@@ -69,6 +98,9 @@ final class TopEdgeTrackpadMoveController {
                 return .forward
             }
             return decision(for: input.translation, visibleFrame: activeVisibleFrame)
+
+        case .stationary:
+            return activeVisibleFrame == nil ? .forward : .consume
 
         case .ended, .cancelled:
             guard activeVisibleFrame != nil else { return .forward }

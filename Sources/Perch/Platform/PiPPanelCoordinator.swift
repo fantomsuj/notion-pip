@@ -8,6 +8,7 @@ protocol PiPPanelWindow: AnyObject {
     var frame: CGRect { get }
     var isVisible: Bool { get }
     var isExpanded: Bool { get }
+    var isTrackpadMoveActive: Bool { get }
     var onClose: (@MainActor () -> Void)? { get set }
     func present()
     func presentFromStash(
@@ -34,6 +35,8 @@ protocol PiPPanelWindow: AnyObject {
 }
 
 extension PiPPanelWindow {
+    var isTrackpadMoveActive: Bool { false }
+
     func cancelPendingStashDismissal() {}
 
     func presentForPullReveal(at frame: CGRect) {
@@ -1173,7 +1176,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         cornerSnapTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(140))
             guard !Task.isCancelled else { return }
-            guard self?.isPrimaryMouseButtonPressed() == false else {
+            guard self?.isPrimaryMouseButtonPressed() == false,
+                self?.panel.isTrackpadMoveActive == false
+            else {
                 self?.scheduleCornerSnap()
                 return
             }
@@ -1320,6 +1325,10 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         styleMask.contains(.fullScreen) || isZoomed
     }
 
+    var isTrackpadMoveActive: Bool {
+        topEdgeTrackpadMoveController.isActive
+    }
+
     override var canBecomeKey: Bool {
         true
     }
@@ -1333,8 +1342,8 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         }
 
         let input = TopEdgeTrackpadMoveInput(
-            phase: TopEdgeTrackpadMovePhase(event.phase),
-            momentumPhase: TopEdgeTrackpadMovePhase(event.momentumPhase),
+            phase: TopEdgeTrackpadMovePhase(appKitPhase: event.phase),
+            momentumPhase: TopEdgeTrackpadMovePhase(appKitPhase: event.momentumPhase),
             hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
             locationInContent: contentView.convert(event.locationInWindow, from: nil),
             contentBounds: contentView.bounds,
@@ -1382,6 +1391,11 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         } else {
             orderOut(nil)
         }
+    }
+
+    override func orderOut(_ sender: Any?) {
+        topEdgeTrackpadMoveController.reset()
+        super.orderOut(sender)
     }
 
     func configureCloseButtonForStash() {
@@ -1633,22 +1647,6 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
                 self.alphaValue = 1
                 completion()
             }
-        }
-    }
-}
-
-private extension TopEdgeTrackpadMovePhase {
-    init(_ phase: NSEvent.Phase) {
-        if phase.contains(.began) {
-            self = .began
-        } else if phase.contains(.changed) {
-            self = .changed
-        } else if phase.contains(.ended) {
-            self = .ended
-        } else if phase.contains(.cancelled) {
-            self = .cancelled
-        } else {
-            self = .none
         }
     }
 }

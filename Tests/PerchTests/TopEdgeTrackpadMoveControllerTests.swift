@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import XCTest
 @testable import Perch
@@ -6,6 +7,18 @@ import XCTest
 final class TopEdgeTrackpadMoveControllerTests: XCTestCase {
     private let contentBounds = CGRect(x: 0, y: 0, width: 480, height: 720)
     private let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+
+    func testAppKitGesturePhasesMapToPolicyPhases() {
+        XCTAssertEqual(TopEdgeTrackpadMovePhase(appKitPhase: .began), .began)
+        XCTAssertEqual(TopEdgeTrackpadMovePhase(appKitPhase: .changed), .changed)
+        XCTAssertEqual(TopEdgeTrackpadMovePhase(appKitPhase: .stationary), .stationary)
+        XCTAssertEqual(TopEdgeTrackpadMovePhase(appKitPhase: .ended), .ended)
+        XCTAssertEqual(TopEdgeTrackpadMovePhase(appKitPhase: .cancelled), .cancelled)
+        XCTAssertEqual(
+            TopEdgeTrackpadMovePhase(appKitPhase: NSEvent.Phase(rawValue: 0)),
+            .none
+        )
+    }
 
     func testPreciseGestureBeginsInsideHiddenRevealStrip() {
         let controller = TopEdgeTrackpadMoveController()
@@ -219,6 +232,98 @@ final class TopEdgeTrackpadMoveControllerTests: XCTestCase {
                 )
             ),
             .consume
+        )
+    }
+
+    func testStationaryPhysicalEventIsConsumedWhileGestureIsActive() {
+        let controller = TopEdgeTrackpadMoveController()
+        _ = controller.handle(
+            input(
+                phase: .began,
+                location: CGPoint(x: 240, y: 712),
+                translation: CGSize(width: 1, height: 2)
+            )
+        )
+
+        XCTAssertEqual(
+            controller.handle(
+                input(
+                    phase: .stationary,
+                    location: CGPoint(x: 240, y: 712),
+                    translation: .zero
+                )
+            ),
+            .consume
+        )
+    }
+
+    func testStationaryMomentumIsSuppressedAfterAcceptedGesture() {
+        let controller = TopEdgeTrackpadMoveController()
+        _ = controller.handle(
+            input(
+                phase: .began,
+                location: CGPoint(x: 240, y: 712),
+                translation: CGSize(width: 1, height: 2)
+            )
+        )
+        _ = controller.handle(
+            input(
+                phase: .ended,
+                location: CGPoint(x: 240, y: 712),
+                translation: .zero
+            )
+        )
+
+        XCTAssertEqual(
+            controller.handle(
+                input(
+                    phase: .none,
+                    momentumPhase: .stationary,
+                    location: CGPoint(x: 240, y: 400),
+                    translation: CGSize(width: 30, height: -40)
+                )
+            ),
+            .consume
+        )
+    }
+
+    func testUnrelatedStationaryEventIsForwarded() {
+        let controller = TopEdgeTrackpadMoveController()
+
+        XCTAssertEqual(
+            controller.handle(
+                input(
+                    phase: .stationary,
+                    location: CGPoint(x: 240, y: 400),
+                    translation: .zero
+                )
+            ),
+            .forward
+        )
+    }
+
+    func testResetClearsAnInterruptedGesture() {
+        let controller = TopEdgeTrackpadMoveController()
+        _ = controller.handle(
+            input(
+                phase: .began,
+                location: CGPoint(x: 240, y: 712),
+                translation: CGSize(width: 1, height: 2)
+            )
+        )
+
+        controller.reset()
+
+        XCTAssertFalse(controller.isActive)
+        XCTAssertEqual(
+            controller.handle(
+                input(
+                    phase: .stationary,
+                    location: CGPoint(x: 240, y: 712),
+                    translation: .zero
+                )
+            ),
+            .forward
         )
     }
 
