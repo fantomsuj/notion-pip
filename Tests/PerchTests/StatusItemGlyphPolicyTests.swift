@@ -38,17 +38,51 @@ final class StatusItemGlyphPolicyTests: XCTestCase {
             .needsSignIn,
         ] {
             let image = StatusItemGlyphPolicy.makeImage(for: glyph)
+            let raster = rasterizeStatusItemImage(image)
             XCTAssertTrue(image.isTemplate)
             XCTAssertGreaterThan(image.size.width, 0)
             XCTAssertGreaterThan(image.size.height, 0)
+            XCTAssertGreaterThan(
+                raster.visiblePixelCount,
+                0,
+                "Expected \(glyph) to draw visible pixels"
+            )
         }
     }
 
-    func testHoveredVisibleMarkKeepsItsCanvasSize() {
+    func testStateGlyphsProduceMeaningfullyDifferentVisibleMarks() {
+        let glyphs = [
+            StatusItemGlyph.visible,
+            .stashed,
+            .loading,
+            .needsSignIn,
+        ]
+        let rasters = glyphs.map {
+            rasterizeStatusItemImage(StatusItemGlyphPolicy.makeImage(for: $0))
+        }
+
+        for firstIndex in rasters.indices {
+            for secondIndex in rasters.indices where secondIndex > firstIndex {
+                XCTAssertGreaterThan(
+                    rasters[firstIndex].differingPixelCount(from: rasters[secondIndex]),
+                    4,
+                    "Expected \(glyphs[firstIndex]) and \(glyphs[secondIndex]) to differ"
+                )
+            }
+        }
+    }
+
+    func testHoveredVisibleMarkDiffersFromRestingMarkOnTheSameCanvas() {
         let resting = StatusItemGlyphPolicy.makeImage(for: .visible)
         let hovered = StatusItemGlyphPolicy.makeImage(for: .visible, separation: 1.5)
+        let restingRaster = rasterizeStatusItemImage(resting)
+        let hoveredRaster = rasterizeStatusItemImage(hovered)
+
         XCTAssertEqual(resting.size, hovered.size)
         XCTAssertTrue(hovered.isTemplate)
+        XCTAssertGreaterThan(restingRaster.visiblePixelCount, 0)
+        XCTAssertGreaterThan(hoveredRaster.visiblePixelCount, 0)
+        XCTAssertGreaterThan(restingRaster.differingPixelCount(from: hoveredRaster), 4)
     }
 
     func testLoadingAndSignInOverridePresentationAndPreferSignIn() {

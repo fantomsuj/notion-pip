@@ -47,6 +47,8 @@ final class StatusItemController: NSObject {
     private let reducesMotion: @MainActor () -> Bool
     private var cancellables = Set<AnyCancellable>()
     private var currentGlyph: StatusItemGlyph?
+    private var isHovered = false
+    private var isNodding = false
     private var lastSummonGeneration: UInt = 0
     private var nodRestoreTask: Task<Void, Never>?
     private var hoverTrackingArea: NSTrackingArea?
@@ -135,18 +137,18 @@ final class StatusItemController: NSObject {
 
     @objc
     func mouseEntered(with event: NSEvent) {
-        guard let button = statusItem.button, let glyph = currentGlyph else { return }
-        let separation = StatusItemMotionPolicy.hoverSeparation(reducesMotion: reducesMotion())
-        button.image = StatusItemGlyphPolicy.makeImage(for: glyph, separation: separation)
-        if separation > 0 {
+        guard let button = statusItem.button else { return }
+        isHovered = true
+        if renderImage(on: button).separation > 0 {
             playMorphPulse(on: button)
         }
     }
 
     @objc
     func mouseExited(with event: NSEvent) {
-        guard let button = statusItem.button, let glyph = currentGlyph else { return }
-        button.image = StatusItemGlyphPolicy.makeImage(for: glyph)
+        guard let button = statusItem.button else { return }
+        isHovered = false
+        renderImage(on: button)
     }
 
     @objc
@@ -168,7 +170,7 @@ final class StatusItemController: NSObject {
     private func applyGlyph(_ glyph: StatusItemGlyph, animated: Bool) {
         guard let button = statusItem.button else { return }
         currentGlyph = glyph
-        button.image = StatusItemGlyphPolicy.makeImage(for: glyph)
+        renderImage(on: button)
         button.setAccessibilityLabel(glyph.accessibilityLabel)
         guard animated, StatusItemMotionPolicy.shouldAnimate(reducesMotion: reducesMotion()) else {
             return
@@ -177,18 +179,39 @@ final class StatusItemController: NSObject {
     }
 
     private func playSummonNod() {
-        guard let button = statusItem.button, let glyph = currentGlyph else { return }
-        let offset = StatusItemMotionPolicy.nodOffset(reducesMotion: reducesMotion())
-        guard offset != 0 else { return }
-
+        guard let button = statusItem.button, currentGlyph != nil else { return }
         nodRestoreTask?.cancel()
-        button.image = StatusItemGlyphPolicy.makeImage(for: glyph, verticalOffset: offset)
+        isNodding = true
+        guard renderImage(on: button).verticalOffset != 0 else {
+            isNodding = false
+            return
+        }
         nodRestoreTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(StatusItemMotionPolicy.nodDuration))
             guard let self, !Task.isCancelled else { return }
-            guard let currentGlyph = self.currentGlyph else { return }
-            button.image = StatusItemGlyphPolicy.makeImage(for: currentGlyph)
+            self.isNodding = false
+            self.renderImage(on: button)
         }
+    }
+
+    @discardableResult
+    private func renderImage(
+        on button: NSStatusBarButton
+    ) -> (separation: CGFloat, verticalOffset: CGFloat) {
+        guard let currentGlyph else { return (0, 0) }
+        let shouldReduceMotion = reducesMotion()
+        let separation = isHovered
+            ? StatusItemMotionPolicy.hoverSeparation(reducesMotion: shouldReduceMotion)
+            : 0
+        let verticalOffset = isNodding
+            ? StatusItemMotionPolicy.nodOffset(reducesMotion: shouldReduceMotion)
+            : 0
+        button.image = StatusItemGlyphPolicy.makeImage(
+            for: currentGlyph,
+            separation: separation,
+            verticalOffset: verticalOffset
+        )
+        return (separation, verticalOffset)
     }
 
     private func playMorphPulse(on button: NSStatusBarButton) {
