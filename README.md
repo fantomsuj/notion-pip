@@ -25,6 +25,11 @@ Pin the Notion page you are living in and keep it close without turning it into 
 - Opt in to launching Perch when you log in to your Mac. The Settings
   toggle reads macOS's current registration state and points you to Login Items
   settings when the system requires approval.
+- Optionally enable Context Suggestions. With explicit macOS Accessibility
+  permission, Perch compares the frontmost app, focused window title, and any
+  URL that window exposes with the titles and roles of your seven pinned and
+  seven recent pages. A quiet card can open the best match at its saved page
+  position without storing or uploading the surrounding app context.
 
 Hover over the edge handle to see up to five pages you recently opened in Perch. Click a recent page to restore it where you left off, click the handle itself to restore the current page, or drag the handle to move it to another edge or display.
 
@@ -101,4 +106,22 @@ Codex will check the Mac and Xcode prerequisites, build and verify the app, and 
 
 Perch accepts HTTPS page URLs on `app.notion.com`, `notion.com`, and `www.notion.com` with a canonical 32-character hexadecimal page ID. Legacy `notion.so` and `www.notion.so` links remain accepted; all non-app hosts canonicalize to `www.notion.com`. Every accepted host retains its percent-encoded path, while credentials, query strings, and fragments are removed. The `perch` handoff contract is documented in [the handoff protocol](docs/HANDOFF_PROTOCOL.md).
 
-Quick Copy is deferred from Perch 0.1, which does not start its Accessibility monitor or request Accessibility permission. The experimental implementation remains isolated in source for later validation. Perch does not ask for, store, or send a personal integration token; the signed-in Notion session remains in WebKit's website data store. Local builds use an available Apple Development or Perch local-development signing identity, falling back to ad-hoc signing when neither exists. Run `./script/setup_local_signing.sh` once to create the optional machine-local identity when repeated ad-hoc rebuilds destabilize macOS permissions or login-item approval. This identity is only for local development; it is not Developer ID distribution signing or notarization. Launch at Login uses Apple's public ServiceManagement API and changes system registration only when you use its explicit toggle. See the [privacy policy](docs/PRIVACY.md) and [support, installation, and uninstall guide](docs/SUPPORT.md). Windowing and login-item checks live in [the manual test matrix](docs/MANUAL_TEST_MATRIX.md), while reference provenance and reuse exclusions live in [the open-source research](docs/OPEN_SOURCE_RESEARCH.md) and [upstream-reuse notes](docs/UPSTREAM_REUSE.md). Product opportunities, comparable interaction patterns, and recommended experiments are synthesized in the [product research report](docs/PRODUCT_RESEARCH_REPORT.md).
+Context Suggestions is off by default and requests Accessibility access only
+when enabled. Quick Copy remains deferred and its separate selection monitor is
+not started. Perch does not ask for, store, or send a personal integration
+token; the signed-in Notion session remains in WebKit's website data store.
+Local builds use an available Apple Development or Perch local-development
+signing identity, falling back to ad-hoc signing when neither exists. Run
+`./script/setup_local_signing.sh` once to create the optional machine-local
+identity when repeated ad-hoc rebuilds destabilize macOS permissions or
+login-item approval. This identity is only for local development; it is not
+Developer ID distribution signing or notarization. Launch at Login uses
+Apple's public ServiceManagement API and changes system registration only when
+you use its explicit toggle. See the [privacy policy](docs/PRIVACY.md) and
+[support, installation, and uninstall guide](docs/SUPPORT.md). Windowing and
+login-item checks live in [the manual test matrix](docs/MANUAL_TEST_MATRIX.md),
+while reference provenance and reuse exclusions live in the
+[open-source research](docs/OPEN_SOURCE_RESEARCH.md) and
+[upstream-reuse notes](docs/UPSTREAM_REUSE.md). Product opportunities,
+comparable interaction patterns, and recommended experiments are synthesized
+in the [product research report](docs/PRODUCT_RESEARCH_REPORT.md).

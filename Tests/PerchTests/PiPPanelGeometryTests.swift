@@ -83,6 +83,7 @@ final class PiPPanelGeometryTests: XCTestCase {
     }
 
     func testStashingDoesNotResizeRetainedPanel() throws {
+        try requireInteractiveAppKitTests()
         _ = NSApplication.shared
         let autosaveKey = "NSWindow Frame PerchPanel"
         let priorAutosavedFrame = UserDefaults.standard.object(forKey: autosaveKey)
@@ -154,6 +155,7 @@ final class PiPPanelGeometryTests: XCTestCase {
     }
 
     private func assertRealPanelStashRestore(requestedSize: CGSize) throws {
+        try requireInteractiveAppKitTests()
         _ = NSApplication.shared
         let visibleFrame = try XCTUnwrap(NSScreen.main?.visibleFrame)
         let effectiveSize = CGSize(

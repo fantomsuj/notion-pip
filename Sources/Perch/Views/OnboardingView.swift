@@ -17,17 +17,23 @@ struct OnboardingView: View {
 
             Text(selection.heading)
                 .font(.system(size: 28, weight: .semibold))
-                .padding(.top, DesignTokens.Spacing.section)
+                .padding(.top, InteractionPolicy.groupSpacing(innerSpacing: DesignTokens.Spacing.control))
+                .staggeredEntrance(index: 0)
+                .id("heading-\(selection.id)")
 
             Text(selection.detail)
                 .font(.body)
                 .foregroundStyle(DesignTokens.Colors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, DesignTokens.Spacing.control)
+                .staggeredEntrance(index: 1)
+                .id("detail-\(selection.id)")
 
             artwork
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.vertical, 22)
+                .staggeredEntrance(index: 2)
+                .id("artwork-\(selection.id)")
 
             Divider()
 
@@ -37,6 +43,7 @@ struct OnboardingView: View {
         .padding(24)
         .frame(minWidth: 560, minHeight: 430)
         .background(DesignTokens.Colors.background)
+        .disablesAnimationOnColorSchemeChange()
         .onAppear {
             requestPageURLFocusIfNeeded()
         }
@@ -53,7 +60,7 @@ struct OnboardingView: View {
             Spacer()
 
             Text("\(selection.rawValue + 1) of \(OnboardingStep.allCases.count)")
-                .font(.caption)
+                .font(.caption.monospacedDigit())
                 .foregroundStyle(DesignTokens.Colors.secondaryText)
                 .accessibilityLabel("Step \(selection.rawValue + 1) of \(OnboardingStep.allCases.count): \(selection.sidebarTitle)")
         }
@@ -295,9 +302,12 @@ private struct ShortcutRow: View {
                 .font(.system(.body, design: .rounded, weight: .semibold))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(DesignTokens.Colors.background, in: RoundedRectangle(cornerRadius: 7))
+                .background(
+                    DesignTokens.Colors.background,
+                    in: RoundedRectangle(cornerRadius: DesignTokens.Radius.control)
+                )
                 .overlay {
-                    RoundedRectangle(cornerRadius: 7)
+                    RoundedRectangle(cornerRadius: DesignTokens.Radius.control)
                         .stroke(DesignTokens.Colors.border)
                 }
                 .accessibilityLabel(shortcutAccessibilityLabel)

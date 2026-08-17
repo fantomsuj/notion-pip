@@ -4,12 +4,20 @@ enum PagePickerDisplay {
     static let maximumTitleLength = 30
 
     static func title(for page: NotionPageReference) -> String {
-        let title = page.displayTitle ?? "Untitled Notion page"
+        let title = fullTitle(for: page)
         guard title.count > maximumTitleLength else {
             return title
         }
 
         return String(title.prefix(maximumTitleLength - 1)) + "…"
+    }
+
+    static func fullTitle(for page: NotionPageReference) -> String {
+        page.displayTitle ?? "Untitled Notion page"
+    }
+
+    static func helpText(for page: NotionPageReference) -> String {
+        fullTitle(for: page)
     }
 }
 
@@ -30,7 +38,8 @@ struct PagePickerView: View {
                     Label(PagePickerDisplay.title(for: page), systemImage: "doc.text")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.plain)
+                .chromePressStyle()
+                .help(PagePickerDisplay.helpText(for: page))
                 .accessibilityHint("Shows this page in the floating panel")
             }
         }
