@@ -2,6 +2,39 @@ import XCTest
 @testable import Perch
 
 final class PersistenceBootstrapTests: XCTestCase {
+    func testTemporaryDirectoryStoreOpenFailureEntersRecoveryWithoutTouchingRealStore() throws {
+        let supportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: supportDirectory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: supportDirectory) }
+        let blockedStoreDirectory = supportDirectory.appendingPathComponent(
+            "com.fantomsuj.Perch"
+        )
+        XCTAssertTrue(
+            FileManager.default.createFile(
+                atPath: blockedStoreDirectory.path,
+                contents: Data("not a directory".utf8)
+            )
+        )
+
+        let result = PersistenceBootstrapper.live(
+            applicationSupportDirectory: supportDirectory
+        ).bootstrap()
+
+        guard case .recoveryRequired = result else {
+            return XCTFail("Expected the invalid temporary store path to require recovery")
+        }
+        XCTAssertNil(result.pageRepository)
+        XCTAssertEqual(
+            result.initialServiceHealth,
+            ServiceHealthState(issues: [.persistentStoreUnavailable])
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: blockedStoreDirectory.path))
+    }
+
     func testLiveBootstrapUsesProvidedApplicationSupportDirectory() throws {
         let supportDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

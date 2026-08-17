@@ -21,6 +21,42 @@ Do not distribute a local `dist/Perch.app` build to another Mac. Local builds ma
 - **Launch at Login needs approval:** Open Settings → Launch at Login, follow the button to System Settings → General → Login Items & Extensions, approve Perch, then return to the app.
 - **Accessibility permission appears:** Perch 0.1 does not require Accessibility access. Remove any older Perch entry in System Settings → Privacy & Security → Accessibility. If an installed 0.1 build asks for access, cancel the prompt and report the build number.
 
+## Local storage recovery
+
+If Perch cannot open or migrate its local SwiftData store, it opens a normal recovery window before onboarding or Settings. Your Notion pages, account, sign-in, and embedded website data are unaffected. The failure concerns only Perch's device-local page history, pin roles, and restoration state.
+
+- **Reveal Store in Finder** selects `Perch.store` when it exists, or the containing `~/Library/Application Support/com.fantomsuj.Perch` folder when it does not.
+- **Continue Without Saving** keeps the current app process running with local page-history persistence disabled. Notion remains usable, but visits, pins, roles, and restoration changes from that session are not saved. Settings keeps a Service Health warning whose **Review Recovery Options** button reopens the recovery window.
+- **Archive Store and Quit…** asks for confirmation, moves the existing store artifacts into a new collision-free folder under `~/Library/Application Support/com.fantomsuj.Perch/Recovery/Perch-store-<UTC timestamp>/`, and then quits normally. Reopening Perch creates an empty local store through its ordinary startup path.
+
+Only these artifacts are eligible for an archive:
+
+- `Perch.store`
+- `Perch.store-wal`
+- `Perch.store-shm`
+- `Perch.store-journal`
+- `Perch.store_SUPPORT`
+
+Perch never archives `instance.lock`, Preferences, WebKit website data, Notion cookies, or other files. It never deletes or overwrites a store artifact. If a move fails, Perch attempts to return every artifact already moved and reports any artifact that could not be returned. Leave both the original and Recovery locations unchanged if that happens, use **Reveal Store in Finder**, and include only filenames and the displayed error when filing a support issue. Store archives can contain private Notion page URLs and titles, so do not attach them publicly.
+
+Archived stores remain on the Mac until the user deliberately moves or deletes them. They are preserved for a future recovery tool; Perch 0.1 does not import or export individual records from an archived store.
+
+### Safe developer corruption simulation
+
+Never corrupt, rename, move, or replace the real `~/Library/Application Support/com.fantomsuj.Perch` directory for a test. The focused simulation creates an invalid store path only inside a unique temporary directory and removes that fixture afterward:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  swift test --filter PersistenceBootstrapTests.testTemporaryDirectoryStoreOpenFailureEntersRecoveryWithoutTouchingRealStore
+```
+
+Run the archive transaction suite separately to exercise successful moves, collisions, rollback at the first/middle/final move, and incomplete rollback without touching user data:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  swift test --filter PersistentStoreArchiveServiceTests
+```
+
 ## Uninstall Perch and remove local data
 
 1. In Perch Settings, turn off Launch at Login.
