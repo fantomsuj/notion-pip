@@ -6,6 +6,8 @@ import XCTest
 
 @MainActor
 final class PiPPanelGeometryTests: XCTestCase {
+    private static let transitionTimeout: TimeInterval = 1
+
     func testTopEdgeTrackpadMoveTranslatesRealPanelInBothAxes() {
         let panel = KeyCapablePiPPanel(
             contentRect: CGRect(x: 100, y: 100, width: 400, height: 500),
@@ -253,7 +255,10 @@ final class PiPPanelGeometryTests: XCTestCase {
                 )
             )
         )
-        drainMainRunLoop()
+        XCTAssertTrue(
+            waitForCondition(timeout: Self.transitionTimeout) { panel.isVisible },
+            "Panel did not become visible before setting the test frame"
+        )
         let requestedFrame = CGRect(x: 100, y: 100, width: 620, height: 680)
         panel.setFrame(requestedFrame, display: false)
         let retainedFrame = panel.frame
@@ -263,16 +268,23 @@ final class PiPPanelGeometryTests: XCTestCase {
                 visibleFrames: [CGRect(x: 0, y: 0, width: 1_728, height: 1_084)]
             )
         )
-        drainMainRunLoop()
+        XCTAssertTrue(
+            waitForCondition(timeout: Self.transitionTimeout) { !panel.isVisible },
+            "Panel did not finish stashing"
+        )
 
         XCTAssertEqual(panel.frame, retainedFrame)
     }
 
-    private func drainMainRunLoop() {
-        let deadline = Date().addingTimeInterval(0.35)
-        while Date() < deadline {
+    private func waitForCondition(
+        timeout: TimeInterval,
+        _ condition: @escaping () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
             RunLoop.main.run(mode: .default, before: deadline)
         }
+        return condition()
     }
 
     private func assertRealPanelStashRestore(requestedSize: CGSize) throws {
@@ -320,7 +332,12 @@ final class PiPPanelGeometryTests: XCTestCase {
             coordinator.stash(visibleFrames: [visibleFrame])
         )
         handle.restore()
-        drainMainRunLoop()
+        XCTAssertTrue(
+            waitForCondition(timeout: Self.transitionTimeout) {
+                panel.isVisible && panel.frame == retainedFrame
+            },
+            "Panel did not finish restoring its retained frame"
+        )
 
         XCTAssertTrue(panel.isVisible)
         XCTAssertEqual(panel.frame, retainedFrame)

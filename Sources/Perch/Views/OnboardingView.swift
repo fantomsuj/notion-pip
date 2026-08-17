@@ -54,7 +54,7 @@ struct OnboardingView: View {
 
     private var header: some View {
         HStack {
-            Label("Perch", systemImage: "rectangle.on.rectangle")
+            PerchIdentityLabel(title: "Perch")
                 .font(.headline)
 
             Spacer()
