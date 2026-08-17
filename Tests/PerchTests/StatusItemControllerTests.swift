@@ -50,14 +50,15 @@ final class StatusItemControllerTests: XCTestCase {
             )
         )
 
-        try await Task.sleep(for: .milliseconds(60))
+        let restoredImage = StatusItemGlyphPolicy.makeImage(
+            for: .visible,
+            separation: StatusItemMotionPolicy.markHoverSeparation
+        )
+        try await waitForImage({ harness.image }, equals: restoredImage)
 
         try assertImage(
             harness.image,
-            equals: StatusItemGlyphPolicy.makeImage(
-                for: .visible,
-                separation: StatusItemMotionPolicy.markHoverSeparation
-            )
+            equals: restoredImage
         )
     }
 
@@ -98,6 +99,37 @@ final class StatusItemControllerTests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    private func waitForImage(
+        _ image: @escaping @MainActor () -> NSImage?,
+        equals expectedImage: NSImage,
+        timeout: Duration = .seconds(1)
+    ) async throws {
+        let expected = rasterizeStatusItemImage(expectedImage)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        var finalDifferingPixelCount: Int?
+
+        while true {
+            if let actualImage = image() {
+                let actual = rasterizeStatusItemImage(actualImage)
+                finalDifferingPixelCount = actual.differingPixelCount(from: expected)
+                if finalDifferingPixelCount == 0 {
+                    return
+                }
+            }
+
+            guard clock.now < deadline else {
+                let finalState = finalDifferingPixelCount.map(String.init) ?? "no image"
+                XCTFail(
+                    "Timed out after 1 second waiting for the status-item image to restore after nod; final differing pixel count: \(finalState)"
+                )
+                return
+            }
+
+            try await Task.sleep(for: .milliseconds(20))
+        }
     }
 }
 
