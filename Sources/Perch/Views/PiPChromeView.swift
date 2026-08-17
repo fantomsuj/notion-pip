@@ -67,7 +67,7 @@ struct PiPChromeView: View {
     static let stashAccessibilityLabel = "Stash Perch to Side"
     static let stashHelp = "Move Perch to the nearest screen edge"
     static let pageSwitcherAccessibilityLabel = "Switch Notion page"
-    static let topControlsHeight: CGFloat = 36
+    static let topControlsHeight = TopEdgeTrackpadMoveController.activeHeight
     static let topControlsSpacing = DesignTokens.Spacing.compact
     /// Tall enough to catch the pointer as it approaches the top edge without
     /// covering a large clickable region of the Notion page underneath.

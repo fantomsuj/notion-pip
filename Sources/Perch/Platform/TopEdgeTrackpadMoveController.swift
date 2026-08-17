@@ -14,6 +14,7 @@ struct TopEdgeTrackpadMoveInput: Equatable, Sendable {
     let hasPreciseScrollingDeltas: Bool
     let locationInContent: CGPoint
     let contentBounds: CGRect
+    let isContentFlipped: Bool
     let isExpanded: Bool
     let visibleFrame: CGRect?
     let translation: CGSize
@@ -53,8 +54,7 @@ final class TopEdgeTrackpadMoveController {
             guard input.hasPreciseScrollingDeltas,
                 !input.isExpanded,
                 input.contentBounds.contains(input.locationInContent),
-                input.locationInContent.y
-                    > input.contentBounds.maxY - Self.activeHeight,
+                isInsideActiveRegion(input),
                 let visibleFrame = input.visibleFrame
             else {
                 activeVisibleFrame = nil
@@ -87,5 +87,14 @@ final class TopEdgeTrackpadMoveController {
     ) -> TopEdgeTrackpadMoveDecision {
         guard translation != .zero else { return .consume }
         return .move(translation: translation, visibleFrame: visibleFrame)
+    }
+
+    private func isInsideActiveRegion(_ input: TopEdgeTrackpadMoveInput) -> Bool {
+        if input.isContentFlipped {
+            return input.locationInContent.y
+                < input.contentBounds.minY + Self.activeHeight
+        }
+        return input.locationInContent.y
+            > input.contentBounds.maxY - Self.activeHeight
     }
 }

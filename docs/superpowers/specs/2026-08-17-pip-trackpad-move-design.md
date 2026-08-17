@@ -32,8 +32,9 @@ without changing scrolling inside the Notion page.
 Add a focused `TopEdgeTrackpadMoveController` in the platform layer. It owns a
 small gesture state machine and accepts value-type inputs describing event
 phase, momentum phase, precision, pointer position, content bounds, panel
-state, and scrolling delta. It returns one of three decisions: forward the
-event, consume it without moving, or consume it and move by a translation.
+state, content coordinate orientation, and scrolling delta. It returns one of
+three decisions: forward the event, consume it without moving, or consume it
+and move by a translation.
 This isolates gesture qualification and momentum suppression from AppKit event
 construction.
 

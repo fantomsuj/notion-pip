@@ -6,6 +6,68 @@ import XCTest
 
 @MainActor
 final class PiPPanelGeometryTests: XCTestCase {
+    func testTopEdgeTrackpadMoveTranslatesRealPanelInBothAxes() {
+        let panel = KeyCapablePiPPanel(
+            contentRect: CGRect(x: 100, y: 100, width: 400, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.setFrame(
+            CGRect(x: 100, y: 100, width: 400, height: 500),
+            display: false
+        )
+        defer { panel.orderOut(nil) }
+
+        let consumed = panel.handleTopEdgeTrackpadMove(
+            TopEdgeTrackpadMoveInput(
+                phase: .began,
+                momentumPhase: .none,
+                hasPreciseScrollingDeltas: true,
+                locationInContent: CGPoint(x: 200, y: 492),
+                contentBounds: CGRect(x: 0, y: 0, width: 400, height: 500),
+                isContentFlipped: false,
+                isExpanded: false,
+                visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                translation: CGSize(width: 12, height: -9)
+            )
+        )
+
+        XCTAssertTrue(consumed)
+        XCTAssertEqual(panel.frame.origin, CGPoint(x: 112, y: 91))
+    }
+
+    func testTopEdgeTrackpadMoveClampsRealPanelToStartingDisplay() {
+        let panel = KeyCapablePiPPanel(
+            contentRect: CGRect(x: 500, y: 200, width: 400, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.setFrame(
+            CGRect(x: 500, y: 200, width: 400, height: 500),
+            display: false
+        )
+        defer { panel.orderOut(nil) }
+
+        let consumed = panel.handleTopEdgeTrackpadMove(
+            TopEdgeTrackpadMoveInput(
+                phase: .began,
+                momentumPhase: .none,
+                hasPreciseScrollingDeltas: true,
+                locationInContent: CGPoint(x: 200, y: 492),
+                contentBounds: CGRect(x: 0, y: 0, width: 400, height: 500),
+                isContentFlipped: false,
+                isExpanded: false,
+                visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                translation: CGSize(width: 500, height: 500)
+            )
+        )
+
+        XCTAssertTrue(consumed)
+        XCTAssertEqual(panel.frame.origin, CGPoint(x: 600, y: 300))
+    }
+
     func testCornerLandingCurveIsMonotonicAndNeverOvershoots() {
         let samples = stride(from: CGFloat.zero, through: 1, by: 0.05).map {
             KeyCapablePiPPanel.criticallyDampedSpringProgress($0)

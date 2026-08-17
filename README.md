@@ -14,6 +14,8 @@ Pin the Notion page you are living in and keep it close without turning it into 
 
 - Create a fresh page in the native Notion app from the `+` button.
 - Stash the panel against the nearest screen edge and restore it from its slim tab, the optional menu-bar icon, or `Command-Shift-P`; when the PiP itself is zoomed or full screen, the shortcut first returns it to its prior floating size.
+- Move the PiP in either direction with a two-finger gesture from its top edge
+  or visible toolbar; scrolling within the Notion page remains unchanged.
 - Keep working in the real, embedded Notion page—not a screenshot or a simplified native imitation.
 - Reload the currently displayed Notion page with `Command-R`, including the sign-in page if your session has expired.
 - Hover at the panel’s top edge and open the page switcher to resume one of seven

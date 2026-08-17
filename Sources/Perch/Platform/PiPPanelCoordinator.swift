@@ -1312,6 +1312,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     private var frameAnimationTask: Task<Void, Never>?
     private var locateHaloTask: Task<Void, Never>?
     private var locateHaloPanel: NSPanel?
+    private let topEdgeTrackpadMoveController = TopEdgeTrackpadMoveController()
 
     var onClose: (@MainActor () -> Void)?
 
@@ -1321,6 +1322,58 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
 
     override var canBecomeKey: Bool {
         true
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        guard event.type == .scrollWheel,
+            let contentView
+        else {
+            super.sendEvent(event)
+            return
+        }
+
+        let input = TopEdgeTrackpadMoveInput(
+            phase: TopEdgeTrackpadMovePhase(event.phase),
+            momentumPhase: TopEdgeTrackpadMovePhase(event.momentumPhase),
+            hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
+            locationInContent: contentView.convert(event.locationInWindow, from: nil),
+            contentBounds: contentView.bounds,
+            isContentFlipped: contentView.isFlipped,
+            isExpanded: isExpanded,
+            visibleFrame: PanelFramePolicy.targetVisibleFrame(
+                for: frame,
+                from: NSScreen.screens.map(\.visibleFrame)
+            ),
+            translation: CGSize(
+                width: event.scrollingDeltaX,
+                height: event.scrollingDeltaY
+            )
+        )
+        guard !handleTopEdgeTrackpadMove(input) else { return }
+        super.sendEvent(event)
+    }
+
+    @discardableResult
+    func handleTopEdgeTrackpadMove(_ input: TopEdgeTrackpadMoveInput) -> Bool {
+        switch topEdgeTrackpadMoveController.handle(input) {
+        case .forward:
+            return false
+        case .consume:
+            return true
+        case let .move(translation, visibleFrame):
+            let proposedFrame = frame.offsetBy(
+                dx: translation.width,
+                dy: translation.height
+            )
+            setFrame(
+                PanelFramePolicy.clamped(
+                    proposedFrame,
+                    visibleFrames: [visibleFrame]
+                ),
+                display: isVisible
+            )
+            return true
+        }
     }
 
     override func close() {
@@ -1580,6 +1633,22 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
                 self.alphaValue = 1
                 completion()
             }
+        }
+    }
+}
+
+private extension TopEdgeTrackpadMovePhase {
+    init(_ phase: NSEvent.Phase) {
+        if phase.contains(.began) {
+            self = .began
+        } else if phase.contains(.changed) {
+            self = .changed
+        } else if phase.contains(.ended) {
+            self = .ended
+        } else if phase.contains(.cancelled) {
+            self = .cancelled
+        } else {
+            self = .none
         }
     }
 }

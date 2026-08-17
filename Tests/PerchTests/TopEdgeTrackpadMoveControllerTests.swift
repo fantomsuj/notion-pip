@@ -27,6 +27,44 @@ final class TopEdgeTrackpadMoveControllerTests: XCTestCase {
         )
     }
 
+    func testPreciseGestureUsesMinimumYAsTopForFlippedSwiftUIContent() {
+        let controller = TopEdgeTrackpadMoveController()
+
+        let accepted = controller.handle(
+            input(
+                phase: .began,
+                location: CGPoint(x: 240, y: 8),
+                isContentFlipped: true,
+                translation: CGSize(width: 12, height: -9)
+            )
+        )
+        _ = controller.handle(
+            input(
+                phase: .ended,
+                location: CGPoint(x: 240, y: 8),
+                isContentFlipped: true,
+                translation: .zero
+            )
+        )
+        let lowerBoundary = controller.handle(
+            input(
+                phase: .began,
+                location: CGPoint(x: 240, y: 36),
+                isContentFlipped: true,
+                translation: CGSize(width: 0, height: 8)
+            )
+        )
+
+        XCTAssertEqual(
+            accepted,
+            .move(
+                translation: CGSize(width: 12, height: -9),
+                visibleFrame: visibleFrame
+            )
+        )
+        XCTAssertEqual(lowerBoundary, .forward)
+    }
+
     func testPreciseGestureBeginsElsewhereInsideVisibleToolbar() {
         let controller = TopEdgeTrackpadMoveController()
 
@@ -251,6 +289,7 @@ final class TopEdgeTrackpadMoveControllerTests: XCTestCase {
         phase: TopEdgeTrackpadMovePhase,
         momentumPhase: TopEdgeTrackpadMovePhase = .none,
         location: CGPoint,
+        isContentFlipped: Bool = false,
         hasPreciseScrollingDeltas: Bool = true,
         isExpanded: Bool = false,
         visibleFrame: CGRect? = CGRect(x: 0, y: 0, width: 1_440, height: 900),
@@ -262,6 +301,7 @@ final class TopEdgeTrackpadMoveControllerTests: XCTestCase {
             hasPreciseScrollingDeltas: hasPreciseScrollingDeltas,
             locationInContent: location,
             contentBounds: contentBounds,
+            isContentFlipped: isContentFlipped,
             isExpanded: isExpanded,
             visibleFrame: visibleFrame,
             translation: translation
