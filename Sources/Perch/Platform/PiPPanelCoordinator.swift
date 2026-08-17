@@ -8,6 +8,7 @@ protocol PiPPanelWindow: AnyObject {
     var frame: CGRect { get }
     var isVisible: Bool { get }
     var isExpanded: Bool { get }
+    var isTrackpadMoveActive: Bool { get }
     var onClose: (@MainActor () -> Void)? { get set }
     func present()
     func presentFromStash(
@@ -34,6 +35,8 @@ protocol PiPPanelWindow: AnyObject {
 }
 
 extension PiPPanelWindow {
+    var isTrackpadMoveActive: Bool { false }
+
     func cancelPendingStashDismissal() {}
 
     func presentForPullReveal(at frame: CGRect) {
@@ -1173,7 +1176,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         cornerSnapTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(140))
             guard !Task.isCancelled else { return }
-            guard self?.isPrimaryMouseButtonPressed() == false else {
+            guard self?.isPrimaryMouseButtonPressed() == false,
+                self?.panel.isTrackpadMoveActive == false
+            else {
                 self?.scheduleCornerSnap()
                 return
             }
@@ -1312,6 +1317,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     private var frameAnimationTask: Task<Void, Never>?
     private var locateHaloTask: Task<Void, Never>?
     private var locateHaloPanel: NSPanel?
+    private let topEdgeTrackpadMoveController = TopEdgeTrackpadMoveController()
 
     var onClose: (@MainActor () -> Void)?
 
@@ -1319,8 +1325,64 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         styleMask.contains(.fullScreen) || isZoomed
     }
 
+    var isTrackpadMoveActive: Bool {
+        topEdgeTrackpadMoveController.isActive
+    }
+
     override var canBecomeKey: Bool {
         true
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        guard event.type == .scrollWheel,
+            let contentView
+        else {
+            super.sendEvent(event)
+            return
+        }
+
+        let input = TopEdgeTrackpadMoveInput(
+            phase: TopEdgeTrackpadMovePhase(appKitPhase: event.phase),
+            momentumPhase: TopEdgeTrackpadMovePhase(appKitPhase: event.momentumPhase),
+            hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
+            locationInContent: contentView.convert(event.locationInWindow, from: nil),
+            contentBounds: contentView.bounds,
+            isContentFlipped: contentView.isFlipped,
+            isExpanded: isExpanded,
+            visibleFrame: PanelFramePolicy.targetVisibleFrame(
+                for: frame,
+                from: NSScreen.screens.map(\.visibleFrame)
+            ),
+            translation: CGSize(
+                width: event.scrollingDeltaX,
+                height: event.scrollingDeltaY
+            )
+        )
+        guard !handleTopEdgeTrackpadMove(input) else { return }
+        super.sendEvent(event)
+    }
+
+    @discardableResult
+    func handleTopEdgeTrackpadMove(_ input: TopEdgeTrackpadMoveInput) -> Bool {
+        switch topEdgeTrackpadMoveController.handle(input) {
+        case .forward:
+            return false
+        case .consume:
+            return true
+        case let .move(translation, visibleFrame):
+            let proposedFrame = frame.offsetBy(
+                dx: translation.width,
+                dy: translation.height
+            )
+            setFrame(
+                PanelFramePolicy.clamped(
+                    proposedFrame,
+                    visibleFrames: [visibleFrame]
+                ),
+                display: isVisible
+            )
+            return true
+        }
     }
 
     override func close() {
@@ -1329,6 +1391,11 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         } else {
             orderOut(nil)
         }
+    }
+
+    override func orderOut(_ sender: Any?) {
+        topEdgeTrackpadMoveController.reset()
+        super.orderOut(sender)
     }
 
     func configureCloseButtonForStash() {

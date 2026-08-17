@@ -924,6 +924,31 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(snapTargets.dismissCount, 1)
     }
 
+    func testCornerSnapWaitsUntilTrackpadMoveEnds() async throws {
+        let originalFrame = CGRect(x: 870, y: 220, width: 520, height: 600)
+        let panel = FakePanelWindow(frame: originalFrame)
+        panel.isTrackpadMoveActive = true
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            isPrimaryMouseButtonPressed: { false },
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_440, height: 875)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        coordinator.recordPanelMove()
+        try await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(panel.frame, originalFrame)
+
+        panel.isTrackpadMoveActive = false
+        try await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(panel.frame, CGRect(x: 896, y: 251, width: 520, height: 600))
+    }
+
     func testRedCloseRequestsTheSameStashTransition() throws {
         let panel = FakePanelWindow(
             frame: CGRect(x: 620, y: 100, width: 300, height: 400)
@@ -1790,6 +1815,7 @@ private final class FakePanelWindow: PiPPanelWindow {
     private(set) var frame: CGRect
     private(set) var isVisible = false
     private(set) var isExpanded: Bool
+    var isTrackpadMoveActive = false
     private(set) var restoreFromExpandedStateCount = 0
     private(set) var setFrames: [CGRect] = []
     private(set) var setFrameDisplays: [Bool] = []
