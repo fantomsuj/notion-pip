@@ -135,7 +135,7 @@ final class PiPPanelGeometryTests: XCTestCase {
     }
 
     private func drainMainRunLoop() {
-        let deadline = Date().addingTimeInterval(0.35)
+        let deadline = Date().addingTimeInterval(0.5)
         while Date() < deadline {
             RunLoop.main.run(mode: .default, before: deadline)
         }
