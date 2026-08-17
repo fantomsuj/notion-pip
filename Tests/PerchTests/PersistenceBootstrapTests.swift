@@ -2,6 +2,32 @@ import XCTest
 @testable import Perch
 
 final class PersistenceBootstrapTests: XCTestCase {
+    func testLiveBootstrapUsesProvidedApplicationSupportDirectory() throws {
+        let supportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: supportDirectory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: supportDirectory) }
+
+        let result = PersistenceBootstrapper.live(
+            applicationSupportDirectory: supportDirectory
+        ).bootstrap()
+
+        guard case .available = result else {
+            return XCTFail("Expected live bootstrap to open a new store")
+        }
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: supportDirectory
+                    .appendingPathComponent("com.fantomsuj.Perch")
+                    .appendingPathComponent("Perch.store")
+                    .path
+            )
+        )
+    }
+
     func testOpenFailureReturnsOnlyRecoveryContextAndDegradedHealth() throws {
         var archiveCount = 0
         var revealCount = 0

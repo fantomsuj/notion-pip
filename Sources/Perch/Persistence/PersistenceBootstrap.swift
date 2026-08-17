@@ -57,6 +57,30 @@ struct PersistenceBootstrapper {
         self.recoveryContext = recoveryContext
     }
 
+    static func live(
+        applicationSupportDirectory: URL? = nil
+    ) -> PersistenceBootstrapper {
+        let storeDirectory = PerchPersistence.storeDirectory(
+            applicationSupportDirectory: applicationSupportDirectory
+        )
+        let archiveService = PersistentStoreArchiveService(
+            storeDirectory: storeDirectory
+        )
+        let revealer = PersistentStoreRevealer(storeDirectory: storeDirectory)
+        return PersistenceBootstrapper(
+            openRepository: {
+                let container = try PerchPersistence.makeContainer(
+                    applicationSupportDirectory: applicationSupportDirectory
+                )
+                return PageRepository(container: container)
+            },
+            recoveryContext: PersistentStoreRecoveryContext(
+                archiveStore: archiveService.archive,
+                revealStore: revealer.revealStore
+            )
+        )
+    }
+
     func bootstrap() -> PersistenceBootstrapResult {
         do {
             return .available(try openRepository())

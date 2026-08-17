@@ -60,6 +60,33 @@ final class StartupRecoveryCoordinationTests: XCTestCase {
         XCTAssertEqual(currentPageSetupCount, 1)
     }
 
+    func testRecoveryOptionsCanReopenWithoutRepeatingStartupFlow() {
+        let gate = StartupPresentationGate(recoveryRequired: true)
+        let recoveryPresenter = StartupRecoveryWindowPresenterSpy()
+        var onboardingCount = 0
+        var currentPageSetupCount = 0
+        let coordinator = StartupRecoveryCoordinator(
+            recoveryRequired: true,
+            gate: gate,
+            recoveryPresenter: recoveryPresenter,
+            showOnboardingIfNeeded: {
+                onboardingCount += 1
+                return false
+            },
+            showCurrentPageSetup: { currentPageSetupCount += 1 }
+        )
+        coordinator.applicationDidFinishLaunching()
+        coordinator.continueWithoutSaving()
+
+        coordinator.showRecoveryOptions()
+        coordinator.continueWithoutSaving()
+
+        XCTAssertEqual(recoveryPresenter.showCount, 2)
+        XCTAssertEqual(recoveryPresenter.hideCount, 2)
+        XCTAssertEqual(onboardingCount, 1)
+        XCTAssertEqual(currentPageSetupCount, 1)
+    }
+
     func testNormalStartupFollowsOnboardingPathWithoutShowingRecovery() {
         let gate = StartupPresentationGate(recoveryRequired: false)
         let recoveryPresenter = StartupRecoveryWindowPresenterSpy()

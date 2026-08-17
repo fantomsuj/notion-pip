@@ -41,14 +41,15 @@ final class RecoveryGuardedSettingsWindowPresenter: SettingsWindowPresenting {
 final class StartupRecoveryCoordinator {
     private let recoveryRequired: Bool
     private let gate: StartupPresentationGate
-    private let recoveryPresenter: any AppWindowPresenting
+    private let recoveryPresenter: (any AppWindowPresenting)?
     private let showOnboardingIfNeeded: @MainActor () -> Bool
     private let showCurrentPageSetup: @MainActor () -> Void
+    private var recoveryOptionsVisible = false
 
     init(
         recoveryRequired: Bool,
         gate: StartupPresentationGate,
-        recoveryPresenter: any AppWindowPresenting,
+        recoveryPresenter: (any AppWindowPresenting)?,
         showOnboardingIfNeeded: @escaping @MainActor () -> Bool,
         showCurrentPageSetup: @escaping @MainActor () -> Void
     ) {
@@ -61,17 +62,26 @@ final class StartupRecoveryCoordinator {
 
     func applicationDidFinishLaunching() {
         if recoveryRequired {
-            recoveryPresenter.show()
+            recoveryOptionsVisible = true
+            recoveryPresenter?.show()
         } else {
             _ = showOnboardingIfNeeded()
         }
     }
 
     func continueWithoutSaving() {
+        guard recoveryOptionsVisible else { return }
+        recoveryOptionsVisible = false
+        recoveryPresenter?.hide()
         guard gate.completeRecovery() else { return }
-        recoveryPresenter.hide()
         if !showOnboardingIfNeeded() {
             showCurrentPageSetup()
         }
+    }
+
+    func showRecoveryOptions() {
+        guard recoveryRequired, !recoveryOptionsVisible else { return }
+        recoveryOptionsVisible = true
+        recoveryPresenter?.show()
     }
 }

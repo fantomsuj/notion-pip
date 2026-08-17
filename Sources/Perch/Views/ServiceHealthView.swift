@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct ServiceHealthView: View {
@@ -20,11 +19,7 @@ struct ServiceHealthView: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     Button(issue.recoveryTitle) {
-                        if issue == .persistentStoreUnavailable {
-                            NSApp.terminate(nil)
-                        } else {
-                            runtime.retryRecovery(for: issue)
-                        }
+                        runtime.retryRecovery(for: issue)
                     }
                     .controlSize(.small)
                 }
@@ -48,7 +43,7 @@ private extension ServiceHealthIssue {
     var recoveryMessage: String {
         switch self {
         case .persistentStoreUnavailable:
-            "Current-page recovery is disabled. Quit and reopen the app to retry."
+            "Local page history is not being saved. Review the preserved store and recovery options."
         case .pinnedPagePersistenceUnavailable:
             "Your current page works for this session. Retry saving it locally."
         case .globalShortcutUnavailable:
@@ -59,7 +54,7 @@ private extension ServiceHealthIssue {
     var recoveryTitle: String {
         switch self {
         case .persistentStoreUnavailable:
-            "Quit App"
+            "Review Recovery Options"
         case .pinnedPagePersistenceUnavailable,
              .globalShortcutUnavailable:
             "Retry"
