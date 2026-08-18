@@ -27,7 +27,8 @@ enum PerchApp {
                         appDelegate: appDelegate,
                         coldLaunchToken: coldLaunchToken,
                         applicationDidFinishLaunching: {
-                            composition.onboardingCoordinator.showIfNeeded()
+                            composition.startupRecoveryCoordinator
+                                .applicationDidFinishLaunching()
                         }
                     )
                     application.run()
@@ -67,20 +68,26 @@ enum AppStartup {
 private final class AppComposition {
     let runtime: AppRuntime
     let onboardingCoordinator: OnboardingCoordinator
+    let startupRecoveryCoordinator: StartupRecoveryCoordinator
 
     private let settingsWindowPresenter: SettingsWindowPresenter
+    private let recoveryGuardedSettingsWindowPresenter:
+        RecoveryGuardedSettingsWindowPresenter
+    private let storageRecoveryController: StorageRecoveryController?
+    private let storageRecoveryPresenter: (any AppWindowPresenting)?
     private let statusItemController: StatusItemController
     private let panelSizeController: PanelSizeController
     private let panelPositionController: PanelPositionController
     private let launchAtLoginService: LaunchAtLoginService
+    private let contextSuggestionController: ContextSuggestionController
+    private let contextSuggestionPanelController: ContextSuggestionPanelController
     private var statusItemAppearanceCancellable: AnyCancellable?
+    private var contextSuggestionActivePageCancellable: AnyCancellable?
 
     init() {
         let actionRelay = AppCommandActionRelay()
         let onboardingPreferenceStore = OnboardingPreferenceStore()
         let webSession = NotionWebSession()
-        let pageRepository: PageRepository?
-        let initialServiceHealth: ServiceHealthState
 
         do {
             try LegacyPersonalTokenRemover().remove()
@@ -92,16 +99,16 @@ private final class AppComposition {
                 .error("Legacy personal-token cleanup failed")
         }
 
-        do {
-            let container = try PerchPersistence.makeContainer()
-            pageRepository = PageRepository(container: container)
-            initialServiceHealth = .healthy
-        } catch {
+        let persistenceResult = PersistenceBootstrapper.live().bootstrap()
+        let pageRepository = persistenceResult.pageRepository
+        let recoveryContext = persistenceResult.recoveryContext
+        if recoveryContext != nil {
             Logger(subsystem: "com.fantomsuj.Perch", category: "persistence")
                 .error("Persistent store unavailable")
-            pageRepository = nil
-            initialServiceHealth = ServiceHealthState(issues: [.persistentStoreUnavailable])
         }
+        let startupPresentationGate = StartupPresentationGate(
+            recoveryRequired: recoveryContext != nil
+        )
 
         let pageLauncher = NotionDesktopPageLauncher()
         let panelSizeController = PanelSizeController()
@@ -137,12 +144,29 @@ private final class AppComposition {
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
             pageRepository: pageRepository,
-            initialServiceHealth: initialServiceHealth,
+            initialServiceHealth: persistenceResult.initialServiceHealth,
             automaticSettingsPresentationAllowed: {
-                !onboardingPreferenceStore.shouldPresent(
+                startupPresentationGate.allowsCompetingPresentation
+                    && !onboardingPreferenceStore.shouldPresent(
                     version: OnboardingCoordinator.currentVersion
                 )
             }
+        )
+        let contextSuggestionController = ContextSuggestionController(
+            monitor: AccessibilityContextMonitor(),
+            store: pageRepository,
+            preferenceStore: ContextSuggestionPreferenceStore(),
+            activePageID: { [weak runtime] in runtime?.activePage?.pageID },
+            onActivate: { [weak runtime] page, restoration in
+                runtime?.activate(
+                    page: page,
+                    source: .contextSuggestion,
+                    restoration: restoration
+                )
+            }
+        )
+        let contextSuggestionPanelController = ContextSuggestionPanelController(
+            controller: contextSuggestionController
         )
 
         actionRelay.reloadSavedPinAction = { [weak runtime] in
@@ -186,12 +210,18 @@ private final class AppComposition {
                 runtime: runtime,
                 panelSizeController: panelSizeController,
                 launchAtLoginService: launchAtLoginService,
+                contextSuggestionController: contextSuggestionController,
                 closeRequestHandler: closeHandler
             )
         }
+        let recoveryGuardedSettingsWindowPresenter =
+            RecoveryGuardedSettingsWindowPresenter(
+                presenter: settingsWindowPresenter,
+                gate: startupPresentationGate
+            )
         let onboardingCoordinator = OnboardingCoordinator(
             preferenceStore: onboardingPreferenceStore,
-            settingsWindowPresenter: settingsWindowPresenter,
+            settingsWindowPresenter: recoveryGuardedSettingsWindowPresenter,
             openCurrentPage: runtime.validatePageURL,
             onFinish: runtime.suppressAutomaticCurrentPageSetup,
             makeWindowPresenter: { openPage, completion, openSettings in
@@ -204,6 +234,33 @@ private final class AppComposition {
                 )
             }
         )
+        let startupRecoveryActionRelay = StartupRecoveryActionRelay()
+        let storageRecoveryController: StorageRecoveryController?
+        let storageRecoveryPresenter: (any AppWindowPresenting)?
+        if let recoveryContext {
+            let controller = StorageRecoveryController(
+                context: recoveryContext,
+                continueWithoutSaving: startupRecoveryActionRelay.continueWithoutSaving,
+                requestTermination: { NSApp.terminate(nil) }
+            )
+            storageRecoveryController = controller
+            storageRecoveryPresenter = AppWindowFactory.makeStorageRecovery(
+                controller: controller,
+                closeRequestHandler: controller.continueWithoutSaving
+            )
+        } else {
+            storageRecoveryController = nil
+            storageRecoveryPresenter = nil
+        }
+        let startupRecoveryCoordinator = StartupRecoveryCoordinator(
+            recoveryRequired: recoveryContext != nil,
+            gate: startupPresentationGate,
+            recoveryPresenter: storageRecoveryPresenter,
+            showOnboardingIfNeeded: onboardingCoordinator.showIfNeeded,
+            showCurrentPageSetup: runtime.presentCurrentPageSetup
+        )
+        startupRecoveryActionRelay.handler =
+            startupRecoveryCoordinator.continueWithoutSaving
         let statusItemController = StatusItemController(
             runtime: runtime,
             commandModel: commandModel,
@@ -223,23 +280,50 @@ private final class AppComposition {
                 )
             }
         }
+        contextSuggestionActivePageCancellable = runtime.$activePage
+            .dropFirst()
+            .sink { [weak contextSuggestionController] _ in
+                Task { @MainActor in
+                    contextSuggestionController?.activePageDidChange()
+                }
+            }
 
-        actionRelay.settingsWindowPresenter = settingsWindowPresenter
+        actionRelay.settingsWindowPresenter = recoveryGuardedSettingsWindowPresenter
         actionRelay.gettingStartedAction = { [weak onboardingCoordinator] in
             onboardingCoordinator?.show()
         }
-        runtime.bind(settingsWindowPresenter: settingsWindowPresenter)
+        runtime.bind(settingsWindowPresenter: recoveryGuardedSettingsWindowPresenter)
+        runtime.bindPersistentStoreRecoveryAction(
+            startupRecoveryCoordinator.showRecoveryOptions
+        )
         panelSizeController.onManagePanelSizes = {
             actionRelay.showSettings()
         }
+        contextSuggestionController.start()
 
         self.runtime = runtime
         self.onboardingCoordinator = onboardingCoordinator
+        self.startupRecoveryCoordinator = startupRecoveryCoordinator
         self.settingsWindowPresenter = settingsWindowPresenter
+        self.recoveryGuardedSettingsWindowPresenter =
+            recoveryGuardedSettingsWindowPresenter
+        self.storageRecoveryController = storageRecoveryController
+        self.storageRecoveryPresenter = storageRecoveryPresenter
         self.statusItemController = statusItemController
         self.panelSizeController = panelSizeController
         self.panelPositionController = panelPositionController
         self.launchAtLoginService = launchAtLoginService
+        self.contextSuggestionController = contextSuggestionController
+        self.contextSuggestionPanelController = contextSuggestionPanelController
+    }
+}
+
+@MainActor
+private final class StartupRecoveryActionRelay {
+    var handler: @MainActor () -> Void = {}
+
+    func continueWithoutSaving() {
+        handler()
     }
 }
 

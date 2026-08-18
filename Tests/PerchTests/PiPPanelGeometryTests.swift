@@ -6,6 +6,141 @@ import XCTest
 
 @MainActor
 final class PiPPanelGeometryTests: XCTestCase {
+    private static let transitionTimeout: TimeInterval = 1
+
+    func testTopEdgeTrackpadMoveTranslatesRealPanelInBothAxes() {
+        let panel = KeyCapablePiPPanel(
+            contentRect: CGRect(x: 100, y: 100, width: 400, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.setFrame(
+            CGRect(x: 100, y: 100, width: 400, height: 500),
+            display: false
+        )
+        defer { panel.orderOut(nil) }
+
+        let consumed = panel.handleTopEdgeTrackpadMove(
+            TopEdgeTrackpadMoveInput(
+                phase: .began,
+                momentumPhase: .none,
+                hasPreciseScrollingDeltas: true,
+                locationInContent: CGPoint(x: 200, y: 492),
+                contentBounds: CGRect(x: 0, y: 0, width: 400, height: 500),
+                isContentFlipped: false,
+                isExpanded: false,
+                visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                translation: CGSize(width: 12, height: -9)
+            )
+        )
+
+        XCTAssertTrue(consumed)
+        XCTAssertEqual(panel.frame.origin, CGPoint(x: 112, y: 91))
+    }
+
+    func testTopEdgeTrackpadMoveClampsRealPanelToStartingDisplay() {
+        let panel = KeyCapablePiPPanel(
+            contentRect: CGRect(x: 500, y: 200, width: 400, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.setFrame(
+            CGRect(x: 500, y: 200, width: 400, height: 500),
+            display: false
+        )
+        defer { panel.orderOut(nil) }
+
+        let consumed = panel.handleTopEdgeTrackpadMove(
+            TopEdgeTrackpadMoveInput(
+                phase: .began,
+                momentumPhase: .none,
+                hasPreciseScrollingDeltas: true,
+                locationInContent: CGPoint(x: 200, y: 492),
+                contentBounds: CGRect(x: 0, y: 0, width: 400, height: 500),
+                isContentFlipped: false,
+                isExpanded: false,
+                visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                translation: CGSize(width: 500, height: 500)
+            )
+        )
+
+        XCTAssertTrue(consumed)
+        XCTAssertEqual(panel.frame.origin, CGPoint(x: 600, y: 300))
+    }
+
+    func testRealPanelReportsTrackpadActivityUntilGestureEnds() {
+        let panel = KeyCapablePiPPanel(
+            contentRect: CGRect(x: 100, y: 100, width: 400, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { panel.orderOut(nil) }
+
+        XCTAssertFalse(panel.isTrackpadMoveActive)
+
+        _ = panel.handleTopEdgeTrackpadMove(
+            TopEdgeTrackpadMoveInput(
+                phase: .began,
+                momentumPhase: .none,
+                hasPreciseScrollingDeltas: true,
+                locationInContent: CGPoint(x: 200, y: 492),
+                contentBounds: CGRect(x: 0, y: 0, width: 400, height: 500),
+                isContentFlipped: false,
+                isExpanded: false,
+                visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                translation: CGSize(width: 12, height: -9)
+            )
+        )
+
+        XCTAssertTrue(panel.isTrackpadMoveActive)
+
+        _ = panel.handleTopEdgeTrackpadMove(
+            TopEdgeTrackpadMoveInput(
+                phase: .ended,
+                momentumPhase: .none,
+                hasPreciseScrollingDeltas: true,
+                locationInContent: CGPoint(x: 200, y: 492),
+                contentBounds: CGRect(x: 0, y: 0, width: 400, height: 500),
+                isContentFlipped: false,
+                isExpanded: false,
+                visibleFrame: nil,
+                translation: .zero
+            )
+        )
+
+        XCTAssertFalse(panel.isTrackpadMoveActive)
+    }
+
+    func testOrderingOutPanelClearsInterruptedTrackpadMove() {
+        let panel = KeyCapablePiPPanel(
+            contentRect: CGRect(x: 100, y: 100, width: 400, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        _ = panel.handleTopEdgeTrackpadMove(
+            TopEdgeTrackpadMoveInput(
+                phase: .began,
+                momentumPhase: .none,
+                hasPreciseScrollingDeltas: true,
+                locationInContent: CGPoint(x: 200, y: 492),
+                contentBounds: CGRect(x: 0, y: 0, width: 400, height: 500),
+                isContentFlipped: false,
+                isExpanded: false,
+                visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                translation: CGSize(width: 12, height: -9)
+            )
+        )
+        XCTAssertTrue(panel.isTrackpadMoveActive)
+
+        panel.orderOut()
+
+        XCTAssertFalse(panel.isTrackpadMoveActive)
+    }
+
     func testCornerLandingCurveIsMonotonicAndNeverOvershoots() {
         let samples = stride(from: CGFloat.zero, through: 1, by: 0.05).map {
             KeyCapablePiPPanel.criticallyDampedSpringProgress($0)
@@ -120,7 +255,10 @@ final class PiPPanelGeometryTests: XCTestCase {
                 )
             )
         )
-        drainMainRunLoop()
+        XCTAssertTrue(
+            waitForCondition(timeout: Self.transitionTimeout) { panel.isVisible },
+            "Panel did not become visible before setting the test frame"
+        )
         let requestedFrame = CGRect(x: 100, y: 100, width: 620, height: 680)
         panel.setFrame(requestedFrame, display: false)
         let retainedFrame = panel.frame
@@ -130,16 +268,23 @@ final class PiPPanelGeometryTests: XCTestCase {
                 visibleFrames: [CGRect(x: 0, y: 0, width: 1_728, height: 1_084)]
             )
         )
-        drainMainRunLoop()
+        XCTAssertTrue(
+            waitForCondition(timeout: Self.transitionTimeout) { !panel.isVisible },
+            "Panel did not finish stashing"
+        )
 
         XCTAssertEqual(panel.frame, retainedFrame)
     }
 
-    private func drainMainRunLoop() {
-        let deadline = Date().addingTimeInterval(0.35)
-        while Date() < deadline {
+    private func waitForCondition(
+        timeout: TimeInterval,
+        _ condition: @escaping () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
             RunLoop.main.run(mode: .default, before: deadline)
         }
+        return condition()
     }
 
     private func assertRealPanelStashRestore(requestedSize: CGSize) throws {
@@ -187,7 +332,12 @@ final class PiPPanelGeometryTests: XCTestCase {
             coordinator.stash(visibleFrames: [visibleFrame])
         )
         handle.restore()
-        drainMainRunLoop()
+        XCTAssertTrue(
+            waitForCondition(timeout: Self.transitionTimeout) {
+                panel.isVisible && panel.frame == retainedFrame
+            },
+            "Panel did not finish restoring its retained frame"
+        )
 
         XCTAssertTrue(panel.isVisible)
         XCTAssertEqual(panel.frame, retainedFrame)

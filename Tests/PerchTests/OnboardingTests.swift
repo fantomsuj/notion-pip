@@ -85,6 +85,18 @@ final class OnboardingFlowTests: XCTestCase {
 
 @MainActor
 final class OnboardingCoordinatorTests: XCTestCase {
+    func testShowIfNeededReportsWhetherItPresented() throws {
+        let firstLaunch = try makeHarness()
+        let completed = try makeHarness(
+            completedVersion: OnboardingCoordinator.currentVersion
+        )
+
+        XCTAssertTrue(firstLaunch.coordinator.showIfNeeded())
+        XCTAssertFalse(completed.coordinator.showIfNeeded())
+        XCTAssertEqual(firstLaunch.presenter.showCount, 1)
+        XCTAssertEqual(completed.presenter.showCount, 0)
+    }
+
     func testStartupWaitsUntilApplicationFinishesLaunchingToPresentOnboarding() {
         let panel = RuntimePanelCoordinator()
         let runtime = makeRuntime(panel: panel)

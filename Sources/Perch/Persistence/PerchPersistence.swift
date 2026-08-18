@@ -2,6 +2,23 @@ import Foundation
 import SwiftData
 
 enum PerchPersistence {
+    static func storeDirectory(
+        applicationSupportDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> URL {
+        let supportDirectory = applicationSupportDirectory
+            ?? fileManager.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first
+            ?? fileManager.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return supportDirectory.appendingPathComponent(
+            "com.fantomsuj.Perch",
+            isDirectory: true
+        )
+    }
+
     static func makeContainer(
         storeURL: URL? = nil,
         inMemory: Bool = false,
@@ -18,20 +35,8 @@ enum PerchPersistence {
         } else if let storeURL {
             configuration = ModelConfiguration(schema: schema, url: storeURL, cloudKitDatabase: .none)
         } else {
-            let supportDirectory: URL
-            if let applicationSupportDirectory {
-                supportDirectory = applicationSupportDirectory
-            } else {
-                supportDirectory = try FileManager.default.url(
-                    for: .applicationSupportDirectory,
-                    in: .userDomainMask,
-                    appropriateFor: nil,
-                    create: true
-                )
-            }
-            let appDirectory = supportDirectory.appendingPathComponent(
-                "com.fantomsuj.Perch",
-                isDirectory: true
+            let appDirectory = storeDirectory(
+                applicationSupportDirectory: applicationSupportDirectory
             )
             try FileManager.default.createDirectory(
                 at: appDirectory,

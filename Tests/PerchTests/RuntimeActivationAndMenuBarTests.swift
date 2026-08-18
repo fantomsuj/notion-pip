@@ -217,6 +217,24 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertFalse(runtime.serviceHealth.isHealthy)
     }
 
+    func testPersistentStoreRecoveryActionReopensRecoveryOptions() {
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            initialServiceHealth: ServiceHealthState(
+                issues: [.persistentStoreUnavailable]
+            )
+        )
+        var presentationCount = 0
+        runtime.bindPersistentStoreRecoveryAction {
+            presentationCount += 1
+        }
+
+        runtime.retryRecovery(for: .persistentStoreUnavailable)
+
+        XCTAssertEqual(presentationCount, 1)
+        XCTAssertEqual(runtime.serviceHealth.issues, [.persistentStoreUnavailable])
+    }
+
     func testExternalRouteActivationUsesUnifiedRuntimePath() throws {
         let panel = RuntimePanelCoordinator()
         let runtime = makeRuntime(panel: panel)

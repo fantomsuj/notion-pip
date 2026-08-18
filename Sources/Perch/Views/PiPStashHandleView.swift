@@ -11,6 +11,8 @@ struct PiPStashHandleView: View {
     let onHoverChanged: @MainActor (Bool) -> Void
     let onShowRecentPages: @MainActor () -> Void
 
+    @State private var isHovering = false
+
     init(
         side: PanelStashSide,
         pullRevealTravel: CGFloat = 150,
@@ -36,8 +38,7 @@ struct PiPStashHandleView: View {
     var body: some View {
         ZStack {
             VStack(spacing: 8) {
-                Image(systemName: "rectangle.on.rectangle")
-                    .font(.system(size: 13, weight: .medium))
+                PerchMark(isActive: isHovering, lineWidth: 1.2)
 
                 Image(systemName: side == .left ? "chevron.right" : "chevron.left")
                     .font(.system(size: 12, weight: .semibold))
@@ -56,7 +57,10 @@ struct PiPStashHandleView: View {
                 onDragStarted: onDragStarted,
                 onPullRevealChanged: onPullRevealChanged,
                 onPullRevealEnded: onPullRevealEnded,
-                onHoverChanged: onHoverChanged,
+                onHoverChanged: { hovering in
+                    isHovering = hovering
+                    onHoverChanged(hovering)
+                },
                 onShowRecentPages: onShowRecentPages
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -82,10 +82,12 @@ private struct PiPRecentPageShelfRow: View {
                         .font(.body)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
+                        .help(title)
                     Text(recencyLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .help(recencyLabel)
                 }
 
                 Spacer(minLength: DesignTokens.Spacing.compact)
@@ -108,8 +110,10 @@ private struct PiPRecentPageShelfRow: View {
             .background(item.isCurrent ? DesignTokens.Colors.action.opacity(0.08) : .clear)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .chromePressStyle(cornerRadius: 0)
         .onHover { isHovering = $0 }
+        .instantListHoverColor(value: isHovering)
+        .instantListHoverColor(value: item.isCurrent)
         .accessibilityLabel(
             PiPRecentPagesShelfAccessibility.rowLabel(
                 title: title,
