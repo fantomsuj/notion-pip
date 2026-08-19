@@ -50,8 +50,9 @@ The script performs these release gates:
 2. Combines and verifies the two slices as one Universal 2 executable.
 3. Stages `Perch.app` in an isolated release workspace with the release version,
    icon, and resources.
-4. Signs the app with Developer ID, hardened runtime, a secure timestamp, and
-   the checked-in release entitlements.
+4. Embeds Sparkle and signs its XPC services, helper, updater app, framework,
+   and the Perch app inside-out with Developer ID, hardened runtime, secure
+   timestamps, and component-appropriate entitlements.
 5. Builds and signs `Perch-VERSION.dmg` with a guided drag-to-Applications
    Finder layout. The code-authored vector artwork in `Support/` is rendered at
    1× and 2× and packaged as a multi-resolution Finder background.
@@ -63,11 +64,32 @@ The script moves the DMG into `dist/` only after every signing, notarization,
 stapling, disk-image, and Gatekeeper check succeeds. A failed run cannot replace
 an existing release artifact with an unvalidated image.
 
-The release script deliberately rejects unhandled nested frameworks, XPC
-services, app extensions, nested apps, or dynamic libraries. If Perch gains any
-of those, add explicit inside-out signing rules and the component-specific
-entitlements before distributing it. Do not replace this gate with
-`codesign --deep`.
+The release script has explicit inside-out signing rules for Sparkle's bundled
+XPC services, `Autoupdate` helper, updater app, and framework. It rejects every
+other nested framework, XPC service, app extension, nested app, or dynamic
+library until a component-specific signing rule is added. Do not replace this
+gate with `codesign --deep`.
+
+## Sparkle update signing
+
+Sparkle reads its public configuration from `Support/Sparkle.env`. The appcast
+is served from `https://pinapage.com/appcast.xml`, which redirects to the
+`appcast.xml` asset on the latest published GitHub release. Both Sparkle and the
+website use the same notarized DMG.
+
+The matching Ed25519 private key belongs in the release owner's Keychain and in
+the `SPARKLE_ED_PRIVATE_KEY` GitHub secret. Never commit it. To export a backup
+with the package-resolved Sparkle tool:
+
+```sh
+.build/artifacts/sparkle/Sparkle/bin/generate_keys \
+  --account com.fantomsuj.Perch \
+  -x Perch-Sparkle-Ed25519-private-key.txt
+```
+
+Treat the exported file like a password. The release workflow pipes the secret
+to `generate_appcast` over standard input and publishes the resulting signed
+feed beside the DMG.
 
 ## GitHub release automation
 
@@ -82,6 +104,7 @@ reviewers, and add these environment secrets:
 | `APP_STORE_CONNECT_API_KEY_BASE64` | Base64-encoded App Store Connect `.p8` API key |
 | `APP_STORE_CONNECT_KEY_ID` | API key ID |
 | `APP_STORE_CONNECT_ISSUER_ID` | API issuer ID |
+| `SPARKLE_ED_PRIVATE_KEY` | Exported Sparkle Ed25519 private key |
 
 Encode the two files without printing their contents into terminal history:
 
@@ -94,14 +117,15 @@ After merging a release commit, create and push a tag that exactly matches
 `PERCH_VERSION`:
 
 ```sh
-git tag -s v0.1.0 -m "Perch 0.1.0"
-git push origin v0.1.0
+git tag -s v0.1.1 -m "Perch 0.1.1"
+git push origin v0.1.1
 ```
 
 The `Release notarized DMG` workflow reruns the tests, imports credentials into
-an ephemeral keychain, packages and notarizes the DMG, preserves the artifacts,
-and creates a **draft** GitHub Release. Inspect its generated notes and artifacts
-before publishing it. A failed build never creates a public release.
+an ephemeral keychain, packages and notarizes the DMG, generates the signed
+appcast, preserves the artifacts, and creates a **draft** GitHub Release.
+Inspect its generated notes, DMG, checksum, and appcast before publishing it. A
+failed build never creates a public release.
 
 ## Final release validation
 
@@ -117,8 +141,7 @@ Before publishing the draft release:
   request Accessibility permission; remove any grant retained from an older
   experimental build before testing.
 - Confirm the version and SHA-256 checksum shown in the release.
-
-Perch currently uses manual downloads for updates. Sparkle can be added later,
-after at least two signed and notarized releases prove the base pipeline. That
-change requires an embedded updater, an HTTPS appcast, a separate Ed25519 update
-key, and upgrade-path tests; it is not required for the initial direct beta.
+- Install the preceding signed release, choose **Check for Updates…**, and
+  complete an in-place update to this release. Confirm Perch relaunches with the
+  new `CFBundleVersion`, preserves its pinned pages, and still passes
+  `codesign --verify --deep --strict`.

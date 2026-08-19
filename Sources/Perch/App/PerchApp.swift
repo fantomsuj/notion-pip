@@ -27,8 +27,7 @@ enum PerchApp {
                         appDelegate: appDelegate,
                         coldLaunchToken: coldLaunchToken,
                         applicationDidFinishLaunching: {
-                            composition.startupRecoveryCoordinator
-                                .applicationDidFinishLaunching()
+                            composition.applicationDidFinishLaunching()
                         }
                     )
                     application.run()
@@ -76,6 +75,7 @@ private final class AppComposition {
     private let storageRecoveryController: StorageRecoveryController?
     private let storageRecoveryPresenter: (any AppWindowPresenting)?
     private let statusItemController: StatusItemController
+    private let updaterController: AppUpdaterController
     private let panelSizeController: PanelSizeController
     private let panelPositionController: PanelPositionController
     private let launchAtLoginService: LaunchAtLoginService
@@ -83,6 +83,11 @@ private final class AppComposition {
     private let contextSuggestionPanelController: ContextSuggestionPanelController
     private var statusItemAppearanceCancellable: AnyCancellable?
     private var contextSuggestionActivePageCancellable: AnyCancellable?
+
+    func applicationDidFinishLaunching() {
+        updaterController.start()
+        startupRecoveryCoordinator.applicationDidFinishLaunching()
+    }
 
     init() {
         let actionRelay = AppCommandActionRelay()
@@ -114,10 +119,17 @@ private final class AppComposition {
         let panelSizeController = PanelSizeController()
         let panelPositionController = PanelPositionController()
         let launchAtLoginService = LaunchAtLoginService()
+        let updaterController = AppUpdaterController()
         let commandModel = AppCommandModel(
             newNotionPage: { actionRelay.openNewNotionPage() },
             settings: { actionRelay.showSettings() },
             gettingStarted: { actionRelay.showGettingStarted() },
+            canCheckForUpdates: { [weak updaterController] in
+                updaterController?.canCheckForUpdates ?? false
+            },
+            checkForUpdates: { [weak updaterController] in
+                updaterController?.checkForUpdates()
+            },
             quit: { actionRelay.quit() }
         )
         let pageSwitcherController = PageSwitcherController(store: pageRepository)
@@ -310,6 +322,7 @@ private final class AppComposition {
         self.storageRecoveryController = storageRecoveryController
         self.storageRecoveryPresenter = storageRecoveryPresenter
         self.statusItemController = statusItemController
+        self.updaterController = updaterController
         self.panelSizeController = panelSizeController
         self.panelPositionController = panelPositionController
         self.launchAtLoginService = launchAtLoginService

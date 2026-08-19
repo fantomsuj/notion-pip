@@ -4,6 +4,7 @@ enum AppCommandID: Int, CaseIterable, Sendable {
     case newNotionPage
     case settings
     case gettingStarted
+    case checkForUpdates
     case quit
 }
 
@@ -59,6 +60,8 @@ final class AppCommandModel {
             newNotionPage: {},
             settings: {},
             gettingStarted: {},
+            canCheckForUpdates: { false },
+            checkForUpdates: {},
             quit: {}
         )
     }
@@ -67,6 +70,8 @@ final class AppCommandModel {
         newNotionPage: @escaping @MainActor () -> Void,
         settings: @escaping @MainActor () -> Void,
         gettingStarted: @escaping @MainActor () -> Void,
+        canCheckForUpdates: @escaping @MainActor () -> Bool,
+        checkForUpdates: @escaping @MainActor () -> Void,
         quit: @escaping @MainActor () -> Void
     ) {
         groups = [
@@ -89,6 +94,12 @@ final class AppCommandModel {
                     id: .gettingStarted,
                     title: "Getting Started…",
                     action: gettingStarted
+                ),
+                AppCommand(
+                    id: .checkForUpdates,
+                    title: "Check for Updates…",
+                    isEnabled: canCheckForUpdates,
+                    action: checkForUpdates
                 ),
             ]),
             AppCommandGroup(commands: [
