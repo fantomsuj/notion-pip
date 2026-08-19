@@ -8,6 +8,7 @@ fi
 
 APP_BUNDLE="$1"
 ENTITLEMENTS="$2"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SECURITY_TOOL="${SECURITY_TOOL:-/usr/bin/security}"
 CODESIGN_TOOL="${CODESIGN_TOOL:-/usr/bin/codesign}"
 SIGNING_IDENTITY="${PERCH_SIGNING_IDENTITY:-}"
@@ -29,10 +30,19 @@ else
     echo "Signing with stable identity $SIGNING_IDENTITY"
 fi
 
+SPARKLE_FRAMEWORK="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+if [[ -d "$SPARKLE_FRAMEWORK" ]]; then
+    CODESIGN_TOOL="$CODESIGN_TOOL" \
+        "$SCRIPT_DIR/sign_sparkle.sh" \
+        "$SPARKLE_FRAMEWORK" \
+        "$SIGNING_IDENTITY" \
+        "--timestamp=none"
+fi
+
 "$CODESIGN_TOOL" \
     --force \
-    --deep \
     --sign "$SIGNING_IDENTITY" \
+    --options runtime \
     --timestamp=none \
     --entitlements "$ENTITLEMENTS" \
     "$APP_BUNDLE"

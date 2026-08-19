@@ -13,11 +13,16 @@ I am happily biased toward writing. Writing is how I build scaffolding for my id
 Pin the Notion page you are living in and keep it close without turning it into another full window. The PiP can stay visible across Spaces, tuck itself neatly onto a screen edge, and return to the same live page when you need it again.
 
 - Create a fresh page in the native Notion app from the `+` button.
-- Stash the panel against the nearest screen edge and restore it from its slim tab, the optional menu-bar icon, or `Command-Shift-P`; when the PiP itself is zoomed or full screen, the shortcut first returns it to its prior floating size.
+- Stash the panel with its close control or by dragging at least 40% of it beyond
+  a left or right screen edge and releasing. Restore it from its slim tab, the
+  optional menu-bar icon, or `Command-Shift-P`; when the PiP itself is zoomed or
+  full screen, the shortcut first returns it to its prior floating size.
 - Move the PiP in either direction with a two-finger gesture from its top edge
   or visible toolbar; scrolling within the Notion page remains unchanged.
 - Keep working in the real, embedded Notion page—not a screenshot or a simplified native imitation.
 - Reload the currently displayed Notion page with `Command-R`, including the sign-in page if your session has expired.
+- Check for signed updates from either Perch menu. Automatic Sparkle checks use
+  the same notarized DMG published on the website.
 - Hover at the panel’s top edge and open the page switcher to resume one of seven
   pinned favorites or seven recent pages. Give pins optional device-local roles
   such as “Today” or “Project Brief”; the switcher keeps the Notion title visible
@@ -93,8 +98,9 @@ build above is not a distributable artifact.
 The complete certificate setup, local packaging command, GitHub release
 workflow, and clean-Mac validation checklist are documented in
 [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md). Tagged release automation creates
-a draft GitHub Release for human approval; it never publishes a download
-directly.
+a signed Sparkle appcast and a draft GitHub Release for human approval;
+publishing that release makes both the website DMG and installed-app update
+available.
 
 ### Set up with Codex
 

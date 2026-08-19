@@ -12,7 +12,7 @@ final class AppCommandTests: XCTestCase {
             model.groups.map { $0.commands.map(\.id) },
             [
                 [.newNotionPage],
-                [.settings, .gettingStarted],
+                [.settings, .gettingStarted, .checkForUpdates],
                 [.quit],
             ])
         XCTAssertEqual(
@@ -21,13 +21,36 @@ final class AppCommandTests: XCTestCase {
                 "New Notion Page",
                 "Settings…",
                 "Getting Started…",
+                "Check for Updates…",
                 "Quit Perch",
             ])
         XCTAssertEqual(model.command(for: .newNotionPage)?.keyEquivalent, "n")
         XCTAssertEqual(model.command(for: .settings)?.keyEquivalent, ",")
         XCTAssertEqual(model.command(for: .gettingStarted)?.keyEquivalent, "")
+        XCTAssertEqual(model.command(for: .checkForUpdates)?.keyEquivalent, "")
         XCTAssertEqual(model.command(for: .quit)?.keyEquivalent, "q")
         XCTAssertTrue(model.commands.allSatisfy(\.isEnabled))
+    }
+
+    func testCheckForUpdatesReflectsUpdaterAvailability() throws {
+        let canCheck = AppCommandBoolean(false)
+        var checkCount = 0
+        let model = AppCommandModel(
+            newNotionPage: {},
+            settings: {},
+            gettingStarted: {},
+            canCheckForUpdates: { canCheck.value },
+            checkForUpdates: { checkCount += 1 },
+            quit: {}
+        )
+        let command = try XCTUnwrap(model.command(for: .checkForUpdates))
+
+        XCTAssertFalse(command.isEnabled)
+        canCheck.value = true
+        XCTAssertTrue(command.isEnabled)
+
+        command.perform()
+        XCTAssertEqual(checkCount, 1)
     }
 
     func testSharedCommandsInvokeEachActionExactlyOnce() {
@@ -178,7 +201,18 @@ final class AppCommandTests: XCTestCase {
             newNotionPage: { events(.newNotionPage) },
             settings: { events(.settings) },
             gettingStarted: { events(.gettingStarted) },
+            canCheckForUpdates: { true },
+            checkForUpdates: { events(.checkForUpdates) },
             quit: { events(.quit) }
         )
+    }
+}
+
+@MainActor
+private final class AppCommandBoolean {
+    var value: Bool
+
+    init(_ value: Bool) {
+        self.value = value
     }
 }

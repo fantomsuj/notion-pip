@@ -949,6 +949,135 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.frame, CGRect(x: 896, y: 251, width: 520, height: 600))
     }
 
+    func testFinishingDragBeyondOuterEdgeStashesAndPersistsVisibleRestoreFrame() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 0, y: 150, width: 400, height: 500)
+        )
+        let handle = FakeStashHandle()
+        let geometryStore = TransientPanelGeometryStore()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [screen] },
+            initialPreferredContentSize: panel.frame.size,
+            geometryStore: geometryStore
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        panel.move(to: CGRect(x: -160, y: 150, width: 400, height: 500))
+
+        coordinator.finishPanelMove()
+
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertTrue(handle.isVisible)
+        XCTAssertEqual(handle.placements.last?.side, .left)
+        XCTAssertEqual(
+            geometryStore.load()?.frame,
+            CGRect(x: 0, y: 150, width: 400, height: 500)
+        )
+        XCTAssertEqual(coordinator.presentationState, .stashed)
+    }
+
+    func testFinishingDragAtStashThresholdWinsOverCornerSnap() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 600, y: 24, width: 400, height: 500)
+        )
+        let geometryStore = TransientPanelGeometryStore()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: FakeStashHandle(),
+            visibleFramesProvider: { [screen] },
+            initialPreferredContentSize: panel.frame.size,
+            geometryStore: geometryStore
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        panel.move(to: CGRect(x: 760, y: 24, width: 400, height: 500))
+
+        coordinator.finishPanelMove()
+
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(
+            geometryStore.load()?.frame,
+            CGRect(x: 600, y: 24, width: 400, height: 500)
+        )
+    }
+
+    func testDraggingBeyondEdgeDoesNotStashUntilMouseIsReleased() async throws {
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 0, y: 150, width: 400, height: 500)
+        )
+        let mouse = MutableBoolean(true)
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: FakeStashHandle(),
+            isPrimaryMouseButtonPressed: { mouse.value },
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        panel.move(to: CGRect(x: -160, y: 150, width: 400, height: 500))
+
+        coordinator.recordPanelMove()
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertTrue(panel.isVisible)
+
+        mouse.value = false
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    func testDragStashWaitsUntilTrackpadMoveEnds() async throws {
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 600, y: 150, width: 400, height: 500)
+        )
+        panel.isTrackpadMoveActive = true
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: FakeStashHandle(),
+            isPrimaryMouseButtonPressed: { false },
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        panel.move(to: CGRect(x: 760, y: 150, width: 400, height: 500))
+
+        coordinator.recordPanelMove()
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertTrue(panel.isVisible)
+
+        panel.isTrackpadMoveActive = false
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertFalse(panel.isVisible)
+    }
+
+    func testFinishingDragBelowThresholdLeavesPanelVisible() throws {
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 0, y: 150, width: 400, height: 500)
+        )
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: FakeStashHandle(),
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        panel.move(to: CGRect(x: -159, y: 150, width: 400, height: 500))
+
+        coordinator.finishPanelMove()
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(coordinator.presentationState, .visible)
+    }
+
     func testRedCloseRequestsTheSameStashTransition() throws {
         let panel = FakePanelWindow(
             frame: CGRect(x: 620, y: 100, width: 300, height: 400)

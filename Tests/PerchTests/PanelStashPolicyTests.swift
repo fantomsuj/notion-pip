@@ -3,6 +3,214 @@ import XCTest
 @testable import Perch
 
 final class PanelStashPolicyTests: XCTestCase {
+    func testDragDecisionCommitsAtLeftHiddenFractionThreshold() throws {
+        let topology = singleDisplayTopology()
+        let panel = CGRect(x: -160, y: 200, width: 400, height: 360)
+
+        let decision = try XCTUnwrap(
+            PanelStashPolicy.dragDecision(for: panel, topology: topology)
+        )
+
+        XCTAssertEqual(decision.placement.side, .left)
+        XCTAssertEqual(
+            decision.placement.frame,
+            CGRect(x: 0, y: 332, width: 36, height: 96)
+        )
+        XCTAssertEqual(
+            decision.restoreFrame,
+            CGRect(x: 0, y: 200, width: 400, height: 360)
+        )
+    }
+
+    func testDragDecisionDoesNotCommitBelowHiddenFractionThreshold() {
+        let panel = CGRect(x: -159, y: 200, width: 400, height: 360)
+
+        XCTAssertNil(
+            PanelStashPolicy.dragDecision(
+                for: panel,
+                topology: singleDisplayTopology()
+            )
+        )
+    }
+
+    func testDragDecisionCommitsAtRightHiddenFractionThreshold() throws {
+        let panel = CGRect(x: 760, y: 100, width: 400, height: 400)
+
+        let decision = try XCTUnwrap(
+            PanelStashPolicy.dragDecision(
+                for: panel,
+                topology: singleDisplayTopology()
+            )
+        )
+
+        XCTAssertEqual(decision.placement.side, .right)
+        XCTAssertEqual(
+            decision.placement.frame,
+            CGRect(x: 964, y: 252, width: 36, height: 96)
+        )
+        XCTAssertEqual(
+            decision.restoreFrame,
+            CGRect(x: 600, y: 100, width: 400, height: 400)
+        )
+    }
+
+    func testDragDecisionIgnoresTopAndBottomOverhang() {
+        let topology = singleDisplayTopology()
+
+        XCTAssertNil(
+            PanelStashPolicy.dragDecision(
+                for: CGRect(x: 300, y: 640, width: 400, height: 400),
+                topology: topology
+            )
+        )
+        XCTAssertNil(
+            PanelStashPolicy.dragDecision(
+                for: CGRect(x: 300, y: -160, width: 400, height: 400),
+                topology: topology
+            )
+        )
+    }
+
+    func testDragDecisionIgnoresBoundarySharedWithAdjacentDisplay() {
+        let topology = DisplayTopology(
+            revision: 1,
+            displays: [
+                DisplayDescriptor(
+                    identifier: 11,
+                    frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    backingScaleFactor: 2,
+                    isPrimary: true
+                ),
+                DisplayDescriptor(
+                    identifier: 22,
+                    frame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800),
+                    visibleFrame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800),
+                    backingScaleFactor: 2,
+                    isPrimary: false
+                ),
+            ]
+        )
+
+        XCTAssertNil(
+            PanelStashPolicy.dragDecision(
+                for: CGRect(x: 760, y: 200, width: 400, height: 360),
+                topology: topology
+            )
+        )
+    }
+
+    func testDragDecisionMeasuresThresholdFromPhysicalEdgeRatherThanDock() throws {
+        let topology = DisplayTopology(
+            revision: 1,
+            displays: [
+                DisplayDescriptor(
+                    identifier: 11,
+                    frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    visibleFrame: CGRect(x: 80, y: 0, width: 920, height: 800),
+                    backingScaleFactor: 2,
+                    isPrimary: true
+                )
+            ]
+        )
+
+        XCTAssertNil(
+            PanelStashPolicy.dragDecision(
+                for: CGRect(x: -80, y: 200, width: 400, height: 360),
+                topology: topology
+            )
+        )
+
+        let decision = try XCTUnwrap(
+            PanelStashPolicy.dragDecision(
+                for: CGRect(x: -160, y: 200, width: 400, height: 360),
+                topology: topology
+            )
+        )
+        XCTAssertEqual(decision.placement.side, .left)
+        XCTAssertEqual(decision.placement.frame.minX, 80)
+        XCTAssertEqual(decision.restoreFrame.minX, 80)
+    }
+
+    func testDragDecisionAllowsUnsharedSegmentOfStaggeredDisplayEdge() throws {
+        let topology = DisplayTopology(
+            revision: 1,
+            displays: [
+                DisplayDescriptor(
+                    identifier: 11,
+                    frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    backingScaleFactor: 2,
+                    isPrimary: true
+                ),
+                DisplayDescriptor(
+                    identifier: 22,
+                    frame: CGRect(x: 1_000, y: 0, width: 1_000, height: 400),
+                    visibleFrame: CGRect(x: 1_000, y: 0, width: 1_000, height: 400),
+                    backingScaleFactor: 2,
+                    isPrimary: false
+                ),
+            ]
+        )
+
+        let decision = try XCTUnwrap(
+            PanelStashPolicy.dragDecision(
+                for: CGRect(x: 760, y: 500, width: 400, height: 250),
+                topology: topology
+            )
+        )
+
+        XCTAssertEqual(decision.placement.side, .right)
+    }
+
+    func testDragDecisionAllowsOuterEdgeWithAnotherDisplayPresent() throws {
+        let topology = DisplayTopology(
+            revision: 1,
+            displays: [
+                DisplayDescriptor(
+                    identifier: 11,
+                    frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    backingScaleFactor: 2,
+                    isPrimary: true
+                ),
+                DisplayDescriptor(
+                    identifier: 22,
+                    frame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800),
+                    visibleFrame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800),
+                    backingScaleFactor: 2,
+                    isPrimary: false
+                ),
+            ]
+        )
+
+        let decision = try XCTUnwrap(
+            PanelStashPolicy.dragDecision(
+                for: CGRect(x: -160, y: 200, width: 400, height: 360),
+                topology: topology
+            )
+        )
+
+        XCTAssertEqual(decision.placement.side, .left)
+    }
+
+    func testDragDecisionClampsRestoreFrameAndHandleVertically() throws {
+        let panel = CGRect(x: 760, y: 740, width: 400, height: 300)
+
+        let decision = try XCTUnwrap(
+            PanelStashPolicy.dragDecision(
+                for: panel,
+                topology: singleDisplayTopology()
+            )
+        )
+
+        XCTAssertEqual(
+            decision.restoreFrame,
+            CGRect(x: 600, y: 500, width: 400, height: 300)
+        )
+        XCTAssertEqual(decision.placement.frame.minY, 704)
+    }
+
     func testIntentRemapsSideAndVerticalPositionAfterDisplayRearrangement() throws {
         let original = makeTopology(secondaryID: 22, secondaryX: 1_440)
         let placement = PanelStashPlacement(
@@ -224,6 +432,21 @@ final class PanelStashPolicyTests: XCTestCase {
                     backingScaleFactor: scale,
                     isPrimary: false
                 ),
+            ]
+        )
+    }
+
+    private func singleDisplayTopology() -> DisplayTopology {
+        DisplayTopology(
+            revision: 1,
+            displays: [
+                DisplayDescriptor(
+                    identifier: 11,
+                    frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    backingScaleFactor: 2,
+                    isPrimary: true
+                )
             ]
         )
     }
