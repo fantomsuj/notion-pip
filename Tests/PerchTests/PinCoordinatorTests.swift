@@ -172,6 +172,30 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(loader.panelHideCount, 1)
     }
 
+    func testEdgeHandleRestoreRequestsContextBeforePresentingPanel() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 620, y: 100, width: 300, height: 400))
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.stashOrRestoreCurrentPage())
+        var revealPresentationCounts: [Int] = []
+        coordinator.onWillReveal = {
+            revealPresentationCounts.append(panel.presentCount)
+        }
+
+        handle.restore()
+
+        XCTAssertEqual(revealPresentationCounts, [1])
+        XCTAssertEqual(panel.presentCount, 2)
+    }
+
     func testPanelCoordinatorStashesAndRestoresLoadedPageWithoutReloading() throws {
         let panel = FakePanelWindow(
             frame: CGRect(x: 620, y: 100, width: 300, height: 400)
@@ -846,6 +870,29 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertFalse(handle.isVisible)
         XCTAssertEqual(panel.animatedSetFrames.last, originalFrame)
         XCTAssertEqual(loader.panelShowCount, 2)
+    }
+
+    func testCompletedEdgePullRequestsContextBeforePresentingPanel() throws {
+        let panel = FakePanelWindow(frame: CGRect(x: 620, y: 100, width: 300, height: 400))
+        let handle = FakeStashHandle()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.stashOrRestoreCurrentPage())
+        handle.pull(to: 75)
+        var revealCount = 0
+        coordinator.onWillReveal = { revealCount += 1 }
+
+        XCTAssertTrue(handle.finishPull(at: 75))
+
+        XCTAssertEqual(revealCount, 1)
+        XCTAssertTrue(panel.isVisible)
     }
 
     func testPullRevealBelowThresholdReturnsPanelAndHandleToStashedState() throws {

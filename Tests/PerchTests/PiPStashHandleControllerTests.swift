@@ -125,6 +125,31 @@ final class PiPStashHandleControllerTests: XCTestCase {
         XCTAssertTrue(shelfPanel.becomesKeyOnlyIfNeeded)
     }
 
+    func testFocusedShelfCapturesSourceBeforeActivationAndKeepsItThroughRestore() async throws {
+        var events: [String] = []
+        let (controller, _, shelfPanel, snapshot) = try makeController(
+            itemCount: 2,
+            activateApplication: { events.append("activate") }
+        )
+        controller.onShelfFocusChange = { ownsFocus in
+            events.append(ownsFocus ? "capture" : "release")
+        }
+        controller.present(
+            placement: placement,
+            onRestore: {
+                XCTAssertFalse(shelfPanel.isVisible)
+                events.append("restore")
+            },
+            onPlacementChange: { _ in }
+        )
+
+        controller.showRecentPages()
+        await waitUntil { shelfPanel.isVisible }
+        controller.selectRecentPage(id: snapshot.pages[0].pageID)
+
+        XCTAssertEqual(events, ["capture", "activate", "restore", "release"])
+    }
+
     func testFocusRequestSurvivesHoverRequestDuringDelayedLoad() async throws {
         let handlePanel = makePanel()
         let shelfPanel = makePanel()

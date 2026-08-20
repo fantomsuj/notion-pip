@@ -8,30 +8,71 @@ enum ContextSuggestionPermissionState: Equatable, Sendable {
 }
 
 @MainActor
+final class ContextualPageActionState: ObservableObject {
+    @Published private(set) var action: ContextualPageAction?
+
+    private var acceptHandler: @MainActor () -> Void = {}
+    private var dismissHandler: @MainActor () -> Void = {}
+
+    func accept() {
+        acceptHandler()
+    }
+
+    func dismiss() {
+        dismissHandler()
+    }
+
+    func bind(
+        onAccept: @escaping @MainActor () -> Void,
+        onDismiss: @escaping @MainActor () -> Void
+    ) {
+        acceptHandler = onAccept
+        dismissHandler = onDismiss
+    }
+
+    func publish(_ action: ContextualPageAction?) {
+        self.action = action
+    }
+}
+
+@MainActor
 final class ContextSuggestionController: ObservableObject {
     static let dismissalDuration: TimeInterval = 30 * 60
 
     @Published private(set) var isEnabled: Bool
     @Published private(set) var permissionState: ContextSuggestionPermissionState = .disabled
     @Published private(set) var suggestion: ContextSuggestion?
+    let contextualPageActionState: ContextualPageActionState
 
     private let monitor: any ContextMonitoring
     private let store: (any PageWorkingSetPersisting)?
     private let preferenceStore: any ContextSuggestionPreferenceStoring
     private let clock: any DateProviding
+    private let exactCaptureTimeout: Duration
     private let activePageID: @MainActor () -> String?
     private let onActivate: @MainActor (NotionPageReference, DurablePageRestoration?) -> Void
     private var matchingTask: Task<Void, Never>?
+    private var exactCaptureTimeoutTask: Task<Void, Never>?
     private var evaluationGeneration: UInt = 0
+    private var exactCaptureGeneration: UInt = 0
+    private var pendingExactCaptureGeneration: UInt?
+    private var pendingEmptyFallback: (@MainActor () -> Void)?
+    private var preparedContextualRevealSource: PreparedContextualRevealSource?
     private var lastContextIdentity: String?
     private var suppressedUntil: [String: Date] = [:]
     private var hasStarted = false
+
+    private enum PreparedContextualRevealSource {
+        case captured(ContextSourceIdentity?)
+    }
 
     init(
         monitor: any ContextMonitoring,
         store: (any PageWorkingSetPersisting)?,
         preferenceStore: any ContextSuggestionPreferenceStoring,
         clock: any DateProviding = SystemDateProvider(),
+        exactCaptureTimeout: Duration = .milliseconds(250),
+        contextualPageActionState: ContextualPageActionState = ContextualPageActionState(),
         activePageID: @escaping @MainActor () -> String?,
         onActivate: @escaping @MainActor (NotionPageReference, DurablePageRestoration?) -> Void
     ) {
@@ -39,12 +80,14 @@ final class ContextSuggestionController: ObservableObject {
         self.store = store
         self.preferenceStore = preferenceStore
         self.clock = clock
+        self.exactCaptureTimeout = exactCaptureTimeout
+        self.contextualPageActionState = contextualPageActionState
         self.activePageID = activePageID
         self.onActivate = onActivate
         isEnabled = preferenceStore.load()
         monitor.onSnapshot = { [weak self] snapshot in
             guard let snapshot else {
-                self?.clearCurrentContext()
+                self?.clearGeneralContext()
                 return
             }
             self?.evaluate(snapshot)
@@ -52,6 +95,10 @@ final class ContextSuggestionController: ObservableObject {
         monitor.onAuthorizationChange = { [weak self] authorized in
             self?.authorizationDidChange(authorized)
         }
+        contextualPageActionState.bind(
+            onAccept: { [weak self] in self?.acceptContextualPageAction() },
+            onDismiss: { [weak self] in self?.dismissContextualPageAction() }
+        )
     }
 
     func start() {
@@ -114,8 +161,68 @@ final class ContextSuggestionController: ObservableObject {
         self.suggestion = nil
     }
 
+    func requestContextualReveal(
+        emptyFallback: (@MainActor () -> Void)? = nil
+    ) {
+        invalidateExactCapture(runEmptyFallback: false)
+        contextualPageActionState.publish(nil)
+        guard isEnabled,
+              permissionState == .ready,
+              monitor.isAuthorized
+        else {
+            discardPreparedContextualRevealSource()
+            emptyFallback?()
+            return
+        }
+
+        exactCaptureGeneration &+= 1
+        let generation = exactCaptureGeneration
+        pendingExactCaptureGeneration = generation
+        pendingEmptyFallback = emptyFallback
+        exactCaptureTimeoutTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: exactCaptureTimeout)
+            guard !Task.isCancelled else { return }
+            completeExactCapture(nil, generation: generation)
+        }
+        let completion: @MainActor (ContextSnapshot?) -> Void = { [weak self] snapshot in
+            self?.completeExactCapture(snapshot, generation: generation)
+        }
+        if let preparedContextualRevealSource {
+            self.preparedContextualRevealSource = nil
+            switch preparedContextualRevealSource {
+            case let .captured(source):
+                guard let source else {
+                    completeExactCapture(nil, generation: generation)
+                    return
+                }
+                monitor.captureExactPage(from: source, completion: completion)
+            }
+        } else {
+            monitor.captureExactPage(completion: completion)
+        }
+    }
+
+    func prepareContextualRevealSource() {
+        guard isEnabled,
+              permissionState == .ready,
+              monitor.isAuthorized
+        else {
+            preparedContextualRevealSource = nil
+            return
+        }
+        preparedContextualRevealSource = .captured(monitor.captureSourceIdentity())
+    }
+
+    func discardPreparedContextualRevealSource() {
+        preparedContextualRevealSource = nil
+    }
+
     func activePageDidChange() {
-        clearCurrentContext()
+        clearGeneralContext()
+        discardPreparedContextualRevealSource()
+        invalidateExactCapture(runEmptyFallback: false)
+        contextualPageActionState.publish(nil)
     }
 
     private func authorizationDidChange(_ authorized: Bool) {
@@ -126,6 +233,9 @@ final class ContextSuggestionController: ObservableObject {
             matchingTask?.cancel()
             matchingTask = nil
             suggestion = nil
+            discardPreparedContextualRevealSource()
+            invalidateExactCapture(runEmptyFallback: true)
+            contextualPageActionState.publish(nil)
             permissionState = .needsPermission
         }
     }
@@ -136,15 +246,78 @@ final class ContextSuggestionController: ObservableObject {
         matchingTask = nil
         suggestion = nil
         lastContextIdentity = nil
+        discardPreparedContextualRevealSource()
+        invalidateExactCapture(runEmptyFallback: true)
+        contextualPageActionState.publish(nil)
         monitor.stop()
     }
 
-    private func clearCurrentContext() {
+    private func clearGeneralContext() {
         evaluationGeneration &+= 1
         matchingTask?.cancel()
         matchingTask = nil
         suggestion = nil
         lastContextIdentity = nil
+    }
+
+    private func completeExactCapture(
+        _ snapshot: ContextSnapshot?,
+        generation: UInt
+    ) {
+        guard pendingExactCaptureGeneration == generation else { return }
+        pendingExactCaptureGeneration = nil
+        exactCaptureTimeoutTask?.cancel()
+        exactCaptureTimeoutTask = nil
+        let emptyFallback = pendingEmptyFallback
+        pendingEmptyFallback = nil
+
+        guard let snapshot,
+              let exactPage = snapshot.exactPage,
+              snapshot.bundleIdentifier != (Bundle.main.bundleIdentifier ?? "")
+        else {
+            emptyFallback?()
+            return
+        }
+        guard exactPage.pageID.caseInsensitiveCompare(activePageID() ?? "") != .orderedSame
+        else {
+            return
+        }
+        guard activePageID() != nil else {
+            onActivate(exactPage, nil)
+            return
+        }
+        contextualPageActionState.publish(
+            ContextualPageAction(
+                page: exactPage,
+                sourceApplicationName: snapshot.applicationName
+            )
+        )
+    }
+
+    private func acceptContextualPageAction() {
+        guard let action = contextualPageActionState.action else { return }
+        contextualPageActionState.publish(nil)
+        guard action.page.pageID.caseInsensitiveCompare(activePageID() ?? "") != .orderedSame
+        else {
+            return
+        }
+        onActivate(action.page, nil)
+    }
+
+    private func dismissContextualPageAction() {
+        contextualPageActionState.publish(nil)
+    }
+
+    private func invalidateExactCapture(runEmptyFallback: Bool) {
+        exactCaptureGeneration &+= 1
+        pendingExactCaptureGeneration = nil
+        exactCaptureTimeoutTask?.cancel()
+        exactCaptureTimeoutTask = nil
+        let emptyFallback = pendingEmptyFallback
+        pendingEmptyFallback = nil
+        if runEmptyFallback {
+            emptyFallback?()
+        }
     }
 
     private func evaluate(_ context: ContextSnapshot) {

@@ -19,7 +19,9 @@ Do not distribute a local `dist/Perch.app` build to another Mac. Local builds ma
 - **Perch launched but seems absent:** Look for the Perch menu-bar icon. If it is hidden, use the configured shortcut or the panel's edge handle.
 - **Notion needs authentication:** Start sign-in from the embedded Notion interface. If Perch shows Continue in Browser, finish through the secure system-browser session and return to Perch. Perch support will never ask for your password or session cookie.
 - **Launch at Login needs approval:** Open Settings → Launch at Login, follow the button to System Settings → General → Login Items & Extensions, approve Perch, then return to the app.
-- **Accessibility permission appears:** Perch 0.1 does not require Accessibility access. Remove any older Perch entry in System Settings → Privacy & Security → Accessibility. If an installed 0.1 build asks for access, cancel the prompt and report the build number.
+- **Accessibility permission appears:** Perch requests Accessibility access only after you enable Context Suggestions in Settings. Grant it under System Settings → Privacy & Security → Accessibility if you want saved-page suggestions and reveal-time exact-page connection. Leave the feature off if you do not want Perch to inspect this narrow app/window metadata.
+- **A focused Notion page is not detected:** Confirm Context Suggestions is enabled and Settings reports permission as ready. Then focus the page in Safari, Chrome, Firefox, Edge, Brave, Arc, or the native Notion app before revealing Perch. The source app must expose a focused `AXDocument` or `AXURL`; private windows, browser builds with different bundle identifiers, inaccessible views, malformed links, slow Accessibility responses, and workspace/search URLs without a page ID quietly use Perch's ordinary reveal behavior.
+- **Perch already shows another page:** Reveal remains immediate and never replaces that page automatically. Use the slim **Open Here** action inside the PiP to switch, or dismiss it. Selecting a pinned or recent page explicitly always wins over an outstanding contextual result.
 
 ## Local storage recovery
 
@@ -62,7 +64,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 1. In Perch Settings, turn off Launch at Login.
 2. Quit Perch from its menu-bar or application menu.
 3. Move `/Applications/Perch.app` to the Trash.
-4. In System Settings → Privacy & Security → Accessibility, remove any Perch entry left by an older experimental build.
+4. In System Settings → Privacy & Security → Accessibility, remove Perch if you previously enabled Context Suggestions.
 5. To remove local page history, restoration state, preferences, and embedded website data, delete Perch's containers from the current user's `~/Library/Application Support`, `~/Library/Preferences`, and `~/Library/WebKit` folders. Search for `Perch` or `com.fantomsuj.Perch` and verify each exact target before deleting it.
 6. In System Settings → General → Login Items & Extensions, remove a stale Perch entry if macOS still shows one.
 

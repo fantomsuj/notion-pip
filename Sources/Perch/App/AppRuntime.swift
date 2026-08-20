@@ -45,6 +45,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let automaticSettingsPresentationAllowed: @MainActor () -> Bool
     weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
     var persistentStoreRecoveryAction: @MainActor () -> Void = {}
+    var contextualRevealRequestHandler: ContextualRevealRequestHandler?
     var restorePinnedPageTask: Task<Void, Never>?
     var persistPinnedPageTask: Task<Void, Never>?
     var suppressesAutomaticCurrentPageSetup = false
@@ -155,6 +156,15 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         _ action: @escaping @MainActor () -> Void
     ) {
         persistentStoreRecoveryAction = action
+    }
+
+    func bindContextualRevealHandler(
+        _ handler: @escaping ContextualRevealRequestHandler
+    ) {
+        contextualRevealRequestHandler = handler
+        pinCoordinator.onWillReveal = {
+            handler(nil)
+        }
     }
 
     func presentCurrentPageSetup() {

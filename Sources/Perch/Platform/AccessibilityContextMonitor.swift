@@ -9,6 +9,33 @@ protocol ContextMonitoring: AnyObject {
     func requestAccess() -> Bool
     func start()
     func stop()
+    func captureSourceIdentity() -> ContextSourceIdentity?
+    func captureExactPage(
+        completion: @escaping @MainActor (ContextSnapshot?) -> Void
+    )
+    func captureExactPage(
+        from source: ContextSourceIdentity,
+        completion: @escaping @MainActor (ContextSnapshot?) -> Void
+    )
+}
+
+extension ContextMonitoring {
+    func captureSourceIdentity() -> ContextSourceIdentity? {
+        nil
+    }
+
+    func captureExactPage(
+        completion: @escaping @MainActor (ContextSnapshot?) -> Void
+    ) {
+        completion(nil)
+    }
+
+    func captureExactPage(
+        from source: ContextSourceIdentity,
+        completion: @escaping @MainActor (ContextSnapshot?) -> Void
+    ) {
+        captureExactPage(completion: completion)
+    }
 }
 
 /// Reads a narrow, transient description of the frontmost app after explicit consent.
@@ -75,6 +102,63 @@ final class AccessibilityContextMonitor: ContextMonitoring {
         lastSnapshot = nil
         targetProcessIdentifier = nil
         readGeneration &+= 1
+    }
+
+    func captureExactPage(
+        completion: @escaping @MainActor (ContextSnapshot?) -> Void
+    ) {
+        guard let source = captureSourceIdentity() else {
+            completion(nil)
+            return
+        }
+        captureExactPage(from: source, completion: completion)
+    }
+
+    func captureSourceIdentity() -> ContextSourceIdentity? {
+        guard isAuthorized,
+              let application = NSWorkspace.shared.frontmostApplication,
+              !application.isTerminated,
+              application.processIdentifier != ProcessInfo.processInfo.processIdentifier
+        else {
+            return nil
+        }
+        return ContextSourceIdentity(
+            processIdentifier: application.processIdentifier,
+            bundleIdentifier: application.bundleIdentifier ?? "unknown",
+            applicationName: application.localizedName ?? "Application"
+        )
+    }
+
+    func captureExactPage(
+        from source: ContextSourceIdentity,
+        completion: @escaping @MainActor (ContextSnapshot?) -> Void
+    ) {
+        guard isAuthorized,
+              source.processIdentifier != ProcessInfo.processInfo.processIdentifier
+        else {
+            completion(nil)
+            return
+        }
+        let reader = reader
+        workerQueue.async {
+            let snapshot = reader.readExactPage(source: source)
+            Task { @MainActor in
+                let runningApplication = source.processIdentifier.flatMap(
+                    NSRunningApplication.init(processIdentifier:)
+                )
+                guard AccessibilityContextSourceValidation.acceptsResult(
+                    source: source,
+                    runningProcessIdentifier: runningApplication?.processIdentifier,
+                    runningBundleIdentifier: runningApplication?.bundleIdentifier,
+                    isTerminated: runningApplication?.isTerminated ?? true
+                ), AXIsProcessTrusted()
+                else {
+                    completion(nil)
+                    return
+                }
+                completion(snapshot)
+            }
+        }
     }
 
     private func poll() {
@@ -166,8 +250,42 @@ private struct AccessibilityContextReader: Sendable {
             bundleIdentifier: bundleIdentifier,
             applicationName: applicationName,
             windowTitle: windowTitle,
-            documentURL: documentValue.flatMap(URL.init(string:))
+            documentURL: documentValue.flatMap(URL.init(string:)),
+            sourceProcessIdentifier: processIdentifier
         )
+    }
+
+    func readExactPage(source: ContextSourceIdentity) -> ContextSnapshot? {
+        guard let processIdentifier = source.processIdentifier else { return nil }
+        let applicationElement = AXUIElementCreateApplication(processIdentifier)
+        guard let focusedElement = elementAttribute(
+            kAXFocusedUIElementAttribute as CFString,
+            from: applicationElement
+        ) else { return nil }
+        guard let focusedWindow = elementAttribute(
+            kAXFocusedWindowAttribute as CFString,
+            from: applicationElement
+        )
+        else { return nil }
+
+        var candidateValues = urlAttributeValues(from: focusedWindow)
+        var element: AXUIElement? = focusedElement
+        for _ in 0 ..< 4 {
+            guard let currentElement = element else { break }
+            candidateValues.append(contentsOf: urlAttributeValues(from: currentElement))
+            element = elementAttribute(kAXParentAttribute as CFString, from: currentElement)
+        }
+        return AccessibilityExactPageContextResolver.snapshot(
+            source: source,
+            urlAttributeValues: candidateValues
+        )
+    }
+
+    private func urlAttributeValues(from element: AXUIElement) -> [String] {
+        [
+            urlStringAttribute(kAXDocumentAttribute as CFString, from: element),
+            urlStringAttribute(kAXURLAttribute as CFString, from: element),
+        ].compactMap { $0 }
     }
 
     private func elementAttribute(
@@ -193,6 +311,44 @@ private struct AccessibilityContextReader: Sendable {
         else { return nil }
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func urlStringAttribute(
+        _ attribute: CFString,
+        from element: AXUIElement
+    ) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success,
+              let value
+        else { return nil }
+        let rawValue: String?
+        if let url = value as? URL {
+            rawValue = url.absoluteString
+        } else {
+            rawValue = value as? String
+        }
+        guard let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty
+        else { return nil }
+        return trimmed
+    }
+}
+
+enum AccessibilityContextSourceValidation {
+    static func acceptsResult(
+        source: ContextSourceIdentity,
+        runningProcessIdentifier: pid_t?,
+        runningBundleIdentifier: String?,
+        isTerminated: Bool
+    ) -> Bool {
+        guard !isTerminated,
+              let sourceProcessIdentifier = source.processIdentifier,
+              runningProcessIdentifier == sourceProcessIdentifier,
+              runningBundleIdentifier == source.bundleIdentifier
+        else {
+            return false
+        }
+        return true
     }
 }
 

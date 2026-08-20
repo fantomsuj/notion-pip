@@ -1,5 +1,10 @@
 # Context-Aware Page Suggestions Design
 
+> Extended on August 19, 2026 by the canonical
+> [Contextual Notion Connection product document](../../product/context-aware-page-suggestions.md).
+> The saved-page suggestion card described below remains supported; reveal-time
+> exact-page connection is additive and never performs title inference.
+
 ## Goal
 
 Let Perch notice the frontmost macOS app or browser page and offer a relevant
