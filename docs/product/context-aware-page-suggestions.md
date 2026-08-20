@@ -50,8 +50,11 @@ Preview, Chrome stable/beta/canary, Firefox, Edge, Brave, and Arc. Their values
 must pass `NotionPageReference` unchanged as HTTPS. The native Notion bundle
 (`notion.id`) may first normalize an exact `notion://www.notion.so/...` link to
 HTTPS, after which the same host, credentials, length, path, and page-ID checks
-apply. Detected source values and page identifiers remain in memory and are not
-logged or persisted as context.
+apply. Raw source values and URL candidates—including rejected candidates—stay
+in memory and are not logged or persisted as Accessibility context. Once an
+empty Perch auto-opens a validated page, or the user accepts **Open Here**, its
+validated page reference follows Perch's ordinary device-local recents,
+persistence, and restoration behavior.
 
 ## Architecture
 

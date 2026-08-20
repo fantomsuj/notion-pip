@@ -117,9 +117,12 @@ Context Suggestions is off by default and requests Accessibility access only
 when enabled. Exact-page checks run only in response to a reveal, use focused
 `AXDocument`/`AXURL` attributes plus a four-element focused parent path, and do
 not inspect page contents, window titles, screenshots, keystrokes, or the
-clipboard. Detected URLs and page identifiers remain transient and are not
-logged. Quick Copy remains deferred and its separate selection monitor is not
-started. Perch does not ask for, store, or send a personal integration token;
+clipboard. Raw Accessibility app, window, and URL candidates remain transient
+and are not logged. When Perch auto-opens a detected page, or you choose
+**Open Here**, its validated page URL and identifier enter the same device-local
+page history and persistence flow as any page you open normally. Quick Copy
+remains deferred and its separate selection monitor is not started. Perch does
+not ask for, store, or send a personal integration token;
 the signed-in Notion session remains in WebKit's website data store.
 Local builds use an available Apple Development or Perch local-development
 signing identity, falling back to ad-hoc signing when neither exists. Run

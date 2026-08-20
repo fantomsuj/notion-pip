@@ -115,6 +115,7 @@ final class PiPStashHandleController: PiPStashHandle {
         onPullRevealChange: @escaping @MainActor (CGFloat) -> Void,
         onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool
     ) {
+        let didOwnShelfFocus = isShelfFocusOwned
         handleTransitionTask?.cancel()
         handleTransitionGeneration &+= 1
         let generation = handleTransitionGeneration
@@ -123,6 +124,9 @@ final class PiPStashHandleController: PiPStashHandle {
         isHandleHovered = false
         isShelfHovered = false
         isShelfFocusOwned = false
+        if didOwnShelfFocus {
+            onShelfFocusChange?(false)
+        }
         handlePanel.ignoresMouseEvents = false
 
         let shouldAnimateEntrance = animatesHandleEntrance
