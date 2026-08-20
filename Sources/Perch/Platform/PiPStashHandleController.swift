@@ -53,6 +53,8 @@ final class PiPStashHandleController: PiPStashHandle {
         shelfPanel.isVisible
     }
 
+    var onShelfFocusChange: (@MainActor (Bool) -> Void)?
+
     func configurePullRevealTravel(_ travel: CGFloat) {
         pullRevealTravel = max(travel, 1)
     }
@@ -131,6 +133,7 @@ final class PiPStashHandleController: PiPStashHandle {
     ) {
         presentationGeneration &+= 1
         resetDropTarget()
+        let didOwnShelfFocus = isShelfFocusOwned
         handleTransitionTask?.cancel()
         handleTransitionGeneration &+= 1
         let generation = handleTransitionGeneration
@@ -139,6 +142,9 @@ final class PiPStashHandleController: PiPStashHandle {
         isHandleHovered = false
         isShelfHovered = false
         isShelfFocusOwned = false
+        if didOwnShelfFocus {
+            onShelfFocusChange?(false)
+        }
         handlePanel.ignoresMouseEvents = false
 
         let shouldAnimateEntrance = animatesHandleEntrance
@@ -195,6 +201,7 @@ final class PiPStashHandleController: PiPStashHandle {
     func orderOut() {
         presentationGeneration &+= 1
         resetDropTarget()
+        let didOwnShelfFocus = isShelfFocusOwned
         handleTransitionGeneration &+= 1
         handleTransitionTask?.cancel()
         handleTransitionTask = nil
@@ -211,6 +218,9 @@ final class PiPStashHandleController: PiPStashHandle {
         isHandleHovered = false
         isShelfHovered = false
         isShelfFocusOwned = false
+        if didOwnShelfFocus {
+            onShelfFocusChange?(false)
+        }
     }
 
     func dismissForRestore() {
@@ -328,10 +338,18 @@ final class PiPStashHandleController: PiPStashHandle {
     }
 
     func dismissShelf() {
+        dismissShelf(notifyingFocusEnd: true)
+    }
+
+    private func dismissShelf(notifyingFocusEnd: Bool) {
+        let didOwnShelfFocus = isShelfFocusOwned
         cancelShelfWork()
         isShelfFocusOwned = false
         shelfPanel.orderOut(nil)
         isShelfHovered = false
+        if notifyingFocusEnd, didOwnShelfFocus {
+            onShelfFocusChange?(false)
+        }
     }
 
     func shelfDidResignKey() {
@@ -420,8 +438,12 @@ final class PiPStashHandleController: PiPStashHandle {
     }
 
     private func restoreCurrentPage() {
-        dismissShelf()
+        let didOwnShelfFocus = isShelfFocusOwned
+        dismissShelf(notifyingFocusEnd: false)
         onRestore?()
+        if didOwnShelfFocus {
+            onShelfFocusChange?(false)
+        }
     }
 
     private func requestShelf(requestsFocus: Bool) {
@@ -482,6 +504,7 @@ final class PiPStashHandleController: PiPStashHandle {
         isShelfFocusOwned = isShelfFocusOwned || requestsFocus
         if isShelfFocusOwned {
             if shouldActivateApplication {
+                onShelfFocusChange?(true)
                 activateApplication()
             }
             shelfPanel.becomesKeyOnlyIfNeeded = true

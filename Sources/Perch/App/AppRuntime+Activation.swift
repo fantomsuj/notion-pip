@@ -77,7 +77,7 @@ extension AppRuntime {
     func handleMenuBarActivation() {
         cancelShortcutGesture(restashTransientPanel: false)
         guard pinCoordinator.stashOrRestoreCurrentPage() else {
-            presentCurrentPageSetup()
+            requestContextualRevealForEmptyPerch()
             return
         }
     }
@@ -347,9 +347,20 @@ extension AppRuntime {
 
     private func handleGlobalShortcutTap() {
         guard pinCoordinator.performGlobalShortcutAction() else {
-            presentCurrentPageSetup()
+            requestContextualRevealForEmptyPerch()
             return
         }
+    }
+
+    private func requestContextualRevealForEmptyPerch() {
+        let fallback: @MainActor () -> Void = { [weak self] in
+            self?.presentCurrentPageSetup()
+        }
+        guard let contextualRevealRequestHandler else {
+            fallback()
+            return
+        }
+        contextualRevealRequestHandler(fallback)
     }
 
     private func showValidationFailure(_ message: String) {

@@ -29,6 +29,11 @@ final class PinCoordinator {
         set { panelCoordinator.onPresentationStateChange = newValue }
     }
 
+    var onWillReveal: (@MainActor () -> Void)? {
+        get { panelCoordinator.onWillReveal }
+        set { panelCoordinator.onWillReveal = newValue }
+    }
+
     init(
         panelCoordinator: any PiPPanelCoordinating,
         pasteboard: any PasteboardReading,

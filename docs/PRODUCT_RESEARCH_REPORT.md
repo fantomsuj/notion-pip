@@ -7,6 +7,13 @@
 > Superseded product direction (August 10, 2026): Quick Capture was removed.
 > The `+` action now hands page creation to the native Notion app. This report
 > remains as historical research, not a description of the current product.
+>
+> August 19, 2026 addendum: Perch now supports a narrower contextual connection
+> than the ambient automatic switching rejected in this report. Exact Notion
+> page detection runs only when the user deliberately reveals Perch, never
+> reads page content, and never replaces an occupied PiP automatically. This
+> preserves the report's control and calm principles while shortening an
+> intentional transition.
 
 ## Executive summary
 
@@ -486,7 +493,7 @@ live web view.
 
 - multiple simultaneous PiP panels;
 - background clipboard history;
-- automatic foreground-app/browser/calendar monitoring;
+- automatic foreground-app/browser/calendar switching or continuous exact-URL collection;
 - team collaboration or shared cursors;
 - general-purpose launcher/actions platform;
 - native Notion block or database editing;

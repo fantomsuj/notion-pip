@@ -147,25 +147,285 @@ final class ContextSuggestionControllerTests: XCTestCase {
         XCTAssertEqual(controller.permissionState, .needsPermission)
     }
 
-    func testAcceptRevalidatesThatSuggestedPageIsNotAlreadyActive() async {
+    func testExactPageAutomaticallyActivatesWhenPerchIsEmpty() throws {
         let monitor = ContextMonitorSpy(isAuthorized: true)
-        var activePageID: String?
-        var activationCount = 0
+        let activation = ContextualActivationRecorder()
         let controller = makeController(
             monitor: monitor,
             enabled: true,
-            activePageID: { activePageID },
-            onActivate: { _, _ in activationCount += 1 }
+            onActivate: activation.record
+        )
+        controller.start()
+
+        controller.requestContextualReveal()
+        monitor.completeExactCapture(with: try exactSnapshot(pageID: secondPageID))
+
+        XCTAssertEqual(activation.pages.map(\.pageID), [secondPageID])
+        XCTAssertNil(controller.contextualPageActionState.action)
+    }
+
+    func testPreparedSourceIsCapturedBeforeFocusAndUsedForLaterExactRead() throws {
+        let source = ContextSourceIdentity(
+            processIdentifier: 42,
+            bundleIdentifier: "com.apple.Safari",
+            applicationName: "Safari"
+        )
+        let monitor = ContextMonitorSpy(isAuthorized: true)
+        monitor.sourceIdentity = source
+        let activation = ContextualActivationRecorder()
+        let controller = makeController(
+            monitor: monitor,
+            enabled: true,
+            onActivate: activation.record
+        )
+        controller.start()
+
+        controller.prepareContextualRevealSource()
+        monitor.sourceIdentity = nil
+        controller.requestContextualReveal()
+
+        XCTAssertEqual(monitor.exactCaptureSources, [source])
+        monitor.completeExactCapture(with: try exactSnapshot(pageID: secondPageID))
+        XCTAssertEqual(activation.pages.map(\.pageID), [secondPageID])
+    }
+
+    func testDiscardedPreparedSourceIsNotUsedByLaterReveal() {
+        let monitor = ContextMonitorSpy(isAuthorized: true)
+        monitor.sourceIdentity = ContextSourceIdentity(
+            processIdentifier: 42,
+            bundleIdentifier: "com.apple.Safari",
+            applicationName: "Safari"
+        )
+        let controller = makeController(monitor: monitor, enabled: true)
+        controller.start()
+
+        controller.prepareContextualRevealSource()
+        controller.discardPreparedContextualRevealSource()
+        controller.requestContextualReveal()
+
+        XCTAssertEqual(monitor.exactCaptureCount, 1)
+        XCTAssertTrue(monitor.exactCaptureSources.isEmpty)
+    }
+
+    func testDifferentExactPageOffersOpenHereWithoutReplacingCurrentPage() throws {
+        let monitor = ContextMonitorSpy(isAuthorized: true)
+        let activePage = ContextualActivePageBox(pageID: firstPageID)
+        let activation = ContextualActivationRecorder()
+        let controller = makeController(
+            monitor: monitor,
+            enabled: true,
+            activePageID: activePage.read,
+            onActivate: activation.record
+        )
+        controller.start()
+
+        controller.requestContextualReveal()
+        monitor.completeExactCapture(with: try exactSnapshot(pageID: secondPageID))
+
+        XCTAssertEqual(controller.contextualPageActionState.action?.page.pageID, secondPageID)
+        XCTAssertEqual(controller.contextualPageActionState.action?.sourceApplicationName, "Safari")
+        XCTAssertTrue(activation.pages.isEmpty)
+    }
+
+    func testSameExactPageDoesNotOfferOpenHere() throws {
+        let monitor = ContextMonitorSpy(isAuthorized: true)
+        let activePage = ContextualActivePageBox(pageID: firstPageID)
+        let activation = ContextualActivationRecorder()
+        let controller = makeController(
+            monitor: monitor,
+            enabled: true,
+            activePageID: activePage.read,
+            onActivate: activation.record
+        )
+        controller.start()
+
+        controller.requestContextualReveal()
+        monitor.completeExactCapture(with: try exactSnapshot(pageID: firstPageID))
+
+        XCTAssertNil(controller.contextualPageActionState.action)
+        XCTAssertTrue(activation.pages.isEmpty)
+    }
+
+    func testOpenHereRevalidatesCurrentPageAndUsesNormalActivationCallback() throws {
+        let monitor = ContextMonitorSpy(isAuthorized: true)
+        let activePage = ContextualActivePageBox(pageID: firstPageID)
+        let activation = ContextualActivationRecorder()
+        let controller = makeController(
+            monitor: monitor,
+            enabled: true,
+            activePageID: activePage.read,
+            onActivate: activation.record
+        )
+        controller.start()
+        controller.requestContextualReveal()
+        monitor.completeExactCapture(with: try exactSnapshot(pageID: secondPageID))
+
+        controller.contextualPageActionState.accept()
+
+        XCTAssertEqual(activation.pages.map(\.pageID), [secondPageID])
+        XCTAssertEqual(activation.restorations.count, 1)
+        XCTAssertNil(activation.restorations[0])
+        XCTAssertNil(controller.contextualPageActionState.action)
+    }
+
+    func testDismissalClearsActionAndNewerRevealCanReplaceIt() throws {
+        let monitor = ContextMonitorSpy(isAuthorized: true)
+        let activePage = ContextualActivePageBox(pageID: firstPageID)
+        let controller = makeController(
+            monitor: monitor,
+            enabled: true,
+            activePageID: activePage.read
+        )
+        controller.start()
+        controller.requestContextualReveal()
+        monitor.completeExactCapture(with: try exactSnapshot(pageID: secondPageID))
+
+        controller.contextualPageActionState.dismiss()
+        XCTAssertNil(controller.contextualPageActionState.action)
+
+        let thirdPageID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        controller.requestContextualReveal()
+        monitor.completeExactCapture(with: try exactSnapshot(pageID: thirdPageID))
+
+        XCTAssertEqual(controller.contextualPageActionState.action?.page.pageID, thirdPageID)
+    }
+
+    func testNewerRevealRejectsStaleExactCaptureResult() throws {
+        let monitor = ContextMonitorSpy(isAuthorized: true)
+        let activePage = ContextualActivePageBox(pageID: firstPageID)
+        let controller = makeController(
+            monitor: monitor,
+            enabled: true,
+            activePageID: activePage.read
+        )
+        controller.start()
+
+        controller.requestContextualReveal()
+        controller.requestContextualReveal()
+        monitor.completeExactCapture(at: 0, with: try exactSnapshot(pageID: secondPageID))
+        XCTAssertNil(controller.contextualPageActionState.action)
+
+        let newestPageID = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        monitor.completeExactCapture(at: 0, with: try exactSnapshot(pageID: newestPageID))
+
+        XCTAssertEqual(controller.contextualPageActionState.action?.page.pageID, newestPageID)
+    }
+
+    func testDeniedPermissionFallsBackWithoutStartingExactCapture() {
+        let monitor = ContextMonitorSpy(isAuthorized: false, requestResult: false)
+        let controller = makeController(monitor: monitor, enabled: true)
+        var fallbackCount = 0
+        controller.start()
+
+        controller.requestContextualReveal {
+            fallbackCount += 1
+        }
+
+        XCTAssertEqual(fallbackCount, 1)
+        XCTAssertEqual(monitor.exactCaptureCount, 0)
+        XCTAssertNil(controller.contextualPageActionState.action)
+    }
+
+    func testPermissionRevocationInvalidatesPendingCaptureAndFallsBack() throws {
+        let monitor = ContextMonitorSpy(isAuthorized: true)
+        let activation = ContextualActivationRecorder()
+        let controller = makeController(
+            monitor: monitor,
+            enabled: true,
+            onActivate: activation.record
+        )
+        var fallbackCount = 0
+        controller.start()
+        controller.requestContextualReveal {
+            fallbackCount += 1
+        }
+
+        monitor.revokeAuthorization()
+        monitor.completeExactCapture(with: try exactSnapshot(pageID: secondPageID))
+
+        XCTAssertEqual(fallbackCount, 1)
+        XCTAssertTrue(activation.pages.isEmpty)
+        XCTAssertNil(controller.contextualPageActionState.action)
+    }
+
+    func testTerminatedSourceResultFallsBackAsNoContext() {
+        let monitor = ContextMonitorSpy(isAuthorized: true)
+        let controller = makeController(monitor: monitor, enabled: true)
+        var fallbackCount = 0
+        controller.start()
+        controller.requestContextualReveal {
+            fallbackCount += 1
+        }
+
+        monitor.completeExactCapture(with: nil)
+
+        XCTAssertEqual(fallbackCount, 1)
+        XCTAssertNil(controller.contextualPageActionState.action)
+    }
+
+    func testExactCaptureTimeoutFallsBackAsNoContext() async {
+        let monitor = ContextMonitorSpy(isAuthorized: true)
+        let controller = makeController(
+            monitor: monitor,
+            enabled: true,
+            exactCaptureTimeout: .zero
+        )
+        var fallbackCount = 0
+        controller.start()
+        controller.requestContextualReveal {
+            fallbackCount += 1
+        }
+
+        await settle()
+
+        XCTAssertEqual(fallbackCount, 1)
+        XCTAssertNil(controller.contextualPageActionState.action)
+    }
+
+    func testExplicitPageActivationInvalidatesPendingContextualReplacement() throws {
+        let monitor = ContextMonitorSpy(isAuthorized: true)
+        let activePage = ContextualActivePageBox(pageID: nil)
+        let activation = ContextualActivationRecorder()
+        let controller = makeController(
+            monitor: monitor,
+            enabled: true,
+            activePageID: activePage.read,
+            onActivate: activation.record
+        )
+        var fallbackCount = 0
+        controller.start()
+        controller.requestContextualReveal {
+            fallbackCount += 1
+        }
+
+        activePage.pageID = firstPageID
+        controller.activePageDidChange()
+        monitor.completeExactCapture(with: try exactSnapshot(pageID: secondPageID))
+
+        XCTAssertTrue(activation.pages.isEmpty)
+        XCTAssertEqual(fallbackCount, 0)
+        XCTAssertNil(controller.contextualPageActionState.action)
+    }
+
+    func testAcceptRevalidatesThatSuggestedPageIsNotAlreadyActive() async {
+        let monitor = ContextMonitorSpy(isAuthorized: true)
+        let activePage = ContextualActivePageBox(pageID: nil)
+        let activation = ContextualActivationRecorder()
+        let controller = makeController(
+            monitor: monitor,
+            enabled: true,
+            activePageID: activePage.read,
+            onActivate: activation.record
         )
         controller.start()
         monitor.emit(githubContext)
         await settle()
         XCTAssertNotNil(controller.suggestion)
 
-        activePageID = page().pageID
+        activePage.pageID = page().pageID
         controller.acceptSuggestion()
 
-        XCTAssertEqual(activationCount, 0)
+        XCTAssertTrue(activation.pages.isEmpty)
         XCTAssertNil(controller.suggestion)
     }
 
@@ -198,11 +458,27 @@ final class ContextSuggestionControllerTests: XCTestCase {
         )
     }
 
+    private func exactSnapshot(pageID: String) throws -> ContextSnapshot {
+        ContextSnapshot(
+            source: ContextSourceIdentity(
+                processIdentifier: 42,
+                bundleIdentifier: "com.apple.Safari",
+                applicationName: "Safari"
+            ),
+            exactPage: try NotionPageReference(
+                validating: XCTUnwrap(
+                    URL(string: "https://www.notion.com/Context-\(pageID)")
+                )
+            )
+        )
+    }
+
     private func makeController(
         monitor: ContextMonitorSpy,
         preferences: ContextSuggestionPreferencesSpy = ContextSuggestionPreferencesSpy(),
         enabled: Bool = false,
         clock: any DateProviding = TestDateProvider(Date(timeIntervalSince1970: 1_000)),
+        exactCaptureTimeout: Duration = .seconds(1),
         restorations: [DurablePageRestoration] = [],
         activePageID: @escaping @MainActor () -> String? = { nil },
         onActivate: @escaping @MainActor (NotionPageReference, DurablePageRestoration?) -> Void = { _, _ in }
@@ -221,6 +497,7 @@ final class ContextSuggestionControllerTests: XCTestCase {
             store: store,
             preferenceStore: preferences,
             clock: clock,
+            exactCaptureTimeout: exactCaptureTimeout,
             activePageID: activePageID,
             onActivate: onActivate
         )
@@ -240,6 +517,10 @@ private final class ContextMonitorSpy: ContextMonitoring {
     private(set) var requestCount = 0
     private(set) var startCount = 0
     private(set) var stopCount = 0
+    private(set) var exactCaptureCount = 0
+    var sourceIdentity: ContextSourceIdentity?
+    private(set) var exactCaptureSources: [ContextSourceIdentity] = []
+    private var exactCaptureCompletions: [(@MainActor (ContextSnapshot?) -> Void)] = []
 
     init(isAuthorized: Bool, requestResult: Bool? = nil) {
         self.isAuthorized = isAuthorized
@@ -254,10 +535,38 @@ private final class ContextMonitorSpy: ContextMonitoring {
 
     func start() { startCount += 1 }
     func stop() { stopCount += 1 }
+    func captureExactPage(
+        completion: @escaping @MainActor (ContextSnapshot?) -> Void
+    ) {
+        exactCaptureCount += 1
+        exactCaptureCompletions.append(completion)
+    }
+
+    func captureSourceIdentity() -> ContextSourceIdentity? {
+        sourceIdentity
+    }
+
+    func captureExactPage(
+        from source: ContextSourceIdentity,
+        completion: @escaping @MainActor (ContextSnapshot?) -> Void
+    ) {
+        exactCaptureCount += 1
+        exactCaptureSources.append(source)
+        exactCaptureCompletions.append(completion)
+    }
     func emit(_ snapshot: ContextSnapshot?) { onSnapshot?(snapshot) }
     func revokeAuthorization() {
         isAuthorized = false
         onAuthorizationChange?(false)
+    }
+
+    func completeExactCapture(
+        at index: Int = 0,
+        with snapshot: ContextSnapshot?
+    ) {
+        guard exactCaptureCompletions.indices.contains(index) else { return }
+        let completion = exactCaptureCompletions.remove(at: index)
+        completion(snapshot)
     }
 }
 
@@ -267,4 +576,31 @@ private final class ContextSuggestionPreferencesSpy: ContextSuggestionPreference
 
     func load() -> Bool { isEnabled }
     func save(_ enabled: Bool) { isEnabled = enabled }
+}
+
+@MainActor
+private final class ContextualActivePageBox {
+    var pageID: String?
+
+    init(pageID: String?) {
+        self.pageID = pageID
+    }
+
+    func read() -> String? {
+        pageID
+    }
+}
+
+@MainActor
+private final class ContextualActivationRecorder {
+    private(set) var pages: [NotionPageReference] = []
+    private(set) var restorations: [DurablePageRestoration?] = []
+
+    func record(
+        page: NotionPageReference,
+        restoration: DurablePageRestoration?
+    ) {
+        pages.append(page)
+        restorations.append(restoration)
+    }
 }

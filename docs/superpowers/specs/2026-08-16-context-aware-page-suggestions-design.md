@@ -1,5 +1,10 @@
 # Context-Aware Page Suggestions Design
 
+> Extended on August 19, 2026 by the canonical
+> [Contextual Notion Connection product document](../../product/context-aware-page-suggestions.md).
+> The saved-page suggestion card described below remains supported; reveal-time
+> exact-page connection is additive and never performs title inference.
+
 ## Goal
 
 Let Perch notice the frontmost macOS app or browser page and offer a relevant
@@ -15,8 +20,10 @@ explicitly enabled, and never requires a Notion token.
   Settings and grants macOS Accessibility access.
 - Context consists of the frontmost app name and bundle identifier, focused
   window title, and an optional document URL exposed by Accessibility.
-- Raw context is kept in memory only. It is not logged, persisted, uploaded, or
-  added to the Notion page.
+- Raw Accessibility context is kept in memory only. It is not logged,
+  persisted, uploaded, or added to the Notion page. A page subsequently opened
+  from a suggestion still follows Perch's ordinary device-local page history
+  and persistence behavior.
 - Matching is deterministic. Page roles receive the strongest weight, page
   titles the next strongest weight, and pinned pages win ties.
 - The current page is never suggested. Low-confidence matches, secure fields,
