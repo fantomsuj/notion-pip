@@ -51,6 +51,7 @@ jobs:
         run: |
           bash Tests/ScriptTests/sign_app_tests.sh
           bash Tests/ScriptTests/package_release_tests.sh
+          bash Tests/ScriptTests/sparkle_key_tests.sh
           swift test \
             --skip \
             '(ExternalDropActivatingWebViewTests|NotionEditorSelectionTests|NotionWebSessionTests|PiPChromeViewTests|PiPPanelGeometryTests|WebNavigationDestinationTests)'
@@ -109,6 +110,39 @@ jobs:
           PERCH_NOTARY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: ./script/package_release.sh
 
+      - name: Generate signed Sparkle appcast
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          appcast_tool="$(find .build/artifacts -type f -path '*/bin/generate_appcast' -print -quit)"
+          if [[ -z "$appcast_tool" || ! -x "$appcast_tool" ]]; then
+            echo "Sparkle generate_appcast tool was not resolved" >&2
+            exit 1
+          fi
+          if [[ -z "$SPARKLE_ED_PRIVATE_KEY" ]]; then
+            echo "SPARKLE_ED_PRIVATE_KEY is required" >&2
+            exit 1
+          fi
+
+          # shellcheck disable=SC1091
+          source Support/Sparkle.env
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | \
+            script/verify_sparkle_key.swift "$SPARKLE_PUBLIC_ED_KEY"
+
+          appcast_input="$RUNNER_TEMP/perch-appcast"
+          mkdir -p "$appcast_input"
+          cp "dist/Perch-${{ steps.release.outputs.version }}.dmg" "$appcast_input/"
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | "$appcast_tool" \
+            --ed-key-file - \
+            --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}/" \
+            --link "https://pinapage.com" \
+            -o "$appcast_input/appcast.xml" \
+            "$appcast_input"
+          mv "$appcast_input/appcast.xml" dist/appcast.xml
+
+          grep -Fq 'sparkle:edSignature=' dist/appcast.xml
+          grep -Fq "releases/download/${GITHUB_REF_NAME}/Perch-${{ steps.release.outputs.version }}.dmg" dist/appcast.xml
+
       - name: Preserve release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -116,6 +150,7 @@ jobs:
           path: |
             dist/Perch-${{ steps.release.outputs.version }}.dmg
             dist/Perch-${{ steps.release.outputs.version }}.dmg.sha256
+            dist/appcast.xml
           if-no-files-found: error
           retention-days: 14
 
@@ -124,13 +159,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            "dist/Perch-$RELEASE_VERSION.dmg" \
-            "dist/Perch-$RELEASE_VERSION.dmg.sha256" \
-            --draft \
-            --generate-notes \
-            --title "Perch $RELEASE_VERSION" \
-            --verify-tag
+          release_assets=(
+            "dist/Perch-$RELEASE_VERSION.dmg"
+            "dist/Perch-$RELEASE_VERSION.dmg.sha256"
+            "dist/appcast.xml"
+          )
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')"
+            if [[ "$is_draft" != "true" ]]; then
+              echo "Refusing to replace assets for published release $GITHUB_REF_NAME" >&2
+              exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" "${release_assets[@]}" --clobber
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "Perch $RELEASE_VERSION"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              "${release_assets[@]}" \
+              --draft \
+              --generate-notes \
+              --title "Perch $RELEASE_VERSION" \
+              --verify-tag
+          fi
 
       - name: Remove release credentials
         if: ${{ always() }}

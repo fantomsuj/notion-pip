@@ -16,8 +16,85 @@ struct PanelStashIntent: Equatable, Sendable {
     let displayAffinity: DisplayAffinity?
 }
 
+struct PanelDragStashDecision: Equatable, Sendable {
+    let placement: PanelStashPlacement
+    let restoreFrame: CGRect
+}
+
 enum PanelStashPolicy {
     static let handleSize = CGSize(width: 36, height: 96)
+    static let dragHiddenFraction: CGFloat = 0.40
+
+    static func dragDecision(
+        for panelFrame: CGRect,
+        topology: DisplayTopology,
+        hiddenFraction: CGFloat = dragHiddenFraction
+    ) -> PanelDragStashDecision? {
+        guard panelFrame.width > 0,
+            let display = DisplayTopologyPolicy.targetDisplay(
+                for: nil,
+                currentFrame: panelFrame,
+                in: topology
+            )
+        else {
+            return nil
+        }
+
+        let displayFrame = display.frame
+        let visibleFrame = display.visibleFrame
+        let requiredOverhang = panelFrame.width * min(max(hiddenFraction, 0), 1)
+        let leftOverhang = displayFrame.minX - panelFrame.minX
+        let rightOverhang = panelFrame.maxX - displayFrame.maxX
+        let side: PanelStashSide
+        if leftOverhang > 0,
+            leftOverhang >= requiredOverhang,
+            !hasAdjacentDisplay(
+                beyond: .left,
+                of: display,
+                panelFrame: panelFrame,
+                in: topology
+            )
+        {
+            side = .left
+        } else if rightOverhang > 0,
+            rightOverhang >= requiredOverhang,
+            !hasAdjacentDisplay(
+                beyond: .right,
+                of: display,
+                panelFrame: panelFrame,
+                in: topology
+            )
+        {
+            side = .right
+        } else {
+            return nil
+        }
+
+        let centeredY = panelFrame.midY - handleSize.height / 2
+        let handleY = min(
+            max(centeredY, visibleFrame.minY),
+            visibleFrame.maxY - handleSize.height
+        )
+        let handleX = switch side {
+        case .left:
+            visibleFrame.minX
+        case .right:
+            visibleFrame.maxX - handleSize.width
+        }
+        return PanelDragStashDecision(
+            placement: PanelStashPlacement(
+                side: side,
+                frame: CGRect(
+                    origin: CGPoint(x: handleX, y: handleY),
+                    size: handleSize
+                )
+            ),
+            restoreFrame: PanelFramePolicy.clamped(
+                panelFrame,
+                visibleFrames: [visibleFrame]
+            )
+        )
+    }
 
     static func placement(
         for intent: PanelStashIntent,
@@ -134,5 +211,30 @@ enum PanelStashPolicy {
             side: side,
             frame: CGRect(origin: CGPoint(x: x, y: y), size: handleSize)
         )
+    }
+
+    private static func hasAdjacentDisplay(
+        beyond side: PanelStashSide,
+        of display: DisplayDescriptor,
+        panelFrame: CGRect,
+        in topology: DisplayTopology
+    ) -> Bool {
+        let tolerance: CGFloat = 1
+        return topology.displays.contains { candidate in
+            guard candidate.identifier != display.identifier
+                    || candidate.frame != display.frame
+            else {
+                return false
+            }
+            let overlapsVertically = candidate.frame.maxY > panelFrame.minY
+                && candidate.frame.minY < panelFrame.maxY
+            guard overlapsVertically else { return false }
+            return switch side {
+            case .left:
+                abs(candidate.frame.maxX - display.frame.minX) <= tolerance
+            case .right:
+                abs(candidate.frame.minX - display.frame.maxX) <= tolerance
+            }
+        }
     }
 }

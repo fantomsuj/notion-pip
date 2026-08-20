@@ -810,6 +810,42 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         return true
     }
 
+    @discardableResult
+    private func stashAfterPanelDrag(
+        _ decision: PanelDragStashDecision,
+        topology: DisplayTopology
+    ) -> Bool {
+        if isStashDismissalActive {
+            cancelPendingStashDismissal()
+        }
+        settleActiveProgrammaticFrameChange()
+        guard currentPage != nil, let stashHandle else { return false }
+
+        latestTopology = topology
+        commitCurrentGeometry(
+            desiredContentSize: committedGeometry?.desiredContentSize.cgSize,
+            topology: topology,
+            frame: decision.restoreFrame
+        )
+        activeStashIntent = PanelStashPolicy.intent(
+            for: decision.placement,
+            topology: topology
+        )
+        presentStashHandle(
+            stashHandle,
+            placement: decision.placement,
+            entrance: .coordinated
+        )
+        isStashDismissalActive = true
+        panel.dismissForStash(toward: decision.placement) { [weak self] in
+            guard let self else { return }
+            isStashDismissalActive = false
+            notifyPanelDidHide()
+        }
+        logger.notice("Panel stashed after edge drag")
+        return true
+    }
+
     private func stashImmediately(topology: DisplayTopology) -> Bool {
         if isStashDismissalActive {
             cancelPendingStashDismissal()
@@ -1118,10 +1154,11 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     private func commitCurrentGeometry(
         desiredContentSize: CGSize? = nil,
         anchor: PanelFrameAnchor? = nil,
-        topology: DisplayTopology? = nil
+        topology: DisplayTopology? = nil,
+        frame: CGRect? = nil
     ) {
         guard let geometry = PanelGeometryPolicy.capture(
-            frame: logicalPanelFrame,
+            frame: frame ?? logicalPanelFrame,
             topology: topology ?? currentTopology(),
             desiredContentSize: desiredContentSize,
             anchor: anchor,
@@ -1195,8 +1232,20 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
                 self?.scheduleCornerSnap()
                 return
             }
-            self?.snapPanelToCorner()
+            self?.finishPanelMove()
         }
+    }
+
+    func finishPanelMove() {
+        snapTargetPresenter?.dismiss()
+        let topology = currentTopology()
+        if let decision = PanelStashPolicy.dragDecision(
+            for: logicalPanelFrame,
+            topology: topology
+        ), stashAfterPanelDrag(decision, topology: topology) {
+            return
+        }
+        snapPanelToCorner()
     }
 
     func snapPanelToCorner() {

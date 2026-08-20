@@ -12,6 +12,8 @@ ENTITLEMENTS="$ROOT_DIR/Support/Perch.entitlements"
 APP_ICON_SOURCE="$ROOT_DIR/Support/Perch.icns"
 DMG_BACKGROUND_SOURCE="$ROOT_DIR/Support/DMGBackground.svg"
 VERSION_CONFIG="$ROOT_DIR/Support/Version.env"
+SPARKLE_CONFIG="$ROOT_DIR/Support/Sparkle.env"
+SIGN_SPARKLE_SCRIPT="$ROOT_DIR/script/sign_sparkle.sh"
 
 SWIFT_TOOL="${SWIFT_TOOL:-swift}"
 SECURITY_TOOL="${SECURITY_TOOL:-/usr/bin/security}"
@@ -96,6 +98,8 @@ fi
 
 # shellcheck disable=SC1090
 source "$VERSION_CONFIG"
+# shellcheck disable=SC1090
+source "$SPARKLE_CONFIG"
 
 if [[ ! "${PERCH_VERSION:-}" =~ ^[0-9]+(\.[0-9]+){2}$ ]]; then
     echo "error: PERCH_VERSION must contain three numeric components" >&2
@@ -153,6 +157,7 @@ APP_BUNDLE="$TEMP_ROOT/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
+APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 WORK_DMG_PATH="$TEMP_ROOT/$APP_NAME-$PERCH_VERSION.dmg"
@@ -204,7 +209,7 @@ for architecture in "${RELEASE_ARCHITECTURES[@]}"; do
     fi
 done
 
-/bin/mkdir -p "$APP_MACOS" "$APP_RESOURCES"
+/bin/mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS"
 "$LIPO_TOOL" -create "${ARCH_BINARIES[@]}" -output "$APP_BINARY"
 /bin/chmod +x "$APP_BINARY"
 
@@ -220,6 +225,12 @@ done
 while IFS= read -r -d '' resource_bundle; do
     "$DITTO_TOOL" "$resource_bundle" "$APP_RESOURCES/$(basename "$resource_bundle")"
 done < <(/usr/bin/find "$ARM64_BIN_DIRECTORY" -maxdepth 1 -type d -name '*.bundle' -print0)
+if [[ ! -d "$ARM64_BIN_DIRECTORY/Sparkle.framework" ]]; then
+    echo "error: SwiftPM did not produce $ARM64_BIN_DIRECTORY/Sparkle.framework" >&2
+    exit 1
+fi
+"$DITTO_TOOL" "$ARM64_BIN_DIRECTORY/Sparkle.framework" \
+    "$APP_FRAMEWORKS/Sparkle.framework"
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -269,24 +280,38 @@ cat >"$INFO_PLIST" <<PLIST
     <string>Copyright © 2026 Sujay Jayakar</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>$SPARKLE_FEED_URL</string>
+    <key>SUPublicEDKey</key>
+    <string>$SPARKLE_PUBLIC_ED_KEY</string>
 </dict>
 </plist>
 PLIST
 
 /usr/bin/plutil -lint "$INFO_PLIST" >/dev/null
 
-nested_code="$({
+unexpected_nested_code="$({
     /usr/bin/find "$APP_CONTENTS" -mindepth 1 \
         \( -type d \( -name '*.app' -o -name '*.framework' -o -name '*.xpc' -o -name '*.appex' \) \
-        -o -type f -name '*.dylib' \) -print -quit
+        -o -type f -name '*.dylib' \) \
+        ! -path "$APP_FRAMEWORKS/Sparkle.framework" \
+        ! -path "$APP_FRAMEWORKS/Sparkle.framework/*" \
+        -print -quit
 } 2>/dev/null || true)"
-if [[ -n "$nested_code" ]]; then
-    echo "error: release bundle contains nested code that needs an explicit inside-out signing rule:" >&2
-    echo "error: $nested_code" >&2
+if [[ -n "$unexpected_nested_code" ]]; then
+    echo "error: release bundle contains unsupported nested code:" >&2
+    echo "error: $unexpected_nested_code" >&2
     exit 1
 fi
 
 echo "Signing $APP_BUNDLE with Developer ID identity $SIGNING_IDENTITY"
+CODESIGN_TOOL="$CODESIGN_TOOL" \
+    "$SIGN_SPARKLE_SCRIPT" \
+    "$APP_FRAMEWORKS/Sparkle.framework" \
+    "$SIGNING_IDENTITY" \
+    "--timestamp"
 "$CODESIGN_TOOL" \
     --force \
     --sign "$SIGNING_IDENTITY" \
