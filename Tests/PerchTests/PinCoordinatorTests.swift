@@ -1,7 +1,5 @@
 import AppKit
-import Combine
 import Foundation
-import WebKit
 import XCTest
 
 @testable import Perch
@@ -10,36 +8,6 @@ import XCTest
 final class PinCoordinatorTests: XCTestCase {
     private let firstPageID = "0123456789abcdef0123456789abcdef"
     private let secondPageID = "fedcba9876543210fedcba9876543210"
-
-    func testProductionInitializerUsesInjectedStashHandle() throws {
-        try requireInteractiveAppKitTests()
-        _ = NSApplication.shared
-        let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
-        let handle = FakeStashHandle()
-        let session = NotionWebSession(
-            webView: WKWebView(frame: .zero),
-            loadRequest: { _, _ in },
-            pauseMedia: { _ in }
-        )
-        let coordinator = PiPPanelCoordinator(
-            webSession: session,
-            stashHandle: handle,
-            performanceSignposter: nil
-        )
-        let newWindows = NSApp.windows.filter {
-            !existingWindows.contains(ObjectIdentifier($0))
-        }
-        newWindows.forEach { $0.alphaValue = 0 }
-        defer { newWindows.forEach { $0.orderOut(nil) } }
-
-        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
-        XCTAssertTrue(coordinator.stash(
-            visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
-        ))
-
-        XCTAssertEqual(handle.placements.count, 1)
-        XCTAssertTrue(handle.isVisible)
-    }
 
     func testPanelCoordinatorDeduplicatesSamePageLoadWhileForegroundingPanel() throws {
         let panel = FakePanelWindow()

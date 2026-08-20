@@ -95,6 +95,11 @@ Run the tests with:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 ```
 
+The default test target is headless: it must not present windows, activate the
+test host, or require user input. AppKit behavior is tested with non-ordering
+window doubles, while pure window configuration can use unpresented AppKit
+objects.
+
 ## Direct distribution
 
 Public builds ship outside the Mac App Store as a Universal 2 DMG. They use a

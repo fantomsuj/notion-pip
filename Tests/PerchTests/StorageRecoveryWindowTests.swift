@@ -1,14 +1,12 @@
-import AppKit
 import Foundation
 import XCTest
 @testable import Perch
 
 @MainActor
 final class StorageRecoveryWindowTests: XCTestCase {
-    func testClosingRecoveryWindowContinuesWithoutSaving() throws {
-        _ = NSApplication.shared
-        let existingWindows = Set(NSApp.windows.map(ObjectIdentifier.init))
+    func testClosingRecoveryWindowContinuesWithoutSaving() {
         var continueCount = 0
+        let window = HeadlessRecoveryWindow()
         let context = PersistentStoreRecoveryContext(
             archiveStore: {
                 PersistentStoreArchiveReceipt(
@@ -26,17 +24,12 @@ final class StorageRecoveryWindowTests: XCTestCase {
         )
         let presenter = AppWindowFactory.makeStorageRecovery(
             controller: controller,
-            closeRequestHandler: controller.continueWithoutSaving
+            closeRequestHandler: controller.continueWithoutSaving,
+            windowFactory: { window }
         )
         presenter.show()
-        let window = try XCTUnwrap(
-            NSApp.windows.first {
-                !existingWindows.contains(ObjectIdentifier($0))
-                    && $0.title == StorageRecoveryPresentation.title
-            }
-        )
 
-        window.close()
+        window.requestClose()
 
         XCTAssertEqual(continueCount, 1)
         XCTAssertFalse(window.isVisible)
@@ -46,4 +39,26 @@ final class StorageRecoveryWindowTests: XCTestCase {
 @MainActor
 private final class StorageRecoveryWindowAnnouncementSpy: AccessibilityAnnouncementPosting {
     func announce(_ message: String) {}
+}
+
+@MainActor
+private final class HeadlessRecoveryWindow: AppWindow {
+    private(set) var isVisible = false
+    private var closeRequestHandler: (@MainActor () -> Void)?
+
+    func presentAsKey() {
+        isVisible = true
+    }
+
+    func orderOut() {
+        isVisible = false
+    }
+
+    func installCloseRequestHandler(_ handler: @escaping @MainActor () -> Void) {
+        closeRequestHandler = handler
+    }
+
+    func requestClose() {
+        closeRequestHandler?()
+    }
 }
