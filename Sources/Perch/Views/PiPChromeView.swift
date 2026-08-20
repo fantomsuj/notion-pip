@@ -58,6 +58,35 @@ struct FailedLoadBannerAccessibilityPresentation: Equatable {
     )
 }
 
+struct ContextualPageActionPresentation: Equatable {
+    let message: String
+    let actionTitle: String
+    let actionAccessibilityLabel: String
+    let dismissAccessibilityLabel: String
+
+    init(action: ContextualPageAction) {
+        self.init(
+            message: "Notion page found in \(action.sourceApplicationName)",
+            actionTitle: "Open Here",
+            actionAccessibilityLabel:
+                "Open the Notion page from \(action.sourceApplicationName) in Perch",
+            dismissAccessibilityLabel: "Dismiss Open Here"
+        )
+    }
+
+    init(
+        message: String,
+        actionTitle: String,
+        actionAccessibilityLabel: String,
+        dismissAccessibilityLabel: String
+    ) {
+        self.message = message
+        self.actionTitle = actionTitle
+        self.actionAccessibilityLabel = actionAccessibilityLabel
+        self.dismissAccessibilityLabel = dismissAccessibilityLabel
+    }
+}
+
 struct PiPChromeView: View {
     static let primaryActionID = AppCommandID.newNotionPage
     static let primaryActionAccessibilityLabel = "New Notion Page"
@@ -83,6 +112,7 @@ struct PiPChromeView: View {
     @State private var reloadFeedbackPending = false
     @State private var reloadRotationDegrees: Double = 0
     @ObservedObject var pageSwitcherController: PageSwitcherController
+    @ObservedObject var contextualPageActionState: ContextualPageActionState
     let commandModel: AppCommandModel
     let panelSizeController: PanelSizeController?
     let panelPositionController: PanelPositionController?
@@ -131,6 +161,7 @@ struct PiPChromeView: View {
         commandModel: AppCommandModel = .noOp,
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
+        contextualPageActionState: ContextualPageActionState = ContextualPageActionState(),
         onReloadSavedPin: @escaping () -> Void = {},
         onStash: @escaping () -> Void = {},
         onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in }
@@ -140,6 +171,7 @@ struct PiPChromeView: View {
         self.commandModel = commandModel
         self.panelSizeController = panelSizeController
         self.panelPositionController = panelPositionController
+        self.contextualPageActionState = contextualPageActionState
         self.onReloadSavedPin = onReloadSavedPin
         self.onStash = onStash
         self.onPageSwitcherSelection = onPageSwitcherSelection
@@ -160,6 +192,34 @@ struct PiPChromeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let action = contextualPageActionState.action {
+                let presentation = ContextualPageActionPresentation(action: action)
+                HStack(spacing: DesignTokens.Spacing.control) {
+                    Label(presentation.message, systemImage: "link")
+                        .font(.caption)
+                        .lineLimit(1)
+                    Spacer(minLength: DesignTokens.Spacing.compact)
+                    Button(presentation.actionTitle) {
+                        contextualPageActionState.accept()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .accessibilityLabel(presentation.actionAccessibilityLabel)
+                    Button {
+                        contextualPageActionState.dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(presentation.dismissAccessibilityLabel)
+                }
+                .padding(.horizontal, DesignTokens.Spacing.control)
+                .padding(.vertical, DesignTokens.Spacing.compact)
+                .accessibilityElement(children: .contain)
+
+                Divider()
+            }
+
             if let browserLogin = NotionBrowserLoginPresentation(
                 state: webSession.browserLoginState
             ) {

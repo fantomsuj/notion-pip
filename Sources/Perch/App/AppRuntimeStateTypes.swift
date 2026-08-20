@@ -1,5 +1,9 @@
 import Foundation
 
+typealias ContextualRevealRequestHandler = @MainActor (
+    _ emptyFallback: (@MainActor () -> Void)?
+) -> Void
+
 struct ServiceHealthState: Equatable, Sendable {
     static let healthy = ServiceHealthState()
 

@@ -1,17 +1,117 @@
 import Foundation
 
-struct ContextSnapshot: Equatable, Sendable {
+struct ContextSourceIdentity: Equatable, Sendable {
+    let processIdentifier: pid_t?
     let bundleIdentifier: String
     let applicationName: String
+}
+
+struct ContextSnapshot: Equatable, Sendable {
+    let source: ContextSourceIdentity
     let windowTitle: String?
     let documentURL: URL?
+    let exactPage: NotionPageReference?
+
+    var bundleIdentifier: String { source.bundleIdentifier }
+    var applicationName: String { source.applicationName }
+
+    init(
+        bundleIdentifier: String,
+        applicationName: String,
+        windowTitle: String?,
+        documentURL: URL?,
+        sourceProcessIdentifier: pid_t? = nil,
+        exactPage: NotionPageReference? = nil
+    ) {
+        source = ContextSourceIdentity(
+            processIdentifier: sourceProcessIdentifier,
+            bundleIdentifier: bundleIdentifier,
+            applicationName: applicationName
+        )
+        self.windowTitle = windowTitle
+        self.documentURL = documentURL
+        self.exactPage = exactPage
+    }
+
+    init(
+        source: ContextSourceIdentity,
+        windowTitle: String? = nil,
+        documentURL: URL? = nil,
+        exactPage: NotionPageReference? = nil
+    ) {
+        self.source = source
+        self.windowTitle = windowTitle
+        self.documentURL = documentURL
+        self.exactPage = exactPage
+    }
 
     var identity: String {
         [
             bundleIdentifier,
             windowTitle ?? "",
             documentURL?.absoluteString ?? "",
+            exactPage?.pageID ?? "",
         ].joined(separator: "\u{1F}")
+    }
+}
+
+enum ContextualNotionPageResolver {
+    private static let notionDesktopBundleIdentifier = "notion.id"
+    private static let browserBundleIdentifiers: Set<String> = [
+        "com.apple.safari",
+        "com.apple.safaritechnologypreview",
+        "com.brave.browser",
+        "com.google.chrome",
+        "com.google.chrome.beta",
+        "com.google.chrome.canary",
+        "com.microsoft.edgemac",
+        "company.thebrowser.browser",
+        "org.mozilla.firefox",
+    ]
+
+    static func resolve(
+        rawURL: String,
+        sourceBundleIdentifier: String
+    ) -> NotionPageReference? {
+        let source = sourceBundleIdentifier.lowercased()
+        guard source == notionDesktopBundleIdentifier
+                || browserBundleIdentifiers.contains(source)
+        else {
+            return nil
+        }
+        let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let url = URL(string: trimmed) else { return nil }
+
+        if url.scheme?.lowercased() == "notion" {
+            guard source == notionDesktopBundleIdentifier,
+                  url.host?.lowercased() == "www.notion.so",
+                  var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            else {
+                return nil
+            }
+            components.scheme = "https"
+            guard let normalizedURL = components.url else { return nil }
+            return try? NotionPageReference(validating: normalizedURL)
+        }
+
+        return try? NotionPageReference(validating: url)
+    }
+}
+
+enum AccessibilityExactPageContextResolver {
+    static func snapshot(
+        source: ContextSourceIdentity,
+        urlAttributeValues: [String]
+    ) -> ContextSnapshot? {
+        for rawURL in urlAttributeValues {
+            if let page = ContextualNotionPageResolver.resolve(
+                rawURL: rawURL,
+                sourceBundleIdentifier: source.bundleIdentifier
+            ) {
+                return ContextSnapshot(source: source, exactPage: page)
+            }
+        }
+        return nil
     }
 }
 
@@ -26,6 +126,11 @@ struct ContextSuggestion: Equatable, Sendable {
     var suppressionKey: String {
         contextIdentity + "\u{1E}" + page.pageID.lowercased()
     }
+}
+
+struct ContextualPageAction: Equatable, Sendable {
+    let page: NotionPageReference
+    let sourceApplicationName: String
 }
 
 enum ContextSuggestionMatcher {

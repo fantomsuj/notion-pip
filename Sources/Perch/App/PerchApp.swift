@@ -139,6 +139,7 @@ private final class AppComposition {
             store: pageRepository,
             currentPageProvider: recentPageSelectionRelay.currentPage
         )
+        let contextualPageActionState = ContextualPageActionState()
         let stashHandle = PiPStashHandleController(
             recentPagesController: recentPagesController,
             onSelectRecentPage: recentPageSelectionRelay.perform
@@ -150,6 +151,7 @@ private final class AppComposition {
             onReloadSavedPin: { actionRelay.reloadSavedPin() },
             panelSizeController: panelSizeController,
             panelPositionController: panelPositionController,
+            contextualPageActionState: contextualPageActionState,
             onPageSwitcherSelection: pageSwitcherRelay.perform,
             stashHandle: stashHandle
         )
@@ -168,6 +170,7 @@ private final class AppComposition {
             monitor: AccessibilityContextMonitor(),
             store: pageRepository,
             preferenceStore: ContextSuggestionPreferenceStore(),
+            contextualPageActionState: contextualPageActionState,
             activePageID: { [weak runtime] in runtime?.activePage?.pageID },
             onActivate: { [weak runtime] page, restoration in
                 runtime?.activate(
@@ -180,6 +183,22 @@ private final class AppComposition {
         let contextSuggestionPanelController = ContextSuggestionPanelController(
             controller: contextSuggestionController
         )
+        stashHandle.onShelfFocusChange = { [weak contextSuggestionController] ownsFocus in
+            if ownsFocus {
+                contextSuggestionController?.prepareContextualRevealSource()
+            } else {
+                contextSuggestionController?.discardPreparedContextualRevealSource()
+            }
+        }
+        runtime.bindContextualRevealHandler { [weak contextSuggestionController] fallback in
+            guard let contextSuggestionController else {
+                fallback?()
+                return
+            }
+            contextSuggestionController.requestContextualReveal(
+                emptyFallback: fallback
+            )
+        }
 
         actionRelay.reloadSavedPinAction = { [weak runtime] in
             runtime?.reloadSavedPin()
@@ -295,7 +314,7 @@ private final class AppComposition {
         contextSuggestionActivePageCancellable = runtime.$activePage
             .dropFirst()
             .sink { [weak contextSuggestionController] _ in
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     contextSuggestionController?.activePageDidChange()
                 }
             }

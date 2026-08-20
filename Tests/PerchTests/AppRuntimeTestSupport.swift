@@ -81,6 +81,7 @@ func waitUntilRuntimeCondition(
 final class RuntimePanelCoordinator: PiPPanelCoordinating {
     var onExternalPresentationAction: (@MainActor () -> Void)?
     var onPresentationStateChange: (@MainActor () -> Void)?
+    var onWillReveal: (@MainActor () -> Void)?
     private(set) var currentPage: NotionPageReference?
     private(set) var shownPages: [NotionPageReference] = []
     private(set) var reloadedPages: [NotionPageReference] = []
@@ -91,6 +92,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     private(set) var globalShortcutActionCount = 0
     private(set) var shortcutShowCount = 0
     private(set) var immediateStashCount = 0
+    private(set) var willRevealCount = 0
     private(set) var lastRestoration: DurablePageRestoration?
 
     var presentationState: PiPPresentationState {
@@ -134,6 +136,8 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
 
     func showCurrentPage() -> Bool {
         guard currentPage != nil else { return false }
+        willRevealCount += 1
+        onWillReveal?()
         isVisible = true
         isStashed = false
         notePresentationChange()

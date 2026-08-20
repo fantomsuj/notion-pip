@@ -37,6 +37,16 @@ For storage-failure cases, never damage the real Application Support store. Firs
 | Suggestion visible while typing in another app | Continue typing, use VoiceOver to inspect the card, then choose Dismiss | The card never steals keyboard focus, its Open and Dismiss actions are announced, and the same context/page pair stays suppressed for thirty minutes |  |  |  |
 | Suggested page has a saved deep URL and scroll position | Choose Open from the card | Perch activates through the ordinary one-WebView path and restores the page's best available saved URL and scroll position without creating a second WebView |  |  |  |
 | Context Suggestions enabled; card visible | Disable the setting or revoke Accessibility access in System Settings | Monitoring stops and the card disappears; returning to Settings reports the permission state without repeatedly prompting |  |  |  |
+| Context Suggestions enabled and ready; Perch has no page; Safari or Chrome focuses a valid HTTPS Notion page | Press the global shortcut | Perch captures the source before taking focus and opens the exact page through the normal activation path; the page becomes active/recent and only one WebView exists |  |  | Repeat with each trusted Notion host |
+| Context Suggestions enabled and ready; Perch has no page; native Notion (`notion.id`) focuses a page | Press the global shortcut while Notion exposes `notion://www.notion.so/...` | The deep link is normalized to canonical HTTPS, strictly validated, and opened; other apps exposing the same custom scheme are ignored |  |  |  |
+| Context Suggestions enabled; Perch shows Page A; browser focuses different valid Page B | Restore Perch with Command-Shift-P | Page A reveals immediately and remains loaded; a slim, VoiceOver-readable Open Here action appears for Page B and can be dismissed |  |  | Confirm no automatic navigation |
+| Context Suggestions enabled; Perch shows Page A; browser focuses Page A | Restore Perch | Page A reveals and no Open Here action appears |  |  | Test URL slug/query variations with the same page ID |
+| Context Suggestions enabled; PiP stashed; different valid Notion page focused | Reveal separately through status-menu Show, status-item press-and-hold peek, edge-handle click, successful edge pull, and Restore Current in the recent shelf | Every path captures the pre-Perch source and reveals the retained Page A first; Page B is offered through Open Here without reload or replacement |  |  | Repeat one path with Reduce Motion and one with VoiceOver |
+| Open Here for Page B visible | Dismiss it, focus Page C, stash and reveal again | The old action disappears immediately; the newer reveal may offer Page C, and a late Page B result never returns |  |  |  |
+| Reveal-time capture pending | Explicitly choose a pinned or recent Page C | Page C activates through the ordinary switcher path and remains authoritative; no late contextual result replaces it or presents a stale action |  |  |  |
+| Context Suggestions enabled; unsupported app, lookalike host, HTTP/file/custom browser URL, malformed URL, or workspace/search URL without a page ID focused | Reveal Perch | No contextual page opens and no Open Here action appears; existing reveal/setup behavior continues without an error alert |  |  | Include `notion.com.example.com` |
+| Context Suggestions enabled; exact capture is delayed beyond the bounded timeout or source app quits during capture | Reveal Perch | The timed-out/terminated result is discarded, Perch uses its existing behavior, and a late result never changes the active page |  |  |  |
+| Context Suggestions enabled; capture pending | Revoke Accessibility permission | Pending contextual work is invalidated, any Open Here action closes, and Perch falls back normally; Settings reports permission needed |  |  |  |
 | Full-screen app on primary display | Present the PiP from the menu bar and edit the page | PiP joins the full-screen Space as an auxiliary floating overlay and accepts keyboard input |  |  |  |
 | Full-screen app on secondary display | Place pointer on secondary display, present a first-use PiP, and edit the page | PiP opens on the secondary full-screen Space, floats above the app, and becomes key |  |  |  |
 | PiP itself zoomed or in native full screen | Press the configured Show/Hide shortcut (default ⌘⇧P) | PiP returns to its prior floating size and remains visible; pressing the shortcut again stashes it normally |  |  |  |
@@ -103,8 +113,9 @@ For storage-failure cases, never damage the real Application Support store. Firs
 ## Deferred Quick Copy prototype regression suite
 
 These cases are retained for future development but are not part of Perch 0.1,
-which does not expose or start Quick Copy and must not request Accessibility
-permission.
+which does not expose or start Quick Copy's selection monitor. Context
+Suggestions may independently request Accessibility permission only after its
+own setting is enabled.
 
 | Start state | Action | Expected result | Build | Owner/date | Notes |
 |---|---|---|---|---|---|
