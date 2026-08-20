@@ -24,6 +24,11 @@ final class PinCoordinator {
         set { panelCoordinator.onExternalPresentationAction = newValue }
     }
 
+    var onPresentationStateChange: (@MainActor () -> Void)? {
+        get { panelCoordinator.onPresentationStateChange }
+        set { panelCoordinator.onPresentationStateChange = newValue }
+    }
+
     init(
         panelCoordinator: any PiPPanelCoordinating,
         pasteboard: any PasteboardReading,
@@ -60,6 +65,10 @@ final class PinCoordinator {
 
     func stashOrRestoreCurrentPage() -> Bool {
         panelCoordinator.stashOrRestoreCurrentPage()
+    }
+
+    func showCurrentPage() -> Bool {
+        panelCoordinator.showCurrentPage()
     }
 
     func showCurrentPageFromShortcut(

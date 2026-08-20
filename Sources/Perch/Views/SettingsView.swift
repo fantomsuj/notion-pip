@@ -2,36 +2,44 @@ import AppKit
 import SwiftUI
 
 struct SettingsView: View {
+    private static let privacyURLString =
+        "https://github.com/fantomsuj/notion-pip/blob/master/docs/PRIVACY.md"
+    private static let supportURLString =
+        "https://github.com/fantomsuj/notion-pip/issues/new"
+    private static let installationURLString =
+        "https://github.com/fantomsuj/notion-pip/blob/master/docs/SUPPORT.md"
+
     @ObservedObject var runtime: AppRuntime
     @ObservedObject var panelSizeController: PanelSizeController
     @ObservedObject var launchAtLoginService: LaunchAtLoginService
+    @ObservedObject var contextSuggestionController: ContextSuggestionController
 
     var body: some View {
         ScrollView {
             Form {
-                Section("Panel Sizes") {
-                    PanelSizeSettingsView(controller: panelSizeController)
-                }
-
-                Section("Pinned Page") {
+                Section("Current Page") {
                     PageURLInputView(
                         state: runtime.pageURLInputState,
-                        onSubmit: runtime.validatePageURL
+                        onSubmit: { _ = runtime.validatePageURL() }
                     )
                     if let activePage = runtime.activePage {
                         LabeledContent(
-                            "Active page",
+                            "Open page",
                             value: activePage.displayTitle ?? activePage.canonicalURL.absoluteString)
                     } else {
-                        Text("No page is pinned yet.")
+                        Text("No page is open in Perch yet.")
                             .foregroundStyle(DesignTokens.Colors.secondaryText)
                     }
+                }
+
+                Section("Panel Sizes") {
+                    PanelSizeSettingsView(controller: panelSizeController)
                 }
 
                 Section("Global Shortcut") {
                     GlobalShortcutRecorderView(runtime: runtime)
                     Toggle(
-                        "Press and hold to peek",
+                        "Press and hold to peek (Experimental)",
                         isOn: Binding(
                             get: { runtime.holdToPeekEnabled },
                             set: { runtime.setHoldToPeekEnabled($0) }
@@ -39,16 +47,8 @@ struct SettingsView: View {
                     )
                     Text(
                         runtime.holdToPeekEnabled
-                            ? "Hold to peek. Double-press to keep the panel open."
+                            ? "Hold to peek. Double-press to keep the panel open. Turn this off if shortcut timing feels unpredictable."
                             : "Show or hide the panel as soon as the shortcut is pressed."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Colors.secondaryText)
-                }
-
-                Section("Quick Copy") {
-                    Text(
-                        "Quick Copy uses Accessibility only while its bottom-left control is visibly on. Selected text is inserted at your saved Notion cursor, stays in memory only, and never changes the clipboard."
                     )
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
@@ -69,6 +69,36 @@ struct SettingsView: View {
                         Text("The menu-bar icon is temporarily visible because the global shortcut is unavailable. Retry the shortcut to return to your saved setting.")
                             .font(.caption)
                             .foregroundStyle(DesignTokens.Colors.secondaryText)
+                    }
+                }
+
+                Section("Context Suggestions") {
+                    Toggle(
+                        "Suggest pages for the app I'm using",
+                        isOn: Binding(
+                            get: { contextSuggestionController.isEnabled },
+                            set: { contextSuggestionController.setEnabled($0) }
+                        )
+                    )
+
+                    Text(
+                        "Perch locally compares the active app, window title, and an available page URL with your pinned and recent page titles and roles. This context is never saved or uploaded."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Colors.secondaryText)
+
+                    if contextSuggestionController.permissionState == .needsPermission {
+                        Label(
+                            "Allow Perch in Privacy & Security → Accessibility, then return here.",
+                            systemImage: "hand.raised"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Colors.secondaryText)
+                        if let accessibilitySettings = URL(
+                            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+                        ) {
+                            Link("Open Accessibility Settings", destination: accessibilitySettings)
+                        }
                     }
                 }
 
@@ -116,28 +146,47 @@ struct SettingsView: View {
 
                 Section("Service Status") {
                     LabeledContent(
-                        "Pinned-page sync",
+                        "Current-page saving",
                         value: runtime.serviceHealth.issues.contains(.pinnedPagePersistenceUnavailable)
                             ? "Needs attention" : "Ready")
                 }
 
                 Section("About") {
-                    LabeledContent("Application", value: "Perch")
-                    LabeledContent("Minimum macOS", value: "14.0")
+                    let metadata = AppMetadata.current
+                    LabeledContent("Application") {
+                        PerchIdentityLabel(title: "Perch")
+                    }
+                    LabeledContent("Version", value: metadata.versionAndBuild)
+                    LabeledContent("Requires macOS", value: metadata.minimumSystemVersion)
+                    if let privacyURL = URL(string: Self.privacyURLString) {
+                        Link("Privacy Policy", destination: privacyURL)
+                    }
+                    if let supportURL = URL(string: Self.supportURLString) {
+                        Link("Support and Feedback", destination: supportURL)
+                    }
+                    if let installationURL = URL(string: Self.installationURLString) {
+                        Link("Installation and Uninstall Help", destination: installationURL)
+                    }
                     Text(
                         "The app runs as an accessory with optional menu-bar presence and keeps credentials out of page URLs and logs."
                     )
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
-                    DeveloperStatusView()
+                    if let copyright = metadata.copyright {
+                        Text(copyright)
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.Colors.secondaryText)
+                    }
                 }
             }
         }
         .formStyle(.grouped)
         .padding(DesignTokens.Spacing.container)
         .frame(minWidth: 440, minHeight: 420)
+        .disablesAnimationOnColorSchemeChange()
         .onAppear {
             launchAtLoginService.refresh()
+            contextSuggestionController.refreshPermission()
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -145,6 +194,7 @@ struct SettingsView: View {
             )
         ) { _ in
             launchAtLoginService.refresh()
+            contextSuggestionController.refreshPermission()
         }
     }
 }

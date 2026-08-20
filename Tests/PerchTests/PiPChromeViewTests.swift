@@ -26,7 +26,12 @@ final class PiPChromeViewTests: XCTestCase {
                 "Move Perch to bottom right",
             ]
         )
-        XCTAssertEqual(PanelCornerControls.minimumHitTarget, 24)
+        XCTAssertEqual(PanelCornerControls.minimumHitTarget, 28)
+        XCTAssertEqual(
+            PanelCornerControls.minimumHitTarget,
+            InteractionPolicy.compactHitTarget
+        )
+        XCTAssertEqual(PanelCornerControls.selectedBackgroundRadius, 4)
     }
 
     func testTopToolbarRevealsCornerControlsWithEveryOtherAction() {
@@ -44,60 +49,143 @@ final class PiPChromeViewTests: XCTestCase {
         )
     }
 
-    func testQuickCopyButtonUsesCompactBottomLeftSizingAndAccessibleCopy() {
-        XCTAssertEqual(QuickCopyButton.controlSize, 30)
-        XCTAssertEqual(QuickCopyButton.edgeInset, 8)
+    func testTopToolbarStaysVisibleWhilePageSwitcherIsPresented() {
         XCTAssertEqual(
-            QuickCopyButton.accessibilityLabel,
-            "Quick Copy selections to Notion"
-        )
-        XCTAssertEqual(
-            QuickCopyButton.helpText,
-            "Place the cursor in Notion, turn on Quick Copy, "
-                + "then select text in another app"
+            PiPChromeView.topToolbarPresentation(
+                showsTopControls: false,
+                isPageSwitcherPresented: true
+            ),
+            .expanded
         )
     }
 
-    func testQuickCopyPresentationDistinguishesEverySessionState() {
+    func testTopToolbarUsesExpandedSizing() {
         XCTAssertEqual(
-            QuickCopyButtonPresentation(state: .off),
-            QuickCopyButtonPresentation(
-                systemImage: "text.append",
-                title: "Quick Copy to Notion",
-                statusMessage: nil,
-                appearance: .off,
-                showsProgress: false
+            PiPChromeView.topControlsHeight,
+            TopEdgeTrackpadMoveController.activeHeight
+        )
+        XCTAssertEqual(PiPChromeView.topControlsSpacing, 4)
+        XCTAssertEqual(PanelCornerControls.minimumHitTarget, 28)
+    }
+
+    func testToolbarHoverMotionIsLocalDirectionalAndReducedMotionSafe() {
+        let resting = ToolbarIconMotionPolicy.transform(
+            for: .corner(.topLeft),
+            isHovering: false,
+            reducesMotion: false
+        )
+        let topLeft = ToolbarIconMotionPolicy.transform(
+            for: .corner(.topLeft),
+            isHovering: true,
+            reducesMotion: false
+        )
+        let stash = ToolbarIconMotionPolicy.transform(
+            for: .stash,
+            isHovering: true,
+            reducesMotion: false
+        )
+        let external = ToolbarIconMotionPolicy.transform(
+            for: .external,
+            isHovering: true,
+            reducesMotion: false
+        )
+        let reduced = ToolbarIconMotionPolicy.transform(
+            for: .stash,
+            isHovering: true,
+            reducesMotion: true
+        )
+
+        XCTAssertEqual(resting, .identity)
+        XCTAssertLessThan(topLeft.offset.width, 0)
+        XCTAssertLessThan(topLeft.offset.height, 0)
+        XCTAssertLessThan(stash.scale, 1)
+        XCTAssertGreaterThan(external.offset.width, 0)
+        XCTAssertLessThan(external.offset.height, 0)
+        XCTAssertEqual(reduced, .identity)
+    }
+
+    func testPerchMarkSeparatesOnlyForInteractionWithMotionEnabled() {
+        XCTAssertEqual(
+            PerchMarkMotionPolicy.separation(isActive: false, reducesMotion: false),
+            0
+        )
+        XCTAssertEqual(
+            PerchMarkMotionPolicy.separation(isActive: true, reducesMotion: false),
+            1.5
+        )
+        XCTAssertEqual(
+            PerchMarkMotionPolicy.separation(isActive: true, reducesMotion: true),
+            0
+        )
+        XCTAssertEqual(PerchMarkMotionPolicy.duration, 0.12)
+    }
+
+    func testReloadMotionRunsOnceOnlyAfterSuccessfulLoadCompletion() {
+        XCTAssertTrue(
+            ReloadCompletionMotionPolicy.shouldAnimate(
+                isPending: true,
+                previousState: .loading,
+                currentState: .active,
+                reducesMotion: false
             )
         )
-        XCTAssertEqual(
-            QuickCopyButtonPresentation(state: .armed).title,
-            "Quick Copy on"
-        )
-        XCTAssertEqual(
-            QuickCopyButtonPresentation(state: .inserting).showsProgress,
-            true
-        )
-        XCTAssertEqual(
-            QuickCopyButtonPresentation(state: .added),
-            QuickCopyButtonPresentation(
-                systemImage: "checkmark",
-                title: "Added",
-                statusMessage: nil,
-                appearance: .active,
-                showsProgress: false
+        XCTAssertFalse(
+            ReloadCompletionMotionPolicy.shouldAnimate(
+                isPending: false,
+                previousState: .loading,
+                currentState: .active,
+                reducesMotion: false
             )
         )
+        XCTAssertFalse(
+            ReloadCompletionMotionPolicy.shouldAnimate(
+                isPending: true,
+                previousState: .loading,
+                currentState: .loading,
+                reducesMotion: false
+            )
+        )
+        XCTAssertFalse(
+            ReloadCompletionMotionPolicy.shouldAnimate(
+                isPending: true,
+                previousState: .loading,
+                currentState: .failed("Network"),
+                reducesMotion: false
+            )
+        )
+        XCTAssertFalse(
+            ReloadCompletionMotionPolicy.shouldAnimate(
+                isPending: true,
+                previousState: .loading,
+                currentState: .active,
+                reducesMotion: true
+            )
+        )
+    }
+
+    func testFailedLoadBannerExposesMessageAndRetryAsSeparateAccessibilityChildren() {
         XCTAssertEqual(
-            QuickCopyButtonPresentation(state: .permissionNeeded).appearance,
-            .permissionNeeded
+            FailedLoadBannerAccessibilityPresentation.failedLoad.childBehavior,
+            .contain
         )
         XCTAssertEqual(
-            QuickCopyButtonPresentation(state: .warning("Unsupported")).appearance,
-            .warning
+            FailedLoadBannerAccessibilityPresentation.failedLoad.children,
+            [
+                .message("Notion couldn't load this page."),
+                .retryButton("Retry loading Notion page"),
+            ]
         )
+    }
+
+    func testMissingPageChromeExposesANextActionInsteadOfABareEmptyLabel() {
         XCTAssertEqual(
-            QuickCopyButtonPresentation(state: .failed("Stale")).appearance,
-            .failed
+            EmptyPageChromePresentation.missingPage,
+            EmptyPageChromePresentation(
+                title: "No Notion page is open",
+                description: "Open a page from Settings to keep it beside your other work.",
+                actionTitle: "Open Settings",
+                actionAccessibilityLabel: "Open Settings to choose a Notion page"
+            )
         )
     }
 
@@ -124,25 +212,17 @@ final class PiPChromeViewTests: XCTestCase {
         XCTAssertEqual(stashCount, 1)
     }
 
-    func testTopControlsAppearOnlyAfterPointerRemainsAtTopEdge() {
-        let scheduler = TestTopControlsHoverScheduler()
-        let controller = TopControlsHoverController(
-            revealDelay: .milliseconds(250),
-            scheduler: scheduler.schedule
-        )
+    func testTopControlsAppearImmediatelyWhenPointerEntersTopEdge() {
+        let controller = TopControlsHoverController()
 
         controller.setHovering(true)
 
-        XCTAssertFalse(controller.isHovering)
-        scheduler.advance(by: .milliseconds(249))
-        XCTAssertFalse(controller.isHovering)
-        scheduler.advance(by: .milliseconds(1))
         XCTAssertTrue(controller.isHovering)
     }
 
     func testTopControlsHoverSurfaceExtendsBeyondVisibleToolbar() {
         XCTAssertEqual(PiPChromeView.topControlsHoverOutset, 12)
-        XCTAssertEqual(PiPChromeView.topControlsRevealHeight, 8)
+        XCTAssertEqual(PiPChromeView.topControlsRevealHeight, 16)
     }
 
     func testTopControlsDoNotAppearWhenPointerLeavesBeforeRevealDelay() {
@@ -163,13 +243,12 @@ final class PiPChromeViewTests: XCTestCase {
     func testTopControlsDismissShortlyAfterPointerLeaves() {
         let scheduler = TestTopControlsHoverScheduler()
         let controller = TopControlsHoverController(
-            revealDelay: .milliseconds(250),
             dismissalDelay: .milliseconds(500),
             scheduler: scheduler.schedule
         )
 
         controller.setHovering(true)
-        scheduler.advance(by: .milliseconds(250))
+        XCTAssertTrue(controller.isHovering)
         controller.setHovering(false)
 
         scheduler.advance(by: .milliseconds(499))
@@ -181,17 +260,15 @@ final class PiPChromeViewTests: XCTestCase {
     func testTopControlsStayVisibleWhenPointerReentersBeforeDismissal() {
         let scheduler = TestTopControlsHoverScheduler()
         let controller = TopControlsHoverController(
-            revealDelay: .milliseconds(250),
             dismissalDelay: .milliseconds(500),
             scheduler: scheduler.schedule
         )
 
         controller.setHovering(true)
-        scheduler.advance(by: .milliseconds(250))
+        XCTAssertTrue(controller.isHovering)
         controller.setHovering(false)
         scheduler.advance(by: .milliseconds(499))
         controller.setHovering(true)
-        scheduler.advance(by: .milliseconds(1))
 
         XCTAssertTrue(controller.isHovering)
     }

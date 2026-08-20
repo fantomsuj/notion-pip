@@ -286,6 +286,49 @@ final class PageSwitcherMatcherTests: XCTestCase {
         )
     }
 
+    func testRowPresentationUsesRecognitionOrientedCopyInsteadOfRawPageIDs() throws {
+        let roleBearing = try item(
+            number: 1,
+            title: "Daily Planner",
+            role: "Today",
+            pinned: true,
+            timestamp: 10
+        )
+        let titled = try item(
+            number: 2,
+            title: "Project Roadmap",
+            pinned: false,
+            timestamp: 20
+        )
+        let titleless = PageSwitcherItem(
+            page: StoredPageSnapshot(
+                pageID: "00000000000000000000000000000003",
+                canonicalURL: try XCTUnwrap(
+                    URL(string: "https://www.notion.so/00000000000000000000000000000003")
+                ),
+                displayTitle: nil,
+                timestamp: Date(timeIntervalSince1970: 30)
+            ),
+            isPinned: false,
+            isActive: false
+        )
+
+        let roleBearingPresentation = PageSwitcherRowPresentation(item: roleBearing)
+        XCTAssertEqual(roleBearingPresentation.primaryText, "Today")
+        XCTAssertEqual(roleBearingPresentation.secondaryText, "Daily Planner")
+        XCTAssertEqual(roleBearingPresentation.helpText, "Today — Daily Planner")
+
+        let titledPresentation = PageSwitcherRowPresentation(item: titled)
+        XCTAssertEqual(titledPresentation.primaryText, "Project Roadmap")
+        XCTAssertNil(titledPresentation.secondaryText)
+        XCTAssertEqual(titledPresentation.helpText, "Project Roadmap")
+
+        let titlelessPresentation = PageSwitcherRowPresentation(item: titleless)
+        XCTAssertEqual(titlelessPresentation.primaryText, "Untitled Notion page")
+        XCTAssertNil(titlelessPresentation.secondaryText)
+        XCTAssertEqual(titlelessPresentation.helpText, "Untitled Notion page")
+    }
+
     private func item(
         number: Int,
         title: String,

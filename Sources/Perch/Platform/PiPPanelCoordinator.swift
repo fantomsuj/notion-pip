@@ -8,22 +8,35 @@ protocol PiPPanelWindow: AnyObject {
     var frame: CGRect { get }
     var isVisible: Bool { get }
     var isExpanded: Bool { get }
+    var isTrackpadMoveActive: Bool { get }
     var onClose: (@MainActor () -> Void)? { get set }
     func present()
+    func presentFromStash(
+        placement: PanelStashPlacement,
+        completion: @escaping @MainActor () -> Void
+    )
     func presentForPullReveal(at frame: CGRect)
     func pulseLocateHalo()
     func orderOut()
     func dismissForStash(
-        toward side: PanelStashSide,
+        toward placement: PanelStashPlacement,
         completion: @escaping @MainActor () -> Void
     )
     func cancelPendingStashDismissal()
     func restoreFromExpandedState()
     func setFrame(_ frame: CGRect, display: Bool)
     func setFrame(_ frame: CGRect, display: Bool, animate: Bool)
+    func setFrame(
+        _ frame: CGRect,
+        display: Bool,
+        animate: Bool,
+        completion: @escaping @MainActor () -> Void
+    )
 }
 
 extension PiPPanelWindow {
+    var isTrackpadMoveActive: Bool { false }
+
     func cancelPendingStashDismissal() {}
 
     func presentForPullReveal(at frame: CGRect) {
@@ -33,14 +46,32 @@ extension PiPPanelWindow {
 
     func pulseLocateHalo() {}
 
+    func presentFromStash(
+        placement: PanelStashPlacement,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        present()
+        completion()
+    }
+
     func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
         setFrame(frame, display: display)
+    }
+
+    func setFrame(
+        _ frame: CGRect,
+        display: Bool,
+        animate: Bool,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        setFrame(frame, display: display, animate: animate)
+        completion()
     }
 }
 
 extension PiPPanelWindow {
     func dismissForStash(
-        toward side: PanelStashSide,
+        toward placement: PanelStashPlacement,
         completion: @escaping @MainActor () -> Void
     ) {
         orderOut()
@@ -51,6 +82,7 @@ extension PiPPanelWindow {
 @MainActor
 protocol PiPStashHandle: AnyObject {
     var isVisible: Bool { get }
+    func configurePullRevealTravel(_ travel: CGFloat)
     func present(
         placement: PanelStashPlacement,
         onRestore: @escaping @MainActor () -> Void,
@@ -58,7 +90,82 @@ protocol PiPStashHandle: AnyObject {
         onPullRevealChange: @escaping @MainActor (CGFloat) -> Void,
         onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool
     )
+    func present(
+        placement: PanelStashPlacement,
+        entrance: PiPStashHandleEntrance,
+        onRestore: @escaping @MainActor () -> Void,
+        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void,
+        onPullRevealChange: @escaping @MainActor (CGFloat) -> Void,
+        onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool
+    )
+    func dismissForRestore()
     func orderOut()
+}
+
+enum PiPStashHandleEntrance: Equatable, Sendable {
+    case immediate
+    case coordinated
+}
+
+extension PiPStashHandle {
+    func configurePullRevealTravel(_ travel: CGFloat) {}
+
+    func present(
+        placement: PanelStashPlacement,
+        entrance: PiPStashHandleEntrance,
+        onRestore: @escaping @MainActor () -> Void,
+        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void,
+        onPullRevealChange: @escaping @MainActor (CGFloat) -> Void,
+        onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool
+    ) {
+        present(
+            placement: placement,
+            onRestore: onRestore,
+            onPlacementChange: onPlacementChange,
+            onPullRevealChange: onPullRevealChange,
+            onPullRevealEnd: onPullRevealEnd
+        )
+    }
+
+    func dismissForRestore() {
+        orderOut()
+    }
+}
+
+enum PanelStashTransition {
+    static let duration: TimeInterval = 0.24
+    static let handleSettleDuration: TimeInterval = 0.10
+    static let handleSettleDelay: Duration = .milliseconds(140)
+    static let handleSettleOffset: CGFloat = 12
+
+    private static let horizontalCompression: CGFloat = 0.88
+    private static let verticalCompression: CGFloat = 0.94
+    private static let outwardTravel: CGFloat = 48
+
+    static func panelTargetFrame(
+        from frame: CGRect,
+        toward placement: PanelStashPlacement
+    ) -> CGRect {
+        let anchor = CGPoint(x: placement.frame.midX, y: placement.frame.midY)
+        let outwardOffset = placement.side == .left ? -outwardTravel : outwardTravel
+        return CGRect(
+            x: anchor.x + (frame.minX - anchor.x) * horizontalCompression + outwardOffset,
+            y: anchor.y + (frame.minY - anchor.y) * verticalCompression,
+            width: frame.width * horizontalCompression,
+            height: frame.height * verticalCompression
+        )
+    }
+
+    static func unsettledHandleFrame(for placement: PanelStashPlacement) -> CGRect {
+        placement.frame.offsetBy(
+            dx: placement.side == .left ? -handleSettleOffset : handleSettleOffset,
+            dy: 0
+        )
+    }
+
+    static func timingFunction() -> CAMediaTimingFunction {
+        CAMediaTimingFunction(controlPoints: 0.65, 0, 0.35, 1)
+    }
 }
 
 enum PiPPresentationState: Equatable, Sendable {
@@ -70,6 +177,7 @@ enum PiPPresentationState: Equatable, Sendable {
 @MainActor
 protocol PiPPanelCoordinating: AnyObject {
     var onExternalPresentationAction: (@MainActor () -> Void)? { get set }
+    var onPresentationStateChange: (@MainActor () -> Void)? { get set }
     var currentPage: NotionPageReference? { get }
     var presentationState: PiPPresentationState { get }
     func show(page: NotionPageReference)
@@ -88,6 +196,11 @@ protocol PiPPanelCoordinating: AnyObject {
 
 extension PiPPanelCoordinating {
     var onExternalPresentationAction: (@MainActor () -> Void)? {
+        get { nil }
+        set {}
+    }
+
+    var onPresentationStateChange: (@MainActor () -> Void)? {
         get { nil }
         set {}
     }
@@ -141,6 +254,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     private let displayTopologyProvider: @MainActor () -> DisplayTopology
     private let snapTargetPresenter: (any PanelSnapTargetPresenting)?
     private let isPrimaryMouseButtonPressed: @MainActor () -> Bool
+    private let reducesMotion: @MainActor () -> Bool
     private let frameForContentRect: @MainActor (CGRect) -> CGRect
     private let contentRectForFrameRect: @MainActor (CGRect) -> CGRect
     private let geometryStore: any PanelGeometryPersisting
@@ -158,6 +272,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     private var isStashDismissalActive = false
     private var programmaticFrameChangeGeneration = 0
     private var isApplyingProgrammaticFrame = false
+    private var activeProgrammaticFrameTarget: CGRect?
     private var pullRevealState: PullRevealState?
 
     private struct PullRevealState {
@@ -171,6 +286,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     var onPinnedPageAvailabilityChange: (@MainActor () -> Void)?
     var onGeometryPersistenceFailure: (@MainActor () -> Void)?
     var onExternalPresentationAction: (@MainActor () -> Void)?
+    var onPresentationStateChange: (@MainActor () -> Void)?
     var onPanelPositionChange: (@MainActor () -> Void)?
 
     var presentationState: PiPPresentationState {
@@ -189,14 +305,14 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     var selectedCorner: PanelCorner? {
         guard canPositionPanel else { return nil }
         return PanelFramePolicy.corner(
-            for: panel.frame,
+            for: logicalPanelFrame,
             visibleFrames: currentTopology().visibleFrames
         )
     }
 
     var currentPanelContentSize: CGSize {
         PanelFramePolicy.contentSize(
-            forFrame: panel.frame,
+            forFrame: logicalPanelFrame,
             contentRectForFrameRect: contentRectForFrameRect
         )
     }
@@ -216,7 +332,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         webSession: NotionWebSession = NotionWebSession(),
         pageSwitcherController: PageSwitcherController = PageSwitcherController(),
         commandModel: AppCommandModel = .noOp,
-        quickCopyController: QuickCopyController? = nil,
         onReloadSavedPin: @escaping () -> Void = {},
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
@@ -225,10 +340,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
         let stashHandle = stashHandle ?? PiPStashHandleController()
-        let quickCopyController = quickCopyController ?? QuickCopyController(
-            monitor: AccessibilitySelectionMonitor(),
-            target: webSession
-        )
         let displayTopologyObserver = AppKitDisplayTopologyObserver()
         let initialTopology = displayTopologyObserver.currentTopology
         let visibleFrames = initialTopology.visibleFrames
@@ -328,7 +439,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
                 commandModel: commandModel,
                 panelSizeController: panelSizeController,
                 panelPositionController: panelPositionController,
-                quickCopyController: quickCopyController,
                 onReloadSavedPin: onReloadSavedPin,
                 onStash: { [weak self] in
                     self?.onExternalPresentationAction?()
@@ -352,6 +462,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         snapTargetPresenter: (any PanelSnapTargetPresenting)? = nil,
         isPrimaryMouseButtonPressed: @escaping @MainActor () -> Bool = {
             NSEvent.pressedMouseButtons & 1 != 0
+        },
+        reducesMotion: @escaping @MainActor () -> Bool = {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         },
         visibleFramesProvider: @escaping @MainActor () -> [CGRect] = {
             NSScreen.screens.map(\.visibleFrame)
@@ -382,6 +495,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             }
         self.snapTargetPresenter = snapTargetPresenter
         self.isPrimaryMouseButtonPressed = isPrimaryMouseButtonPressed
+        self.reducesMotion = reducesMotion
         latestTopology = initialTopology
         lastAcceptedTopologyRevision = initialTopology.revision
         self.initialFrameProvider = initialFrameProvider
@@ -456,10 +570,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             pageLoader.reselect(page: page)
         }
         restoreCommittedPanelFrame()
-        panel.present()
-        dismissStashHandle()
+        presentPanel()
         endFirstPresentation(measurement)
-        pageLoader.panelDidShow()
+        notifyPanelDidShow()
         if !hadPinnedPage {
             onPinnedPageAvailabilityChange?()
         }
@@ -474,10 +587,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         prepareInitialFrameIfNeeded()
         restoreCommittedPanelFrame()
         currentPage = page
-        panel.present()
-        dismissStashHandle()
+        presentPanel()
         endFirstPresentation(measurement)
-        pageLoader.panelDidShow()
+        notifyPanelDidShow()
         pageLoader.reloadPinnedPage(page)
         if !hadPinnedPage {
             onPinnedPageAvailabilityChange?()
@@ -492,10 +604,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         cancelPendingStashDismissal()
         prepareInitialFrameIfNeeded()
         restoreCommittedPanelFrame()
-        panel.present()
-        dismissStashHandle()
+        presentPanel()
         endFirstPresentation(measurement)
-        pageLoader.panelDidShow()
+        notifyPanelDidShow()
         logger.notice("Existing panel show requested")
         return true
     }
@@ -518,16 +629,15 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         cancelPendingStashDismissal()
         prepareInitialFrameIfNeeded()
         restoreCommittedPanelFrame()
-        panel.present()
+        presentPanel(animateFromStash: false)
         panel.pulseLocateHalo()
         measurement.signposter.end(
             measurement.requestToken,
             outcome: .success,
             metadata: PerformanceMetadata(webViewRetention: retention)
         )
-        dismissStashHandle()
         endFirstPresentation(firstPresentationMeasurement)
-        pageLoader.panelDidShow()
+        notifyPanelDidShow()
         logger.notice("Existing panel show requested from shortcut")
         return true
     }
@@ -582,7 +692,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         guard let placement = PanelFramePolicy.cornerPlacement(
             preferredContentSize: desiredContentSize,
             at: corner,
-            relativeTo: panel.frame,
+            relativeTo: logicalPanelFrame,
             visibleFrames: topology.visibleFrames,
             minimumContentSize: WindowRole.pictureInPicture.policy.minimumContentSize,
             frameForContentRect: frameForContentRect
@@ -623,11 +733,12 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         )
         setPanelFrame(placement.frame, display: wasVisible)
         commitCurrentGeometry(desiredContentSize: contentSize, topology: topology)
-        dismissStashHandle()
 
         if !wasVisible {
-            panel.present()
-            pageLoader.panelDidShow()
+            presentPanel()
+            notifyPanelDidShow()
+        } else {
+            dismissStashHandle()
         }
         logger.notice("Panel content size applied")
         return true
@@ -653,6 +764,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
 
     @discardableResult
     private func stash(topology: DisplayTopology) -> Bool {
+        if isStashDismissalActive {
+            cancelPendingStashDismissal()
+        }
+        settleActiveProgrammaticFrameChange()
         guard currentPage != nil,
             let stashHandle,
             let placement = PanelStashPolicy.placement(
@@ -669,18 +784,62 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             topology: topology
         )
         activeStashIntent = PanelStashPolicy.intent(for: placement, topology: topology)
-        presentStashHandle(stashHandle, placement: placement)
+        presentStashHandle(
+            stashHandle,
+            placement: placement,
+            entrance: .coordinated
+        )
         isStashDismissalActive = true
-        panel.dismissForStash(toward: placement.side) { [weak self] in
+        panel.dismissForStash(toward: placement) { [weak self] in
             guard let self else { return }
             isStashDismissalActive = false
-            pageLoader.panelDidHide()
+            notifyPanelDidHide()
         }
         logger.notice("Panel stashed to screen edge")
         return true
     }
 
+    @discardableResult
+    private func stashAfterPanelDrag(
+        _ decision: PanelDragStashDecision,
+        topology: DisplayTopology
+    ) -> Bool {
+        if isStashDismissalActive {
+            cancelPendingStashDismissal()
+        }
+        settleActiveProgrammaticFrameChange()
+        guard currentPage != nil, let stashHandle else { return false }
+
+        latestTopology = topology
+        commitCurrentGeometry(
+            desiredContentSize: committedGeometry?.desiredContentSize.cgSize,
+            topology: topology,
+            frame: decision.restoreFrame
+        )
+        activeStashIntent = PanelStashPolicy.intent(
+            for: decision.placement,
+            topology: topology
+        )
+        presentStashHandle(
+            stashHandle,
+            placement: decision.placement,
+            entrance: .coordinated
+        )
+        isStashDismissalActive = true
+        panel.dismissForStash(toward: decision.placement) { [weak self] in
+            guard let self else { return }
+            isStashDismissalActive = false
+            notifyPanelDidHide()
+        }
+        logger.notice("Panel stashed after edge drag")
+        return true
+    }
+
     private func stashImmediately(topology: DisplayTopology) -> Bool {
+        if isStashDismissalActive {
+            cancelPendingStashDismissal()
+        }
+        settleActiveProgrammaticFrameChange()
         guard currentPage != nil,
             let stashHandle,
             let placement = PanelStashPolicy.placement(
@@ -700,7 +859,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         presentStashHandle(stashHandle, placement: placement)
         cancelPendingStashDismissal()
         panel.orderOut()
-        pageLoader.panelDidHide()
+        notifyPanelDidHide()
         logger.notice("Temporary peek stashed immediately")
         return true
     }
@@ -715,10 +874,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         cancelPendingStashDismissal()
         prepareInitialFrameIfNeeded()
         restoreCommittedPanelFrame()
-        panel.present()
-        dismissStashHandle()
+        presentPanel()
         endFirstPresentation(measurement)
-        pageLoader.panelDidShow()
+        notifyPanelDidShow()
         logger.notice("Panel restored from screen edge")
     }
 
@@ -733,9 +891,16 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     func applyDisplayTopology(_ topology: DisplayTopology) {
+        guard topology.revision > lastAcceptedTopologyRevision else { return }
+        settleActiveProgrammaticFrameChange()
         let presentation: PanelTopologyPresentation
         if panel.isVisible, panel.isExpanded {
             presentation = .expanded
+        } else if isStashDismissalActive,
+            stashHandle?.isVisible == true,
+            let activeStashIntent
+        {
+            presentation = .stashed(activeStashIntent)
         } else if panel.isVisible {
             presentation = .visible
         } else if stashHandle?.isVisible == true, let activeStashIntent {
@@ -768,12 +933,48 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         onPanelPositionChange?()
     }
 
-    private func dismissStashHandle() {
+    private func notifyPanelDidShow() {
+        pageLoader.panelDidShow()
+        onPresentationStateChange?()
+    }
+
+    private func notifyPanelDidHide() {
+        pageLoader.panelDidHide()
+        onPresentationStateChange?()
+    }
+
+    private func presentPanel(animateFromStash: Bool = true) {
+        guard let placement = activeStashPlacement,
+            stashHandle?.isVisible == true
+        else {
+            panel.present()
+            dismissStashHandle()
+            return
+        }
+
+        guard animateFromStash else {
+            panel.present()
+            dismissStashHandle()
+            return
+        }
+
+        isStashDismissalActive = true
+        panel.presentFromStash(placement: placement) { [weak self] in
+            self?.isStashDismissalActive = false
+        }
+        dismissStashHandle(forRestore: true)
+    }
+
+    private func dismissStashHandle(forRestore: Bool = false) {
         pullRevealState = nil
         activeStashPlacement = nil
         activeStashIntent = nil
         guard stashHandle?.isVisible == true else { return }
-        stashHandle?.orderOut()
+        if forRestore {
+            stashHandle?.dismissForRestore()
+        } else {
+            stashHandle?.orderOut()
+        }
     }
 
     private func cancelPendingStashDismissal() {
@@ -813,11 +1014,16 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
 
     private func presentStashHandle(
         _ stashHandle: any PiPStashHandle,
-        placement: PanelStashPlacement
+        placement: PanelStashPlacement,
+        entrance: PiPStashHandleEntrance = .immediate
     ) {
         activeStashPlacement = placement
+        stashHandle.configurePullRevealTravel(
+            PanelPullRevealPolicy.revealTravel(forPanelWidth: pullRevealPanelWidth)
+        )
         stashHandle.present(
             placement: placement,
+            entrance: entrance,
             onRestore: { [weak self] in
                 self?.restoreFromStash()
             },
@@ -865,9 +1071,13 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             panel.presentForPullReveal(at: hiddenFrame)
         }
         guard let pullRevealState else { return }
-        let progress = PanelPullRevealPolicy.progress(
+        let rawProgress = PanelPullRevealPolicy.progress(
             forInwardDistance: inwardDistance,
             panelWidth: pullRevealState.visibleFrame.width
+        )
+        let progress = PanelPullRevealPolicy.interactiveProgress(
+            forRawProgress: rawProgress,
+            reducesMotion: reducesMotion()
         )
         setPanelFrame(
             PanelPullRevealPolicy.interpolatedFrame(
@@ -880,7 +1090,11 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     private func finishPullReveal(inwardDistance: CGFloat) -> Bool {
-        guard let pullRevealState else { return false }
+        guard let pullRevealState,
+            let activeStashPlacement
+        else {
+            return false
+        }
         self.pullRevealState = nil
         let progress = PanelPullRevealPolicy.progress(
             forInwardDistance: inwardDistance,
@@ -888,12 +1102,13 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         )
         guard PanelPullRevealPolicy.shouldRestore(progress: progress) else {
             isStashDismissalActive = true
-            panel.dismissForStash(toward: pullRevealState.side) { [weak self] in
+            panel.dismissForStash(toward: activeStashPlacement) { [weak self] in
                 guard let self else { return }
                 isStashDismissalActive = false
                 if !pullRevealState.pageLifecycleWasHidden {
                     pageLoader.panelDidHide()
                 }
+                onPresentationStateChange?()
             }
             return false
         }
@@ -904,6 +1119,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         if pullRevealState.pageLifecycleWasHidden {
             pageLoader.panelDidShow()
         }
+        onPresentationStateChange?()
         onPanelPositionChange?()
         logger.notice("Panel restored by pulling its edge handle")
         return true
@@ -925,10 +1141,11 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     private func commitCurrentGeometry(
         desiredContentSize: CGSize? = nil,
         anchor: PanelFrameAnchor? = nil,
-        topology: DisplayTopology? = nil
+        topology: DisplayTopology? = nil,
+        frame: CGRect? = nil
     ) {
         guard let geometry = PanelGeometryPolicy.capture(
-            frame: panel.frame,
+            frame: frame ?? logicalPanelFrame,
             topology: topology ?? currentTopology(),
             desiredContentSize: desiredContentSize,
             anchor: anchor,
@@ -996,18 +1213,32 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         cornerSnapTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(140))
             guard !Task.isCancelled else { return }
-            guard self?.isPrimaryMouseButtonPressed() == false else {
+            guard self?.isPrimaryMouseButtonPressed() == false,
+                self?.panel.isTrackpadMoveActive == false
+            else {
                 self?.scheduleCornerSnap()
                 return
             }
-            self?.snapPanelToCorner()
+            self?.finishPanelMove()
         }
+    }
+
+    func finishPanelMove() {
+        snapTargetPresenter?.dismiss()
+        let topology = currentTopology()
+        if let decision = PanelStashPolicy.dragDecision(
+            for: logicalPanelFrame,
+            topology: topology
+        ), stashAfterPanelDrag(decision, topology: topology) {
+            return
+        }
+        snapPanelToCorner()
     }
 
     func snapPanelToCorner() {
         snapTargetPresenter?.dismiss()
         let visibleFrames = currentTopology().visibleFrames
-        let originalFrame = panel.frame
+        let originalFrame = logicalPanelFrame
         let snappedFrame = PanelFramePolicy.cornerSnapped(
             originalFrame,
             visibleFrames: visibleFrames
@@ -1079,7 +1310,23 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         programmaticFrameChangeGeneration &+= 1
         let generation = programmaticFrameChangeGeneration
         isApplyingProgrammaticFrame = true
-        panel.setFrame(frame, display: display, animate: animate)
+        activeProgrammaticFrameTarget = animate ? frame : nil
+        panel.setFrame(
+            frame,
+            display: display,
+            animate: animate
+        ) { [weak self] in
+            guard let self,
+                programmaticFrameChangeGeneration == generation
+            else {
+                return
+            }
+            activeProgrammaticFrameTarget = nil
+            if animate {
+                isApplyingProgrammaticFrame = false
+            }
+        }
+        guard !animate else { return }
         Task { @MainActor [weak self] in
             guard let self,
                 programmaticFrameChangeGeneration == generation
@@ -1089,19 +1336,37 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             isApplyingProgrammaticFrame = false
         }
     }
+
+    private var logicalPanelFrame: CGRect {
+        activeProgrammaticFrameTarget ?? panel.frame
+    }
+
+    private var pullRevealPanelWidth: CGFloat {
+        guard let committedGeometry else { return logicalPanelFrame.width }
+        return PanelGeometryPolicy.resolvedFrame(
+            for: committedGeometry,
+            topology: currentTopology(),
+            minimumContentSize: WindowRole.pictureInPicture.policy.minimumContentSize,
+            frameForContentRect: frameForContentRect
+        ).width
+    }
+
+    private func settleActiveProgrammaticFrameChange() {
+        guard let activeProgrammaticFrameTarget else { return }
+        setPanelFrame(activeProgrammaticFrameTarget, display: panel.isVisible)
+    }
 }
 
 final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     static let stashCloseButtonLabel = "Stash Perch to Side"
     static let stashCloseButtonHelp = "Move Perch to the nearest screen edge"
-    private static let stashAnimationDuration: TimeInterval = 0.16
-    private static let stashAnimationTravel: CGFloat = 48
     private static let springAnimationDuration: TimeInterval = 0.34
     private var stashAnimationGeneration = 0
     private var pendingStashOriginalFrame: CGRect?
     private var frameAnimationTask: Task<Void, Never>?
     private var locateHaloTask: Task<Void, Never>?
     private var locateHaloPanel: NSPanel?
+    private let topEdgeTrackpadMoveController = TopEdgeTrackpadMoveController()
 
     var onClose: (@MainActor () -> Void)?
 
@@ -1109,8 +1374,64 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         styleMask.contains(.fullScreen) || isZoomed
     }
 
+    var isTrackpadMoveActive: Bool {
+        topEdgeTrackpadMoveController.isActive
+    }
+
     override var canBecomeKey: Bool {
         true
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        guard event.type == .scrollWheel,
+            let contentView
+        else {
+            super.sendEvent(event)
+            return
+        }
+
+        let input = TopEdgeTrackpadMoveInput(
+            phase: TopEdgeTrackpadMovePhase(appKitPhase: event.phase),
+            momentumPhase: TopEdgeTrackpadMovePhase(appKitPhase: event.momentumPhase),
+            hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
+            locationInContent: contentView.convert(event.locationInWindow, from: nil),
+            contentBounds: contentView.bounds,
+            isContentFlipped: contentView.isFlipped,
+            isExpanded: isExpanded,
+            visibleFrame: PanelFramePolicy.targetVisibleFrame(
+                for: frame,
+                from: NSScreen.screens.map(\.visibleFrame)
+            ),
+            translation: CGSize(
+                width: event.scrollingDeltaX,
+                height: event.scrollingDeltaY
+            )
+        )
+        guard !handleTopEdgeTrackpadMove(input) else { return }
+        super.sendEvent(event)
+    }
+
+    @discardableResult
+    func handleTopEdgeTrackpadMove(_ input: TopEdgeTrackpadMoveInput) -> Bool {
+        switch topEdgeTrackpadMoveController.handle(input) {
+        case .forward:
+            return false
+        case .consume:
+            return true
+        case let .move(translation, visibleFrame):
+            let proposedFrame = frame.offsetBy(
+                dx: translation.width,
+                dy: translation.height
+            )
+            setFrame(
+                PanelFramePolicy.clamped(
+                    proposedFrame,
+                    visibleFrames: [visibleFrame]
+                ),
+                display: isVisible
+            )
+            return true
+        }
     }
 
     override func close() {
@@ -1119,6 +1440,11 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         } else {
             orderOut(nil)
         }
+    }
+
+    override func orderOut(_ sender: Any?) {
+        topEdgeTrackpadMoveController.reset()
+        super.orderOut(sender)
     }
 
     func configureCloseButtonForStash() {
@@ -1130,15 +1456,9 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
 
     static func stashAnimationTargetFrame(
         from frame: CGRect,
-        toward side: PanelStashSide
+        toward placement: PanelStashPlacement
     ) -> CGRect {
-        let horizontalTravel = switch side {
-        case .left:
-            -stashAnimationTravel
-        case .right:
-            stashAnimationTravel
-        }
-        return frame.offsetBy(dx: horizontalTravel, dy: 0)
+        PanelStashTransition.panelTargetFrame(from: frame, toward: placement)
     }
 
     static func criticallyDampedSpringProgress(_ elapsedFraction: CGFloat) -> CGFloat {
@@ -1150,6 +1470,49 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     func present() {
         NSApp.activate(ignoringOtherApps: true)
         makeKeyAndOrderFront(nil)
+    }
+
+    func presentFromStash(
+        placement: PanelStashPlacement,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        frameAnimationTask?.cancel()
+        stashAnimationGeneration &+= 1
+        let generation = stashAnimationGeneration
+        let restoredFrame = frame
+        let transitionFrame = Self.stashAnimationTargetFrame(
+            from: restoredFrame,
+            toward: placement
+        )
+        pendingStashOriginalFrame = restoredFrame
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            pendingStashOriginalFrame = nil
+            present()
+            completion()
+            return
+        }
+
+        setFrame(transitionFrame, display: false)
+        alphaValue = 0
+        present()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = PanelStashTransition.duration
+            context.timingFunction = PanelStashTransition.timingFunction()
+            animator().setFrame(restoredFrame, display: true)
+            animator().alphaValue = 1
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                    stashAnimationGeneration == generation
+                else {
+                    return
+                }
+                pendingStashOriginalFrame = nil
+                setFrame(restoredFrame, display: false)
+                alphaValue = 1
+                completion()
+            }
+        }
     }
 
     func presentForPullReveal(at frame: CGRect) {
@@ -1234,12 +1597,22 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     }
 
     override func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
+        setFrame(frame, display: display, animate: animate, completion: {})
+    }
+
+    func setFrame(
+        _ frame: CGRect,
+        display: Bool,
+        animate: Bool,
+        completion: @escaping @MainActor () -> Void
+    ) {
         frameAnimationTask?.cancel()
         guard animate,
             !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             frame != self.frame
         else {
             setFrame(frame, display: display)
+            completion()
             return
         }
 
@@ -1261,6 +1634,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
             guard !Task.isCancelled else { return }
             setFrame(frame, display: display)
             frameAnimationTask = nil
+            completion()
         }
     }
 
@@ -1287,7 +1661,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     }
 
     func dismissForStash(
-        toward side: PanelStashSide,
+        toward placement: PanelStashPlacement,
         completion: @escaping @MainActor () -> Void
     ) {
         frameAnimationTask?.cancel()
@@ -1303,10 +1677,10 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         }
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.stashAnimationDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.duration = PanelStashTransition.duration
+            context.timingFunction = PanelStashTransition.timingFunction()
             animator().setFrame(
-                Self.stashAnimationTargetFrame(from: originalFrame, toward: side),
+                Self.stashAnimationTargetFrame(from: originalFrame, toward: placement),
                 display: true
             )
             animator().alphaValue = 0
@@ -1314,7 +1688,6 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard stashAnimationGeneration == generation else {
-                    self.alphaValue = 1
                     return
                 }
                 self.pendingStashOriginalFrame = nil

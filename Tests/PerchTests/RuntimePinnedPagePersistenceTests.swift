@@ -91,6 +91,11 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
     }
 
     func testHoldingShortcutPeeksAtStashedPanelUntilRelease() async throws {
+        let defaults = try XCTUnwrap(
+            UserDefaults(suiteName: "RuntimePinnedPagePersistenceTests.\(UUID().uuidString)")
+        )
+        let holdToPeekPreferenceStore = HoldToPeekPreferenceStore(defaults: defaults)
+        holdToPeekPreferenceStore.save(true)
         let panel = RuntimePanelCoordinator()
         let shortcut = RuntimeShortcutRegistrar()
         let previousApplication = FocusApplicationSpy(processIdentifier: 101)
@@ -108,6 +113,7 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
             shortcutRegistrar: shortcut,
             pageRepository: repository,
             shortcutGestureScheduler: gestureScheduler,
+            holdToPeekPreferenceStore: holdToPeekPreferenceStore,
             peekFocusRestorer: focusRestorer
         )
         let storedPage = try makeStoredPage(id: firstPageID, title: "Restored")
@@ -203,8 +209,10 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
     func testNoSavedPageOpensSettingsAfterRestoreCompletes() async throws {
         let settings = RuntimeSettingsWindowPresenter()
         let repository = RuntimePinnedPageRepository()
-        let runtime = makeRuntime(
-            panel: RuntimePanelCoordinator(),
+        let runtime = AppRuntime(
+            panelCoordinator: RuntimePanelCoordinator(),
+            pasteboard: RuntimePasteboard(value: nil),
+            shortcutRegistrar: RuntimeShortcutRegistrar(),
             pageRepository: repository
         )
         runtime.bind(settingsWindowPresenter: settings)
@@ -217,6 +225,7 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
 
         XCTAssertNil(runtime.activePage)
         XCTAssertEqual(settings.showCount, 1)
+        XCTAssertEqual(runtime.pageURLFocusRequest, 1)
     }
 
     func testNoSavedPageDoesNotCompeteWithPendingOnboarding() async throws {
@@ -239,57 +248,25 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertEqual(settings.showCount, 0)
     }
 
-    func testFirstPageHandoffWaitsForDelayedSavedPage() async throws {
-        let inputPresenter = RuntimePageURLInputPresenter()
+    func testSkippedOnboardingPreventsDelayedEmptyRestoreFromOpeningSettings() async throws {
         let settings = RuntimeSettingsWindowPresenter()
         let repository = RuntimePinnedPageRepository()
-        let onboarding = RuntimeOnboardingState()
         let runtime = makeRuntime(
             panel: RuntimePanelCoordinator(),
-            pageURLInputPresenter: inputPresenter,
-            pageRepository: repository,
-            automaticSettingsPresentationAllowed: { !onboarding.isPending }
+            pageRepository: repository
         )
         runtime.bind(settingsWindowPresenter: settings)
 
         runtime.start()
         try await repository.waitUntilRestoreRequested()
-        onboarding.isPending = false
-        runtime.presentPageURLInputAfterRestoreIfNeeded()
-        await repository.finishRestore(
-            with: try makeStoredPage(id: firstPageID, title: "Restored")
-        )
-        await waitUntilRuntimeCondition { runtime.activePage?.pageID == firstPageID }
-        for _ in 0 ..< 3 { await Task.yield() }
-
-        XCTAssertEqual(inputPresenter.presentAndFocusCount, 0)
-        XCTAssertEqual(settings.showCount, 0)
-    }
-
-    func testFirstPageHandoffOwnsEmptyDelayedRestorePresentation() async throws {
-        let inputPresenter = RuntimePageURLInputPresenter()
-        let settings = RuntimeSettingsWindowPresenter()
-        let repository = RuntimePinnedPageRepository()
-        let onboarding = RuntimeOnboardingState()
-        let runtime = makeRuntime(
-            panel: RuntimePanelCoordinator(),
-            pageURLInputPresenter: inputPresenter,
-            pageRepository: repository,
-            automaticSettingsPresentationAllowed: { !onboarding.isPending }
-        )
-        runtime.bind(settingsWindowPresenter: settings)
-
-        runtime.start()
-        try await repository.waitUntilRestoreRequested()
-        onboarding.isPending = false
-        runtime.presentPageURLInputAfterRestoreIfNeeded()
+        runtime.suppressAutomaticCurrentPageSetup()
         await repository.finishRestore(with: nil)
         try await repository.waitUntilRestoreReturned()
-        await waitUntilRuntimeCondition { inputPresenter.presentAndFocusCount == 1 }
+        for _ in 0 ..< 3 { await Task.yield() }
 
         XCTAssertNil(runtime.activePage)
-        XCTAssertEqual(inputPresenter.presentAndFocusCount, 1)
         XCTAssertEqual(settings.showCount, 0)
+        XCTAssertEqual(runtime.pageURLFocusRequest, 0)
     }
 
     func testFailedRestorePublishesHealthAndRetryReadsRepositoryAgain() async throws {
@@ -537,6 +514,7 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertNil(runtime.lastActivationSource)
         XCTAssertFalse(panel.isVisible)
         XCTAssertEqual(settings.showCount, 1)
+        XCTAssertEqual(runtime.pageURLFocusRequest, 1)
     }
 
     func testStartingTwiceRequestsRestoreOnce() async throws {
@@ -555,9 +533,4 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertEqual(restoreRequestCount, 1)
         await repository.finishRestore(with: nil)
     }
-}
-
-@MainActor
-private final class RuntimeOnboardingState {
-    var isPending = true
 }

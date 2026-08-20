@@ -10,7 +10,6 @@ func makeRuntime(
     panel: RuntimePanelCoordinator,
     pasteboard: any PasteboardReading = RuntimePasteboard(value: nil),
     shortcutRegistrar: any GlobalShortcutRegistering = RuntimeShortcutRegistrar(),
-    pageURLInputPresenter: RuntimePageURLInputPresenter = RuntimePageURLInputPresenter(),
     pageRepository: (any PageWorkingSetPersisting)? = nil,
     shortcutHoldDuration: Duration = .milliseconds(300),
     shortcutGestureScheduler: any ShortcutGestureScheduling =
@@ -40,7 +39,6 @@ func makeRuntime(
         menuBarIconPreferenceStore: preferenceStore,
         holdToPeekPreferenceStore: holdPreferenceStore,
         peekFocusRestorer: peekFocusRestorer,
-        pageURLInputPresenter: pageURLInputPresenter,
         pageRepository: pageRepository,
         shortcutHoldDuration: shortcutHoldDuration,
         shortcutGestureScheduler: shortcutGestureScheduler,
@@ -82,6 +80,7 @@ func waitUntilRuntimeCondition(
 @MainActor
 final class RuntimePanelCoordinator: PiPPanelCoordinating {
     var onExternalPresentationAction: (@MainActor () -> Void)?
+    var onPresentationStateChange: (@MainActor () -> Void)?
     private(set) var currentPage: NotionPageReference?
     private(set) var shownPages: [NotionPageReference] = []
     private(set) var reloadedPages: [NotionPageReference] = []
@@ -109,6 +108,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         lastRestoration = restoration
         isVisible = true
         isStashed = false
+        notePresentationChange()
     }
 
     func reloadPinnedPage(_ page: NotionPageReference) {
@@ -116,6 +116,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         reloadedPages.append(page)
         isVisible = true
         isStashed = false
+        notePresentationChange()
     }
 
     func replace(page: NotionPageReference) {
@@ -128,12 +129,14 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         lastRestoration = restoration
         isVisible = true
         isStashed = false
+        notePresentationChange()
     }
 
     func showCurrentPage() -> Bool {
         guard currentPage != nil else { return false }
         isVisible = true
         isStashed = false
+        notePresentationChange()
         return true
     }
 
@@ -153,17 +156,20 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         guard currentPage != nil, isVisible else { return false }
         isVisible = false
         isStashed = true
+        notePresentationChange()
         return true
     }
 
     func hide() {
         isVisible = false
         isStashed = false
+        notePresentationChange()
     }
 
     func simulateStashedState() {
         isVisible = false
         isStashed = currentPage != nil
+        notePresentationChange()
     }
 
     func simulateExpandedState() {
@@ -174,6 +180,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         onExternalPresentationAction?()
         isVisible = currentPage != nil
         isStashed = false
+        notePresentationChange()
     }
 
     func performGlobalShortcutAction() -> Bool {
@@ -191,6 +198,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         if isVisible {
             isVisible = false
             isStashed = true
+            notePresentationChange()
         } else {
             _ = showCurrentPage()
         }
@@ -202,6 +210,11 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         isVisible = false
         isStashed = false
         isExpanded = false
+        notePresentationChange()
+    }
+
+    private func notePresentationChange() {
+        onPresentationStateChange?()
     }
 }
 
@@ -334,16 +347,6 @@ final class RuntimeShortcutRegistrar: GlobalShortcutRegistering {
     private enum RuntimeShortcutRegistrationError: Error {
         case failed
     }
-}
-
-@MainActor
-final class RuntimePageURLInputPresenter: PageURLInputPresenting {
-    private(set) var presentAndFocusCount = 0
-
-    func presentAndFocus() {
-        presentAndFocusCount += 1
-    }
-
 }
 
 enum RuntimeRepositoryError: Error {

@@ -4,17 +4,15 @@ import XCTest
 
 @MainActor
 final class RuntimeTerminationTests: XCTestCase {
-    func testTerminationStopsQuickCopy() async {
+    func testTerminationPreparesRuntimeForShutdown() async {
         let runtime = makeRuntime(panel: RuntimePanelCoordinator())
-        var quickCopyStopCount = 0
         var terminationReplies: [Bool] = []
         let appDelegate = AppDelegate { _, shouldTerminate in
             terminationReplies.append(shouldTerminate)
         }
         AppStartup.start(
             runtime: runtime,
-            appDelegate: appDelegate,
-            quickCopyTerminationAction: { quickCopyStopCount += 1 }
+            appDelegate: appDelegate
         )
 
         XCTAssertEqual(
@@ -22,7 +20,6 @@ final class RuntimeTerminationTests: XCTestCase {
             .terminateLater
         )
         await waitUntilRuntimeCondition { terminationReplies == [true] }
-        XCTAssertEqual(quickCopyStopCount, 1)
     }
 
     func testTerminationWaitsForPendingAndNewerPageSavesBeforeReplying() async throws {

@@ -9,3 +9,5 @@ xcuserdata/
 .env.*
 .context/
 .superpowers/
+.gstack/
+.worktrees/

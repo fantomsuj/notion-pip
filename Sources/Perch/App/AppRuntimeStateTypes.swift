@@ -47,6 +47,7 @@ enum PageActivationSource: Equatable, Sendable {
     case pagePicker
     case pageSwitcher
     case edgeHandleDrop
+    case contextSuggestion
 }
 
 enum ShortcutPeekGestureState: Equatable, Sendable {
@@ -55,4 +56,9 @@ enum ShortcutPeekGestureState: Equatable, Sendable {
     case awaitingSecondPress(generation: UInt)
     case persistent(generation: UInt)
     case suppressingRelease(generation: UInt)
+}
+
+enum StatusItemPeekState: Equatable, Sendable {
+    case idle
+    case peeking(generation: UInt)
 }

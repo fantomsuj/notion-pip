@@ -27,7 +27,10 @@ struct PiPAppCommandMenu: View {
             }
         } label: {
             Image(systemName: symbolName)
-                .frame(width: 24, height: 24)
+                .frame(
+                    width: PanelCornerControls.minimumHitTarget,
+                    height: PanelCornerControls.minimumHitTarget
+                )
         }
         .menuStyle(.borderlessButton)
         .fixedSize()

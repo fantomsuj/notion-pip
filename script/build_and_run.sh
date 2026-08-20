@@ -20,14 +20,17 @@ PLISTBUDDY_TOOL="${PLISTBUDDY_TOOL:-/usr/libexec/PlistBuddy}"
 LOG_TOOL="${LOG_TOOL:-/usr/bin/log}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST_DIR="$ROOT_DIR/dist"
+DIST_DIR="${PERCH_DIST_DIR:-$ROOT_DIR/dist}"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
+APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 ENTITLEMENTS="$ROOT_DIR/Support/Perch.entitlements"
+LOCAL_ENTITLEMENTS="$ROOT_DIR/Support/Perch.local.entitlements"
+SPARKLE_CONFIG="$ROOT_DIR/Support/Sparkle.env"
 SIGN_SCRIPT="$ROOT_DIR/script/sign_app.sh"
 APP_ICON_SOURCE="$ROOT_DIR/Support/Perch.icns"
 
@@ -60,6 +63,8 @@ fi
 
 # shellcheck disable=SC1090
 source "$VERSION_CONFIG"
+# shellcheck disable=SC1090
+source "$SPARKLE_CONFIG"
 
 if [[ ! "${PERCH_VERSION:-}" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
     echo "error: PERCH_VERSION must contain two or three numeric components" >&2
@@ -105,10 +110,15 @@ if [[ ! -x "$BUILD_BINARY" ]]; then
 fi
 
 /bin/rm -rf "$APP_BUNDLE"
-/bin/mkdir -p "$APP_MACOS" "$APP_RESOURCES"
+/bin/mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$APP_FRAMEWORKS"
 /bin/cp "$BUILD_BINARY" "$APP_BINARY"
 /bin/chmod +x "$APP_BINARY"
 /bin/cp "$APP_ICON_SOURCE" "$APP_RESOURCES/Perch.icns"
+if [[ ! -d "$BUILD_DIR/Sparkle.framework" ]]; then
+    echo "error: SwiftPM did not produce $BUILD_DIR/Sparkle.framework" >&2
+    exit 1
+fi
+/usr/bin/ditto "$BUILD_DIR/Sparkle.framework" "$APP_FRAMEWORKS/Sparkle.framework"
 
 while IFS= read -r -d '' resource_bundle; do
     /usr/bin/ditto "$resource_bundle" "$APP_RESOURCES/$(basename "$resource_bundle")"
@@ -156,14 +166,22 @@ cat >"$INFO_PLIST" <<PLIST
     <true/>
     <key>LSUIElement</key>
     <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Sujay Jayakar</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>$SPARKLE_FEED_URL</string>
+    <key>SUPublicEDKey</key>
+    <string>$SPARKLE_PUBLIC_ED_KEY</string>
 </dict>
 </plist>
 PLIST
 
 /usr/bin/plutil -lint "$INFO_PLIST" >/dev/null
-"$SIGN_SCRIPT" "$APP_BUNDLE" "$ENTITLEMENTS"
+"$SIGN_SCRIPT" "$APP_BUNDLE" "$LOCAL_ENTITLEMENTS"
 "$CODESIGN_TOOL" --verify --deep --strict "$APP_BUNDLE"
 
 open_app() {

@@ -73,6 +73,7 @@ final class NotionWebPopupCoordinator: NSObject, NotionWebPopupCoordinating {
     }
 
     func navigationPolicy(for url: URL?) -> WKNavigationActionPolicy {
+        guard url?.scheme?.lowercased() == "https" else { return .cancel }
         switch WebNavigationDestination.classify(url) {
         case .trustedNotion, .externalWeb:
             return .allow
@@ -115,6 +116,11 @@ final class NotionWebPopupCoordinator: NSObject, NotionWebPopupCoordinating {
 }
 
 extension NotionWebPopupCoordinator: WKNavigationDelegate {
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard popup?.webView === webView else { return }
+        close()
+    }
+
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction

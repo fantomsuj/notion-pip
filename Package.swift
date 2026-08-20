@@ -10,10 +10,25 @@ let package = Package(
     products: [
         .executable(name: "Perch", targets: ["Perch"]),
     ],
+    dependencies: [
+        .package(
+            url: "https://github.com/sparkle-project/Sparkle",
+            from: "2.9.6"
+        ),
+    ],
     targets: [
         .executableTarget(
             name: "Perch",
-            path: "Sources/Perch"
+            dependencies: [
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
+            path: "Sources/Perch",
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-rpath",
+                    "-Xlinker", "@executable_path/../Frameworks",
+                ]),
+            ]
         ),
         .testTarget(
             name: "PerchTests",

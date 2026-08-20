@@ -57,7 +57,7 @@ The existing main-frame trust boundary remains exact. Allowing ordinary HTTP(S) 
 
 - creates the child with the exact `WKWebViewConfiguration` supplied by WebKit;
 - presents a normal titled and closable AppKit window without changing the app's accessory activation policy;
-- permits HTTP(S) redirects needed by identity providers while rejecting unsupported schemes;
+- permits HTTPS redirects needed by identity providers while rejecting plaintext HTTP and unsupported schemes;
 - handles nested external new-window requests through the system browser rather than recursively creating windows;
 - closes and releases the popup on `webViewDidClose`, window close, main-session teardown, or replacement by a newer trusted login popup.
 

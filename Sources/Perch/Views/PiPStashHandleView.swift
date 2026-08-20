@@ -25,6 +25,7 @@ final class PiPStashHandleDropTargetModel: ObservableObject {
 struct PiPStashHandleView: View {
     let side: PanelStashSide
     @ObservedObject var dropTargetModel: PiPStashHandleDropTargetModel
+    let pullRevealTravel: CGFloat
     let onRestore: @MainActor () -> Void
     let onDragEnded: @MainActor (CGRect) -> Void
     let onDragStarted: @MainActor () -> Void
@@ -35,9 +36,12 @@ struct PiPStashHandleView: View {
     let onDropCandidateChanged: @MainActor (NotionPageDrop?) -> Void
     let onDropPerformed: @MainActor (NotionPageDrop) -> Void
 
+    @State private var isHovering = false
+
     init(
         side: PanelStashSide,
         dropTargetModel: PiPStashHandleDropTargetModel,
+        pullRevealTravel: CGFloat = 150,
         onRestore: @escaping @MainActor () -> Void,
         onDragEnded: @escaping @MainActor (CGRect) -> Void = { _ in },
         onDragStarted: @escaping @MainActor () -> Void = {},
@@ -50,6 +54,7 @@ struct PiPStashHandleView: View {
     ) {
         self.side = side
         self.dropTargetModel = dropTargetModel
+        self.pullRevealTravel = max(pullRevealTravel, 1)
         self.onRestore = onRestore
         self.onDragEnded = onDragEnded
         self.onDragStarted = onDragStarted
@@ -78,8 +83,7 @@ struct PiPStashHandleView: View {
                     .padding(.horizontal, 18)
                 } else {
                     VStack(spacing: 8) {
-                        Image(systemName: "rectangle.on.rectangle")
-                            .font(.system(size: 13, weight: .medium))
+                        PerchMark(isActive: isHovering, lineWidth: 1.2)
 
                         Image(systemName: side == .left ? "chevron.right" : "chevron.left")
                             .font(.system(size: 12, weight: .semibold))
@@ -94,12 +98,16 @@ struct PiPStashHandleView: View {
 
             PiPStashHandleInteractionSurface(
                 side: side,
+                pullRevealTravel: pullRevealTravel,
                 onActivate: onRestore,
                 onDragEnded: onDragEnded,
                 onDragStarted: onDragStarted,
                 onPullRevealChanged: onPullRevealChanged,
                 onPullRevealEnded: onPullRevealEnded,
-                onHoverChanged: onHoverChanged,
+                onHoverChanged: { hovering in
+                    isHovering = hovering
+                    onHoverChanged(hovering)
+                },
                 onShowRecentPages: onShowRecentPages,
                 accessibilityDropLabel: dropTargetModel.isActive ? dropTargetModel.label : nil,
                 onDropCandidateChanged: onDropCandidateChanged,
@@ -113,6 +121,7 @@ struct PiPStashHandleView: View {
 
 private struct PiPStashHandleInteractionSurface: NSViewRepresentable {
     let side: PanelStashSide
+    let pullRevealTravel: CGFloat
     let onActivate: @MainActor () -> Void
     let onDragEnded: @MainActor (CGRect) -> Void
     let onDragStarted: @MainActor () -> Void
@@ -127,6 +136,7 @@ private struct PiPStashHandleInteractionSurface: NSViewRepresentable {
     func makeNSView(context: Context) -> PiPStashHandleInteractionView {
         PiPStashHandleInteractionView(
             side: side,
+            pullRevealTravel: pullRevealTravel,
             onActivate: onActivate,
             onDragEnded: onDragEnded,
             onDragStarted: onDragStarted,
@@ -143,6 +153,7 @@ private struct PiPStashHandleInteractionSurface: NSViewRepresentable {
     func updateNSView(_ nsView: PiPStashHandleInteractionView, context: Context) {
         nsView.configure(
             side: side,
+            pullRevealTravel: pullRevealTravel,
             onActivate: onActivate,
             onDragEnded: onDragEnded,
             onDragStarted: onDragStarted,
@@ -163,7 +174,10 @@ final class PiPStashHandleInteractionView: NSView {
 
     private let pointerLocation: @MainActor () -> CGPoint
     private let dropCandidateReader: @MainActor (NSPasteboard) -> NotionPageDrop?
+    private let reducesMotion: @MainActor () -> Bool
+    private let performThresholdFeedback: @MainActor () -> Void
     private var side: PanelStashSide
+    private var pullRevealTravel: CGFloat
     private var onActivate: @MainActor () -> Void
     private var onDragEnded: @MainActor (CGRect) -> Void
     private var onDragStarted: @MainActor () -> Void
@@ -177,6 +191,8 @@ final class PiPStashHandleInteractionView: NSView {
     private var initialWindowOrigin: CGPoint?
     private var dragMode: DragMode?
     private var latestInwardDistance: CGFloat = 0
+    private var previousRawProgress: CGFloat = 0
+    private var didPerformThresholdFeedback = false
     private var hoverTrackingArea: NSTrackingArea?
     private var dropSession = NotionPageDropSession()
     private var publishedDrop: (sequenceNumber: Int, drop: NotionPageDrop)?
@@ -192,6 +208,16 @@ final class PiPStashHandleInteractionView: NSView {
             NotionPageDropPasteboardReader.candidate(from: $0)
         },
         side: PanelStashSide = .right,
+        pullRevealTravel: CGFloat = 150,
+        reducesMotion: @escaping @MainActor () -> Bool = {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        },
+        performThresholdFeedback: @escaping @MainActor () -> Void = {
+            NSHapticFeedbackManager.defaultPerformer.perform(
+                .alignment,
+                performanceTime: .now
+            )
+        },
         onActivate: @escaping @MainActor () -> Void,
         onDragEnded: @escaping @MainActor (CGRect) -> Void,
         onDragStarted: @escaping @MainActor () -> Void = {},
@@ -205,7 +231,10 @@ final class PiPStashHandleInteractionView: NSView {
     ) {
         self.pointerLocation = pointerLocation
         self.dropCandidateReader = dropCandidateReader
+        self.reducesMotion = reducesMotion
+        self.performThresholdFeedback = performThresholdFeedback
         self.side = side
+        self.pullRevealTravel = max(pullRevealTravel, 1)
         self.onActivate = onActivate
         self.onDragEnded = onDragEnded
         self.onDragStarted = onDragStarted
@@ -221,7 +250,9 @@ final class PiPStashHandleInteractionView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel("Restore Perch")
-        setAccessibilityHelp("Bring the stashed Perch back from the side.")
+        setAccessibilityHelp(
+            "Bring the stashed Perch back from the side, or show recently viewed PiP pages."
+        )
         setAccessibilityCustomActions([
             NSAccessibilityCustomAction(name: "Show recent PiP pages") { [weak self] in
                 self?.onShowRecentPages()
@@ -229,7 +260,7 @@ final class PiPStashHandleInteractionView: NSView {
             }
         ])
         updateAccessibility(dropLabel: accessibilityDropLabel)
-        toolTip = "Pull inward to reveal; drag along the edge to move"
+        toolTip = "Hover for recent pages; pull inward to reveal; drag along the edge to move"
     }
 
     @available(*, unavailable)
@@ -239,6 +270,7 @@ final class PiPStashHandleInteractionView: NSView {
 
     func configure(
         side: PanelStashSide,
+        pullRevealTravel: CGFloat,
         onActivate: @escaping @MainActor () -> Void,
         onDragEnded: @escaping @MainActor (CGRect) -> Void,
         onDragStarted: @escaping @MainActor () -> Void = {},
@@ -251,6 +283,7 @@ final class PiPStashHandleInteractionView: NSView {
         onDropPerformed: @escaping @MainActor (NotionPageDrop) -> Void = { _ in }
     ) {
         self.side = side
+        self.pullRevealTravel = max(pullRevealTravel, 1)
         self.onActivate = onActivate
         self.onDragEnded = onDragEnded
         self.onDragStarted = onDragStarted
@@ -287,6 +320,8 @@ final class PiPStashHandleInteractionView: NSView {
         initialWindowOrigin = window?.frame.origin
         dragMode = nil
         latestInwardDistance = 0
+        previousRawProgress = 0
+        didPerformThresholdFeedback = false
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -329,9 +364,26 @@ final class PiPStashHandleInteractionView: NSView {
                 side: side
             )
             latestInwardDistance = inwardDistance
+            let rawProgress = min(max(inwardDistance / pullRevealTravel, 0), 1)
+            if !didPerformThresholdFeedback,
+                PanelPullRevealPolicy.crossedRestoreThreshold(
+                    from: previousRawProgress,
+                    to: rawProgress
+                )
+            {
+                didPerformThresholdFeedback = true
+                performThresholdFeedback()
+            }
+            previousRawProgress = rawProgress
+            let displayedProgress = PanelPullRevealPolicy.interactiveProgress(
+                forRawProgress: rawProgress,
+                reducesMotion: reducesMotion()
+            )
+            let displayedInwardDistance = displayedProgress * pullRevealTravel
             window.setFrameOrigin(
                 CGPoint(
-                    x: initialWindowOrigin.x + (side == .left ? inwardDistance : -inwardDistance),
+                    x: initialWindowOrigin.x
+                        + (side == .left ? displayedInwardDistance : -displayedInwardDistance),
                     y: initialWindowOrigin.y
                 )
             )
@@ -481,7 +533,9 @@ final class PiPStashHandleInteractionView: NSView {
             setAccessibilityHelp(nil)
         } else {
             setAccessibilityLabel("Restore Perch")
-            setAccessibilityHelp("Bring the stashed Perch back from the side.")
+            setAccessibilityHelp(
+                "Bring the stashed Perch back from the side, or show recently viewed PiP pages."
+            )
         }
     }
 
@@ -490,6 +544,8 @@ final class PiPStashHandleInteractionView: NSView {
         initialWindowOrigin = nil
         dragMode = nil
         latestInwardDistance = 0
+        previousRawProgress = 0
+        didPerformThresholdFeedback = false
     }
 }
 

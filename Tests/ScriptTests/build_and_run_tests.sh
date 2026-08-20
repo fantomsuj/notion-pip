@@ -15,8 +15,10 @@ LOCK_DIR="$TEST_DIR/shared/perch-build-and-run.lock"
 mkdir -p "$FIXTURE_ROOT/script" "$FIXTURE_ROOT/Support" "$FAKE_BIN" "$(dirname "$LOCK_DIR")"
 cp "$BUILD_SCRIPT" "$FIXTURE_ROOT/script/build_and_run.sh"
 cp "$ROOT_DIR/Support/Version.env" "$FIXTURE_ROOT/Support/Version.env"
+cp "$ROOT_DIR/Support/Sparkle.env" "$FIXTURE_ROOT/Support/Sparkle.env"
 cp "$ROOT_DIR/Support/Perch.icns" "$FIXTURE_ROOT/Support/Perch.icns"
 cp "$ROOT_DIR/Support/Perch.entitlements" "$FIXTURE_ROOT/Support/Perch.entitlements"
+cp "$ROOT_DIR/Support/Perch.local.entitlements" "$FIXTURE_ROOT/Support/Perch.local.entitlements"
 touch "$CALL_LOG" "$PROCESS_STATE" "$TERMINATING_STATE"
 
 cat >"$FIXTURE_ROOT/script/sign_app.sh" <<'SCRIPT'
@@ -35,6 +37,8 @@ fi
 mkdir -p "$FAKE_BUILD_DIR"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$FAKE_BUILD_DIR/Perch"
 chmod +x "$FAKE_BUILD_DIR/Perch"
+mkdir -p "$FAKE_BUILD_DIR/Sparkle.framework/Versions/B"
+printf 'fake framework\n' >"$FAKE_BUILD_DIR/Sparkle.framework/Versions/B/Sparkle"
 SCRIPT
 
 cat >"$FAKE_BIN/codesign" <<'SCRIPT'
@@ -172,6 +176,25 @@ fi
 if [[ "$(/usr/libexec/PlistBuddy -c 'Print :LSMultipleInstancesProhibited' \
     "$FIXTURE_ROOT/dist/Perch.app/Contents/Info.plist" 2>/dev/null || true)" != "true" ]]; then
     echo "expected the development bundle to prohibit multiple app instances" >&2
+    exit 1
+fi
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :NSHumanReadableCopyright' \
+    "$FIXTURE_ROOT/dist/Perch.app/Contents/Info.plist" 2>/dev/null || true)" \
+    != "Copyright © 2026 Sujay Jayakar" ]]; then
+    echo "expected the development bundle to include product ownership metadata" >&2
+    exit 1
+fi
+if [[ "$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' \
+    "$FIXTURE_ROOT/dist/Perch.app/Contents/Info.plist")" != "https://pinapage.com/appcast.xml" ]] || \
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' \
+    "$FIXTURE_ROOT/dist/Perch.app/Contents/Info.plist")" != "MouYSAVh0B3F5GKLHWun5zFykC/wYCqI/dsUvUJsCFQ=" ]] || \
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :SUEnableAutomaticChecks' \
+    "$FIXTURE_ROOT/dist/Perch.app/Contents/Info.plist")" != "true" ]]; then
+    echo "expected the development bundle to include Sparkle update configuration" >&2
+    exit 1
+fi
+if [[ ! -f "$FIXTURE_ROOT/dist/Perch.app/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle" ]]; then
+    echo "expected the development bundle to embed Sparkle.framework" >&2
     exit 1
 fi
 

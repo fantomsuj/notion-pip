@@ -11,9 +11,10 @@ final class PageURLInputState: ObservableObject {
         focusRequest += 1
     }
 
-    func showPinned(page: NotionPageReference) {
+    func showOpened(page: NotionPageReference) {
         validationFailed = false
-        validationMessage = page.displayTitle.map { "Pinned \($0)." } ?? "Pinned this page."
+        validationMessage = page.displayTitle.map { "Opened \($0) in Perch." }
+            ?? "Opened this page in Perch."
     }
 
     func showValidationFailure(_ message: String) {

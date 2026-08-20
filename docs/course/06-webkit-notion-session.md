@@ -99,9 +99,10 @@ unloaded | loading | active | suspended | offline | failed(message)
 ```
 
 [`NotionWebLifecycleController.swift`](../../Sources/Perch/Platform/NotionWebLifecycleController.swift)
-owns visibility, suspension, the 60-second warm-retention timer, and eviction
-eligibility without retaining WebKit objects. `NotionWebSession` executes its
-commands by detaching, configuring, or retiring the actual view.
+owns visibility, suspension, and eviction eligibility without retaining WebKit
+objects. A detached view remains warm for the app session unless critical
+memory pressure or an explicit policy decision evicts it. `NotionWebSession`
+executes lifecycle commands by detaching, configuring, or retiring the view.
 
 ```mermaid
 stateDiagram-v2
@@ -237,8 +238,10 @@ small helper methods while retaining ownership and failure behavior.
 
 ### Flow 6: evict or recover a renderer
 
-1. A 60-second warm timer or memory-pressure event asks the lifecycle policy
-   whether the session is hidden, suspended, and not eviction-protected.
+1. Critical memory pressure or an explicit eviction request asks the lifecycle
+   policy whether the session is hidden and suspended. A warning alone keeps
+   the single detached view warm; critical pressure overrides editing
+   protection so reclamation is immediate.
 2. Eligible eviction captures current interaction and durable state, retires
    the view, and leaves the session `unloaded`. Memory-pressure eviction then
    removes opaque interaction snapshots, leaving durable fallback.
@@ -403,7 +406,8 @@ next source method to inspect.
 |---|---|
 | Hide an active panel, then show it after 10 seconds | `panelDidHide()` and `panelDidShow()` |
 | Switch from page A to page B, then return to A | `activate(page:restoration:)` and `captureAndTearDown` |
-| Leave a panel hidden beyond warm retention | `NotionWebLifecycleController.suspend` and `requestEvictionIfEligible` |
+| Leave a panel hidden for an extended period | `NotionWebLifecycleController.suspend` and `panelDidShow` |
+| Send warning, then critical memory pressure while hidden | `handleMemoryPressure(_:)` and `requestEvictionIfEligible` |
 | Fail while loading a durable noncanonical URL | `fallBackFromFailedDurableRestoration()` |
 | Receive a late finish callback from a retired view | `isCurrent(_:generation:)` |
 | Lose the WebKit renderer while the panel is visible | `webViewWebContentProcessDidTerminate` |
@@ -414,13 +418,14 @@ matching committed test. Do not edit source.
 
 ### Expected observations
 
-- A 10-second hide/show stays within the 60-second warm window: the same view
-  resumes and same-page selection may restore after attachment.
+- A hide/show of any duration normally resumes the same view, and same-page
+  selection may restore after attachment.
 - Page A → B retires A's view after capturing opaque and durable state; B gets
   the only live view, and returning to A can apply the stored opaque state to a
   replacement.
-- Warm eviction leaves the session unloaded and may retain a safe fallback;
-  memory-pressure eviction additionally clears opaque interaction snapshots.
+- Explicit warm eviction leaves the session unloaded and may retain a safe
+  fallback. Critical memory-pressure eviction additionally clears opaque
+  interaction snapshots; a warning keeps the detached view warm.
 - A failed saved URL triggers exactly one canonical retry before publishing a
   failure.
 - A retired view fails the identity/generation guard and cannot mutate the

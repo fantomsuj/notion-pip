@@ -60,7 +60,11 @@ extension AppRuntime {
         cancelShortcutGesture(restashTransientPanel: false)
         switch command {
         case .openSettings:
-            settingsWindowPresenter?.show()
+            if activePage == nil {
+                presentCurrentPageSetup()
+            } else {
+                settingsWindowPresenter?.show()
+            }
         case .stash:
             guard pipPresentationState == .visible else { return }
             _ = pinCoordinator.stashOrRestoreCurrentPage()
@@ -73,18 +77,21 @@ extension AppRuntime {
     func handleMenuBarActivation() {
         cancelShortcutGesture(restashTransientPanel: false)
         guard pinCoordinator.stashOrRestoreCurrentPage() else {
-            settingsWindowPresenter?.show()
+            presentCurrentPageSetup()
             return
         }
     }
 
-    func validatePageURL() {
+    @discardableResult
+    func validatePageURL() -> Bool {
         switch pinCoordinator.page(from: pageURLText) {
         case let .success(page):
             activate(page: page, source: .typedURL)
-            pageURLInputState.showPinned(page: page)
+            pageURLInputState.showOpened(page: page)
+            return true
         case .failure:
             showValidationFailure("Use an HTTPS Notion page URL with a page ID.")
+            return false
         }
     }
 
@@ -107,6 +114,15 @@ extension AppRuntime {
         restoration: DurablePageRestoration?
     ) {
         activate(page: page, source: source, persist: true, restoration: restoration)
+    }
+
+    func activateRecentPage(_ selection: PiPRecentPageSelection) {
+        guard case let .activate(page, restoration) = selection else { return }
+        activate(
+            page: page,
+            source: .pageSwitcher,
+            restoration: restoration
+        )
     }
 
     func handleOpenURLs(_ urls: [URL]) {
@@ -153,9 +169,46 @@ extension AppRuntime {
         }
     }
 
+    func beginStatusItemPeek() -> Bool {
+        cancelShortcutGesture(restashTransientPanel: false)
+        guard pinCoordinator.presentationState == .stashed else { return false }
+        statusItemPeekGeneration &+= 1
+        let generation = statusItemPeekGeneration
+        peekFocusRestorer.beginPeek()
+        guard pinCoordinator.showCurrentPage() else {
+            peekFocusRestorer.cancelPeek()
+            return false
+        }
+        statusItemPeekState = .peeking(generation: generation)
+        return true
+    }
+
+    func commitStatusItemPeek() {
+        guard case .peeking = statusItemPeekState else { return }
+        statusItemPeekState = .idle
+        peekFocusRestorer.cancelPeek()
+        accessibilityAnnouncementPoster.announce("Perch will stay open")
+    }
+
+    func cancelStatusItemPeek(restashTransientPanel: Bool = true) {
+        guard case .peeking = statusItemPeekState else { return }
+        statusItemPeekState = .idle
+        statusItemPeekGeneration &+= 1
+        guard restashTransientPanel,
+              pinCoordinator.presentationState == .visible,
+              pinCoordinator.stashCurrentPageImmediately()
+        else {
+            peekFocusRestorer.cancelPeek()
+            return
+        }
+        peekFocusRestorer.finishPeek()
+    }
+
     private func handleGlobalShortcut(_ event: GlobalShortcutEvent) {
         switch event {
         case .pressed:
+            acknowledgeSummon()
+            cancelStatusItemPeek(restashTransientPanel: false)
             guard holdToPeekEnabled else {
                 handleImmediateShortcutPress()
                 return
@@ -265,6 +318,9 @@ extension AppRuntime {
         shortcutGestureTimer?.cancel()
         shortcutGestureTimer = nil
         shortcutGestureState = .idle
+        if statusItemPeekState != .idle {
+            cancelStatusItemPeek(restashTransientPanel: restashTransientPanel)
+        }
         guard wasTransient else { return }
         guard restashTransientPanel,
               pinCoordinator.presentationState == .visible,
@@ -291,7 +347,7 @@ extension AppRuntime {
 
     private func handleGlobalShortcutTap() {
         guard pinCoordinator.performGlobalShortcutAction() else {
-            presentPageURLInput()
+            presentCurrentPageSetup()
             return
         }
     }

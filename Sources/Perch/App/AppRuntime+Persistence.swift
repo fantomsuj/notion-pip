@@ -2,22 +2,6 @@ import Foundation
 import OSLog
 
 extension AppRuntime {
-    func presentPageURLInputAfterRestoreIfNeeded() {
-        guard activePage == nil, firstPageHandoffTask == nil else { return }
-        isFirstPageHandoffPending = true
-        let restoreTask = restorePinnedPageTask
-        firstPageHandoffTask = Task { [weak self] in
-            await restoreTask?.value
-            guard let self else { return }
-            defer {
-                isFirstPageHandoffPending = false
-                firstPageHandoffTask = nil
-            }
-            guard !Task.isCancelled, activePage == nil else { return }
-            presentPageURLInput()
-        }
-    }
-
     func prepareForTermination() async {
         cancelShortcutGesture(restashTransientPanel: true)
         while let persistenceTask = persistPinnedPageTask {
@@ -91,13 +75,13 @@ extension AppRuntime {
     private func showSettingsIfRestoreStillEmpty(expectedGeneration: Int) {
         guard expectedGeneration == pageSelectionGeneration,
               activePage == nil,
-              !isFirstPageHandoffPending,
+              !suppressesAutomaticCurrentPageSetup,
               automaticSettingsPresentationAllowed(),
               !Task.isCancelled
         else {
             return
         }
-        settingsWindowPresenter?.show()
+        presentCurrentPageSetup()
     }
 
     func enqueuePersistence(of page: NotionPageReference) {

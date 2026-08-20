@@ -13,6 +13,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var savedMenuBarIconVisibility: Bool
     @Published private(set) var effectiveMenuBarIconVisibility: Bool
     @Published private(set) var isMenuBarIconVisibilityForced: Bool
+    @Published private(set) var statusItemGlyph: StatusItemGlyph
+    @Published private(set) var statusItemSummonGeneration: UInt = 0
 
     let pageURLInputState: PageURLInputState
 
@@ -39,14 +41,13 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let peekFocusRestorer: any PeekFocusRestoring
     let performanceSignposter: any PerformanceSignposting
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
-    private let pageURLInputPresenter: (any PageURLInputPresenting)?
     let pageRepository: (any PageWorkingSetPersisting)?
     let automaticSettingsPresentationAllowed: @MainActor () -> Bool
     weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
+    var persistentStoreRecoveryAction: @MainActor () -> Void = {}
     var restorePinnedPageTask: Task<Void, Never>?
     var persistPinnedPageTask: Task<Void, Never>?
-    var firstPageHandoffTask: Task<Void, Never>?
-    var isFirstPageHandoffPending = false
+    var suppressesAutomaticCurrentPageSetup = false
     var persistenceGeneration = 0
     var pageSelectionGeneration = 0
     let shortcutHoldDuration: Duration
@@ -59,6 +60,10 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     var shortcutGestureTimer: (any ShortcutGestureTimer)?
     var shortcutGestureState = ShortcutPeekGestureState.idle
     var shortcutGestureGeneration: UInt = 0
+    var statusItemPeekState = StatusItemPeekState.idle
+    var statusItemPeekGeneration: UInt = 0
+    var statusItemSessionState: NotionWebSessionState = .unloaded
+    var statusItemLoginState: NotionBrowserLoginState = .idle
     private var started = false
 
     init(
@@ -70,7 +75,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         holdToPeekPreferenceStore: HoldToPeekPreferenceStore = HoldToPeekPreferenceStore(),
         peekFocusRestorer: any PeekFocusRestoring = PeekFocusRestorer(),
         performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
-        pageURLInputPresenter: (any PageURLInputPresenting)? = nil,
         pageRepository: (any PageWorkingSetPersisting)? = nil,
         shortcutHoldDuration: Duration = .milliseconds(300),
         shortcutGestureScheduler: any ShortcutGestureScheduling = TaskShortcutGestureScheduler(),
@@ -87,7 +91,6 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         let inputRequestRelay = PageURLInputRequestRelay()
 
         pageURLInputState = inputState
-        self.pageURLInputPresenter = pageURLInputPresenter
         pinCoordinator = PinCoordinator(
             panelCoordinator: panelCoordinator ?? PiPPanelCoordinator(),
             pasteboard: pasteboard,
@@ -115,11 +118,19 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         savedMenuBarIconVisibility = iconState.saved
         effectiveMenuBarIconVisibility = iconState.effective
         isMenuBarIconVisibilityForced = iconState.forced
+        statusItemGlyph = StatusItemGlyphPolicy.glyph(
+            presentation: .unavailable,
+            sessionState: .unloaded,
+            loginState: .idle
+        )
         pinCoordinator.onExternalPresentationAction = { [weak self] in
             self?.cancelShortcutGesture(restashTransientPanel: false)
         }
+        pinCoordinator.onPresentationStateChange = { [weak self] in
+            self?.refreshStatusItemGlyph()
+        }
         inputRequestRelay.handler = { [weak self] in
-            self?.presentPageURLInput()
+            self?.presentCurrentPageSetup()
         }
     }
 
@@ -140,13 +151,19 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.settingsWindowPresenter = settingsWindowPresenter
     }
 
-    func presentPageURLInput() {
-        if let pageURLInputPresenter {
-            pageURLInputPresenter.presentAndFocus()
-            return
-        }
+    func bindPersistentStoreRecoveryAction(
+        _ action: @escaping @MainActor () -> Void
+    ) {
+        persistentStoreRecoveryAction = action
+    }
+
+    func presentCurrentPageSetup() {
         settingsWindowPresenter?.show()
         pageURLInputState.requestFocus()
+    }
+
+    func suppressAutomaticCurrentPageSetup() {
+        suppressesAutomaticCurrentPageSetup = true
     }
 
     func retryRecovery(for issue: ServiceHealthIssue) {
@@ -160,7 +177,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
                 restorePinnedPageFromRepository()
             }
         case .persistentStoreUnavailable:
-            break
+            persistentStoreRecoveryAction()
         }
     }
 
@@ -184,6 +201,29 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     func publishMenuBarIconVisibility(_ isVisible: Bool) {
         savedMenuBarIconVisibility = isVisible
         updateEffectiveMenuBarIconVisibility()
+    }
+
+    func publishStatusItemSession(
+        sessionState: NotionWebSessionState,
+        loginState: NotionBrowserLoginState
+    ) {
+        statusItemSessionState = sessionState
+        statusItemLoginState = loginState
+        refreshStatusItemGlyph()
+    }
+
+    func acknowledgeSummon() {
+        statusItemSummonGeneration &+= 1
+    }
+
+    func refreshStatusItemGlyph() {
+        let glyph = StatusItemGlyphPolicy.glyph(
+            presentation: pipPresentationState,
+            sessionState: statusItemSessionState,
+            loginState: statusItemLoginState
+        )
+        guard glyph != statusItemGlyph else { return }
+        statusItemGlyph = glyph
     }
 
     func reportServiceIssue(_ issue: ServiceHealthIssue) {

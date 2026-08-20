@@ -4,10 +4,7 @@ import SwiftUI
 
 @MainActor
 final class PiPStashHandleController: PiPStashHandle {
-    private static let entranceOffset: CGFloat = 12
-    private static let entranceAnimationDuration: TimeInterval = 0.10
     private static let dropTransitionDuration: TimeInterval = 0.12
-
     private let handlePanel: NSPanel
     private let shelfPanel: NSPanel
     private let visibleFramesProvider: @MainActor () -> [CGRect]
@@ -20,16 +17,21 @@ final class PiPStashHandleController: PiPStashHandle {
     private let animatesHandleEntrance: Bool
     private let animatesDropTransition: Bool
     private let dropTargetModel = PiPStashHandleDropTargetModel()
+    private let ownsHandlePanel: Bool
+    private let ownsShelfPanel: Bool
 
     private var currentPlacement: PanelStashPlacement?
     private var onRestore: (@MainActor () -> Void)?
     private var onPlacementChange: (@MainActor (PanelStashPlacement) -> Void)?
     private var onPullRevealChange: (@MainActor (CGFloat) -> Void)?
     private var onPullRevealEnd: (@MainActor (CGFloat) -> Bool)?
+    private var pullRevealTravel: CGFloat = 150
     private var shelfLoadTask: Task<Void, Never>?
     private var shelfDismissTask: Task<Void, Never>?
     private var dropTitleTask: Task<Void, Never>?
+    private var handleTransitionTask: Task<Void, Never>?
     private var shelfRequestGeneration = 0
+    private var handleTransitionGeneration = 0
     private var pendingShelfRequestsFocus = false
     private var isHandleHovered = false
     private var isShelfHovered = false
@@ -38,6 +40,10 @@ final class PiPStashHandleController: PiPStashHandle {
     private var didForwardPerformableDrop = false
     private var dropGeneration = 0
     private var presentationGeneration = 0
+    private var isShelfFocusOwned = false
+    private lazy var shelfPanelDelegate = StashShelfPanelDelegate { [weak self] in
+        self?.shelfDidResignKey()
+    }
 
     var isVisible: Bool {
         handlePanel.isVisible
@@ -45,6 +51,10 @@ final class PiPStashHandleController: PiPStashHandle {
 
     var isShelfVisible: Bool {
         shelfPanel.isVisible
+    }
+
+    func configurePullRevealTravel(_ travel: CGFloat) {
+        pullRevealTravel = max(travel, 1)
     }
 
     init(
@@ -69,8 +79,10 @@ final class PiPStashHandleController: PiPStashHandle {
         self.onDropNotionPage = onDropNotionPage
         self.shelfDismissDelay = shelfDismissDelay
         self.activateApplication = activateApplication
-        animatesHandleEntrance = handlePanel == nil
-        animatesDropTransition = handlePanel == nil
+        ownsHandlePanel = handlePanel == nil
+        ownsShelfPanel = shelfPanel == nil
+        animatesHandleEntrance = ownsHandlePanel
+        animatesDropTransition = ownsHandlePanel
 
         if let handlePanel {
             self.handlePanel = handlePanel
@@ -99,12 +111,35 @@ final class PiPStashHandleController: PiPStashHandle {
         onPullRevealChange: @escaping @MainActor (CGFloat) -> Void = { _ in },
         onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool = { _ in false }
     ) {
+        present(
+            placement: placement,
+            entrance: .immediate,
+            onRestore: onRestore,
+            onPlacementChange: onPlacementChange,
+            onPullRevealChange: onPullRevealChange,
+            onPullRevealEnd: onPullRevealEnd
+        )
+    }
+
+    func present(
+        placement: PanelStashPlacement,
+        entrance: PiPStashHandleEntrance,
+        onRestore: @escaping @MainActor () -> Void,
+        onPlacementChange: @escaping @MainActor (PanelStashPlacement) -> Void,
+        onPullRevealChange: @escaping @MainActor (CGFloat) -> Void,
+        onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool
+    ) {
         presentationGeneration &+= 1
         resetDropTarget()
+        handleTransitionTask?.cancel()
+        handleTransitionGeneration &+= 1
+        let generation = handleTransitionGeneration
         cancelShelfWork()
         shelfPanel.orderOut(nil)
         isHandleHovered = false
         isShelfHovered = false
+        isShelfFocusOwned = false
+        handlePanel.ignoresMouseEvents = false
 
         let shouldAnimateEntrance = animatesHandleEntrance
             && !handlePanel.isVisible
@@ -117,34 +152,57 @@ final class PiPStashHandleController: PiPStashHandle {
         installHandleContent(side: placement.side)
 
         guard shouldAnimateEntrance else {
-            handlePanel.alphaValue = 1
+            if ownsHandlePanel {
+                handlePanel.alphaValue = 1
+            }
             handlePanel.setFrame(placement.frame, display: true)
             handlePanel.orderFrontRegardless()
             return
         }
 
-        let initialFrame = placement.frame.offsetBy(
-            dx: placement.side == .left ? -Self.entranceOffset : Self.entranceOffset,
-            dy: 0
-        )
+        let initialFrame = PanelStashTransition.unsettledHandleFrame(for: placement)
         handlePanel.alphaValue = 0
+        handlePanel.ignoresMouseEvents = true
         handlePanel.setFrame(initialFrame, display: false)
         handlePanel.orderFrontRegardless()
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.entranceAnimationDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            handlePanel.animator().setFrame(placement.frame, display: true)
-            handlePanel.animator().alphaValue = 1
+        handleTransitionTask = Task { @MainActor [weak self] in
+            if case .coordinated = entrance {
+                try? await Task.sleep(for: PanelStashTransition.handleSettleDelay)
+            }
+            guard let self,
+                !Task.isCancelled,
+                handleTransitionGeneration == generation
+            else {
+                return
+            }
+            await NSAnimationContext.runAnimationGroup { context in
+                context.duration = PanelStashTransition.handleSettleDuration
+                context.timingFunction = PanelStashTransition.timingFunction()
+                handlePanel.animator().setFrame(placement.frame, display: true)
+                handlePanel.animator().alphaValue = 1
+            }
+            guard !Task.isCancelled,
+                handleTransitionGeneration == generation
+            else {
+                return
+            }
+            handlePanel.ignoresMouseEvents = false
+            handleTransitionTask = nil
         }
     }
 
     func orderOut() {
         presentationGeneration &+= 1
         resetDropTarget()
+        handleTransitionGeneration &+= 1
+        handleTransitionTask?.cancel()
+        handleTransitionTask = nil
         cancelShelfWork()
         shelfPanel.orderOut(nil)
         handlePanel.orderOut(nil)
+        handlePanel.alphaValue = 1
+        handlePanel.ignoresMouseEvents = false
         currentPlacement = nil
         onRestore = nil
         onPlacementChange = nil
@@ -152,6 +210,39 @@ final class PiPStashHandleController: PiPStashHandle {
         onPullRevealEnd = nil
         isHandleHovered = false
         isShelfHovered = false
+        isShelfFocusOwned = false
+    }
+
+    func dismissForRestore() {
+        handleTransitionTask?.cancel()
+        handleTransitionGeneration &+= 1
+        let generation = handleTransitionGeneration
+        guard animatesHandleEntrance,
+            handlePanel.isVisible,
+            let currentPlacement,
+            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        else {
+            orderOut()
+            return
+        }
+
+        handlePanel.ignoresMouseEvents = true
+        let unsettledFrame = PanelStashTransition.unsettledHandleFrame(for: currentPlacement)
+        handleTransitionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await NSAnimationContext.runAnimationGroup { context in
+                context.duration = PanelStashTransition.handleSettleDuration
+                context.timingFunction = PanelStashTransition.timingFunction()
+                handlePanel.animator().setFrame(unsettledFrame, display: true)
+                handlePanel.animator().alphaValue = 0
+            }
+            guard !Task.isCancelled,
+                handleTransitionGeneration == generation
+            else {
+                return
+            }
+            orderOut()
+        }
     }
 
     func handleHoverChanged(_ isHovering: Bool) {
@@ -227,14 +318,25 @@ final class PiPStashHandleController: PiPStashHandle {
 
     func selectRecentPage(id: String) {
         guard let selection = recentPagesController?.selection(for: id) else { return }
-        dismissShelf()
-        onSelectRecentPage(selection)
+        switch selection {
+        case .restoreCurrent:
+            restoreCurrentPage()
+        case .activate:
+            dismissShelf()
+            onSelectRecentPage(selection)
+        }
     }
 
     func dismissShelf() {
         cancelShelfWork()
+        isShelfFocusOwned = false
         shelfPanel.orderOut(nil)
         isShelfHovered = false
+    }
+
+    func shelfDidResignKey() {
+        guard isShelfFocusOwned, shelfPanel.isVisible else { return }
+        dismissShelf()
     }
 
     private func configurePanels() {
@@ -249,6 +351,7 @@ final class PiPStashHandleController: PiPStashHandle {
         shelfPanel.hasShadow = true
         shelfPanel.hidesOnDeactivate = false
         shelfPanel.isReleasedWhenClosed = false
+        shelfPanel.delegate = shelfPanelDelegate
     }
 
     private func installHandleContent(side: PanelStashSide) {
@@ -257,6 +360,7 @@ final class PiPStashHandleController: PiPStashHandle {
             rootView: PiPStashHandleView(
                 side: side,
                 dropTargetModel: dropTargetModel,
+                pullRevealTravel: pullRevealTravel,
                 onRestore: { [weak self] in
                     guard self?.presentationGeneration == generation else { return }
                     self?.restoreCurrentPage()
@@ -371,9 +475,15 @@ final class PiPStashHandleController: PiPStashHandle {
 
         installShelfContent()
         shelfPanel.setFrame(frame, display: true)
-        shelfPanel.alphaValue = 1
-        if requestsFocus {
-            activateApplication()
+        if ownsShelfPanel {
+            shelfPanel.alphaValue = 1
+        }
+        let shouldActivateApplication = requestsFocus && !isShelfFocusOwned
+        isShelfFocusOwned = isShelfFocusOwned || requestsFocus
+        if isShelfFocusOwned {
+            if shouldActivateApplication {
+                activateApplication()
+            }
             shelfPanel.becomesKeyOnlyIfNeeded = true
             shelfPanel.makeKeyAndOrderFront(nil)
         } else {
@@ -382,7 +492,13 @@ final class PiPStashHandleController: PiPStashHandle {
     }
 
     private func scheduleShelfDismissalIfNeeded() {
-        guard !isHandleHovered, !isShelfHovered else { return }
+        guard !isHandleHovered,
+              !isShelfHovered,
+              !pendingShelfRequestsFocus,
+              !isShelfFocusOwned
+        else {
+            return
+        }
         cancelShelfDismissal()
         let delay = shelfDismissDelay
         shelfDismissTask = Task { @MainActor [weak self] in
@@ -391,7 +507,14 @@ final class PiPStashHandleController: PiPStashHandle {
             } catch {
                 return
             }
-            guard let self, !self.isHandleHovered, !self.isShelfHovered else { return }
+            guard let self,
+                  !self.isHandleHovered,
+                  !self.isShelfHovered,
+                  !self.pendingShelfRequestsFocus,
+                  !self.isShelfFocusOwned
+            else {
+                return
+            }
             self.dismissShelf()
         }
     }
@@ -485,5 +608,18 @@ final class PiPStashHandleController: PiPStashHandle {
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             handlePanel.animator().setFrame(frame, display: true)
         }
+    }
+}
+
+@MainActor
+private final class StashShelfPanelDelegate: NSObject, NSWindowDelegate {
+    private let onResignKey: @MainActor () -> Void
+
+    init(onResignKey: @escaping @MainActor () -> Void) {
+        self.onResignKey = onResignKey
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        onResignKey()
     }
 }
