@@ -4,14 +4,19 @@ import SwiftUI
 
 @MainActor
 final class PiPStashHandleController: PiPStashHandle {
+    private static let dropTransitionDuration: TimeInterval = 0.12
     private let handlePanel: NSPanel
     private let shelfPanel: NSPanel
     private let visibleFramesProvider: @MainActor () -> [CGRect]
     private let recentPagesController: PiPRecentPagesShelfController?
     private let onSelectRecentPage: @MainActor (PiPRecentPageSelection) -> Void
+    private let dropTitleProvider: (any NotionPageDropTitleProviding)?
+    private let onDropNotionPage: @MainActor (NotionPageDrop) -> Void
     private let shelfDismissDelay: Duration
     private let activateApplication: @MainActor () -> Void
     private let animatesHandleEntrance: Bool
+    private let animatesDropTransition: Bool
+    private let dropTargetModel = PiPStashHandleDropTargetModel()
     private let ownsHandlePanel: Bool
     private let ownsShelfPanel: Bool
 
@@ -23,12 +28,18 @@ final class PiPStashHandleController: PiPStashHandle {
     private var pullRevealTravel: CGFloat = 150
     private var shelfLoadTask: Task<Void, Never>?
     private var shelfDismissTask: Task<Void, Never>?
+    private var dropTitleTask: Task<Void, Never>?
     private var handleTransitionTask: Task<Void, Never>?
     private var shelfRequestGeneration = 0
     private var handleTransitionGeneration = 0
     private var pendingShelfRequestsFocus = false
     private var isHandleHovered = false
     private var isShelfHovered = false
+    private var activeDrop: NotionPageDrop?
+    private var performableDrop: NotionPageDrop?
+    private var didForwardPerformableDrop = false
+    private var dropGeneration = 0
+    private var presentationGeneration = 0
     private var isShelfFocusOwned = false
     private lazy var shelfPanelDelegate = StashShelfPanelDelegate { [weak self] in
         self?.shelfDidResignKey()
@@ -54,6 +65,8 @@ final class PiPStashHandleController: PiPStashHandle {
         },
         recentPagesController: PiPRecentPagesShelfController? = nil,
         onSelectRecentPage: @escaping @MainActor (PiPRecentPageSelection) -> Void = { _ in },
+        dropTitleProvider: (any NotionPageDropTitleProviding)? = nil,
+        onDropNotionPage: @escaping @MainActor (NotionPageDrop) -> Void = { _ in },
         handlePanel: NSPanel? = nil,
         shelfPanel: NSPanel? = nil,
         shelfDismissDelay: Duration = .milliseconds(140),
@@ -64,11 +77,14 @@ final class PiPStashHandleController: PiPStashHandle {
         self.visibleFramesProvider = visibleFramesProvider
         self.recentPagesController = recentPagesController
         self.onSelectRecentPage = onSelectRecentPage
+        self.dropTitleProvider = dropTitleProvider
+        self.onDropNotionPage = onDropNotionPage
         self.shelfDismissDelay = shelfDismissDelay
         self.activateApplication = activateApplication
         ownsHandlePanel = handlePanel == nil
         ownsShelfPanel = shelfPanel == nil
         animatesHandleEntrance = ownsHandlePanel
+        animatesDropTransition = ownsHandlePanel
 
         if let handlePanel {
             self.handlePanel = handlePanel
@@ -115,6 +131,8 @@ final class PiPStashHandleController: PiPStashHandle {
         onPullRevealChange: @escaping @MainActor (CGFloat) -> Void,
         onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool
     ) {
+        presentationGeneration &+= 1
+        resetDropTarget()
         let didOwnShelfFocus = isShelfFocusOwned
         handleTransitionTask?.cancel()
         handleTransitionGeneration &+= 1
@@ -181,6 +199,8 @@ final class PiPStashHandleController: PiPStashHandle {
     }
 
     func orderOut() {
+        presentationGeneration &+= 1
+        resetDropTarget()
         let didOwnShelfFocus = isShelfFocusOwned
         handleTransitionGeneration &+= 1
         handleTransitionTask?.cancel()
@@ -237,6 +257,7 @@ final class PiPStashHandleController: PiPStashHandle {
 
     func handleHoverChanged(_ isHovering: Bool) {
         isHandleHovered = isHovering
+        guard activeDrop == nil else { return }
         if isHovering {
             cancelShelfDismissal()
             requestShelf(requestsFocus: false)
@@ -246,6 +267,7 @@ final class PiPStashHandleController: PiPStashHandle {
     }
 
     func showRecentPages() {
+        guard activeDrop == nil else { return }
         cancelShelfDismissal()
         requestShelf(requestsFocus: true)
     }
@@ -351,30 +373,47 @@ final class PiPStashHandleController: PiPStashHandle {
     }
 
     private func installHandleContent(side: PanelStashSide) {
+        let generation = presentationGeneration
         handlePanel.contentView = NSHostingView(
             rootView: PiPStashHandleView(
                 side: side,
+                dropTargetModel: dropTargetModel,
                 pullRevealTravel: pullRevealTravel,
                 onRestore: { [weak self] in
+                    guard self?.presentationGeneration == generation else { return }
                     self?.restoreCurrentPage()
                 },
                 onDragEnded: { [weak self] frame in
+                    guard self?.presentationGeneration == generation else { return }
                     self?.finishDrag(frame: frame)
                 },
                 onDragStarted: { [weak self] in
+                    guard self?.presentationGeneration == generation else { return }
                     self?.dismissShelf()
                 },
                 onPullRevealChanged: { [weak self] inwardDistance in
+                    guard self?.presentationGeneration == generation else { return }
                     self?.updatePullReveal(inwardDistance: inwardDistance)
                 },
                 onPullRevealEnded: { [weak self] inwardDistance in
-                    self?.finishPullReveal(inwardDistance: inwardDistance) ?? false
+                    guard self?.presentationGeneration == generation else { return false }
+                    return self?.finishPullReveal(inwardDistance: inwardDistance) ?? false
                 },
                 onHoverChanged: { [weak self] isHovering in
+                    guard self?.presentationGeneration == generation else { return }
                     self?.handleHoverChanged(isHovering)
                 },
                 onShowRecentPages: { [weak self] in
+                    guard self?.presentationGeneration == generation else { return }
                     self?.showRecentPages()
+                },
+                onDropCandidateChanged: { [weak self] drop in
+                    guard self?.presentationGeneration == generation else { return }
+                    self?.handleDropCandidateChanged(drop)
+                },
+                onDropPerformed: { [weak self] drop in
+                    guard self?.presentationGeneration == generation else { return }
+                    self?.performDrop(drop)
                 }
             )
         )
@@ -409,6 +448,7 @@ final class PiPStashHandleController: PiPStashHandle {
 
     private func requestShelf(requestsFocus: Bool) {
         guard handlePanel.isVisible,
+              activeDrop == nil,
               let recentPagesController
         else {
             return
@@ -513,6 +553,84 @@ final class PiPStashHandleController: PiPStashHandle {
         shelfLoadTask?.cancel()
         shelfLoadTask = nil
         cancelShelfDismissal()
+    }
+
+    private func handleDropCandidateChanged(_ drop: NotionPageDrop?) {
+        guard let drop else {
+            clearDropPreview()
+            return
+        }
+
+        dismissShelf()
+        isHandleHovered = false
+        activeDrop = drop
+        performableDrop = drop
+        didForwardPerformableDrop = false
+        dropGeneration &+= 1
+        let generation = dropGeneration
+        dropTargetModel.show(label: drop.displayLabel(localTitle: nil))
+        if let placement = currentPlacement,
+           let expandedFrame = StashHandleDropTargetPolicy.expandedFrame(
+               for: placement,
+               visibleFrames: visibleFramesProvider()
+           ) {
+            updateHandleFrame(expandedFrame)
+        }
+
+        dropTitleTask?.cancel()
+        guard let dropTitleProvider else { return }
+        dropTitleTask = Task { @MainActor [weak self, dropTitleProvider] in
+            let localTitle = await dropTitleProvider.displayTitle(for: drop.page.pageID)
+            guard let self,
+                  !Task.isCancelled,
+                  generation == self.dropGeneration,
+                  self.activeDrop?.page.pageID == drop.page.pageID,
+                  self.activeDrop == drop,
+                  self.performableDrop == drop
+            else {
+                return
+            }
+            self.dropTargetModel.show(label: drop.displayLabel(localTitle: localTitle))
+            self.dropTitleTask = nil
+        }
+    }
+
+    private func performDrop(_ drop: NotionPageDrop) {
+        guard performableDrop == drop, !didForwardPerformableDrop else { return }
+        clearDropPreview()
+        didForwardPerformableDrop = true
+        onDropNotionPage(drop)
+    }
+
+    private func clearDropPreview() {
+        dropGeneration &+= 1
+        dropTitleTask?.cancel()
+        dropTitleTask = nil
+        activeDrop = nil
+        dropTargetModel.clear()
+        if let currentPlacement {
+            updateHandleFrame(currentPlacement.frame)
+        }
+    }
+
+    private func resetDropTarget() {
+        clearDropPreview()
+        performableDrop = nil
+        didForwardPerformableDrop = false
+    }
+
+    private func updateHandleFrame(_ frame: CGRect) {
+        guard animatesDropTransition,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        else {
+            handlePanel.setFrame(frame, display: true)
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.dropTransitionDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            handlePanel.animator().setFrame(frame, display: true)
+        }
     }
 }
 

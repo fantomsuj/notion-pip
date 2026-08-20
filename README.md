@@ -45,6 +45,8 @@ Pin the Notion page you are living in and keep it close without turning it into 
 
 Hover over the edge handle to see up to five pages you recently opened in Perch. Click a recent page to restore it where you left off, click the handle itself to restore the current page, or drag the handle to move it to another edge or display.
 
+You can also drop a valid Notion page link onto the stashed handle to open that page; hovering a link over the handle only previews it and never switches pages.
+
 The app intentionally runs as an accessory rather than appearing in the Dock. Its menu-bar icon is shown by default, and you can turn it off in Settings while continuing to use the edge handle and global shortcut.
 
 ## A native Mac app with a real Notion page inside
