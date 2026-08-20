@@ -18,7 +18,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             recentPagesController: recent,
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
 
         present(controller)
@@ -110,7 +111,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             dropTitleProvider: titleProvider,
             handlePanel: handlePanel,
             shelfPanel: makePanel(),
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         present(controller)
         let rootView = try handleView(in: handlePanel)
@@ -139,7 +141,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             },
             handlePanel: handlePanel,
             shelfPanel: makePanel(),
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         present(controller)
         let rootView = try handleView(in: handlePanel)
@@ -170,7 +173,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             onDropNotionPage: { forwarded.append($0) },
             handlePanel: handlePanel,
             shelfPanel: makePanel(),
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         present(controller)
         let rootView = try handleView(in: handlePanel)
@@ -223,7 +227,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             recentPagesController: recent,
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         present(failedController)
         failedController.handleHoverChanged(true)
@@ -256,7 +261,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             recentPagesController: recent,
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .milliseconds(40)
+            shelfDismissDelay: .milliseconds(40),
+            activateApplication: {}
         )
         present(controller)
         controller.handleHoverChanged(true)
@@ -372,7 +378,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             recentPagesController: recent,
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         present(controller)
 
@@ -434,7 +441,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             },
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         present(controller)
         controller.handleHoverChanged(true)
@@ -463,7 +471,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             onSelectRecentPage: { selections.append($0) },
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         controller.present(
             placement: placement,
@@ -494,7 +503,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             recentPagesController: recent,
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         controller.present(
             placement: placement,
@@ -550,7 +560,7 @@ final class PiPStashHandleControllerTests: XCTestCase {
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(
+        let panel = HeadlessPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -617,6 +627,27 @@ final class PiPStashHandleControllerTests: XCTestCase {
 
     private var visibleFrames: [CGRect] {
         [CGRect(x: 0, y: 20, width: 1_000, height: 780)]
+    }
+}
+
+@MainActor
+private final class HeadlessPanel: NSPanel {
+    private var orderedIn = false
+
+    override var isVisible: Bool {
+        orderedIn
+    }
+
+    override func orderFrontRegardless() {
+        orderedIn = true
+    }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        orderedIn = true
+    }
+
+    override func orderOut(_ sender: Any?) {
+        orderedIn = false
     }
 }
 

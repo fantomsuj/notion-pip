@@ -5,14 +5,16 @@ import SwiftUI
 enum AppWindowFactory {
     static func makeStorageRecovery(
         controller: StorageRecoveryController,
-        closeRequestHandler: @escaping @MainActor () -> Void
+        closeRequestHandler: @escaping @MainActor () -> Void,
+        windowFactory: (@MainActor () -> any AppWindow)? = nil
     ) -> AppWindowPresenter {
-        AppWindowPresenter(
-            window: makeWindow(
-                role: .storageRecovery,
-                title: StorageRecoveryPresentation.title,
-                content: AnyView(StorageRecoveryView(controller: controller))
-            ),
+        let window = windowFactory?() ?? makeWindow(
+            role: .storageRecovery,
+            title: StorageRecoveryPresentation.title,
+            content: AnyView(StorageRecoveryView(controller: controller))
+        )
+        return AppWindowPresenter(
+            window: window,
             closeRequestHandler: closeRequestHandler
         )
     }
