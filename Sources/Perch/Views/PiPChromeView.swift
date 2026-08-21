@@ -289,10 +289,10 @@ struct PiPChromeView: View {
         }
         .background(DesignTokens.Colors.background)
         .disablesAnimationOnColorSchemeChange()
-        .overlay(alignment: .top) {
-            ZStack(alignment: .top) {
+        .overlay(alignment: .topTrailing) {
+            ZStack(alignment: .topTrailing) {
                 Color.clear
-                    .frame(height: Self.topControlsRevealHeight)
+                    .frame(width: Self.topControlsRevealHeight)
                     .contentShape(Rectangle())
                     .onHover { isHovering in
                         topControlsHover.setHovering(isHovering)
@@ -336,20 +336,20 @@ struct PiPChromeView: View {
     }
 
     private var topControlsOverlay: some View {
-        HStack(spacing: 0) {
+        VStack(spacing: 0) {
             if let panelPositionController {
                 PanelCornerControls(controller: panelPositionController)
             }
 
             if panelPositionController != nil {
                 Divider()
-                    .frame(height: 14)
-                    .padding(.horizontal, DesignTokens.Spacing.compact)
+                    .frame(width: 14)
+                    .padding(.vertical, DesignTokens.Spacing.compact)
             }
             expandedTopControls
         }
         .padding(DesignTokens.Spacing.compact)
-        .frame(height: Self.topControlsHeight)
+        .frame(width: Self.topControlsHeight)
         .background(
             .regularMaterial,
             in: RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
@@ -367,7 +367,7 @@ struct PiPChromeView: View {
     }
 
     private var expandedTopControls: some View {
-        HStack(spacing: Self.topControlsSpacing) {
+        VStack(spacing: Self.topControlsSpacing) {
             if webSession.state == .loading {
                 ProgressView()
                     .controlSize(.small)
@@ -401,7 +401,7 @@ struct PiPChromeView: View {
             .chromePressStyle()
             .accessibilityLabel(Self.pageSwitcherAccessibilityLabel)
             .help("Resume a pinned or recent Notion page")
-            .popover(isPresented: $presentsPageSwitcher, arrowEdge: .top) {
+            .popover(isPresented: $presentsPageSwitcher, arrowEdge: .trailing) {
                 PageSwitcherView(
                     controller: pageSwitcherController,
                     onDismiss: { presentsPageSwitcher = false },
