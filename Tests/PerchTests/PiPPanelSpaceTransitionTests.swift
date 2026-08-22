@@ -23,8 +23,7 @@ final class PiPPanelSpaceTransitionTests: XCTestCase {
                 visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
             )
         )
-        harness.panel.spaceTransitions.removeAll()
-        harness.handle.spaceTransitions.removeAll()
+        harness.resetRecordedTransitions()
 
         harness.observer.emit(.activeSpaceDidChange(.toLeading))
 
@@ -73,8 +72,7 @@ final class PiPPanelSpaceTransitionTests: XCTestCase {
                 visibleFrames: [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
             )
         )
-        stashing.panel.spaceTransitions.removeAll()
-        stashing.handle.spaceTransitions.removeAll()
+        stashing.resetRecordedTransitions()
         stashing.observer.emit(.activeSpaceDidChange(.toLeading))
         XCTAssertTrue(stashing.panel.spaceTransitions.isEmpty)
         XCTAssertTrue(stashing.handle.spaceTransitions.isEmpty)
@@ -139,10 +137,8 @@ final class PiPPanelSpaceTransitionTests: XCTestCase {
             spaceTransitionObserver: observer
         )
         coordinator.show(page: page)
-        panel.spaceTransitions.removeAll()
-        panel.spaceTransitionCancelCount = 0
-        handle.spaceTransitions.removeAll()
-        handle.spaceTransitionCancelCount = 0
+        panel.resetRecordedTransitions()
+        handle.resetRecordedTransitions()
         return SpaceTransitionPanelHarness(
             coordinator: coordinator,
             panel: panel,
@@ -158,6 +154,11 @@ private struct SpaceTransitionPanelHarness {
     let panel: SpaceTransitionPanelWindow
     let handle: SpaceTransitionStashHandle
     let observer: FakeSpaceTransitionObserver
+
+    func resetRecordedTransitions() {
+        panel.resetRecordedTransitions()
+        handle.resetRecordedTransitions()
+    }
 }
 
 @MainActor
@@ -242,6 +243,13 @@ private final class SpaceTransitionPanelWindow: PiPPanelWindow {
         completion?()
     }
 
+    func resetRecordedTransitions() {
+        spaceTransitions.removeAll()
+        spaceTransitionCancelCount = 0
+        pendingSpaceTransitionCount = 0
+        pendingSpaceTransitionCompletion = nil
+    }
+
     func dismissForStash(
         toward placement: PanelStashPlacement,
         completion: @escaping @MainActor () -> Void
@@ -285,6 +293,11 @@ private final class SpaceTransitionStashHandle: PiPStashHandle {
 
     func cancelSpaceTransition() {
         spaceTransitionCancelCount += 1
+    }
+
+    func resetRecordedTransitions() {
+        spaceTransitions.removeAll()
+        spaceTransitionCancelCount = 0
     }
 }
 
