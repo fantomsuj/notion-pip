@@ -142,7 +142,10 @@ as transient overlay UI. Quick Capture, Settings, and page input instead use
 The persistent all-Spaces panel is intentional. It must not be diagnosed as an
 `NSPanel` defect. Conversely, source flags are not proof that every macOS,
 Stage Manager, display, and “Displays have separate Spaces” combination behaves
-identically. Those observations belong in the manual matrix.
+identically. Those observations belong in the manual matrix. Space switches
+keep that overlay policy: the PiP and handle stay members of every Space, but
+they fade out and settle back in so they do not sit still while desktops slide.
+Reduce Motion skips that motion and leaves the overlay fully visible.
 
 ### Hide, stash, close, and release are different verbs
 
