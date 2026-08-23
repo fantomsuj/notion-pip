@@ -1,0 +1,5 @@
+{
+  "name": "Perch (Swift 6.2 toolchain)",
+  "user": "ubuntu",
+  "install": "./script/cloud_agent_install.sh"
+}
