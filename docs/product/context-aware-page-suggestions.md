@@ -20,7 +20,7 @@ presentation and starts one bounded exact-page read.
   `AppRuntime.activate`, preserving the single WebView, recents, persistence,
   restoration, and status behavior.
 - If Perch already has a different page, it reveals immediately and retains
-  that page. A slim, dismissible **Open Here** action appears inside the PiP.
+  that page. A slim, dismissible **Open Here** action appears inside Perch.
 - If the page IDs match, no action appears.
 - Explicit pinned/recent choices are authoritative. They do not start exact
   detection and invalidate outstanding reveal results.

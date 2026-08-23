@@ -193,7 +193,7 @@ final class PiPStashHandleInteractionTests: XCTestCase {
         XCTAssertEqual(activationCount, 1)
         XCTAssertEqual(
             interaction.accessibilityCustomActions()?.map(\.name),
-            ["Show recent PiP pages"]
+            [PiPStashHandleAccessibility.showRecentPagesAction]
         )
 
         interaction.draggingExited()
@@ -201,7 +201,7 @@ final class PiPStashHandleInteractionTests: XCTestCase {
         XCTAssertEqual(interaction.accessibilityLabel(), "Restore Perch")
         XCTAssertEqual(
             interaction.accessibilityHelp(),
-            "Bring the stashed Perch back from the side, or show recently viewed PiP pages."
+            PiPStashHandleAccessibility.restoreHelp
         )
     }
 
@@ -313,6 +313,16 @@ final class PiPStashHandleInteractionTests: XCTestCase {
     }
 
     func testAccessibilityPressRestoresAndCustomActionShowsRecentPages() throws {
+        XCTAssertEqual(PiPStashHandleAccessibility.restoreLabel, "Restore Perch")
+        XCTAssertEqual(
+            PiPStashHandleAccessibility.restoreHelp,
+            "Bring the stashed Perch back from the side, or show recently viewed Perch pages."
+        )
+        XCTAssertEqual(
+            PiPStashHandleAccessibility.showRecentPagesAction,
+            "Show recent Perch pages"
+        )
+
         var activationCount = 0
         var showRecentCount = 0
         let interaction = PiPStashHandleInteractionView(
@@ -327,7 +337,7 @@ final class PiPStashHandleInteractionTests: XCTestCase {
         XCTAssertEqual(interaction.accessibilityRole(), .button)
         XCTAssertEqual(interaction.accessibilityLabel(), "Restore Perch")
         let recentPagesAction = try XCTUnwrap(interaction.accessibilityCustomActions()?.first)
-        XCTAssertEqual(recentPagesAction.name, "Show recent PiP pages")
+        XCTAssertEqual(recentPagesAction.name, PiPStashHandleAccessibility.showRecentPagesAction)
         XCTAssertTrue(try XCTUnwrap(recentPagesAction.handler)())
         XCTAssertEqual(showRecentCount, 1)
     }

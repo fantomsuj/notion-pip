@@ -10,14 +10,14 @@ I am happily biased toward writing. Writing is how I build scaffolding for my id
 
 ## What it feels like
 
-Pin the Notion page you are living in and keep it close without turning it into another full window. The PiP can stay visible across Spaces, tuck itself neatly onto a screen edge, and return to the same live page when you need it again.
+Pin the Notion page you are living in and keep it close without turning it into another full window. Perch can stay visible across Spaces, tuck itself neatly onto a screen edge, and return to the same live page when you need it again.
 
 - Create a fresh page in the native Notion app from the `+` button.
 - Stash the panel with its close control or by dragging at least 40% of it beyond
   a left or right screen edge and releasing. Restore it from its slim tab, the
-  optional menu-bar icon, or `Command-Shift-P`; when the PiP itself is zoomed or
+  optional menu-bar icon, or `Command-Shift-P`; when the panel itself is zoomed or
   full screen, the shortcut first returns it to its prior floating size.
-- Move the PiP in either direction with a two-finger gesture from its top edge
+- Move the panel in either direction with a two-finger gesture from its top edge
   or visible toolbar; scrolling within the Notion page remains unchanged.
 - Keep working in the real, embedded Notion page—not a screenshot or a simplified native imitation.
 - Reload the currently displayed Notion page with `Command-R`, including the sign-in page if your session has expired.
@@ -27,7 +27,7 @@ Pin the Notion page you are living in and keep it close without turning it into 
   pinned favorites or seven recent pages. Give pins optional device-local roles
   such as “Today” or “Project Brief”; the switcher keeps the Notion title visible
   and searches both role and title without creating another live web view.
-- Save device-local panel size presets in Settings and apply them from the PiP
+- Save device-local panel size presets in Settings and apply them from the panel
   or menu-bar menus without reloading the live Notion page.
 - Opt in to launching Perch when you log in to your Mac. The Settings
   toggle reads macOS's current registration state and points you to Login Items

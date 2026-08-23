@@ -1,5 +1,12 @@
 import SwiftUI
 
+enum PiPStashHandleAccessibility {
+    static let restoreLabel = "Restore Perch"
+    static let restoreHelp =
+        "Bring the stashed Perch back from the side, or show recently viewed Perch pages."
+    static let showRecentPagesAction = "Show recent Perch pages"
+}
+
 struct PiPStashHandleDragSnapshot {
     let sequenceNumber: Int
     let candidate: NotionPageDrop?
@@ -249,12 +256,10 @@ final class PiPStashHandleInteractionView: NSView {
         registerForDraggedTypes([.URL, .string])
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        setAccessibilityLabel("Restore Perch")
-        setAccessibilityHelp(
-            "Bring the stashed Perch back from the side, or show recently viewed PiP pages."
-        )
+        setAccessibilityLabel(PiPStashHandleAccessibility.restoreLabel)
+        setAccessibilityHelp(PiPStashHandleAccessibility.restoreHelp)
         setAccessibilityCustomActions([
-            NSAccessibilityCustomAction(name: "Show recent PiP pages") { [weak self] in
+            NSAccessibilityCustomAction(name: PiPStashHandleAccessibility.showRecentPagesAction) { [weak self] in
                 self?.onShowRecentPages()
                 return self != nil
             }
@@ -532,10 +537,8 @@ final class PiPStashHandleInteractionView: NSView {
             setAccessibilityLabel("Open \(dropLabel) in Perch")
             setAccessibilityHelp(nil)
         } else {
-            setAccessibilityLabel("Restore Perch")
-            setAccessibilityHelp(
-                "Bring the stashed Perch back from the side, or show recently viewed PiP pages."
-            )
+            setAccessibilityLabel(PiPStashHandleAccessibility.restoreLabel)
+            setAccessibilityHelp(PiPStashHandleAccessibility.restoreHelp)
         }
     }
 
