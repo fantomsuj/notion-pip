@@ -1259,8 +1259,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             logger.debug("Skipped expanded panel resize completion")
             return
         }
-        guard !shouldIgnoreWindowGeometryNotifications, panel.isVisible else {
-            logger.debug("Skipped programmatic or hidden panel resize completion")
+        guard !shouldIgnoreWindowGeometryNotifications else {
+            logger.debug("Skipped programmatic panel resize completion")
             return
         }
         let contentSize = currentPanelContentSize
