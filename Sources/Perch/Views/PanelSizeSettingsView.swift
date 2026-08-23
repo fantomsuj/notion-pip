@@ -28,20 +28,6 @@ struct PanelSizeSettingsView: View {
                     .accessibilityLabel("Panel size error: \(validationMessage)")
             }
 
-            Text("Built-in Sizes")
-                .font(.headline)
-                .padding(.top, DesignTokens.Spacing.compact)
-
-            ForEach(BuiltInPanelSizePreset.allCases) { builtIn in
-                let preset = PanelSizePreset.builtIn(builtIn)
-                PanelSizeBuiltInRow(
-                    preset: preset,
-                    contentSize: controller.resolvedContentSize(for: preset),
-                    canApply: controller.canApply,
-                    onApply: { controller.apply(preset.id) }
-                )
-            }
-
             HStack {
                 Text("Custom Sizes")
                     .font(.headline)
@@ -164,31 +150,6 @@ struct PanelSizeSettingsView: View {
             return
         }
         isPresentingSaveSheet = false
-    }
-
-    private struct PanelSizeBuiltInRow: View {
-        let preset: PanelSizePreset
-        let contentSize: PanelContentSize
-        let canApply: Bool
-        let onApply: () -> Void
-
-        var body: some View {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(preset.name)
-                    Text(
-                        "\(contentSize.width.formatted()) × \(contentSize.height.formatted()) pt"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Colors.secondaryText)
-                    .monospacedDigit()
-                }
-                Spacer()
-                Button("Apply", action: onApply)
-                    .disabled(!canApply)
-            }
-            .accessibilityElement(children: .contain)
-        }
     }
 }
 

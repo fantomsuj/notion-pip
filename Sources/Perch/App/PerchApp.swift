@@ -115,7 +115,6 @@ private final class AppComposition {
             recoveryRequired: recoveryContext != nil
         )
 
-        let pageLauncher = NotionDesktopPageLauncher()
         let panelSizeController = PanelSizeController()
         let panelPositionController = PanelPositionController()
         let launchAtLoginService = LaunchAtLoginService()
@@ -132,8 +131,6 @@ private final class AppComposition {
             },
             quit: { actionRelay.quit() }
         )
-        let pageSwitcherController = PageSwitcherController(store: pageRepository)
-        let pageSwitcherRelay = PageSwitcherSelectionRelay()
         let recentPageSelectionRelay = PiPRecentPageSelectionRelay()
         let recentPagesController = PiPRecentPagesShelfController(
             store: pageRepository,
@@ -148,13 +145,11 @@ private final class AppComposition {
         let stashHandle = notionPageDropComposition.stashHandle
         let panelCoordinator = PiPPanelCoordinator(
             webSession: webSession,
-            pageSwitcherController: pageSwitcherController,
             commandModel: commandModel,
             onReloadSavedPin: { actionRelay.reloadSavedPin() },
             panelSizeController: panelSizeController,
             panelPositionController: panelPositionController,
             contextualPageActionState: contextualPageActionState,
-            onPageSwitcherSelection: pageSwitcherRelay.perform,
             stashHandle: stashHandle
         )
         let runtime = AppRuntime(
@@ -205,11 +200,15 @@ private final class AppComposition {
         actionRelay.reloadSavedPinAction = { [weak runtime] in
             runtime?.reloadSavedPin()
         }
-        actionRelay.newNotionPageAction = {
-            _ = pageLauncher.openNewPage()
+        actionRelay.newNotionPageAction = { [weak webSession] in
+            webSession?.createNewPage()
         }
-        webSession.onPageResolved = { [weak runtime] page in
+        webSession.onPageResolved = { [weak runtime, weak webSession] page in
             runtime?.activate(page: page, source: .notionWebSession)
+            Self.retainWorkingSetSnapshots(
+                in: webSession,
+                from: pageRepository
+            )
         }
         webSession.onRestorationCaptured = { restoration in
             guard let pageRepository else { return }
@@ -217,20 +216,7 @@ private final class AppComposition {
                 _ = try? await pageRepository.saveRestoration(restoration)
             }
         }
-        pageSwitcherController.onWorkingSetChanged = { [weak webSession] snapshot in
-            let pageIDs = Set(
-                (snapshot.pinnedPages + snapshot.recentPages).map(\.pageID)
-            )
-            webSession?.evictInteractionSnapshots(retaining: pageIDs)
-        }
-        pageSwitcherRelay.handler = { [weak runtime] selection in
-            guard case let .activate(page, restoration) = selection else { return }
-            runtime?.activate(
-                page: page,
-                source: .pageSwitcher,
-                restoration: restoration
-            )
-        }
+        Self.retainWorkingSetSnapshots(in: webSession, from: pageRepository)
         recentPageSelectionRelay.handler = { [weak runtime] selection in
             runtime?.activateRecentPage(selection)
         }
@@ -351,6 +337,21 @@ private final class AppComposition {
         self.contextSuggestionController = contextSuggestionController
         self.contextSuggestionPanelController = contextSuggestionPanelController
     }
+
+    private static func retainWorkingSetSnapshots(
+        in webSession: NotionWebSession?,
+        from pageRepository: PageRepository?
+    ) {
+        guard let webSession, let pageRepository else { return }
+        Task { @MainActor [weak webSession] in
+            guard let webSession else { return }
+            guard let snapshot = try? await pageRepository.workingSet() else { return }
+            let pageIDs = Set(
+                (snapshot.pinnedPages + snapshot.recentPages).map(\.pageID)
+            )
+            webSession.evictInteractionSnapshots(retaining: pageIDs)
+        }
+    }
 }
 
 @MainActor
@@ -359,15 +360,6 @@ private final class StartupRecoveryActionRelay {
 
     func continueWithoutSaving() {
         handler()
-    }
-}
-
-@MainActor
-private final class PageSwitcherSelectionRelay {
-    var handler: (PageSwitcherSelection) -> Void = { _ in }
-
-    func perform(_ selection: PageSwitcherSelection) {
-        handler(selection)
     }
 }
 

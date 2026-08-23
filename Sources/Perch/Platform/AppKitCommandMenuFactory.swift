@@ -55,43 +55,11 @@ enum AppKitCommandMenuFactory {
     }
 
     private static func panelSizeMenuItem(
-        controller: PanelSizeController
+        controller _: PanelSizeController
     ) -> NSMenuItem {
-        let parent = NSMenuItem(title: "Panel Size", action: nil, keyEquivalent: "")
-        let submenu = NSMenu(title: "Panel Size")
-        submenu.autoenablesItems = false
-
-        for preset in controller.presets {
-            let item = NSMenuItem(
-                title: controller.displayName(for: preset),
-                action: nil,
-                keyEquivalent: ""
-            )
-            item.isEnabled = controller.canApply
-            item.representedObject = preset.id.rawValue
-            submenu.addItem(item)
-        }
-
-        submenu.addItem(.separator())
-        let reset = NSMenuItem(
-            title: "Reset to Vertical",
-            action: nil,
-            keyEquivalent: ""
-        )
-        reset.isEnabled = controller.canApply
-        reset.representedObject = resetPanelSizeMarker
-        submenu.addItem(reset)
-
-        let manage = NSMenuItem(
-            title: "Manage Panel Sizes…",
-            action: nil,
-            keyEquivalent: ""
-        )
-        manage.isEnabled = true
-        manage.representedObject = managePanelSizesMarker
-        submenu.addItem(manage)
-
-        parent.submenu = submenu
-        return parent
+        let item = NSMenuItem(title: "Panel Size…", action: nil, keyEquivalent: "")
+        item.isEnabled = true
+        item.representedObject = managePanelSizesMarker
+        return item
     }
 }

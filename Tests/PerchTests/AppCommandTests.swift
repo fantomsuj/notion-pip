@@ -79,13 +79,15 @@ final class AppCommandTests: XCTestCase {
         let toolbarMenu = PiPAppCommandMenu(commandModel: model)
 
         XCTAssertEqual(toolbarMenu.commandIDs, AppCommandID.allCases)
-        XCTAssertEqual(toolbarMenu.symbolName, "ellipsis.circle")
+        XCTAssertEqual(toolbarMenu.symbolName, "ellipsis")
         XCTAssertEqual(PiPChromeView.primaryActionID, .newNotionPage)
         XCTAssertEqual(PiPChromeView.primaryActionAccessibilityLabel, "New Notion Page")
-        XCTAssertEqual(PiPChromeView.primaryActionHelp, "Create a page in the Notion app")
+        XCTAssertEqual(PiPChromeView.primaryActionHelp, "Create a new page in Perch")
+        XCTAssertEqual(PiPChromeView.pageSwitcherAccessibilityLabel, "Search Notion pages")
+        XCTAssertEqual(PiPChromeView.pageSwitcherHelp, "Open Notion search (⌘K)")
     }
 
-    func testPanelSizeSubmenuUsesSharedOrientationRowsAndDisabledApplyState() throws {
+    func testPanelSizeMenuOpensSettingsWithoutBuiltInPresetRows() throws {
         let defaultsName = "AppCommandTests.PanelSizes.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
         defaults.removePersistentDomain(forName: defaultsName)
@@ -98,30 +100,15 @@ final class AppCommandTests: XCTestCase {
             commandModel: model,
             panelSizeController: controller
         )
-        let submenu = try XCTUnwrap(
-            menu.item(withTitle: "Panel Size")?.submenu
-        )
-        let actionableItems = submenu.items.filter { !$0.isSeparatorItem }
-
+        let panelSizeItem = try XCTUnwrap(menu.item(withTitle: "Panel Size…"))
+        XCTAssertNil(panelSizeItem.submenu)
         XCTAssertEqual(
-            actionableItems.map(\.title),
-            [
-                "Horizontal",
-                "Vertical",
-                "Reset to Vertical",
-                "Manage Panel Sizes…",
-            ]
+            panelSizeItem.representedObject as? String,
+            AppKitCommandMenuFactory.managePanelSizesMarker
         )
-        XCTAssertEqual(
-            actionableItems.map(\.isEnabled),
-            [false, false, false, true]
-        )
-        XCTAssertEqual(
-            actionableItems.prefix(2).compactMap {
-                $0.representedObject as? String
-            },
-            controller.presets.map(\.id.rawValue)
-        )
+        XCTAssertTrue(panelSizeItem.isEnabled)
+        XCTAssertNil(menu.item(withTitle: "Horizontal"))
+        XCTAssertNil(menu.item(withTitle: "Vertical"))
 
         let toolbarMenu = PiPAppCommandMenu(
             commandModel: model,
@@ -178,7 +165,7 @@ final class AppCommandTests: XCTestCase {
         XCTAssertEqual(commandItems.first?.tag, StatusMenuContextCommand.stash.menuItemTag)
     }
 
-    func testStatusItemMenuRetainsPanelSizeSubmenuAfterContextualCommand() throws {
+    func testStatusItemMenuRetainsPanelSizeItemAfterContextualCommand() throws {
         let defaultsName = "AppCommandTests.StatusPanelSizes.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
         defaults.removePersistentDomain(forName: defaultsName)
@@ -193,7 +180,10 @@ final class AppCommandTests: XCTestCase {
         )
 
         XCTAssertEqual(menu.items.first?.title, "Show Perch")
-        XCTAssertNotNil(menu.item(withTitle: "Panel Size")?.submenu)
+        XCTAssertNotNil(menu.item(withTitle: "Panel Size…"))
+        XCTAssertNil(menu.item(withTitle: "Panel Size…")?.submenu)
+        XCTAssertNil(menu.item(withTitle: "Horizontal"))
+        XCTAssertNil(menu.item(withTitle: "Vertical"))
     }
 
     private func makeModel(events: @escaping (AppCommandID) -> Void) -> AppCommandModel {
