@@ -1,6 +1,8 @@
 import SwiftUI
 
 enum PiPRecentPagesShelfAccessibility {
+    static let title = "Recent in Perch"
+
     static func rowLabel(title: String, recency: String, isCurrent: Bool) -> String {
         if isCurrent {
             return "\(title), \(recency), active Perch page"
@@ -23,7 +25,7 @@ struct PiPRecentPagesShelfView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Recent in PiP")
+            Text(PiPRecentPagesShelfAccessibility.title)
                 .font(.headline)
                 .frame(height: PanelStashShelfPolicy.headerHeight)
                 .padding(.horizontal, DesignTokens.Spacing.container)
@@ -49,7 +51,7 @@ struct PiPRecentPagesShelfView: View {
             return .handled
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Recent in PiP")
+        .accessibilityLabel(PiPRecentPagesShelfAccessibility.title)
     }
 }
 

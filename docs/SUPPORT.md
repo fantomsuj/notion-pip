@@ -21,7 +21,7 @@ Do not distribute a local `dist/Perch.app` build to another Mac. Local builds ma
 - **Launch at Login needs approval:** Open Settings → Launch at Login, follow the button to System Settings → General → Login Items & Extensions, approve Perch, then return to the app.
 - **Accessibility permission appears:** Perch requests Accessibility access only after you enable Context Suggestions in Settings. Grant it under System Settings → Privacy & Security → Accessibility if you want saved-page suggestions and reveal-time exact-page connection. Leave the feature off if you do not want Perch to inspect this narrow app/window metadata.
 - **A focused Notion page is not detected:** Confirm Context Suggestions is enabled and Settings reports permission as ready. Then focus the page in Safari, Chrome, Firefox, Edge, Brave, Arc, or the native Notion app before revealing Perch. The source app must expose a focused `AXDocument` or `AXURL`; private windows, browser builds with different bundle identifiers, inaccessible views, malformed links, slow Accessibility responses, and workspace/search URLs without a page ID quietly use Perch's ordinary reveal behavior.
-- **Perch already shows another page:** Reveal remains immediate and never replaces that page automatically. Use the slim **Open Here** action inside the PiP to switch, or dismiss it. Selecting a pinned or recent page explicitly always wins over an outstanding contextual result.
+- **Perch already shows another page:** Reveal remains immediate and never replaces that page automatically. Use the slim **Open Here** action inside Perch to switch, or dismiss it. Selecting a pinned or recent page explicitly always wins over an outstanding contextual result.
 
 ## Local storage recovery
 
