@@ -13,9 +13,16 @@ I am happily biased toward writing. Writing is how I build scaffolding for my id
 Pin the Notion page you are living in and keep it close without turning it into another full window. The PiP can stay visible across Spaces, tuck itself neatly onto a screen edge, and return to the same live page when you need it again.
 
 - Create a fresh page in the native Notion app from the `+` button.
-- Stash the panel against the nearest screen edge and restore it from its slim tab, the optional menu-bar icon, or `Command-Shift-P`; when the PiP itself is zoomed or full screen, the shortcut first returns it to its prior floating size.
+- Stash the panel with its close control or by dragging at least 40% of it beyond
+  a left or right screen edge and releasing. Restore it from its slim tab, the
+  optional menu-bar icon, or `Command-Shift-P`; when the PiP itself is zoomed or
+  full screen, the shortcut first returns it to its prior floating size.
+- Move the PiP in either direction with a two-finger gesture from its top edge
+  or visible toolbar; scrolling within the Notion page remains unchanged.
 - Keep working in the real, embedded Notion page—not a screenshot or a simplified native imitation.
 - Reload the currently displayed Notion page with `Command-R`, including the sign-in page if your session has expired.
+- Check for signed updates from either Perch menu. Automatic Sparkle checks use
+  the same notarized DMG published on the website.
 - Hover at the panel’s top edge and open the page switcher to resume one of seven
   pinned favorites or seven recent pages. Give pins optional device-local roles
   such as “Today” or “Project Brief”; the switcher keeps the Notion title visible
@@ -25,8 +32,20 @@ Pin the Notion page you are living in and keep it close without turning it into 
 - Opt in to launching Perch when you log in to your Mac. The Settings
   toggle reads macOS's current registration state and points you to Login Items
   settings when the system requires approval.
+- Optionally enable Context Suggestions. With explicit macOS Accessibility
+  permission, Perch compares the frontmost app, focused window title, and any
+  URL that window exposes with the titles and roles of your seven pinned and
+  seven recent pages. A quiet card can open the best match at its saved page
+  position without storing or uploading the surrounding app context. When you
+  deliberately reveal Perch, it also performs one bounded check for the exact
+  Notion page focused in a supported browser or the native Notion app. An empty
+  Perch opens a valid detected page; an occupied Perch stays on its current page
+  and offers a dismissible **Open Here** action only when the detected page is
+  different.
 
 Hover over the edge handle to see up to five pages you recently opened in Perch. Click a recent page to restore it where you left off, click the handle itself to restore the current page, or drag the handle to move it to another edge or display.
+
+You can also drop a valid Notion page link onto the stashed handle to open that page; hovering a link over the handle only previews it and never switches pages.
 
 The app intentionally runs as an accessory rather than appearing in the Dock. Its menu-bar icon is shown by default, and you can turn it off in Settings while continuing to use the edge handle and global shortcut.
 
@@ -76,6 +95,11 @@ Run the tests with:
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 ```
 
+The default test target is headless: it must not present windows, activate the
+test host, or require user input. AppKit behavior is tested with non-ordering
+window doubles, while pure window configuration can use unpresented AppKit
+objects.
+
 ## Direct distribution
 
 Public builds ship outside the Mac App Store as a Universal 2 DMG. They use a
@@ -86,8 +110,9 @@ build above is not a distributable artifact.
 The complete certificate setup, local packaging command, GitHub release
 workflow, and clean-Mac validation checklist are documented in
 [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md). Tagged release automation creates
-a draft GitHub Release for human approval; it never publishes a download
-directly.
+a signed Sparkle appcast and a draft GitHub Release for human approval;
+publishing that release makes both the website DMG and installed-app update
+available.
 
 ### Set up with Codex
 
@@ -101,4 +126,29 @@ Codex will check the Mac and Xcode prerequisites, build and verify the app, and 
 
 Perch accepts HTTPS page URLs on `app.notion.com`, `notion.com`, and `www.notion.com` with a canonical 32-character hexadecimal page ID. Legacy `notion.so` and `www.notion.so` links remain accepted; all non-app hosts canonicalize to `www.notion.com`. Every accepted host retains its percent-encoded path, while credentials, query strings, and fragments are removed. The `perch` handoff contract is documented in [the handoff protocol](docs/HANDOFF_PROTOCOL.md).
 
-Quick Copy is deferred from Perch 0.1, which does not start its Accessibility monitor or request Accessibility permission. The experimental implementation remains isolated in source for later validation. Perch does not ask for, store, or send a personal integration token; the signed-in Notion session remains in WebKit's website data store. Local builds use an available Apple Development or Perch local-development signing identity, falling back to ad-hoc signing when neither exists. Run `./script/setup_local_signing.sh` once to create the optional machine-local identity when repeated ad-hoc rebuilds destabilize macOS permissions or login-item approval. This identity is only for local development; it is not Developer ID distribution signing or notarization. Launch at Login uses Apple's public ServiceManagement API and changes system registration only when you use its explicit toggle. See the [privacy policy](docs/PRIVACY.md) and [support, installation, and uninstall guide](docs/SUPPORT.md). Windowing and login-item checks live in [the manual test matrix](docs/MANUAL_TEST_MATRIX.md), while reference provenance and reuse exclusions live in [the open-source research](docs/OPEN_SOURCE_RESEARCH.md) and [upstream-reuse notes](docs/UPSTREAM_REUSE.md). Product opportunities, comparable interaction patterns, and recommended experiments are synthesized in the [product research report](docs/PRODUCT_RESEARCH_REPORT.md).
+Context Suggestions is off by default and requests Accessibility access only
+when enabled. Exact-page checks run only in response to a reveal, use focused
+`AXDocument`/`AXURL` attributes plus a four-element focused parent path, and do
+not inspect page contents, window titles, screenshots, keystrokes, or the
+clipboard. Raw Accessibility app, window, and URL candidates remain transient
+and are not logged. When Perch auto-opens a detected page, or you choose
+**Open Here**, its validated page URL and identifier enter the same device-local
+page history and persistence flow as any page you open normally. Quick Copy
+remains deferred and its separate selection monitor is not started. Perch does
+not ask for, store, or send a personal integration token;
+the signed-in Notion session remains in WebKit's website data store.
+Local builds use an available Apple Development or Perch local-development
+signing identity, falling back to ad-hoc signing when neither exists. Run
+`./script/setup_local_signing.sh` once to create the optional machine-local
+identity when repeated ad-hoc rebuilds destabilize macOS permissions or
+login-item approval. This identity is only for local development; it is not
+Developer ID distribution signing or notarization. Launch at Login uses
+Apple's public ServiceManagement API and changes system registration only when
+you use its explicit toggle. See the [privacy policy](docs/PRIVACY.md) and
+[support, installation, and uninstall guide](docs/SUPPORT.md). Windowing and
+login-item checks live in [the manual test matrix](docs/MANUAL_TEST_MATRIX.md),
+while reference provenance and reuse exclusions live in the
+[open-source research](docs/OPEN_SOURCE_RESEARCH.md) and
+[upstream-reuse notes](docs/UPSTREAM_REUSE.md). Product opportunities,
+comparable interaction patterns, and recommended experiments are synthesized
+in the [product research report](docs/PRODUCT_RESEARCH_REPORT.md).

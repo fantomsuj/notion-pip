@@ -4,6 +4,121 @@ import XCTest
 @testable import Perch
 
 final class PageRepositoryTests: XCTestCase {
+    func testDisplayTitleUsesCanonicalIDAndPrefersActiveThenPinnedThenRecent() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let active = try page(slug: "Active", id: firstPageID)
+        let pinned = try page(slug: "Pinned", id: secondPageID)
+        let recent = try page(slug: "Recent", id: "11111111111111111111111111111111")
+        let blank = try page(slug: "Blank", id: "22222222222222222222222222222222")
+
+        context.insert(
+            ActivePageModel(
+                pageID: active.pageID.uppercased(),
+                canonicalURL: active.canonicalURL.absoluteString,
+                displayTitle: "Active title",
+                updatedAt: Date(timeIntervalSince1970: 4)
+            )
+        )
+        context.insert(
+            PinnedPageModel(
+                stableID: active.pageID,
+                canonicalURL: active.canonicalURL.absoluteString,
+                displayTitle: "Pinned title",
+                pinnedAt: Date(timeIntervalSince1970: 3)
+            )
+        )
+        context.insert(
+            RecentPageModel(
+                stableID: active.pageID,
+                canonicalURL: active.canonicalURL.absoluteString,
+                displayTitle: "Recent title",
+                visitedAt: Date(timeIntervalSince1970: 2)
+            )
+        )
+        context.insert(
+            PinnedPageModel(
+                stableID: pinned.pageID,
+                canonicalURL: pinned.canonicalURL.absoluteString,
+                displayTitle: "Pinned fallback",
+                pinnedAt: Date(timeIntervalSince1970: 3)
+            )
+        )
+        context.insert(
+            RecentPageModel(
+                stableID: pinned.pageID,
+                canonicalURL: pinned.canonicalURL.absoluteString,
+                displayTitle: "Recent fallback",
+                visitedAt: Date(timeIntervalSince1970: 2)
+            )
+        )
+        context.insert(
+            RecentPageModel(
+                stableID: recent.pageID.uppercased(),
+                canonicalURL: recent.canonicalURL.absoluteString,
+                displayTitle: "Recent only",
+                visitedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        context.insert(
+            RecentPageModel(
+                stableID: blank.pageID,
+                canonicalURL: blank.canonicalURL.absoluteString,
+                displayTitle: " \n ",
+                visitedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        try context.save()
+
+        let repository = PageRepository(container: container)
+        let activeTitle = await repository.displayTitle(for: active.pageID.uppercased())
+        let pinnedTitle = await repository.displayTitle(for: pinned.pageID)
+        let recentTitle = await repository.displayTitle(for: recent.pageID)
+        let blankTitle = await repository.displayTitle(for: blank.pageID)
+        let unknownTitle = await repository.displayTitle(for: "unknown")
+
+        XCTAssertEqual(activeTitle, "Active title")
+        XCTAssertEqual(pinnedTitle, "Pinned fallback")
+        XCTAssertEqual(recentTitle, "Recent only")
+        XCTAssertNil(blankTitle)
+        XCTAssertNil(unknownTitle)
+    }
+
+    func testDisplayTitleSkipsBlankSnapshotsBeforeContinuingPrecedence() async throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let page = try self.page(slug: "Project", id: firstPageID)
+        context.insert(
+            ActivePageModel(
+                pageID: page.pageID,
+                canonicalURL: page.canonicalURL.absoluteString,
+                displayTitle: " \n ",
+                updatedAt: Date(timeIntervalSince1970: 3)
+            )
+        )
+        context.insert(
+            PinnedPageModel(
+                stableID: page.pageID,
+                canonicalURL: page.canonicalURL.absoluteString,
+                displayTitle: "Pinned title",
+                pinnedAt: Date(timeIntervalSince1970: 2)
+            )
+        )
+        context.insert(
+            RecentPageModel(
+                stableID: page.pageID,
+                canonicalURL: page.canonicalURL.absoluteString,
+                displayTitle: "Recent title",
+                visitedAt: Date(timeIntervalSince1970: 1)
+            )
+        )
+        try context.save()
+
+        let title = await PageRepository(container: container).displayTitle(for: page.pageID)
+
+        XCTAssertEqual(title, "Pinned title")
+    }
+
     func testRecentPiPPagesIncludesRecentlyVisitedPinnedPageInVisitOrder() async throws {
         let clock = TestDateProvider(Date(timeIntervalSince1970: 100))
         let repository = PageRepository(container: try makeContainer(), clock: clock)

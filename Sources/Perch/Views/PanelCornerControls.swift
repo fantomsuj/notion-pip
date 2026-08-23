@@ -29,20 +29,24 @@ extension PanelCorner {
 }
 
 struct PanelCornerControls: View {
-    static let minimumHitTarget: CGFloat = 28
+    static let minimumHitTarget = InteractionPolicy.compactHitTarget
+    static let selectedBackgroundRadius = InteractionPolicy.concentricRadius(
+        outer: DesignTokens.Radius.card,
+        inset: DesignTokens.Spacing.compact
+    )
 
     @ObservedObject var controller: PanelPositionController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var selectionPill
 
     var body: some View {
-        HStack(spacing: 0) {
+        VStack(spacing: 0) {
             ForEach(Array(PanelCorner.allCases.enumerated()), id: \.element) {
                 index,
                 corner in
                 if index > 0 {
                     Divider()
-                        .frame(height: 14)
+                        .frame(width: 14)
                 }
 
                 Button {
@@ -54,7 +58,7 @@ struct PanelCornerControls: View {
                     )
                         .font(.system(size: 10, weight: .semibold))
                 }
-                .buttonStyle(.plain)
+                .chromePressStyle(cornerRadius: Self.selectedBackgroundRadius)
                 .foregroundStyle(
                     controller.selectedCorner == corner
                         ? DesignTokens.Colors.action
@@ -62,10 +66,12 @@ struct PanelCornerControls: View {
                 )
                 .background {
                     if controller.selectedCorner == corner {
-                        DesignTokens.Colors.action.opacity(0.14)
+                        RoundedRectangle(cornerRadius: Self.selectedBackgroundRadius)
+                            .fill(DesignTokens.Colors.action.opacity(0.14))
                             .matchedGeometryEffect(id: "corner-pill", in: selectionPill)
                     }
                 }
+                .instantListHoverColor(value: controller.selectedCorner == corner)
                 .disabled(!controller.canPosition)
                 .accessibilityLabel(corner.accessibilityLabel)
                 .accessibilityAddTraits(

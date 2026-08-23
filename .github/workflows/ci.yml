@@ -34,6 +34,7 @@ jobs:
         run: |
           bash Tests/ScriptTests/sign_app_tests.sh
           bash Tests/ScriptTests/package_release_tests.sh
+          bash Tests/ScriptTests/sparkle_key_tests.sh
 
       - name: Run Swift tests without WebKit process state
         run: >-

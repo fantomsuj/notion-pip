@@ -27,6 +27,11 @@ final class PiPChromeViewTests: XCTestCase {
             ]
         )
         XCTAssertEqual(PanelCornerControls.minimumHitTarget, 28)
+        XCTAssertEqual(
+            PanelCornerControls.minimumHitTarget,
+            InteractionPolicy.compactHitTarget
+        )
+        XCTAssertEqual(PanelCornerControls.selectedBackgroundRadius, 4)
     }
 
     func testTopToolbarRevealsCornerControlsWithEveryOtherAction() {
@@ -55,7 +60,10 @@ final class PiPChromeViewTests: XCTestCase {
     }
 
     func testTopToolbarUsesExpandedSizing() {
-        XCTAssertEqual(PiPChromeView.topControlsHeight, 36)
+        XCTAssertEqual(
+            PiPChromeView.topControlsHeight,
+            TopEdgeTrackpadMoveController.activeHeight
+        )
         XCTAssertEqual(PiPChromeView.topControlsSpacing, 4)
         XCTAssertEqual(PanelCornerControls.minimumHitTarget, 28)
     }
@@ -96,28 +104,20 @@ final class PiPChromeViewTests: XCTestCase {
         XCTAssertEqual(reduced, .identity)
     }
 
-    func testPageStackSeparatesOnlyForPointerHoverWithMotionEnabled() {
+    func testPerchMarkSeparatesOnlyForInteractionWithMotionEnabled() {
         XCTAssertEqual(
-            ToolbarIconMotionPolicy.pageStackSeparation(
-                isHovering: false,
-                reducesMotion: false
-            ),
-            0
-        )
-        XCTAssertGreaterThan(
-            ToolbarIconMotionPolicy.pageStackSeparation(
-                isHovering: true,
-                reducesMotion: false
-            ),
+            PerchMarkMotionPolicy.separation(isActive: false, reducesMotion: false),
             0
         )
         XCTAssertEqual(
-            ToolbarIconMotionPolicy.pageStackSeparation(
-                isHovering: true,
-                reducesMotion: true
-            ),
+            PerchMarkMotionPolicy.separation(isActive: true, reducesMotion: false),
+            1.5
+        )
+        XCTAssertEqual(
+            PerchMarkMotionPolicy.separation(isActive: true, reducesMotion: true),
             0
         )
+        XCTAssertEqual(PerchMarkMotionPolicy.duration, 0.12)
     }
 
     func testReloadMotionRunsOnceOnlyAfterSuccessfulLoadCompletion() {
@@ -174,6 +174,41 @@ final class PiPChromeViewTests: XCTestCase {
                 .message("Notion couldn't load this page."),
                 .retryButton("Retry loading Notion page"),
             ]
+        )
+    }
+
+    func testMissingPageChromeExposesANextActionInsteadOfABareEmptyLabel() {
+        XCTAssertEqual(
+            EmptyPageChromePresentation.missingPage,
+            EmptyPageChromePresentation(
+                title: "No Notion page is open",
+                description: "Open a page from Settings to keep it beside your other work.",
+                actionTitle: "Open Settings",
+                actionAccessibilityLabel: "Open Settings to choose a Notion page"
+            )
+        )
+    }
+
+    func testContextualPageActionPresentsSlimOpenAndDismissControls() throws {
+        let page = try NotionPageReference(
+            validating: XCTUnwrap(
+                URL(string: "https://www.notion.com/Roadmap-0123456789abcdef0123456789abcdef")
+            )
+        )
+
+        XCTAssertEqual(
+            ContextualPageActionPresentation(
+                action: ContextualPageAction(
+                    page: page,
+                    sourceApplicationName: "Safari"
+                )
+            ),
+            ContextualPageActionPresentation(
+                message: "Notion page found in Safari",
+                actionTitle: "Open Here",
+                actionAccessibilityLabel: "Open the Notion page from Safari in Perch",
+                dismissAccessibilityLabel: "Dismiss Open Here"
+            )
         )
     }
 

@@ -29,9 +29,11 @@ final class OnboardingCoordinator {
         self.makeWindowPresenter = makeWindowPresenter
     }
 
-    func showIfNeeded() {
-        guard preferenceStore.shouldPresent(version: Self.currentVersion) else { return }
+    @discardableResult
+    func showIfNeeded() -> Bool {
+        guard preferenceStore.shouldPresent(version: Self.currentVersion) else { return false }
         show()
+        return true
     }
 
     func show() {

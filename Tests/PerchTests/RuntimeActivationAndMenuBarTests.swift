@@ -4,6 +4,27 @@ import XCTest
 
 @MainActor
 final class RuntimeActivationAndMenuBarTests: XCTestCase {
+    func testEdgeHandleDropReplacesStashedPageThroughUnifiedActivationPath() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        let currentPage = try makePage(id: firstPageID, title: "Roadmap")
+        let droppedPage = try makePage(id: secondPageID, title: "Design System")
+        runtime.activate(page: currentPage, source: .typedURL)
+        try await repository.waitUntilSaveCount(1)
+        panel.simulateStashedState()
+
+        runtime.activate(page: droppedPage, source: .edgeHandleDrop)
+        try await repository.waitUntilSaveCount(2)
+
+        XCTAssertEqual(runtime.activePage, droppedPage)
+        XCTAssertEqual(runtime.lastActivationSource, .edgeHandleDrop)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(panel.currentPage, droppedPage)
+        XCTAssertEqual(panel.shownPages, [currentPage])
+        XCTAssertEqual(panel.replacedPages, [droppedPage])
+    }
+
     func testRecentShelfSelectionUsesRestorationAndUnifiedActivationPath() async throws {
         let panel = RuntimePanelCoordinator()
         let repository = RuntimePinnedPageRepository()
@@ -79,6 +100,29 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertEqual(panel.currentPage, page)
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
         XCTAssertEqual(pasteboard.readCount, 0)
+    }
+
+    func testGlobalShortcutRestoreRequestsContextBeforeRevealingPanel() throws {
+        let panel = RuntimePanelCoordinator()
+        let shortcut = RuntimeShortcutRegistrar()
+        let runtime = makeRuntime(panel: panel, shortcutRegistrar: shortcut)
+        runtime.activate(
+            page: try makePage(id: firstPageID, title: "Roadmap"),
+            source: .typedURL
+        )
+        panel.simulateStashedState()
+        var contextualRevealCount = 0
+        runtime.bindContextualRevealHandler { fallback in
+            XCTAssertNil(fallback)
+            contextualRevealCount += 1
+        }
+        runtime.start()
+
+        shortcut.handler?()
+
+        XCTAssertEqual(contextualRevealCount, 1)
+        XCTAssertEqual(panel.willRevealCount, 1)
+        XCTAssertTrue(panel.isVisible)
     }
 
     func testShortcutStashesVisiblePinnedPanel() throws {
@@ -217,6 +261,24 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertFalse(runtime.serviceHealth.isHealthy)
     }
 
+    func testPersistentStoreRecoveryActionReopensRecoveryOptions() {
+        let runtime = makeRuntime(
+            panel: RuntimePanelCoordinator(),
+            initialServiceHealth: ServiceHealthState(
+                issues: [.persistentStoreUnavailable]
+            )
+        )
+        var presentationCount = 0
+        runtime.bindPersistentStoreRecoveryAction {
+            presentationCount += 1
+        }
+
+        runtime.retryRecovery(for: .persistentStoreUnavailable)
+
+        XCTAssertEqual(presentationCount, 1)
+        XCTAssertEqual(runtime.serviceHealth.issues, [.persistentStoreUnavailable])
+    }
+
     func testExternalRouteActivationUsesUnifiedRuntimePath() throws {
         let panel = RuntimePanelCoordinator()
         let runtime = makeRuntime(panel: panel)
@@ -300,6 +362,142 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertEqual(panel.shownPages.map(\.pageID), [firstPageID])
     }
 
+    func testMenuBarShowRequestsContextBeforeRevealingPanel() throws {
+        let panel = RuntimePanelCoordinator()
+        let runtime = makeRuntime(panel: panel)
+        runtime.activate(
+            page: try makePage(id: firstPageID, title: "Roadmap"),
+            source: .typedURL
+        )
+        panel.simulateStashedState()
+        var contextualRevealCount = 0
+        runtime.bindContextualRevealHandler { fallback in
+            XCTAssertNil(fallback)
+            contextualRevealCount += 1
+        }
+
+        runtime.performStatusMenuContextCommand(.show)
+
+        XCTAssertEqual(contextualRevealCount, 1)
+        XCTAssertEqual(panel.willRevealCount, 1)
+        XCTAssertTrue(panel.isVisible)
+    }
+
+    func testEmptyShortcutActivatesDetectedPageThroughRuntimeInsteadOfOpeningSettings() throws {
+        let panel = RuntimePanelCoordinator()
+        let shortcut = RuntimeShortcutRegistrar()
+        let settings = RuntimeSettingsWindowPresenter()
+        let runtime = makeRuntime(panel: panel, shortcutRegistrar: shortcut)
+        runtime.bind(settingsWindowPresenter: settings)
+        let monitor = RuntimeContextMonitor()
+        let preferences = RuntimeContextPreferences(isEnabled: true)
+        let controller = ContextSuggestionController(
+            monitor: monitor,
+            store: nil,
+            preferenceStore: preferences,
+            exactCaptureTimeout: .seconds(1),
+            activePageID: { [weak runtime] in runtime?.activePage?.pageID },
+            onActivate: { [weak runtime] page, restoration in
+                runtime?.activate(
+                    page: page,
+                    source: .contextSuggestion,
+                    restoration: restoration
+                )
+            }
+        )
+        runtime.bindContextualRevealHandler { [weak controller] fallback in
+            guard let controller else {
+                fallback?()
+                return
+            }
+            controller.requestContextualReveal(emptyFallback: fallback)
+        }
+        controller.start()
+        runtime.start()
+
+        shortcut.handler?()
+        XCTAssertEqual(settings.showCount, 0)
+
+        let page = try makePage(id: secondPageID, title: "Detected")
+        monitor.completeExactCapture(
+            with: ContextSnapshot(
+                source: ContextSourceIdentity(
+                    processIdentifier: 42,
+                    bundleIdentifier: "com.apple.Safari",
+                    applicationName: "Safari"
+                ),
+                exactPage: page
+            )
+        )
+
+        XCTAssertEqual(runtime.activePage, page)
+        XCTAssertEqual(runtime.lastActivationSource, .contextSuggestion)
+        XCTAssertEqual(panel.currentPage, page)
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(settings.showCount, 0)
+    }
+
+    func testEmptyShortcutFallsBackToExistingSetupWhenNoExactContextExists() {
+        let panel = RuntimePanelCoordinator()
+        let shortcut = RuntimeShortcutRegistrar()
+        let settings = RuntimeSettingsWindowPresenter()
+        let runtime = makeRuntime(panel: panel, shortcutRegistrar: shortcut)
+        runtime.bind(settingsWindowPresenter: settings)
+        let monitor = RuntimeContextMonitor()
+        let controller = ContextSuggestionController(
+            monitor: monitor,
+            store: nil,
+            preferenceStore: RuntimeContextPreferences(isEnabled: true),
+            exactCaptureTimeout: .seconds(1),
+            activePageID: { [weak runtime] in runtime?.activePage?.pageID },
+            onActivate: { _, _ in XCTFail("No page should activate") }
+        )
+        runtime.bindContextualRevealHandler { [weak controller] fallback in
+            controller?.requestContextualReveal(emptyFallback: fallback)
+        }
+        controller.start()
+        runtime.start()
+
+        shortcut.handler?()
+        monitor.completeExactCapture(with: nil)
+
+        XCTAssertEqual(settings.showCount, 1)
+        XCTAssertEqual(runtime.pageURLFocusRequest, 1)
+        XCTAssertNil(runtime.activePage)
+    }
+
+    func testExplicitRecentSelectionDoesNotRequestContextualReplacement() throws {
+        let panel = RuntimePanelCoordinator()
+        let runtime = makeRuntime(panel: panel)
+        var contextualRevealCount = 0
+        runtime.bindContextualRevealHandler { _ in
+            contextualRevealCount += 1
+        }
+        let page = try makePage(id: secondPageID, title: "Recent")
+
+        runtime.activateRecentPage(.activate(page: page, restoration: nil))
+
+        XCTAssertEqual(contextualRevealCount, 0)
+        XCTAssertEqual(runtime.activePage, page)
+        XCTAssertEqual(runtime.lastActivationSource, .pageSwitcher)
+    }
+
+    func testExplicitPinnedSelectionDoesNotRequestContextualReplacement() throws {
+        let panel = RuntimePanelCoordinator()
+        let runtime = makeRuntime(panel: panel)
+        var contextualRevealCount = 0
+        runtime.bindContextualRevealHandler { _ in
+            contextualRevealCount += 1
+        }
+        let page = try makePage(id: secondPageID, title: "Pinned")
+
+        runtime.pin(page: page)
+
+        XCTAssertEqual(contextualRevealCount, 0)
+        XCTAssertEqual(runtime.activePage, page)
+        XCTAssertEqual(runtime.lastActivationSource, .pagePicker)
+    }
+
     func testStatusMenuContextActionStashesVisibleCurrentPanel() throws {
         let panel = RuntimePanelCoordinator()
         let runtime = makeRuntime(panel: panel)
@@ -343,4 +541,39 @@ final class RuntimeActivationAndMenuBarTests: XCTestCase {
         XCTAssertFalse(panel.isVisible)
         XCTAssertTrue(panel.isStashed)
     }
+}
+
+@MainActor
+private final class RuntimeContextMonitor: ContextMonitoring {
+    var onSnapshot: (@MainActor (ContextSnapshot?) -> Void)?
+    var onAuthorizationChange: (@MainActor (Bool) -> Void)?
+    var isAuthorized = true
+    private var completions: [(@MainActor (ContextSnapshot?) -> Void)] = []
+
+    func requestAccess() -> Bool { isAuthorized }
+    func start() {}
+    func stop() {}
+
+    func captureExactPage(
+        completion: @escaping @MainActor (ContextSnapshot?) -> Void
+    ) {
+        completions.append(completion)
+    }
+
+    func completeExactCapture(with snapshot: ContextSnapshot?) {
+        guard !completions.isEmpty else { return }
+        completions.removeFirst()(snapshot)
+    }
+}
+
+@MainActor
+private final class RuntimeContextPreferences: ContextSuggestionPreferenceStoring {
+    private var isEnabled: Bool
+
+    init(isEnabled: Bool) {
+        self.isEnabled = isEnabled
+    }
+
+    func load() -> Bool { isEnabled }
+    func save(_ enabled: Bool) { isEnabled = enabled }
 }

@@ -25,6 +25,20 @@ enum FailedLoadBannerAccessibilityChildBehavior: Equatable {
     }
 }
 
+struct EmptyPageChromePresentation: Equatable {
+    let title: String
+    let description: String
+    let actionTitle: String
+    let actionAccessibilityLabel: String
+
+    static let missingPage = Self(
+        title: "No Notion page is open",
+        description: "Open a page from Settings to keep it beside your other work.",
+        actionTitle: "Open Settings",
+        actionAccessibilityLabel: "Open Settings to choose a Notion page"
+    )
+}
+
 struct FailedLoadBannerAccessibilityPresentation: Equatable {
     let message: String
     let retryAccessibilityLabel: String
@@ -44,6 +58,35 @@ struct FailedLoadBannerAccessibilityPresentation: Equatable {
     )
 }
 
+struct ContextualPageActionPresentation: Equatable {
+    let message: String
+    let actionTitle: String
+    let actionAccessibilityLabel: String
+    let dismissAccessibilityLabel: String
+
+    init(action: ContextualPageAction) {
+        self.init(
+            message: "Notion page found in \(action.sourceApplicationName)",
+            actionTitle: "Open Here",
+            actionAccessibilityLabel:
+                "Open the Notion page from \(action.sourceApplicationName) in Perch",
+            dismissAccessibilityLabel: "Dismiss Open Here"
+        )
+    }
+
+    init(
+        message: String,
+        actionTitle: String,
+        actionAccessibilityLabel: String,
+        dismissAccessibilityLabel: String
+    ) {
+        self.message = message
+        self.actionTitle = actionTitle
+        self.actionAccessibilityLabel = actionAccessibilityLabel
+        self.dismissAccessibilityLabel = dismissAccessibilityLabel
+    }
+}
+
 struct PiPChromeView: View {
     static let primaryActionID = AppCommandID.newNotionPage
     static let primaryActionAccessibilityLabel = "New Notion Page"
@@ -53,7 +96,7 @@ struct PiPChromeView: View {
     static let stashAccessibilityLabel = "Stash Perch to Side"
     static let stashHelp = "Move Perch to the nearest screen edge"
     static let pageSwitcherAccessibilityLabel = "Switch Notion page"
-    static let topControlsHeight: CGFloat = 36
+    static let topControlsHeight = TopEdgeTrackpadMoveController.activeHeight
     static let topControlsSpacing = DesignTokens.Spacing.compact
     /// Tall enough to catch the pointer as it approaches the top edge without
     /// covering a large clickable region of the Notion page underneath.
@@ -70,6 +113,7 @@ struct PiPChromeView: View {
     @State private var reloadSuccessHoldExpiresAt: Date?
     @State private var failedLoadShakeToken = 0
     @ObservedObject var pageSwitcherController: PageSwitcherController
+    @ObservedObject var contextualPageActionState: ContextualPageActionState
     let commandModel: AppCommandModel
     let panelSizeController: PanelSizeController?
     let panelPositionController: PanelPositionController?
@@ -118,6 +162,7 @@ struct PiPChromeView: View {
         commandModel: AppCommandModel = .noOp,
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
+        contextualPageActionState: ContextualPageActionState = ContextualPageActionState(),
         onReloadSavedPin: @escaping () -> Void = {},
         onStash: @escaping () -> Void = {},
         onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in }
@@ -127,6 +172,7 @@ struct PiPChromeView: View {
         self.commandModel = commandModel
         self.panelSizeController = panelSizeController
         self.panelPositionController = panelPositionController
+        self.contextualPageActionState = contextualPageActionState
         self.onReloadSavedPin = onReloadSavedPin
         self.onStash = onStash
         self.onPageSwitcherSelection = onPageSwitcherSelection
@@ -147,6 +193,35 @@ struct PiPChromeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let action = contextualPageActionState.action {
+                let presentation = ContextualPageActionPresentation(action: action)
+                HStack(spacing: DesignTokens.Spacing.control) {
+                    Label(presentation.message, systemImage: "link")
+                        .font(.caption)
+                        .lineLimit(1)
+                    Spacer(minLength: DesignTokens.Spacing.compact)
+                    Button(presentation.actionTitle) {
+                        contextualPageActionState.accept()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .accessibilityLabel(presentation.actionAccessibilityLabel)
+                    Button {
+                        contextualPageActionState.dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(presentation.dismissAccessibilityLabel)
+                }
+                .padding(.horizontal, DesignTokens.Spacing.control)
+                .padding(.vertical, DesignTokens.Spacing.compact)
+                .accessibilityElement(children: .contain)
+                .transition(.statusBannerReveal)
+
+                Divider()
+            }
+
             if let banner = statusBannerKind {
                 statusBanner(banner)
                     .transition(.statusBannerReveal)
@@ -166,17 +241,25 @@ struct PiPChromeView: View {
             {
                 NotionWebView(webView: webView)
             } else {
-                ContentUnavailableView(
-                    "No Notion page selected",
-                    systemImage: "doc.text.magnifyingglass"
-                )
+                let emptyPage = EmptyPageChromePresentation.missingPage
+                ContentUnavailableView {
+                    Label(emptyPage.title, systemImage: "doc.text.magnifyingglass")
+                } description: {
+                    Text(emptyPage.description)
+                } actions: {
+                    Button(emptyPage.actionTitle) {
+                        commandModel.perform(.settings)
+                    }
+                    .accessibilityLabel(emptyPage.actionAccessibilityLabel)
+                }
             }
         }
         .background(DesignTokens.Colors.background)
-        .overlay(alignment: .top) {
-            ZStack(alignment: .top) {
+        .disablesAnimationOnColorSchemeChange()
+        .overlay(alignment: .topTrailing) {
+            ZStack(alignment: .topTrailing) {
                 Color.clear
-                    .frame(height: Self.topControlsRevealHeight)
+                    .frame(width: Self.topControlsRevealHeight)
                     .contentShape(Rectangle())
                     .onHover { isHovering in
                         topControlsHover.setHovering(isHovering)
@@ -195,10 +278,10 @@ struct PiPChromeView: View {
         }
         .animation(
             StatusBannerMotion.animation(
-                isAppearing: statusBannerKind != nil,
+                isAppearing: hasVisibleStatusBanner,
                 reducesMotion: reduceMotion
             ),
-            value: statusBannerKind
+            value: statusBannerMotionIdentity
         )
         .animation(
             PiPChromeRevealMotion.animation(
@@ -243,20 +326,20 @@ struct PiPChromeView: View {
     }
 
     private var topControlsOverlay: some View {
-        HStack(spacing: 0) {
+        VStack(spacing: 0) {
             if let panelPositionController {
                 PanelCornerControls(controller: panelPositionController)
             }
 
             if panelPositionController != nil {
                 Divider()
-                    .frame(height: 14)
-                    .padding(.horizontal, DesignTokens.Spacing.compact)
+                    .frame(width: 14)
+                    .padding(.vertical, DesignTokens.Spacing.compact)
             }
             expandedTopControls
         }
         .padding(DesignTokens.Spacing.compact)
-        .frame(height: Self.topControlsHeight)
+        .frame(width: Self.topControlsHeight)
         .background(
             .regularMaterial,
             in: RoundedRectangle(cornerRadius: DesignTokens.Radius.card)
@@ -274,7 +357,7 @@ struct PiPChromeView: View {
     }
 
     private var expandedTopControls: some View {
-        HStack(spacing: Self.topControlsSpacing) {
+        VStack(spacing: Self.topControlsSpacing) {
             Button {
                 commandModel.perform(Self.primaryActionID)
             } label: {
@@ -285,7 +368,7 @@ struct PiPChromeView: View {
                     )
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .chromePressStyle()
             .disabled(!(commandModel.command(for: Self.primaryActionID)?.isEnabled ?? false))
             .accessibilityLabel(Self.primaryActionAccessibilityLabel)
             .help(Self.primaryActionHelp)
@@ -295,10 +378,10 @@ struct PiPChromeView: View {
             } label: {
                 ToolbarMotionIcon(style: .pageStack)
             }
-            .buttonStyle(.plain)
+            .chromePressStyle()
             .accessibilityLabel(Self.pageSwitcherAccessibilityLabel)
             .help("Resume a pinned or recent Notion page")
-            .popover(isPresented: $presentsPageSwitcher, arrowEdge: .top) {
+            .popover(isPresented: $presentsPageSwitcher, arrowEdge: .trailing) {
                 PageSwitcherView(
                     controller: pageSwitcherController,
                     onDismiss: { presentsPageSwitcher = false },
@@ -315,7 +398,7 @@ struct PiPChromeView: View {
             } label: {
                 ReloadGlyphView(glyph: reloadGlyph)
             }
-            .buttonStyle(.plain)
+            .chromePressStyle()
             .accessibilityLabel(reloadControlAccessibilityLabel)
             .help(Self.reloadHelp)
 
@@ -327,8 +410,9 @@ struct PiPChromeView: View {
                     )
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .chromePressStyle()
             .accessibilityLabel("Open Notion page in browser")
+            .help("Open this page in the Notion app and stash Perch")
 
             PiPAppCommandMenu(
                 commandModel: commandModel,
@@ -341,7 +425,7 @@ struct PiPChromeView: View {
                     systemImage: "arrow.down.right.and.arrow.up.left"
                 )
             }
-            .buttonStyle(.plain)
+            .chromePressStyle()
             .accessibilityLabel(Self.stashAccessibilityLabel)
             .help(Self.stashHelp)
         }
@@ -354,6 +438,26 @@ struct PiPChromeView: View {
                 state: webSession.browserLoginState
             )
         )
+    }
+
+    private var hasVisibleStatusBanner: Bool {
+        contextualPageActionState.action != nil || statusBannerKind != nil
+    }
+
+    private var statusBannerMotionIdentity: String {
+        if let action = contextualPageActionState.action {
+            return "contextual:\(action.page.pageID)"
+        }
+        switch statusBannerKind {
+        case let .browserLogin(presentation):
+            "login:\(presentation.message)"
+        case .offline:
+            "offline"
+        case .failedLoad:
+            "failed"
+        case nil:
+            "none"
+        }
     }
 
     private var reloadGlyph: ReloadGlyph {

@@ -5,6 +5,10 @@ import XCTest
 final class QuickCopyButtonTests: XCTestCase {
     func testUsesCompactBottomLeftSizingAndAccessibleCopy() {
         XCTAssertEqual(QuickCopyButton.controlSize, 30)
+        XCTAssertGreaterThanOrEqual(
+            QuickCopyButton.controlSize,
+            InteractionPolicy.minimumHitTarget
+        )
         XCTAssertEqual(QuickCopyButton.edgeInset, 8)
         XCTAssertEqual(
             QuickCopyButton.accessibilityLabel,

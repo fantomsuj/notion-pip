@@ -51,13 +51,6 @@ enum ToolbarIconMotionPolicy {
             )
         }
     }
-
-    static func pageStackSeparation(
-        isHovering: Bool,
-        reducesMotion: Bool
-    ) -> CGFloat {
-        isHovering && !reducesMotion ? 1.5 : 0
-    }
 }
 
 @MainActor
@@ -155,30 +148,9 @@ extension ToolbarMotionIcon {
     @ViewBuilder
     private var glyph: some View {
         if style == .pageStack {
-            pageStackGlyph
+            PerchMark(isActive: isHovering)
         } else if let systemImage {
             Image(systemName: systemImage)
         }
-    }
-
-    private var pageStackGlyph: some View {
-        let separation = ToolbarIconMotionPolicy.pageStackSeparation(
-            isHovering: isHovering,
-            reducesMotion: reduceMotion
-        )
-
-        return ZStack {
-            Image(systemName: "rectangle")
-                .offset(
-                    x: -0.75 - separation / 2,
-                    y: -0.75 - separation / 2
-                )
-            Image(systemName: "rectangle")
-                .offset(
-                    x: 0.75 + separation / 2,
-                    y: 0.75 + separation / 2
-                )
-        }
-        .font(.system(size: 11, weight: .regular))
     }
 }

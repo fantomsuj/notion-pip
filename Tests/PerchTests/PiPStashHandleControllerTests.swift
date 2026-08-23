@@ -18,7 +18,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             recentPagesController: recent,
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
 
         present(controller)
@@ -29,6 +30,168 @@ final class PiPStashHandleControllerTests: XCTestCase {
         XCTAssertTrue(shelfPanel.isVisible)
         XCTAssertEqual(handlePanel.alphaValue, 0)
         XCTAssertEqual(shelfPanel.alphaValue, 0)
+    }
+
+    func testValidDropExpandsPreviewCancelsShelfAndSuppressesRecentRequests() async throws {
+        let handlePanel = makePanel()
+        let shelfPanel = makePanel()
+        let recent = PiPRecentPagesShelfController(
+            store: ControllerRecentStore(
+                snapshot: try makeSnapshot(count: 2),
+                delay: .milliseconds(50)
+            )
+        )
+        var activationCount = 0
+        let controller = PiPStashHandleController(
+            visibleFramesProvider: { [self] in visibleFrames },
+            recentPagesController: recent,
+            handlePanel: handlePanel,
+            shelfPanel: shelfPanel,
+            shelfDismissDelay: .zero,
+            activateApplication: { activationCount += 1 }
+        )
+        present(controller)
+        let hostedContent = try XCTUnwrap(handlePanel.contentView)
+        let rootView = try handleView(in: handlePanel)
+        let drop = try makeDrop(
+            pageID: "0123456789abcdef0123456789abcdef",
+            sourceLabel: "Roadmap"
+        )
+
+        rootView.onHoverChanged(true)
+        rootView.onDropCandidateChanged(drop)
+        rootView.onHoverChanged(true)
+        rootView.onShowRecentPages()
+        try await Task.sleep(for: .milliseconds(80))
+
+        XCTAssertFalse(shelfPanel.isVisible)
+        XCTAssertEqual(activationCount, 0)
+        XCTAssertTrue(handlePanel.contentView === hostedContent)
+        XCTAssertEqual(handlePanel.frame, CGRect(x: 740, y: 352, width: 260, height: 96))
+        XCTAssertTrue(rootView.dropTargetModel.isActive)
+        XCTAssertEqual(rootView.dropTargetModel.label, "Roadmap")
+    }
+
+    func testValidDropHidesVisibleShelfAndExitCollapsesSynchronously() async throws {
+        let (controller, handlePanel, shelfPanel, _) = try makeController(itemCount: 2)
+        present(controller)
+        controller.handleHoverChanged(true)
+        await waitUntil { shelfPanel.isVisible }
+        let rootView = try handleView(in: handlePanel)
+        let drop = try makeDrop(
+            pageID: "0123456789abcdef0123456789abcdef",
+            sourceLabel: nil
+        )
+
+        rootView.onDropCandidateChanged(drop)
+
+        XCTAssertFalse(shelfPanel.isVisible)
+        XCTAssertEqual(handlePanel.frame.width, 260)
+        XCTAssertEqual(rootView.dropTargetModel.label, "Page")
+
+        rootView.onDropCandidateChanged(nil)
+
+        XCTAssertEqual(handlePanel.frame, placement.frame)
+        XCTAssertFalse(rootView.dropTargetModel.isActive)
+        XCTAssertNil(rootView.dropTargetModel.label)
+    }
+
+    func testLocalTitleUpgradesOnlyTheStillActiveCandidate() async throws {
+        let firstID = "0123456789abcdef0123456789abcdef"
+        let secondID = "fedcba9876543210fedcba9876543210"
+        let titleProvider = ControllerDropTitleProvider(
+            responses: [
+                firstID: ("Stored First", .milliseconds(70)),
+                secondID: ("Stored Second", .milliseconds(5))
+            ]
+        )
+        let handlePanel = makePanel()
+        let controller = PiPStashHandleController(
+            visibleFramesProvider: { [self] in visibleFrames },
+            dropTitleProvider: titleProvider,
+            handlePanel: handlePanel,
+            shelfPanel: makePanel(),
+            shelfDismissDelay: .zero,
+            activateApplication: {}
+        )
+        present(controller)
+        let rootView = try handleView(in: handlePanel)
+        let first = try makeDrop(pageID: firstID, sourceLabel: "Dragged First")
+        let second = try makeDrop(pageID: secondID, sourceLabel: "Dragged Second")
+
+        rootView.onDropCandidateChanged(first)
+        XCTAssertEqual(rootView.dropTargetModel.label, "Dragged First")
+        rootView.onDropCandidateChanged(second)
+        XCTAssertEqual(rootView.dropTargetModel.label, "Dragged Second")
+
+        await waitUntil { rootView.dropTargetModel.label == "Stored Second" }
+        try await Task.sleep(for: .milliseconds(90))
+
+        XCTAssertEqual(rootView.dropTargetModel.label, "Stored Second")
+    }
+
+    func testCompletedDropCollapsesBeforeForwardingExactlyOnce() throws {
+        let handlePanel = makePanel()
+        var forwarded: [NotionPageDrop] = []
+        let controller = PiPStashHandleController(
+            visibleFramesProvider: { [self] in visibleFrames },
+            onDropNotionPage: { drop in
+                XCTAssertEqual(handlePanel.frame, self.placement.frame)
+                forwarded.append(drop)
+            },
+            handlePanel: handlePanel,
+            shelfPanel: makePanel(),
+            shelfDismissDelay: .zero,
+            activateApplication: {}
+        )
+        present(controller)
+        let rootView = try handleView(in: handlePanel)
+        let drop = try makeDrop(
+            pageID: "0123456789abcdef0123456789abcdef",
+            sourceLabel: "Roadmap"
+        )
+        rootView.onDropCandidateChanged(drop)
+
+        rootView.onDropCandidateChanged(nil)
+        rootView.onDropPerformed(drop)
+        rootView.onDropPerformed(drop)
+
+        XCTAssertEqual(forwarded, [drop])
+        XCTAssertFalse(rootView.dropTargetModel.isActive)
+    }
+
+    func testOrderOutCancelsPreviewWorkAndMakesHostedDropCallbacksInert() async throws {
+        let pageID = "0123456789abcdef0123456789abcdef"
+        let titleProvider = ControllerDropTitleProvider(
+            responses: [pageID: ("Stored Title", .milliseconds(40))]
+        )
+        let handlePanel = makePanel()
+        var forwarded: [NotionPageDrop] = []
+        let controller = PiPStashHandleController(
+            visibleFramesProvider: { [self] in visibleFrames },
+            dropTitleProvider: titleProvider,
+            onDropNotionPage: { forwarded.append($0) },
+            handlePanel: handlePanel,
+            shelfPanel: makePanel(),
+            shelfDismissDelay: .zero,
+            activateApplication: {}
+        )
+        present(controller)
+        let rootView = try handleView(in: handlePanel)
+        let drop = try makeDrop(pageID: pageID, sourceLabel: "Dragged Title")
+        rootView.onDropCandidateChanged(drop)
+
+        controller.orderOut()
+        rootView.onDropCandidateChanged(drop)
+        rootView.onDropPerformed(drop)
+        rootView.onHoverChanged(true)
+        rootView.onShowRecentPages()
+        try await Task.sleep(for: .milliseconds(60))
+
+        XCTAssertFalse(handlePanel.isVisible)
+        XCTAssertTrue(forwarded.isEmpty)
+        XCTAssertFalse(rootView.dropTargetModel.isActive)
+        XCTAssertNil(rootView.dropTargetModel.label)
     }
 
     func testPresentShowsOnlyHandleAndHoverShowsAttachedShelf() async throws {
@@ -64,7 +227,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             recentPagesController: recent,
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         present(failedController)
         failedController.handleHoverChanged(true)
@@ -97,7 +261,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             recentPagesController: recent,
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .milliseconds(40)
+            shelfDismissDelay: .milliseconds(40),
+            activateApplication: {}
         )
         present(controller)
         controller.handleHoverChanged(true)
@@ -123,6 +288,51 @@ final class PiPStashHandleControllerTests: XCTestCase {
 
         XCTAssertEqual(activationCount, 1)
         XCTAssertTrue(shelfPanel.becomesKeyOnlyIfNeeded)
+    }
+
+    func testFocusedShelfCapturesSourceBeforeActivationAndKeepsItThroughRestore() async throws {
+        var events: [String] = []
+        let (controller, _, shelfPanel, snapshot) = try makeController(
+            itemCount: 2,
+            activateApplication: { events.append("activate") }
+        )
+        controller.onShelfFocusChange = { ownsFocus in
+            events.append(ownsFocus ? "capture" : "release")
+        }
+        controller.present(
+            placement: placement,
+            onRestore: {
+                XCTAssertFalse(shelfPanel.isVisible)
+                events.append("restore")
+            },
+            onPlacementChange: { _ in }
+        )
+
+        controller.showRecentPages()
+        await waitUntil { shelfPanel.isVisible }
+        controller.selectRecentPage(id: snapshot.pages[0].pageID)
+
+        XCTAssertEqual(events, ["capture", "activate", "restore", "release"])
+    }
+
+    func testRepresentingHandleReleasesPreparedSourceFromFocusedShelf() async throws {
+        let (controller, _, shelfPanel, _) = try makeController(itemCount: 2)
+        var hasPreparedSource = false
+        var focusChanges: [Bool] = []
+        controller.onShelfFocusChange = { ownsFocus in
+            hasPreparedSource = ownsFocus
+            focusChanges.append(ownsFocus)
+        }
+        present(controller)
+        controller.showRecentPages()
+        await waitUntil { shelfPanel.isVisible }
+        XCTAssertTrue(hasPreparedSource)
+
+        present(controller)
+
+        XCTAssertFalse(shelfPanel.isVisible)
+        XCTAssertFalse(hasPreparedSource)
+        XCTAssertEqual(focusChanges, [true, false])
     }
 
     func testFocusRequestSurvivesHoverRequestDuringDelayedLoad() async throws {
@@ -168,7 +378,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             recentPagesController: recent,
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         present(controller)
 
@@ -230,7 +441,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             },
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         present(controller)
         controller.handleHoverChanged(true)
@@ -259,7 +471,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             onSelectRecentPage: { selections.append($0) },
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         controller.present(
             placement: placement,
@@ -290,7 +503,8 @@ final class PiPStashHandleControllerTests: XCTestCase {
             recentPagesController: recent,
             handlePanel: handlePanel,
             shelfPanel: shelfPanel,
-            shelfDismissDelay: .zero
+            shelfDismissDelay: .zero,
+            activateApplication: {}
         )
         controller.present(
             placement: placement,
@@ -346,7 +560,7 @@ final class PiPStashHandleControllerTests: XCTestCase {
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(
+        let panel = HeadlessPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -354,6 +568,19 @@ final class PiPStashHandleControllerTests: XCTestCase {
         )
         panel.alphaValue = 0
         return panel
+    }
+
+    private func handleView(in panel: NSPanel) throws -> PiPStashHandleView {
+        try XCTUnwrap(
+            (panel.contentView as? NSHostingView<PiPStashHandleView>)?.rootView
+        )
+    }
+
+    private func makeDrop(pageID: String, sourceLabel: String?) throws -> NotionPageDrop {
+        try NotionPageDrop(
+            validating: try XCTUnwrap(URL(string: "https://www.notion.so/Page-\(pageID)")),
+            sourceLabel: sourceLabel
+        )
     }
 
     private func makeSnapshot(count: Int) throws -> PiPRecentPagesSnapshot {
@@ -400,6 +627,41 @@ final class PiPStashHandleControllerTests: XCTestCase {
 
     private var visibleFrames: [CGRect] {
         [CGRect(x: 0, y: 20, width: 1_000, height: 780)]
+    }
+}
+
+@MainActor
+private final class HeadlessPanel: NSPanel {
+    private var orderedIn = false
+
+    override var isVisible: Bool {
+        orderedIn
+    }
+
+    override func orderFrontRegardless() {
+        orderedIn = true
+    }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        orderedIn = true
+    }
+
+    override func orderOut(_ sender: Any?) {
+        orderedIn = false
+    }
+}
+
+private actor ControllerDropTitleProvider: NotionPageDropTitleProviding {
+    private let responses: [String: (title: String?, delay: Duration)]
+
+    init(responses: [String: (title: String?, delay: Duration)]) {
+        self.responses = responses
+    }
+
+    func displayTitle(for pageID: String) async -> String? {
+        guard let response = responses[pageID] else { return nil }
+        try? await Task.sleep(for: response.delay)
+        return response.title
     }
 }
 

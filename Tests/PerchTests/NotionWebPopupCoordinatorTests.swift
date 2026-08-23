@@ -120,9 +120,11 @@ final class NotionWebPopupCoordinatorTests: XCTestCase {
     func testNestedWindowLoadsTrustedNotionAndOpensExternalOnce() throws {
         var loadedRequests: [URLRequest] = []
         var openedURLs: [URL] = []
+        let window = PopupWindowSpy()
         let coordinator = NotionWebPopupCoordinator(
             openURL: { openedURLs.append($0) },
-            loadRequest: { _, request in loadedRequests.append(request) }
+            loadRequest: { _, request in loadedRequests.append(request) },
+            makeWindow: { window }
         )
         let popup = coordinator.present(using: WKWebViewConfiguration())
         let trustedRequest = URLRequest(

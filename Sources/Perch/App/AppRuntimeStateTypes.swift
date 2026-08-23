@@ -1,5 +1,9 @@
 import Foundation
 
+typealias ContextualRevealRequestHandler = @MainActor (
+    _ emptyFallback: (@MainActor () -> Void)?
+) -> Void
+
 struct ServiceHealthState: Equatable, Sendable {
     static let healthy = ServiceHealthState()
 
@@ -46,6 +50,8 @@ enum PageActivationSource: Equatable, Sendable {
     case notionWebSession
     case pagePicker
     case pageSwitcher
+    case edgeHandleDrop
+    case contextSuggestion
 }
 
 enum ShortcutPeekGestureState: Equatable, Sendable {

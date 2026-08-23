@@ -3,6 +3,22 @@ import SwiftUI
 
 @MainActor
 enum AppWindowFactory {
+    static func makeStorageRecovery(
+        controller: StorageRecoveryController,
+        closeRequestHandler: @escaping @MainActor () -> Void,
+        windowFactory: (@MainActor () -> any AppWindow)? = nil
+    ) -> AppWindowPresenter {
+        let window = windowFactory?() ?? makeWindow(
+            role: .storageRecovery,
+            title: StorageRecoveryPresentation.title,
+            content: AnyView(StorageRecoveryView(controller: controller))
+        )
+        return AppWindowPresenter(
+            window: window,
+            closeRequestHandler: closeRequestHandler
+        )
+    }
+
     static func makeOnboarding(
         globalShortcut: GlobalShortcut,
         pageURLInputState: PageURLInputState,
@@ -31,6 +47,7 @@ enum AppWindowFactory {
         runtime: AppRuntime,
         panelSizeController: PanelSizeController,
         launchAtLoginService: LaunchAtLoginService,
+        contextSuggestionController: ContextSuggestionController,
         closeRequestHandler: @escaping @MainActor () -> Void
     ) -> AppWindowPresenter {
         AppWindowPresenter(
@@ -41,7 +58,8 @@ enum AppWindowFactory {
                     SettingsView(
                         runtime: runtime,
                         panelSizeController: panelSizeController,
-                        launchAtLoginService: launchAtLoginService
+                        launchAtLoginService: launchAtLoginService,
+                        contextSuggestionController: contextSuggestionController
                     )
                 )
             ),

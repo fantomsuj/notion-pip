@@ -27,7 +27,7 @@ enum PerchApp {
                         appDelegate: appDelegate,
                         coldLaunchToken: coldLaunchToken,
                         applicationDidFinishLaunching: {
-                            composition.onboardingCoordinator.showIfNeeded()
+                            composition.applicationDidFinishLaunching()
                         }
                     )
                     application.run()
@@ -67,20 +67,32 @@ enum AppStartup {
 private final class AppComposition {
     let runtime: AppRuntime
     let onboardingCoordinator: OnboardingCoordinator
+    let startupRecoveryCoordinator: StartupRecoveryCoordinator
 
     private let settingsWindowPresenter: SettingsWindowPresenter
+    private let recoveryGuardedSettingsWindowPresenter:
+        RecoveryGuardedSettingsWindowPresenter
+    private let storageRecoveryController: StorageRecoveryController?
+    private let storageRecoveryPresenter: (any AppWindowPresenting)?
     private let statusItemController: StatusItemController
+    private let updaterController: AppUpdaterController
     private let panelSizeController: PanelSizeController
     private let panelPositionController: PanelPositionController
     private let launchAtLoginService: LaunchAtLoginService
+    private let contextSuggestionController: ContextSuggestionController
+    private let contextSuggestionPanelController: ContextSuggestionPanelController
     private var statusItemAppearanceCancellable: AnyCancellable?
+    private var contextSuggestionActivePageCancellable: AnyCancellable?
+
+    func applicationDidFinishLaunching() {
+        updaterController.start()
+        startupRecoveryCoordinator.applicationDidFinishLaunching()
+    }
 
     init() {
         let actionRelay = AppCommandActionRelay()
         let onboardingPreferenceStore = OnboardingPreferenceStore()
         let webSession = NotionWebSession()
-        let pageRepository: PageRepository?
-        let initialServiceHealth: ServiceHealthState
 
         do {
             try LegacyPersonalTokenRemover().remove()
@@ -92,25 +104,32 @@ private final class AppComposition {
                 .error("Legacy personal-token cleanup failed")
         }
 
-        do {
-            let container = try PerchPersistence.makeContainer()
-            pageRepository = PageRepository(container: container)
-            initialServiceHealth = .healthy
-        } catch {
+        let persistenceResult = PersistenceBootstrapper.live().bootstrap()
+        let pageRepository = persistenceResult.pageRepository
+        let recoveryContext = persistenceResult.recoveryContext
+        if recoveryContext != nil {
             Logger(subsystem: "com.fantomsuj.Perch", category: "persistence")
                 .error("Persistent store unavailable")
-            pageRepository = nil
-            initialServiceHealth = ServiceHealthState(issues: [.persistentStoreUnavailable])
         }
+        let startupPresentationGate = StartupPresentationGate(
+            recoveryRequired: recoveryContext != nil
+        )
 
         let pageLauncher = NotionDesktopPageLauncher()
         let panelSizeController = PanelSizeController()
         let panelPositionController = PanelPositionController()
         let launchAtLoginService = LaunchAtLoginService()
+        let updaterController = AppUpdaterController()
         let commandModel = AppCommandModel(
             newNotionPage: { actionRelay.openNewNotionPage() },
             settings: { actionRelay.showSettings() },
             gettingStarted: { actionRelay.showGettingStarted() },
+            canCheckForUpdates: { [weak updaterController] in
+                updaterController?.canCheckForUpdates ?? false
+            },
+            checkForUpdates: { [weak updaterController] in
+                updaterController?.checkForUpdates()
+            },
             quit: { actionRelay.quit() }
         )
         let pageSwitcherController = PageSwitcherController(store: pageRepository)
@@ -120,10 +139,13 @@ private final class AppComposition {
             store: pageRepository,
             currentPageProvider: recentPageSelectionRelay.currentPage
         )
-        let stashHandle = PiPStashHandleController(
+        let contextualPageActionState = ContextualPageActionState()
+        let notionPageDropComposition = NotionPageDropComposition(
             recentPagesController: recentPagesController,
-            onSelectRecentPage: recentPageSelectionRelay.perform
+            onSelectRecentPage: recentPageSelectionRelay.perform,
+            dropTitleProvider: pageRepository
         )
+        let stashHandle = notionPageDropComposition.stashHandle
         let panelCoordinator = PiPPanelCoordinator(
             webSession: webSession,
             pageSwitcherController: pageSwitcherController,
@@ -131,19 +153,54 @@ private final class AppComposition {
             onReloadSavedPin: { actionRelay.reloadSavedPin() },
             panelSizeController: panelSizeController,
             panelPositionController: panelPositionController,
+            contextualPageActionState: contextualPageActionState,
             onPageSwitcherSelection: pageSwitcherRelay.perform,
             stashHandle: stashHandle
         )
         let runtime = AppRuntime(
             panelCoordinator: panelCoordinator,
             pageRepository: pageRepository,
-            initialServiceHealth: initialServiceHealth,
+            initialServiceHealth: persistenceResult.initialServiceHealth,
             automaticSettingsPresentationAllowed: {
-                !onboardingPreferenceStore.shouldPresent(
+                startupPresentationGate.allowsCompetingPresentation
+                    && !onboardingPreferenceStore.shouldPresent(
                     version: OnboardingCoordinator.currentVersion
                 )
             }
         )
+        let contextSuggestionController = ContextSuggestionController(
+            monitor: AccessibilityContextMonitor(),
+            store: pageRepository,
+            preferenceStore: ContextSuggestionPreferenceStore(),
+            contextualPageActionState: contextualPageActionState,
+            activePageID: { [weak runtime] in runtime?.activePage?.pageID },
+            onActivate: { [weak runtime] page, restoration in
+                runtime?.activate(
+                    page: page,
+                    source: .contextSuggestion,
+                    restoration: restoration
+                )
+            }
+        )
+        let contextSuggestionPanelController = ContextSuggestionPanelController(
+            controller: contextSuggestionController
+        )
+        stashHandle.onShelfFocusChange = { [weak contextSuggestionController] ownsFocus in
+            if ownsFocus {
+                contextSuggestionController?.prepareContextualRevealSource()
+            } else {
+                contextSuggestionController?.discardPreparedContextualRevealSource()
+            }
+        }
+        runtime.bindContextualRevealHandler { [weak contextSuggestionController] fallback in
+            guard let contextSuggestionController else {
+                fallback?()
+                return
+            }
+            contextSuggestionController.requestContextualReveal(
+                emptyFallback: fallback
+            )
+        }
 
         actionRelay.reloadSavedPinAction = { [weak runtime] in
             runtime?.reloadSavedPin()
@@ -180,18 +237,25 @@ private final class AppComposition {
         recentPageSelectionRelay.currentPageProvider = { [weak runtime] in
             runtime?.activePage
         }
+        notionPageDropComposition.bind(to: runtime)
 
         let settingsWindowPresenter = SettingsWindowPresenter { closeHandler in
             AppWindowFactory.makeSettings(
                 runtime: runtime,
                 panelSizeController: panelSizeController,
                 launchAtLoginService: launchAtLoginService,
+                contextSuggestionController: contextSuggestionController,
                 closeRequestHandler: closeHandler
             )
         }
+        let recoveryGuardedSettingsWindowPresenter =
+            RecoveryGuardedSettingsWindowPresenter(
+                presenter: settingsWindowPresenter,
+                gate: startupPresentationGate
+            )
         let onboardingCoordinator = OnboardingCoordinator(
             preferenceStore: onboardingPreferenceStore,
-            settingsWindowPresenter: settingsWindowPresenter,
+            settingsWindowPresenter: recoveryGuardedSettingsWindowPresenter,
             openCurrentPage: runtime.validatePageURL,
             onFinish: runtime.suppressAutomaticCurrentPageSetup,
             makeWindowPresenter: { openPage, completion, openSettings in
@@ -204,6 +268,33 @@ private final class AppComposition {
                 )
             }
         )
+        let startupRecoveryActionRelay = StartupRecoveryActionRelay()
+        let storageRecoveryController: StorageRecoveryController?
+        let storageRecoveryPresenter: (any AppWindowPresenting)?
+        if let recoveryContext {
+            let controller = StorageRecoveryController(
+                context: recoveryContext,
+                continueWithoutSaving: startupRecoveryActionRelay.continueWithoutSaving,
+                requestTermination: { NSApp.terminate(nil) }
+            )
+            storageRecoveryController = controller
+            storageRecoveryPresenter = AppWindowFactory.makeStorageRecovery(
+                controller: controller,
+                closeRequestHandler: controller.continueWithoutSaving
+            )
+        } else {
+            storageRecoveryController = nil
+            storageRecoveryPresenter = nil
+        }
+        let startupRecoveryCoordinator = StartupRecoveryCoordinator(
+            recoveryRequired: recoveryContext != nil,
+            gate: startupPresentationGate,
+            recoveryPresenter: storageRecoveryPresenter,
+            showOnboardingIfNeeded: onboardingCoordinator.showIfNeeded,
+            showCurrentPageSetup: runtime.presentCurrentPageSetup
+        )
+        startupRecoveryActionRelay.handler =
+            startupRecoveryCoordinator.continueWithoutSaving
         let statusItemController = StatusItemController(
             runtime: runtime,
             commandModel: commandModel,
@@ -223,23 +314,51 @@ private final class AppComposition {
                 )
             }
         }
+        contextSuggestionActivePageCancellable = runtime.$activePage
+            .dropFirst()
+            .sink { [weak contextSuggestionController] _ in
+                MainActor.assumeIsolated {
+                    contextSuggestionController?.activePageDidChange()
+                }
+            }
 
-        actionRelay.settingsWindowPresenter = settingsWindowPresenter
+        actionRelay.settingsWindowPresenter = recoveryGuardedSettingsWindowPresenter
         actionRelay.gettingStartedAction = { [weak onboardingCoordinator] in
             onboardingCoordinator?.show()
         }
-        runtime.bind(settingsWindowPresenter: settingsWindowPresenter)
+        runtime.bind(settingsWindowPresenter: recoveryGuardedSettingsWindowPresenter)
+        runtime.bindPersistentStoreRecoveryAction(
+            startupRecoveryCoordinator.showRecoveryOptions
+        )
         panelSizeController.onManagePanelSizes = {
             actionRelay.showSettings()
         }
+        contextSuggestionController.start()
 
         self.runtime = runtime
         self.onboardingCoordinator = onboardingCoordinator
+        self.startupRecoveryCoordinator = startupRecoveryCoordinator
         self.settingsWindowPresenter = settingsWindowPresenter
+        self.recoveryGuardedSettingsWindowPresenter =
+            recoveryGuardedSettingsWindowPresenter
+        self.storageRecoveryController = storageRecoveryController
+        self.storageRecoveryPresenter = storageRecoveryPresenter
         self.statusItemController = statusItemController
+        self.updaterController = updaterController
         self.panelSizeController = panelSizeController
         self.panelPositionController = panelPositionController
         self.launchAtLoginService = launchAtLoginService
+        self.contextSuggestionController = contextSuggestionController
+        self.contextSuggestionPanelController = contextSuggestionPanelController
+    }
+}
+
+@MainActor
+private final class StartupRecoveryActionRelay {
+    var handler: @MainActor () -> Void = {}
+
+    func continueWithoutSaving() {
+        handler()
     }
 }
 
@@ -263,5 +382,50 @@ private final class PiPRecentPageSelectionRelay {
 
     func currentPage() -> NotionPageReference? {
         currentPageProvider()
+    }
+}
+
+@MainActor
+final class NotionPageDropRelay {
+    var handler: (NotionPageDrop) -> Void = { _ in }
+
+    func perform(_ drop: NotionPageDrop) {
+        handler(drop)
+    }
+}
+
+@MainActor
+final class NotionPageDropComposition {
+    let stashHandle: PiPStashHandleController
+
+    private let relay = NotionPageDropRelay()
+
+    init(
+        recentPagesController: PiPRecentPagesShelfController? = nil,
+        onSelectRecentPage: @escaping @MainActor (PiPRecentPageSelection) -> Void = { _ in },
+        dropTitleProvider: (any NotionPageDropTitleProviding)? = nil,
+        makeStashHandle: (
+            (
+                (any NotionPageDropTitleProviding)?,
+                @escaping @MainActor (NotionPageDrop) -> Void
+            ) -> PiPStashHandleController
+        )? = nil
+    ) {
+        if let makeStashHandle {
+            stashHandle = makeStashHandle(dropTitleProvider, relay.perform)
+        } else {
+            stashHandle = PiPStashHandleController(
+                recentPagesController: recentPagesController,
+                onSelectRecentPage: onSelectRecentPage,
+                dropTitleProvider: dropTitleProvider,
+                onDropNotionPage: relay.perform
+            )
+        }
+    }
+
+    func bind(to runtime: AppRuntime) {
+        relay.handler = { [weak runtime] drop in
+            runtime?.activate(page: drop.page, source: .edgeHandleDrop)
+        }
     }
 }

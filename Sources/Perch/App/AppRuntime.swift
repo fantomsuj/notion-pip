@@ -44,6 +44,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let pageRepository: (any PageWorkingSetPersisting)?
     let automaticSettingsPresentationAllowed: @MainActor () -> Bool
     weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
+    var persistentStoreRecoveryAction: @MainActor () -> Void = {}
+    var contextualRevealRequestHandler: ContextualRevealRequestHandler?
     var restorePinnedPageTask: Task<Void, Never>?
     var persistPinnedPageTask: Task<Void, Never>?
     var suppressesAutomaticCurrentPageSetup = false
@@ -150,6 +152,21 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.settingsWindowPresenter = settingsWindowPresenter
     }
 
+    func bindPersistentStoreRecoveryAction(
+        _ action: @escaping @MainActor () -> Void
+    ) {
+        persistentStoreRecoveryAction = action
+    }
+
+    func bindContextualRevealHandler(
+        _ handler: @escaping ContextualRevealRequestHandler
+    ) {
+        contextualRevealRequestHandler = handler
+        pinCoordinator.onWillReveal = {
+            handler(nil)
+        }
+    }
+
     func presentCurrentPageSetup() {
         settingsWindowPresenter?.show()
         pageURLInputState.requestFocus()
@@ -170,7 +187,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
                 restorePinnedPageFromRepository()
             }
         case .persistentStoreUnavailable:
-            break
+            persistentStoreRecoveryAction()
         }
     }
 

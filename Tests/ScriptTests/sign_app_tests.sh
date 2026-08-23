@@ -25,6 +25,9 @@ chmod +x "$FAKE_SECURITY"
 cat >"$FAKE_CODESIGN" <<'SCRIPT'
 #!/usr/bin/env bash
 printf '%s\n' "$@" >"$FAKE_CODESIGN_CALL_LOG"
+if [[ -n "${FAKE_CODESIGN_SEQUENCE_LOG:-}" ]]; then
+    printf '%s\n' "${!#}" >>"$FAKE_CODESIGN_SEQUENCE_LOG"
+fi
 SCRIPT
 chmod +x "$FAKE_CODESIGN"
 
@@ -64,6 +67,31 @@ if [[ "$output" != *"ad-hoc signing"* ]]; then
 fi
 
 echo "sign_app tests passed"
+
+SPARKLE_ROOT="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B"
+mkdir -p \
+    "$SPARKLE_ROOT/XPCServices/Installer.xpc" \
+    "$SPARKLE_ROOT/XPCServices/Downloader.xpc" \
+    "$SPARKLE_ROOT/Updater.app"
+touch "$SPARKLE_ROOT/Autoupdate"
+SEQUENCE_LOG="$TEST_DIR/codesign-sequence"
+export FAKE_CODESIGN_SEQUENCE_LOG="$SEQUENCE_LOG"
+export PERCH_SIGNING_IDENTITY="LOCAL-SPARKLE-IDENTITY"
+run_signer >/dev/null
+expected_sequence="$SPARKLE_ROOT/XPCServices/Installer.xpc
+$SPARKLE_ROOT/XPCServices/Downloader.xpc
+$SPARKLE_ROOT/Autoupdate
+$SPARKLE_ROOT/Updater.app
+$APP_BUNDLE/Contents/Frameworks/Sparkle.framework
+$APP_BUNDLE/Contents/Frameworks/Sparkle.framework
+$APP_BUNDLE"
+if [[ "$(cat "$SEQUENCE_LOG")" != "$expected_sequence" ]]; then
+    echo "expected Sparkle nested code and app to be signed inside-out" >&2
+    exit 1
+fi
+unset FAKE_CODESIGN_SEQUENCE_LOG PERCH_SIGNING_IDENTITY
+
+echo "sign_sparkle tests passed"
 
 FAKE_OPENSSL="$TEST_DIR/openssl"
 SETUP_LOG="$TEST_DIR/setup-log"

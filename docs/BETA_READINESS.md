@@ -16,6 +16,9 @@ This checklist defines the minimum bar for giving Perch 0.1 to people outside th
 - [ ] Upgrading deletes the retired personal-token Keychain item without reading it and leaves the embedded Notion session intact.
 - [ ] Five to ten testers have an owner, contact method, and feedback deadline.
 - [ ] Known limitations and recovery steps are included with the beta.
+- [ ] Context Suggestions remains off by default; its permission copy, privacy
+  policy, reveal-time exact-page behavior, and supported-source limitations are
+  verified against the exact release candidate.
 
 ## Ten critical manual tests
 
@@ -42,13 +45,13 @@ link or concise observation for every row. Any blank or failed row is stop-ship.
 | 1 | Fresh launch and first pin | The app launches as an accessory, the menu-bar item is discoverable, and a valid Notion page can be pinned without confusion. | | | |
 | 2 | Notion authentication | A tester can begin sign-in in the embedded Notion view, complete the secure browser handoff when required, and remain signed in after relaunch without exposing credentials to native app UI or logs. | | | |
 | 3 | Stash and restore | Repeatedly stashing and restoring preserves the same page, unsaved edits, selection, and live WebView. | | | |
-| 4 | Recovery paths | With the menu-bar icon hidden, the edge handle and global shortcut remain usable; shortcut-registration failure temporarily restores a discoverable control. | | | |
+| 4 | Recovery paths | With the menu-bar icon hidden, the edge handle and global shortcut remain usable; shortcut-registration failure temporarily restores a discoverable control. With Context Suggestions enabled, global shortcut, menu-bar Show, status-item peek, edge restore, and Restore Current each run one reveal-time check without delaying an occupied PiP. | | | |
 | 5 | Page switching | Switching among pinned and recent pages, including adding, editing, clearing, and searching local pin roles, preserves the active session and does not create extra live WebViews. | | | |
 | 6 | Relaunch restoration | After quitting and reopening, pins, local roles, recents, the last validated URL, panel geometry, best-effort scroll position, and the actual macOS Launch at Login registration are reflected safely. | | | |
 | 7 | Full-screen Spaces | The PiP appears above a full-screen app, accepts keyboard input, and stays out of Mission Control and normal window cycling. | | | |
 | 8 | Display changes | On a two-display setup, moving, stashing, unplugging, and reconnecting a display never loses the panel, creates a duplicate, or reloads the page. | | | |
 | 9 | Native page creation | The `+` button and Command-N open Notion's native new-page flow without changing or reloading the retained PiP page. | | | |
-| 10 | Keyboard and VoiceOver | Pinning, switching, editing pin roles, stashing, restoring, choosing panel sizes, and native page creation remain reachable and clearly announced without a pointer. | | | |
+| 10 | Keyboard and VoiceOver | Pinning, switching, editing pin roles, stashing, restoring, choosing panel sizes, native page creation, and the dismissible Open Here action remain reachable and clearly announced without a pointer. | | | |
 
 ## Regression suite layers
 

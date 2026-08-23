@@ -4,9 +4,11 @@ import AppKit
 enum WindowRole {
     case onboarding
     case settings
+    case storageRecovery
     case pictureInPicture
     case stashHandle
     case stashShelf
+    case contextSuggestion
 
     var policy: WindowRolePolicy {
         switch self {
@@ -28,6 +30,16 @@ enum WindowRole {
                 initialContentSize: CGSize(width: 480, height: 460),
                 minimumContentSize: CGSize(width: 440, height: 420)
             )
+        case .storageRecovery:
+            WindowRolePolicy(
+                kind: .keyWindow,
+                styleMask: [.titled, .closable],
+                level: .normal,
+                collectionBehavior: [.moveToActiveSpace, .fullScreenAuxiliary],
+                initialContentSize: CGSize(width: 560, height: 430),
+                minimumContentSize: CGSize(width: 560, height: 430),
+                maximumContentSize: CGSize(width: 560, height: 430)
+            )
         case .pictureInPicture:
             WindowRolePolicy(
                 kind: .keyPanel,
@@ -42,7 +54,7 @@ enum WindowRole {
                 initialContentSize: CGSize(width: 480, height: 720),
                 minimumContentSize: CGSize(width: 360, height: 420)
             )
-        case .stashHandle, .stashShelf:
+        case .stashHandle, .stashShelf, .contextSuggestion:
             WindowRolePolicy(
                 kind: self == .stashShelf
                     ? .focusableNonactivatingPanel
@@ -55,7 +67,9 @@ enum WindowRole {
                     .transient,
                     .ignoresCycle,
                 ],
-                initialContentSize: .zero,
+                initialContentSize: self == .contextSuggestion
+                    ? CGSize(width: 320, height: 112)
+                    : .zero,
                 minimumContentSize: .zero
             )
         }
@@ -64,7 +78,7 @@ enum WindowRole {
     func makeWindow() -> NSWindow {
         let window = policy.makeWindow()
         switch self {
-        case .stashHandle, .stashShelf:
+        case .stashHandle, .stashShelf, .contextSuggestion:
             window.isOpaque = false
             window.backgroundColor = .clear
             window.hasShadow = true
