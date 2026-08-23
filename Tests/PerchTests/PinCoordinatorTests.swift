@@ -544,7 +544,7 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.frame.size, originalFrame.size)
     }
 
-    func testLiveResizeStillReplacesCommittedSizeAfterMoveLock() async {
+    func testLiveResizeStillReplacesCommittedSizeAfterMoveLock() async throws {
         let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
         let originalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
         let resizedFrame = CGRect(x: 600, y: 300, width: 500, height: 600)
