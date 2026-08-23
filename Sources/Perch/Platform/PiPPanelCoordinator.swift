@@ -1231,6 +1231,12 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     func recordPanelMove() {
+        guard !panel.isExpanded else {
+            logger.debug("Skipped panel move tracking while expanded")
+            cornerSnapTask?.cancel()
+            snapTargetPresenter?.dismiss()
+            return
+        }
         guard !isApplyingProgrammaticFrame,
             !isSpaceTransitionActive,
             !isStashDismissalActive,
@@ -1271,13 +1277,14 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         cornerSnapTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(140))
             guard !Task.isCancelled else { return }
-            guard self?.isPrimaryMouseButtonPressed() == false,
-                self?.panel.isTrackpadMoveActive == false
+            guard let self, !panel.isExpanded else { return }
+            guard isPrimaryMouseButtonPressed() == false,
+                panel.isTrackpadMoveActive == false
             else {
-                self?.scheduleCornerSnap()
+                scheduleCornerSnap()
                 return
             }
-            self?.finishPanelMove()
+            finishPanelMove()
         }
     }
 

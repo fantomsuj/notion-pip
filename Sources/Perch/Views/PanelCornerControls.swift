@@ -38,13 +38,13 @@ struct PanelCornerControls: View {
     @ObservedObject var controller: PanelPositionController
 
     var body: some View {
-        HStack(spacing: 0) {
+        VStack(spacing: 0) {
             ForEach(Array(PanelCorner.allCases.enumerated()), id: \.element) {
                 index,
                 corner in
                 if index > 0 {
                     Divider()
-                        .frame(height: 14)
+                        .frame(width: 14)
                 }
 
                 Button {

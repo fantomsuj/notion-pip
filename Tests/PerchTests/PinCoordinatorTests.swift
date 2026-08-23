@@ -964,6 +964,30 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.frame, CGRect(x: 896, y: 251, width: 520, height: 600))
     }
 
+    func testDoubleTapFullScreenDoesNotGetPinchedBackByCornerSnap() async throws {
+        let expandedFrame = CGRect(x: 0, y: 0, width: 1_440, height: 875)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 870, y: 220, width: 520, height: 600)
+        )
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            isPrimaryMouseButtonPressed: { false },
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_440, height: 875)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        panel.isExpanded = true
+        panel.move(to: expandedFrame)
+        coordinator.recordPanelMove()
+
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(panel.frame, expandedFrame)
+    }
+
     func testFinishingDragBeyondOuterEdgeStashesAndPersistsVisibleRestoreFrame() throws {
         let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let panel = FakePanelWindow(
@@ -1958,7 +1982,7 @@ private final class FakePanelWindow: PiPPanelWindow {
     private(set) var orderOutCount = 0
     private(set) var frame: CGRect
     private(set) var isVisible = false
-    private(set) var isExpanded: Bool
+    var isExpanded: Bool
     var isTrackpadMoveActive = false
     private(set) var restoreFromExpandedStateCount = 0
     private(set) var setFrames: [CGRect] = []
