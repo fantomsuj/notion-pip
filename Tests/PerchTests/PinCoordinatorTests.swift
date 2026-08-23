@@ -1405,16 +1405,14 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.frame.origin.x, 600)
     }
 
-    func testFullyOffscreenMoveStillStashesOnceTheDragEnds() async throws {
+    func testFullyOffscreenMoveStillStashesOnceTheDragEnds() throws {
         let panel = FakePanelWindow(
             frame: CGRect(x: 0, y: 150, width: 400, height: 500)
         )
-        let mouse = MutableBoolean(true)
         let coordinator = PiPPanelCoordinator(
             panel: panel,
             pageLoader: FakePageLoader(),
             stashHandle: FakeStashHandle(),
-            isPrimaryMouseButtonPressed: { mouse.value },
             visibleFramesProvider: {
                 [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
             }
@@ -1423,8 +1421,7 @@ final class PinCoordinatorTests: XCTestCase {
         panel.move(to: CGRect(x: -400, y: 150, width: 400, height: 500))
 
         coordinator.recordPanelMove()
-        mouse.value = false
-        try await Task.sleep(for: .milliseconds(200))
+        coordinator.finishPanelMove()
 
         XCTAssertFalse(panel.isVisible)
         XCTAssertEqual(coordinator.presentationState, .stashed)
