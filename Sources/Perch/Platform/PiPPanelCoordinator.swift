@@ -369,13 +369,11 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
 
     convenience init(
         webSession: NotionWebSession = NotionWebSession(),
-        pageSwitcherController: PageSwitcherController = PageSwitcherController(),
         commandModel: AppCommandModel = .noOp,
         onReloadSavedPin: @escaping () -> Void = {},
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
         contextualPageActionState: ContextualPageActionState = ContextualPageActionState(),
-        onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in },
         stashHandle: (any PiPStashHandle)? = nil,
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
@@ -476,7 +474,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         let contentView = NSHostingView(
             rootView: PiPChromeView(
                 webSession: webSession,
-                pageSwitcherController: pageSwitcherController,
                 commandModel: commandModel,
                 panelSizeController: panelSizeController,
                 panelPositionController: panelPositionController,
@@ -485,8 +482,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
                 onStash: { [weak self] in
                     self?.onExternalPresentationAction?()
                     _ = self?.stashOrRestoreCurrentPage()
-                },
-                onPageSwitcherSelection: onPageSwitcherSelection
+                }
             )
         )
         // The retained panel owns its geometry while SwiftUI swaps the WebView in and out.

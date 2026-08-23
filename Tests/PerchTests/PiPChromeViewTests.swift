@@ -49,16 +49,6 @@ final class PiPChromeViewTests: XCTestCase {
         )
     }
 
-    func testTopToolbarStaysVisibleWhilePageSwitcherIsPresented() {
-        XCTAssertEqual(
-            PiPChromeView.topToolbarPresentation(
-                showsTopControls: false,
-                isPageSwitcherPresented: true
-            ),
-            .expanded
-        )
-    }
-
     func testTopToolbarUsesExpandedSizing() {
         XCTAssertEqual(
             PiPChromeView.topControlsHeight,

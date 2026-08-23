@@ -376,6 +376,80 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertNotNil(session.webView)
     }
 
+    func testCreateNewPageLoadsNotionNewRouteOnceUntilNavigationCompletes() throws {
+        var requests: [URLRequest] = []
+        let session = NotionWebSession(loadRequest: { _, request in requests.append(request) })
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        session.activate(page: page)
+        requests.removeAll()
+
+        session.createNewPage()
+        session.createNewPage()
+
+        XCTAssertEqual(requests.map(\.url), [NotionWebSession.newPageURL])
+        XCTAssertTrue(session.isCreatingNewPage)
+        XCTAssertEqual(session.state, .loading)
+    }
+
+    func testCreateNewPageCanRetryAfterFailure() throws {
+        var requests: [URLRequest] = []
+        let session = NotionWebSession(loadRequest: { _, request in requests.append(request) })
+        session.createNewPage()
+        let webView = try XCTUnwrap(session.webView)
+        session.webView(
+            webView,
+            didFailProvisionalNavigation: nil,
+            withError: NSError(domain: "Test", code: 1)
+        )
+        XCTAssertFalse(session.isCreatingNewPage)
+        requests.removeAll()
+
+        session.createNewPage()
+
+        XCTAssertEqual(requests.map(\.url), [NotionWebSession.newPageURL])
+        XCTAssertTrue(session.isCreatingNewPage)
+    }
+
+    func testPresentCommandPaletteFocusesWebViewAndSendsShortcut() throws {
+        var focused: WKWebView?
+        var shortcutTargets: [WKWebView] = []
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            focusWebView: { focused = $0 },
+            commandPaletteShortcutSender: { shortcutTargets.append($0) }
+        )
+        session.activate(page: try makePage(id: firstPageID, title: "Roadmap"))
+        session.presentCommandPalette()
+
+        XCTAssertIdentical(focused, session.webView)
+        XCTAssertEqual(shortcutTargets.count, 1)
+        XCTAssertIdentical(shortcutTargets.first, session.webView)
+    }
+
+    func testCreateNewPageKeepsCurrentPageIdentitySoResolvedPageCanBeAdopted() throws {
+        var resolvedPages: [NotionPageReference] = []
+        let session = NotionWebSession()
+        session.onPageResolved = { resolvedPages.append($0) }
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
+        resolvedPages.removeAll()
+
+        session.createNewPage()
+        XCTAssertTrue(session.isCreatingNewPage)
+
+        let webView = try XCTUnwrap(session.webView)
+        try webView.load(
+            URLRequest(
+                url: XCTUnwrap(
+                    URL(string: "https://www.notion.so/New-Page-\(secondPageID)")
+                )
+            )
+        )
+
+        XCTAssertEqual(session.activePage?.pageID, secondPageID)
+        XCTAssertFalse(session.isCreatingNewPage)
+        XCTAssertEqual(resolvedPages.map(\.pageID), [secondPageID])
+    }
+
     func testActivateReloadsWhenSamePageIDUsesDifferentCanonicalRoute() throws {
         var requests: [URLRequest] = []
         let session = NotionWebSession(loadRequest: { _, request in requests.append(request) })
@@ -2153,7 +2227,9 @@ final class NotionWebSessionTests: XCTestCase {
         _ = chrome.body
 
         XCTAssertEqual(PiPChromeView.primaryActionAccessibilityLabel, "New Notion Page")
-        XCTAssertEqual(PiPChromeView.primaryActionHelp, "Create a page in the Notion app")
+        XCTAssertEqual(PiPChromeView.primaryActionHelp, "Create a new page in Perch")
+        XCTAssertEqual(PiPChromeView.pageSwitcherAccessibilityLabel, "Search Notion pages")
+        XCTAssertEqual(PiPChromeView.pageSwitcherHelp, "Open Notion search (⌘K)")
         XCTAssertEqual(PiPChromeView.reloadAccessibilityLabel, "Reload current Notion page")
         XCTAssertEqual(PiPChromeView.reloadHelp, "Reload the current Notion page")
         XCTAssertEqual(PiPChromeView.stashAccessibilityLabel, "Stash Perch to Side")

@@ -39,7 +39,7 @@ struct PanelCornerSnapTarget: Equatable {
 }
 
 enum PanelFramePolicy {
-    static let cornerInset: CGFloat = 24
+    static let cornerInset: CGFloat = 0
     static let cornerSnapThreshold: CGFloat = 72
 
     static func cornerPlacement(
@@ -299,7 +299,7 @@ enum PanelFramePolicy {
         minimumSize: CGSize = .zero,
         pointerLocation: CGPoint,
         screens: [ScreenGeometry],
-        inset: CGFloat = 24
+        inset: CGFloat = cornerInset
     ) -> CGRect? {
         guard
             let screen = screens.first(where: { $0.frame.contains(pointerLocation) })
@@ -326,7 +326,7 @@ enum PanelFramePolicy {
         minimumContentSize: CGSize = .zero,
         pointerLocation: CGPoint,
         screens: [ScreenGeometry],
-        inset: CGFloat = 24,
+        inset: CGFloat = cornerInset,
         frameForContentRect: (CGRect) -> CGRect
     ) -> CGRect? {
         let convertedFrameSize = frameSize(

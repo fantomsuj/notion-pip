@@ -254,6 +254,11 @@ final class StatusItemController: NSObject {
         for item in menu.items where !item.isSeparatorItem {
             if let submenu = item.submenu {
                 configurePanelSizeActions(in: submenu)
+            } else if item.representedObject as? String
+                == AppKitCommandMenuFactory.managePanelSizesMarker
+            {
+                item.target = self
+                item.action = #selector(managePanelSizes(_:))
             } else if StatusMenuContextCommand(menuItemTag: item.tag) != nil {
                 item.target = self
                 item.action = #selector(performContextualCommand(_:))

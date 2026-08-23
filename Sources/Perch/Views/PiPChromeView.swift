@@ -90,12 +90,13 @@ struct ContextualPageActionPresentation: Equatable {
 struct PiPChromeView: View {
     static let primaryActionID = AppCommandID.newNotionPage
     static let primaryActionAccessibilityLabel = "New Notion Page"
-    static let primaryActionHelp = "Create a page in the Notion app"
+    static let primaryActionHelp = "Create a new page in Perch"
     static let reloadAccessibilityLabel = "Reload current Notion page"
     static let reloadHelp = "Reload the current Notion page"
     static let stashAccessibilityLabel = "Stash Perch to Side"
     static let stashHelp = "Move Perch to the nearest screen edge"
-    static let pageSwitcherAccessibilityLabel = "Switch Notion page"
+    static let pageSwitcherAccessibilityLabel = "Search Notion pages"
+    static let pageSwitcherHelp = "Open Notion search (⌘K)"
     static let topControlsHeight = TopEdgeTrackpadMoveController.activeHeight
     static let topControlsSpacing = DesignTokens.Spacing.compact
     /// Tall enough to catch the pointer as it approaches the top edge without
@@ -108,18 +109,15 @@ struct PiPChromeView: View {
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @StateObject private var topControlsHover = TopControlsHoverController()
-    @State private var presentsPageSwitcher = false
     @State private var reloadFeedbackPending = false
     @State private var reloadSuccessHoldExpiresAt: Date?
     @State private var failedLoadShakeToken = 0
-    @ObservedObject var pageSwitcherController: PageSwitcherController
     @ObservedObject var contextualPageActionState: ContextualPageActionState
     let commandModel: AppCommandModel
     let panelSizeController: PanelSizeController?
     let panelPositionController: PanelPositionController?
     let onReloadSavedPin: () -> Void
     let onStash: () -> Void
-    let onPageSwitcherSelection: (PageSwitcherSelection) -> Void
     var showsTopControls: Bool {
         Self.shouldShowTopControls(
             isHoveringTopEdge: topControlsHover.isHovering,
@@ -146,10 +144,9 @@ struct PiPChromeView: View {
     }
 
     static func topToolbarPresentation(
-        showsTopControls: Bool,
-        isPageSwitcherPresented: Bool = false
+        showsTopControls: Bool
     ) -> PiPTopToolbarPresentation {
-        showsTopControls || isPageSwitcherPresented ? .expanded : .hidden
+        showsTopControls ? .expanded : .hidden
     }
 
     static func shouldHostNotionWebView(for session: NotionWebSession) -> Bool {
@@ -158,24 +155,20 @@ struct PiPChromeView: View {
 
     init(
         webSession: NotionWebSession,
-        pageSwitcherController: PageSwitcherController = PageSwitcherController(),
         commandModel: AppCommandModel = .noOp,
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
         contextualPageActionState: ContextualPageActionState = ContextualPageActionState(),
         onReloadSavedPin: @escaping () -> Void = {},
-        onStash: @escaping () -> Void = {},
-        onPageSwitcherSelection: @escaping (PageSwitcherSelection) -> Void = { _ in }
+        onStash: @escaping () -> Void = {}
     ) {
         self.webSession = webSession
-        self.pageSwitcherController = pageSwitcherController
         self.commandModel = commandModel
         self.panelSizeController = panelSizeController
         self.panelPositionController = panelPositionController
         self.contextualPageActionState = contextualPageActionState
         self.onReloadSavedPin = onReloadSavedPin
         self.onStash = onStash
-        self.onPageSwitcherSelection = onPageSwitcherSelection
     }
 
     func repinCurrentPage() {
@@ -267,8 +260,7 @@ struct PiPChromeView: View {
                     .accessibilityHidden(true)
 
                 let toolbarPresentation = Self.topToolbarPresentation(
-                    showsTopControls: showsTopControls,
-                    isPageSwitcherPresented: presentsPageSwitcher
+                    showsTopControls: showsTopControls
                 )
                 if toolbarPresentation != .hidden {
                     topControlsOverlay
@@ -285,12 +277,11 @@ struct PiPChromeView: View {
         )
         .animation(
             PiPChromeRevealMotion.animation(
-                isAppearing: showsTopControls || presentsPageSwitcher,
+                isAppearing: showsTopControls,
                 reducesMotion: reduceMotion
             ),
             value: Self.topToolbarPresentation(
-                showsTopControls: showsTopControls,
-                isPageSwitcherPresented: presentsPageSwitcher
+                showsTopControls: showsTopControls
             )
         )
         .onDisappear {
@@ -374,23 +365,18 @@ struct PiPChromeView: View {
             .help(Self.primaryActionHelp)
 
             Button {
-                presentsPageSwitcher.toggle()
+                webSession.presentCommandPalette()
             } label: {
-                ToolbarMotionIcon(style: .pageStack)
+                Image(systemName: "book")
+                    .frame(
+                        width: PanelCornerControls.minimumHitTarget,
+                        height: PanelCornerControls.minimumHitTarget
+                    )
+                    .contentShape(Rectangle())
             }
             .chromePressStyle()
             .accessibilityLabel(Self.pageSwitcherAccessibilityLabel)
-            .help("Resume a pinned or recent Notion page")
-            .popover(isPresented: $presentsPageSwitcher, arrowEdge: .trailing) {
-                PageSwitcherView(
-                    controller: pageSwitcherController,
-                    onDismiss: { presentsPageSwitcher = false },
-                    onSelect: { selection in
-                        presentsPageSwitcher = false
-                        onPageSwitcherSelection(selection)
-                    }
-                )
-            }
+            .help(Self.pageSwitcherHelp)
 
             Button {
                 reloadFeedbackPending = true

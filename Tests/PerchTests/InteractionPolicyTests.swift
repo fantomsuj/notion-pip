@@ -118,27 +118,6 @@ final class InteractionPolicyTests: XCTestCase {
 }
 
 final class EmptyStateCopyTests: XCTestCase {
-    func testPageSwitcherEmptyStateOffersAClearSearchActionForFailedQueries() {
-        XCTAssertEqual(
-            PageSwitcherEmptyState(query: ""),
-            PageSwitcherEmptyState(
-                title: "No pages yet",
-                systemImage: "doc.text.magnifyingglass",
-                description: "Open a Notion page in Perch to see it here.",
-                actionTitle: nil
-            )
-        )
-        XCTAssertEqual(
-            PageSwitcherEmptyState(query: "  roadmap  ").actionTitle,
-            "Clear search"
-        )
-        XCTAssertNil(PageSwitcherEmptyState(query: "   ").actionTitle)
-        XCTAssertEqual(
-            PageSwitcherEmptyState(query: "roadmap").title,
-            "No matching pages"
-        )
-    }
-
     func testMissingPageChromeOffersOpenSettingsAsTheNextAction() {
         XCTAssertEqual(
             EmptyPageChromePresentation.missingPage.actionTitle,

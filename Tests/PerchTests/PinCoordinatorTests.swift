@@ -961,7 +961,7 @@ final class PinCoordinatorTests: XCTestCase {
         panel.isTrackpadMoveActive = false
         try await Task.sleep(for: .milliseconds(200))
 
-        XCTAssertEqual(panel.frame, CGRect(x: 896, y: 251, width: 520, height: 600))
+        XCTAssertEqual(panel.frame, CGRect(x: 920, y: 275, width: 520, height: 600))
     }
 
     func testDoubleTapFullScreenDoesNotGetPinchedBackByCornerSnap() async throws {
@@ -1505,10 +1505,10 @@ final class PinCoordinatorTests: XCTestCase {
         )
         coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
         let expectedFrames: [PanelCorner: CGRect] = [
-            .topLeft: CGRect(x: 24, y: 276, width: 400, height: 500),
-            .topRight: CGRect(x: 576, y: 276, width: 400, height: 500),
-            .bottomLeft: CGRect(x: 24, y: 24, width: 400, height: 500),
-            .bottomRight: CGRect(x: 576, y: 24, width: 400, height: 500),
+            .topLeft: CGRect(x: 0, y: 300, width: 400, height: 500),
+            .topRight: CGRect(x: 600, y: 300, width: 400, height: 500),
+            .bottomLeft: CGRect(x: 0, y: 0, width: 400, height: 500),
+            .bottomRight: CGRect(x: 600, y: 0, width: 400, height: 500),
         ]
 
         for corner in PanelCorner.allCases {
@@ -1527,7 +1527,7 @@ final class PinCoordinatorTests: XCTestCase {
     func testMovePanelCommitsTargetWhileFrameAnimationIsInFlight() throws {
         let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let originalFrame = CGRect(x: 300, y: 150, width: 400, height: 500)
-        let targetFrame = CGRect(x: 24, y: 276, width: 400, height: 500)
+        let targetFrame = CGRect(x: 0, y: 300, width: 400, height: 500)
         let panel = FakePanelWindow(
             frame: originalFrame,
             defersAnimatedFrameChanges: true
@@ -1552,7 +1552,7 @@ final class PinCoordinatorTests: XCTestCase {
     func testRestashingDuringFrameAnimationUsesTargetGeometry() throws {
         let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let originalFrame = CGRect(x: 300, y: 150, width: 400, height: 500)
-        let targetFrame = CGRect(x: 576, y: 276, width: 400, height: 500)
+        let targetFrame = CGRect(x: 600, y: 300, width: 400, height: 500)
         let panel = FakePanelWindow(
             frame: originalFrame,
             defersAnimatedFrameChanges: true
@@ -1579,7 +1579,7 @@ final class PinCoordinatorTests: XCTestCase {
     func testProgrammaticMoveNotificationsRemainSuppressedUntilAnimationCompletes() async throws {
         let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let originalFrame = CGRect(x: 300, y: 150, width: 400, height: 500)
-        let targetFrame = CGRect(x: 24, y: 276, width: 400, height: 500)
+        let targetFrame = CGRect(x: 0, y: 300, width: 400, height: 500)
         let panel = FakePanelWindow(
             frame: originalFrame,
             defersAnimatedFrameChanges: true
@@ -1790,13 +1790,13 @@ final class PinCoordinatorTests: XCTestCase {
         )
 
         coordinator.snapPanelToCorner()
-        XCTAssertEqual(panel.frame, CGRect(x: 0, y: 0, width: 976, height: 776))
+        XCTAssertEqual(panel.frame, CGRect(x: 0, y: 0, width: 1_000, height: 800))
 
         screens.value = [largeScreen]
-        panel.move(to: CGRect(x: 0, y: 424, width: 976, height: 776))
+        panel.move(to: CGRect(x: 0, y: 400, width: 1_000, height: 800))
         coordinator.reclampPanelFrame(visibleFrames: screens.value)
 
-        XCTAssertEqual(panel.frame, CGRect(x: 376, y: 276, width: 1_200, height: 900))
+        XCTAssertEqual(panel.frame, CGRect(x: 400, y: 300, width: 1_200, height: 900))
     }
 
     func testManualResizeAfterCornerAutoFitReplacesPreferredSize() async {

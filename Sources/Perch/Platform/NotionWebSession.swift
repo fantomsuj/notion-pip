@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import WebKit
 
@@ -92,6 +93,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     @Published private(set) var isTypingInPage = false
     private(set) var activePage: NotionPageReference?
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
+    private(set) var isCreatingNewPage = false
+    static let newPageURL = URL(string: "https://www.notion.so/new")!
     private let openURL: @MainActor (URL) -> Void
     private let browserAuthenticationSessionFactory:
         NotionBrowserAuthenticationSessionFactory
@@ -114,6 +117,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let selectionEvaluator: NotionEditorSelectionEvaluator
     private let scheduleAfterAttachment: NotionWebAttachmentScheduler
     private let focusWebView: @MainActor (WKWebView) -> Void
+    private let commandPaletteShortcutSender: @MainActor (WKWebView) -> Void
     private let invalidateURLObservation: NotionWebURLObservationInvalidator
     private let usefulContentDocumentIdentifierReader:
         NotionUsefulContentDocumentIdentifierReader
@@ -302,6 +306,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         focusWebView: @escaping @MainActor (WKWebView) -> Void = { webView in
             _ = webView.window?.makeFirstResponder(webView)
         },
+        commandPaletteShortcutSender: @escaping @MainActor (WKWebView) -> Void =
+            sendCommandPaletteShortcut(to:),
         invalidateURLObservation: @escaping NotionWebURLObservationInvalidator = {
             $0.invalidate()
         },
@@ -354,6 +360,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.selectionEvaluator = selectionEvaluator
         self.scheduleAfterAttachment = scheduleAfterAttachment
         self.focusWebView = focusWebView
+        self.commandPaletteShortcutSender = commandPaletteShortcutSender
         self.invalidateURLObservation = invalidateURLObservation
         self.usefulContentDocumentIdentifierReader =
             usefulContentDocumentIdentifierReader
@@ -437,6 +444,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         page: NotionPageReference,
         restoration: DurablePageRestoration?
     ) {
+        isCreatingNewPage = false
         guard activePage?.canonicalURL != page.canonicalURL else {
             return
         }
@@ -562,6 +570,46 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         let webView = ensureWebView()
         beginNavigationRequestMeasurement()
         loadRequest(webView, URLRequest(url: url))
+    }
+
+    func createNewPage() {
+        guard !isCreatingNewPage else { return }
+        isCreatingNewPage = true
+        revealTopControls()
+        load(Self.newPageURL, pageID: loadedPageID ?? activePage?.pageID)
+    }
+
+    func presentCommandPalette() {
+        guard let webView else { return }
+        focusWebView(webView)
+        commandPaletteShortcutSender(webView)
+    }
+
+    static func sendCommandPaletteShortcut(to webView: WKWebView) {
+        let windowNumber = webView.window?.windowNumber ?? 0
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        func keyEvent(type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.keyEvent(
+                with: type,
+                location: .zero,
+                modifierFlags: .command,
+                timestamp: timestamp,
+                windowNumber: windowNumber,
+                context: nil,
+                characters: "k",
+                charactersIgnoringModifiers: "k",
+                isARepeat: false,
+                keyCode: UInt16(kVK_ANSI_K)
+            )
+        }
+        if let keyDown = keyEvent(type: .keyDown),
+            !webView.performKeyEquivalent(with: keyDown)
+        {
+            webView.keyDown(with: keyDown)
+        }
+        if let keyUp = keyEvent(type: .keyUp) {
+            webView.keyUp(with: keyUp)
+        }
     }
 
     func reload() {
@@ -1468,6 +1516,7 @@ extension NotionWebSession: WKNavigationDelegate {
         activePage = resolvedPage
         loadedPageID = resolvedPage.pageID
         loadedRequestURL = url
+        isCreatingNewPage = false
         pageStateRestoration.recordResolvedPage(resolvedPage, at: url)
         if changesPage, case .attempting = webContentRecoveryState {
             // A trusted Notion redirect can resolve the recovery navigation to a
@@ -1488,6 +1537,7 @@ extension NotionWebSession: WKNavigationDelegate {
     ) {
         guard isCurrent(webView) else { return }
         guard !isCancellation(error) else {
+            isCreatingNewPage = false
             finishNavigationRequestMeasurement(outcome: .cancelled)
             finishUsefulContentMeasurements(outcome: .cancelled)
             if restorationToken != nil {
@@ -1501,6 +1551,7 @@ extension NotionWebSession: WKNavigationDelegate {
             return
         }
         markWebContentRecoveryFailedIfNeeded()
+        isCreatingNewPage = false
         if browserLoginRestoringPageID != nil {
             failBrowserLoginRestoration(
                 "Notion signed in, but the saved page did not reload."
@@ -1523,6 +1574,7 @@ extension NotionWebSession: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError error: Error) {
         guard isCurrent(webView) else { return }
         guard !isCancellation(error) else {
+            isCreatingNewPage = false
             finishNavigationRequestMeasurement(outcome: .cancelled)
             finishUsefulContentMeasurements(outcome: .cancelled)
             if restorationToken != nil {
@@ -1536,6 +1588,7 @@ extension NotionWebSession: WKNavigationDelegate {
             return
         }
         markWebContentRecoveryFailedIfNeeded()
+        isCreatingNewPage = false
         if browserLoginRestoringPageID != nil {
             failBrowserLoginRestoration(
                 "Notion signed in, but the saved page did not reload."

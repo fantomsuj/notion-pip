@@ -7,10 +7,10 @@ final class PanelFramePolicyTests: XCTestCase {
     func testExplicitCornerPlacementSupportsEveryCorner() throws {
         let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let expected: [PanelCorner: CGRect] = [
-            .topLeft: CGRect(x: 24, y: 276, width: 400, height: 500),
-            .topRight: CGRect(x: 576, y: 276, width: 400, height: 500),
-            .bottomLeft: CGRect(x: 24, y: 24, width: 400, height: 500),
-            .bottomRight: CGRect(x: 576, y: 24, width: 400, height: 500),
+            .topLeft: CGRect(x: 0, y: 300, width: 400, height: 500),
+            .topRight: CGRect(x: 600, y: 300, width: 400, height: 500),
+            .bottomLeft: CGRect(x: 0, y: 0, width: 400, height: 500),
+            .bottomRight: CGRect(x: 600, y: 0, width: 400, height: 500),
         ]
 
         for corner in PanelCorner.allCases {
@@ -26,7 +26,7 @@ final class PanelFramePolicyTests: XCTestCase {
             )
 
             XCTAssertEqual(placement.frame, expected[corner])
-            XCTAssertEqual(placement.anchor, corner.anchor(inset: 24))
+            XCTAssertEqual(placement.anchor, corner.anchor(inset: 0))
         }
     }
 
@@ -44,7 +44,7 @@ final class PanelFramePolicyTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(placement.frame, CGRect(x: 1_776, y: 124, width: 400, height: 500))
+        XCTAssertEqual(placement.frame, CGRect(x: 1_800, y: 100, width: 400, height: 500))
     }
 
     func testExplicitCornerPlacementFitsOversizedContentWithoutLosingPreference() throws {
@@ -60,7 +60,7 @@ final class PanelFramePolicyTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(placement.frame, CGRect(x: 24, y: 0, width: 976, height: 776))
+        XCTAssertEqual(placement.frame, CGRect(x: 0, y: 0, width: 1_000, height: 800))
         XCTAssertEqual(placement.preferredContentSize, CGSize(width: 1_200, height: 900))
     }
 
@@ -82,14 +82,14 @@ final class PanelFramePolicyTests: XCTestCase {
 
         XCTAssertEqual(
             PanelFramePolicy.corner(
-                for: CGRect(x: 24.75, y: 275.25, width: 400, height: 500),
+                for: CGRect(x: 0.75, y: 299.25, width: 400, height: 500),
                 visibleFrames: [screen]
             ),
             .topLeft
         )
         XCTAssertNil(
             PanelFramePolicy.corner(
-                for: CGRect(x: 40, y: 275, width: 400, height: 500),
+                for: CGRect(x: 16, y: 299, width: 400, height: 500),
                 visibleFrames: [screen]
             )
         )
@@ -101,7 +101,7 @@ final class PanelFramePolicyTests: XCTestCase {
 
         XCTAssertEqual(
             PanelFramePolicy.cornerSnapped(frame, visibleFrames: [screen]),
-            CGRect(x: 896, y: 251, width: 520, height: 600)
+            CGRect(x: 920, y: 275, width: 520, height: 600)
         )
     }
 
@@ -114,7 +114,7 @@ final class PanelFramePolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(target.corner, .topRight)
-        XCTAssertEqual(target.frame, CGRect(x: 896, y: 251, width: 520, height: 600))
+        XCTAssertEqual(target.frame, CGRect(x: 920, y: 275, width: 520, height: 600))
     }
 
     func testCornerSnapTargetIsAbsentOutsideBothAxisThresholds() {
@@ -144,7 +144,7 @@ final class PanelFramePolicyTests: XCTestCase {
 
         XCTAssertEqual(
             PanelFramePolicy.cornerSnapped(frame, visibleFrames: screens),
-            CGRect(x: -1_896, y: 24, width: 520, height: 600)
+            CGRect(x: -1_920, y: 0, width: 520, height: 600)
         )
     }
 
@@ -154,7 +154,7 @@ final class PanelFramePolicyTests: XCTestCase {
 
         XCTAssertEqual(
             PanelFramePolicy.cornerSnapped(frame, visibleFrames: [screen]),
-            CGRect(x: 576, y: 476, width: 400, height: 300)
+            CGRect(x: 600, y: 500, width: 400, height: 300)
         )
     }
 
@@ -163,19 +163,19 @@ final class PanelFramePolicyTests: XCTestCase {
         let cases: [(frame: CGRect, expected: CGRect)] = [
             (
                 CGRect(x: -300, y: -200, width: 1_200, height: 900),
-                CGRect(x: 24, y: 24, width: 976, height: 776)
+                CGRect(x: 0, y: 0, width: 1_000, height: 800)
             ),
             (
                 CGRect(x: 100, y: -200, width: 1_200, height: 900),
-                CGRect(x: 0, y: 24, width: 976, height: 776)
+                CGRect(x: 0, y: 0, width: 1_000, height: 800)
             ),
             (
                 CGRect(x: -300, y: 100, width: 1_200, height: 900),
-                CGRect(x: 24, y: 0, width: 976, height: 776)
+                CGRect(x: 0, y: 0, width: 1_000, height: 800)
             ),
             (
                 CGRect(x: 100, y: 100, width: 1_200, height: 900),
-                CGRect(x: 0, y: 0, width: 976, height: 776)
+                CGRect(x: 0, y: 0, width: 1_000, height: 800)
             ),
         ]
 
@@ -193,7 +193,7 @@ final class PanelFramePolicyTests: XCTestCase {
 
         XCTAssertEqual(
             PanelFramePolicy.cornerSnapped(frame, visibleFrames: [screen]),
-            CGRect(x: 0, y: 276, width: 976, height: 500)
+            CGRect(x: 0, y: 300, width: 1_000, height: 500)
         )
     }
 
@@ -203,7 +203,7 @@ final class PanelFramePolicyTests: XCTestCase {
 
         XCTAssertEqual(
             PanelFramePolicy.cornerSnapped(frame, visibleFrames: [screen]),
-            CGRect(x: 576, y: 0, width: 400, height: 776)
+            CGRect(x: 600, y: 0, width: 400, height: 800)
         )
     }
 
@@ -281,7 +281,7 @@ final class PanelFramePolicyTests: XCTestCase {
             screens: screens
         )
 
-        XCTAssertEqual(frame, CGRect(x: 2_816, y: 351, width: 520, height: 680))
+        XCTAssertEqual(frame, CGRect(x: 2_840, y: 375, width: 520, height: 680))
     }
 
     func testInitialFrameSupportsPointerOnDisplayWithNegativeOrigin() {
@@ -303,7 +303,7 @@ final class PanelFramePolicyTests: XCTestCase {
             screens: screens
         )
 
-        XCTAssertEqual(frame, CGRect(x: -544, y: 351, width: 520, height: 680))
+        XCTAssertEqual(frame, CGRect(x: -520, y: 375, width: 520, height: 680))
     }
 
     func testInitialFrameUsesFullFrameToRecognizePointerInMenuBar() {
@@ -325,7 +325,7 @@ final class PanelFramePolicyTests: XCTestCase {
             screens: screens
         )
 
-        XCTAssertEqual(frame, CGRect(x: 896, y: 171, width: 520, height: 680))
+        XCTAssertEqual(frame, CGRect(x: 920, y: 195, width: 520, height: 680))
     }
 
     func testInitialFrameFallsBackToFirstScreenDeterministically() {
@@ -347,7 +347,7 @@ final class PanelFramePolicyTests: XCTestCase {
             screens: screens
         )
 
-        XCTAssertEqual(frame, CGRect(x: -544, y: 351, width: 520, height: 680))
+        XCTAssertEqual(frame, CGRect(x: -520, y: 375, width: 520, height: 680))
     }
 
     func testInitialFrameWithoutScreensReturnsNil() {
@@ -410,7 +410,7 @@ final class PanelFramePolicyTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(frame, CGRect(x: 544, y: 191, width: 432, height: 560))
+        XCTAssertEqual(frame, CGRect(x: 568, y: 215, width: 432, height: 560))
     }
 
     func testContentAndFrameConversionHelpersUseInjectedWindowConversions() {

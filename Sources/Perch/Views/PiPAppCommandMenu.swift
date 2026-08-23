@@ -9,7 +9,7 @@ struct PiPAppCommandMenu: View {
         commandModel.commands.map(\.id)
     }
 
-    let symbolName = "ellipsis.circle"
+    let symbolName = "ellipsis"
 
     var body: some View {
         Menu {
