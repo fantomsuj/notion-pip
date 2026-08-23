@@ -1331,7 +1331,7 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertTrue(panel.isVisible)
 
         mouse.value = false
-        try await Task.sleep(for: .milliseconds(200))
+        coordinator.finishPanelMove()
         XCTAssertFalse(panel.isVisible)
     }
 
@@ -1357,7 +1357,7 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertTrue(panel.isVisible)
 
         panel.isTrackpadMoveActive = false
-        try await Task.sleep(for: .milliseconds(200))
+        coordinator.finishPanelMove()
         XCTAssertFalse(panel.isVisible)
     }
 
