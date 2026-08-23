@@ -217,14 +217,14 @@ struct PiPChromeView: View {
                 .padding(.horizontal, DesignTokens.Spacing.control)
                 .padding(.vertical, DesignTokens.Spacing.compact)
                 .accessibilityElement(children: .contain)
-                .transition(.statusBannerReveal)
+                .transition(CrossBlurReveal.statusBanner)
 
                 Divider()
             }
 
             if let banner = statusBannerKind {
                 statusBanner(banner)
-                    .transition(.statusBannerReveal)
+                    .transition(CrossBlurReveal.statusBanner)
                     .errorShake(
                         trigger: failedLoadShakeToken,
                         reducesMotion: reduceMotion
@@ -272,7 +272,7 @@ struct PiPChromeView: View {
                 )
                 if toolbarPresentation != .hidden {
                     topControlsOverlay
-                        .transition(.pipChromeReveal)
+                        .transition(CrossBlurReveal.pipChrome)
                 }
             }
         }
@@ -450,13 +450,13 @@ struct PiPChromeView: View {
         }
         switch statusBannerKind {
         case let .browserLogin(presentation):
-            "login:\(presentation.message)"
+            return "login:\(presentation.message)"
         case .offline:
-            "offline"
+            return "offline"
         case .failedLoad:
-            "failed"
+            return "failed"
         case nil:
-            "none"
+            return "none"
         }
     }
 

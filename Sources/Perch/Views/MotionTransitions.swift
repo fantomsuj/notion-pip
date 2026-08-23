@@ -1,85 +1,42 @@
 import SwiftUI
 
-struct CrossBlurRevealModifier: ViewModifier, Animatable {
-    var progress: CGFloat
+struct CrossBlurReveal: Transition {
     var translateY: CGFloat
     var blurRadius: CGFloat
     var scale: CGFloat
 
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(progress)
-            .offset(y: (1 - progress) * translateY)
-            .scaleEffect(1 - (1 - progress) * (1 - scale))
-            .blur(radius: (1 - progress) * blurRadius)
-    }
-}
-
-extension AnyTransition {
-    static func crossBlurReveal(
+    init(
         translateY: CGFloat,
         blurRadius: CGFloat,
         scale: CGFloat
-    ) -> AnyTransition {
-        .modifier(
-            active: CrossBlurRevealModifier(
-                progress: 0,
-                translateY: translateY,
-                blurRadius: blurRadius,
-                scale: scale
-            ),
-            identity: CrossBlurRevealModifier(
-                progress: 1,
-                translateY: translateY,
-                blurRadius: blurRadius,
-                scale: scale
-            )
-        )
+    ) {
+        self.translateY = translateY
+        self.blurRadius = blurRadius
+        self.scale = scale
     }
 
-    static var pipChromeReveal: AnyTransition {
-        .crossBlurReveal(
+    static var pipChrome: Self {
+        Self(
             translateY: PiPChromeRevealMotion.translateY,
             blurRadius: PiPChromeRevealMotion.blurRadius,
             scale: PiPChromeRevealMotion.scale
         )
     }
 
-    static var statusBannerReveal: AnyTransition {
-        .crossBlurReveal(
+    static var statusBanner: Self {
+        Self(
             translateY: StatusBannerMotion.translateY,
             blurRadius: StatusBannerMotion.blurRadius,
             scale: StatusBannerMotion.scale
         )
     }
 
-    static var textsRevealInsertion: AnyTransition {
-        .modifier(
-            active: CrossBlurRevealModifier(
-                progress: 0,
-                translateY: TextsRevealMotion.distance,
-                blurRadius: TextsRevealMotion.blurRadius,
-                scale: 1
-            ),
-            identity: CrossBlurRevealModifier(
-                progress: 1,
-                translateY: TextsRevealMotion.distance,
-                blurRadius: TextsRevealMotion.blurRadius,
-                scale: 1
-            )
-        )
-    }
-
-    static var textsReveal: AnyTransition {
-        .asymmetric(
-            insertion: .textsRevealInsertion,
-            removal: .opacity
-        )
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        content
+            .opacity(phase.isIdentity ? 1 : 0)
+            .offset(y: phase.isIdentity ? 0 : translateY)
+            .scaleEffect(phase.isIdentity ? 1 : scale)
+            .blur(radius: phase.isIdentity ? 0 : blurRadius)
     }
 }
 
@@ -134,47 +91,5 @@ extension View {
             )
             .allowsHitTesting(isActive)
             .accessibilityHidden(true)
-    }
-}
-
-struct TextsRevealCopy: View {
-    let heading: String
-    let detail: String
-    var headingFont: Font = .system(size: 28, weight: .semibold)
-    var detailFont: Font = .body
-    var detailColor: Color = DesignTokens.Colors.secondaryText
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isShown = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.Spacing.control) {
-            line(heading, index: 0)
-                .font(headingFont)
-            line(detail, index: 1)
-                .font(detailFont)
-                .foregroundStyle(detailColor)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .task(id: heading + "\n" + detail) {
-            isShown = reduceMotion
-            if !reduceMotion {
-                await Task.yield()
-            }
-            isShown = true
-        }
-    }
-
-    private func line(_ text: String, index: Int) -> some View {
-        Text(text)
-            .opacity(isShown ? 1 : 0)
-            .offset(y: isShown ? 0 : TextsRevealMotion.distance)
-            .blur(radius: isShown ? 0 : TextsRevealMotion.blurRadius)
-            .animation(
-                isShown
-                    ? TextsRevealMotion.appearAnimation(line: index, reducesMotion: reduceMotion)
-                    : TextsRevealMotion.fadeOutAnimation(reducesMotion: reduceMotion),
-                value: isShown
-            )
     }
 }

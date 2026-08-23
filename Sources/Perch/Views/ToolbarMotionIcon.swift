@@ -53,7 +53,6 @@ enum ToolbarIconMotionPolicy {
     }
 }
 
-@MainActor
 enum ReloadCompletionMotionPolicy {
     static func shouldAnimate(
         isPending: Bool,
