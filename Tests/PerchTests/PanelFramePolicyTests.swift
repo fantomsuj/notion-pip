@@ -271,20 +271,32 @@ final class PanelFramePolicyTests: XCTestCase {
     func testHorizontalOverhangClampCapsTravelSoThePanelStaysPartiallyVisible() {
         let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let fullyOffscreen = CGRect(x: -400, y: 200, width: 400, height: 500)
+        let maximumOverhang =
+            fullyOffscreen.width * PanelFramePolicy.maximumHorizontalHiddenFraction
 
         XCTAssertEqual(
             PanelFramePolicy.clampedAllowingHorizontalOverhang(
                 fullyOffscreen,
                 visibleFrames: [screen]
             ),
-            CGRect(x: -220, y: 200, width: 400, height: 500)
+            CGRect(
+                x: screen.minX - maximumOverhang,
+                y: 200,
+                width: 400,
+                height: 500
+            )
         )
         XCTAssertEqual(
             PanelFramePolicy.cappingHorizontalOverhang(
                 CGRect(x: 1_200, y: 200, width: 400, height: 500),
                 displayFrame: screen
             ),
-            CGRect(x: 820, y: 200, width: 400, height: 500)
+            CGRect(
+                x: screen.maxX - fullyOffscreen.width + maximumOverhang,
+                y: 200,
+                width: 400,
+                height: 500
+            )
         )
     }
 
@@ -292,6 +304,8 @@ final class PanelFramePolicyTests: XCTestCase {
         let visibleFrame = CGRect(x: 80, y: 0, width: 920, height: 800)
         let displayFrame = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let proposed = CGRect(x: -160, y: 200, width: 400, height: 500)
+        let maximumOverhang =
+            proposed.width * PanelFramePolicy.maximumHorizontalHiddenFraction
 
         XCTAssertEqual(
             PanelFramePolicy.clampedAllowingHorizontalOverhang(
@@ -306,7 +320,12 @@ final class PanelFramePolicyTests: XCTestCase {
                 CGRect(x: -400, y: 200, width: 400, height: 500),
                 displayFrame: displayFrame
             ),
-            CGRect(x: -220, y: 200, width: 400, height: 500)
+            CGRect(
+                x: displayFrame.minX - maximumOverhang,
+                y: 200,
+                width: 400,
+                height: 500
+            )
         )
     }
 
