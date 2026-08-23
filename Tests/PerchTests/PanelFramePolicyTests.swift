@@ -234,6 +234,53 @@ final class PanelFramePolicyTests: XCTestCase {
         XCTAssertEqual(PanelFramePolicy.clamped(restoredFrame, visibleFrames: []), restoredFrame)
     }
 
+    func testHorizontalOverhangClampPreservesLeftAndRightTravel() {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let left = CGRect(x: -160, y: 200, width: 400, height: 500)
+        let right = CGRect(x: 760, y: 200, width: 400, height: 500)
+
+        XCTAssertEqual(
+            PanelFramePolicy.clampedAllowingHorizontalOverhang(
+                left,
+                visibleFrames: [screen]
+            ),
+            left
+        )
+        XCTAssertEqual(
+            PanelFramePolicy.clampedAllowingHorizontalOverhang(
+                right,
+                visibleFrames: [screen]
+            ),
+            right
+        )
+    }
+
+    func testHorizontalOverhangClampStillConstrainsVerticalOrigin() {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let frame = CGRect(x: -160, y: 700, width: 400, height: 500)
+
+        XCTAssertEqual(
+            PanelFramePolicy.clampedAllowingHorizontalOverhang(
+                frame,
+                visibleFrames: [screen]
+            ),
+            CGRect(x: -160, y: 300, width: 400, height: 500)
+        )
+    }
+
+    func testPreservingHorizontalOriginUsesConstrainedVerticalFrame() {
+        let proposed = CGRect(x: -180, y: 900, width: 400, height: 500)
+        let constrained = CGRect(x: 0, y: 300, width: 400, height: 500)
+
+        XCTAssertEqual(
+            PanelFramePolicy.preservingHorizontalOrigin(
+                of: proposed,
+                in: constrained
+            ),
+            CGRect(x: -180, y: 300, width: 400, height: 500)
+        )
+    }
+
     func testRestoredContentSizeUsesFallbackForDisplayFillingPersistence() {
         let visibleFrame = CGRect(x: 0, y: 0, width: 1_000, height: 800)
 

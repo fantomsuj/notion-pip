@@ -146,7 +146,7 @@ final class PiPPanelGeometryTests: XCTestCase {
         XCTAssertEqual(panel.frame.origin, CGPoint(x: 112, y: 91))
     }
 
-    func testTopEdgeTrackpadMoveClampsRealPanelToStartingDisplay() {
+    func testTopEdgeTrackpadMoveAllowsHorizontalOverhangAndClampsVertically() {
         let panel = KeyCapablePiPPanel(
             contentRect: CGRect(x: 500, y: 200, width: 400, height: 500),
             styleMask: [.titled, .closable, .resizable],
@@ -174,7 +174,54 @@ final class PiPPanelGeometryTests: XCTestCase {
         )
 
         XCTAssertTrue(consumed)
-        XCTAssertEqual(panel.frame.origin, CGPoint(x: 600, y: 300))
+        XCTAssertEqual(panel.frame.origin, CGPoint(x: 1_000, y: 300))
+    }
+
+    func testTopEdgeTrackpadMoveCanTravelPastLeftEdge() {
+        let panel = KeyCapablePiPPanel(
+            contentRect: CGRect(x: 40, y: 200, width: 400, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.setFrame(
+            CGRect(x: 40, y: 200, width: 400, height: 500),
+            display: false
+        )
+        defer { panel.orderOut(nil) }
+
+        let consumed = panel.handleTopEdgeTrackpadMove(
+            TopEdgeTrackpadMoveInput(
+                phase: .began,
+                momentumPhase: .none,
+                hasPreciseScrollingDeltas: true,
+                locationInContent: CGPoint(x: 200, y: 492),
+                contentBounds: CGRect(x: 0, y: 0, width: 400, height: 500),
+                isContentFlipped: false,
+                isExpanded: false,
+                visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                translation: CGSize(width: -200, height: 0)
+            )
+        )
+
+        XCTAssertTrue(consumed)
+        XCTAssertEqual(panel.frame.origin, CGPoint(x: -160, y: 200))
+    }
+
+    func testPiPPanelConstrainFrameRectAllowsHorizontalOverhang() {
+        let panel = KeyCapablePiPPanel(
+            contentRect: CGRect(x: 100, y: 100, width: 400, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { panel.orderOut(nil) }
+        let proposed = CGRect(x: -180, y: 120, width: 400, height: 500)
+
+        let constrained = panel.constrainFrameRect(proposed, to: panel.screen)
+
+        XCTAssertEqual(constrained.origin.x, -180)
+        XCTAssertEqual(constrained.size, proposed.size)
     }
 
     func testRealPanelReportsTrackpadActivityUntilGestureEnds() {

@@ -1335,6 +1335,13 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             snapTargetPresenter?.dismiss()
             return
         }
+        if PanelStashPolicy.dragDecision(
+            for: logicalPanelFrame,
+            topology: currentTopology()
+        ) != nil {
+            snapTargetPresenter?.dismiss()
+            return
+        }
         guard let target = PanelFramePolicy.cornerSnapTarget(
             for: panel.frame,
             visibleFrames: currentTopology().visibleFrames
@@ -1594,7 +1601,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
                 dy: translation.height
             )
             setFrame(
-                PanelFramePolicy.clamped(
+                PanelFramePolicy.clampedAllowingHorizontalOverhang(
                     proposedFrame,
                     visibleFrames: [visibleFrame]
                 ),
@@ -1602,6 +1609,13 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
             )
             return true
         }
+    }
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        PanelFramePolicy.preservingHorizontalOrigin(
+            of: frameRect,
+            in: super.constrainFrameRect(frameRect, to: screen)
+        )
     }
 
     override func close() {

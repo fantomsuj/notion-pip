@@ -189,6 +189,31 @@ enum PanelFramePolicy {
         )
     }
 
+    /// Clamps size and vertical origin inside the target visible frame while
+    /// allowing the panel to travel past the left or right edge.
+    static func clampedAllowingHorizontalOverhang(
+        _ frame: CGRect,
+        visibleFrames: [CGRect],
+        minimumSize: CGSize = .zero
+    ) -> CGRect {
+        preservingHorizontalOrigin(
+            of: frame,
+            in: clamped(frame, visibleFrames: visibleFrames, minimumSize: minimumSize)
+        )
+    }
+
+    /// Keeps the proposed horizontal origin so live movement can hang off a
+    /// left or right display edge, while using the vertically constrained frame.
+    static func preservingHorizontalOrigin(
+        of proposed: CGRect,
+        in constrained: CGRect
+    ) -> CGRect {
+        CGRect(
+            origin: CGPoint(x: proposed.origin.x, y: constrained.origin.y),
+            size: constrained.size
+        )
+    }
+
     /// Resolves a preferred content size into the effective window frame that
     /// can be displayed now.
     ///

@@ -988,6 +988,32 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.frame, expandedFrame)
     }
 
+    func testDraggingPastStashThresholdDismissesCornerSnapTarget() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 576, y: 276, width: 400, height: 500)
+        )
+        let snapTargets = FakeSnapTargetPresenter()
+        let mouse = MutableBoolean(true)
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            snapTargetPresenter: snapTargets,
+            isPrimaryMouseButtonPressed: { mouse.value },
+            visibleFramesProvider: { [screen] }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        coordinator.recordPanelMove()
+        XCTAssertEqual(snapTargets.presentedTargets.last?.corner, .topRight)
+
+        panel.move(to: CGRect(x: 760, y: 276, width: 400, height: 500))
+        coordinator.recordPanelMove()
+
+        XCTAssertGreaterThanOrEqual(snapTargets.dismissCount, 1)
+        XCTAssertEqual(snapTargets.presentedTargets.count, 1)
+    }
+
     func testFinishingDragBeyondOuterEdgeStashesAndPersistsVisibleRestoreFrame() throws {
         let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let panel = FakePanelWindow(
