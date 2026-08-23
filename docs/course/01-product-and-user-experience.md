@@ -184,7 +184,7 @@ untrusted metadata; URL validation, not the source label, grants entry.
 2. Stashing records the logical panel frame, chooses the nearest edge, presents
    the handle, notifies the browser lifecycle that the panel hid, and removes
    the full panel from view.
-3. Hovering the handle opens a contextual **Recent in PiP** shelf with up to
+3. Hovering the handle opens a contextual **Recent in Perch** shelf with up to
    five visit-ordered pages. The shelf is an extension of the handle, not a
    second persistent PiP: it contains page identity and recency only.
 4. Clicking the handle, choosing **Show Perch**, or tapping the shortcut

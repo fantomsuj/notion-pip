@@ -4,6 +4,7 @@ import XCTest
 
 final class PiPRecentPagesShelfTests: XCTestCase {
     func testAccessibilityCopyDescribesCurrentAndRestorableRows() {
+        XCTAssertEqual(PiPRecentPagesShelfAccessibility.title, "Recent in Perch")
         XCTAssertEqual(
             PiPRecentPagesShelfAccessibility.rowLabel(
                 title: "Product roadmap",
