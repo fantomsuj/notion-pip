@@ -17,6 +17,8 @@ Pin the Notion page you are living in and keep it close without turning it into 
   a left or right screen edge and releasing. Restore it from its slim tab, the
   optional menu-bar icon, or `Command-Shift-P`; when the panel itself is zoomed or
   full screen, the shortcut first returns it to its prior floating size.
+  Releasing before that 40% threshold, or over another display, keeps the panel
+  fully on-screen.
 - Move the panel in either direction with a two-finger gesture from its top edge
   or visible toolbar; scrolling within the Notion page remains unchanged.
 - Keep working in the real, embedded Notion page—not a screenshot or a simplified native imitation.

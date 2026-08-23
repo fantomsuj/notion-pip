@@ -1380,6 +1380,54 @@ final class PinCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(panel.isVisible)
         XCTAssertEqual(coordinator.presentationState, .visible)
+        XCTAssertEqual(panel.frame, CGRect(x: 0, y: 150, width: 400, height: 500))
+    }
+
+    func testFinishingDragTowardAGappedNeighborLeavesThePanelVisible() throws {
+        let primary = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let secondary = CGRect(x: 1_050, y: 0, width: 1_000, height: 800)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 600, y: 150, width: 400, height: 500)
+        )
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: FakeStashHandle(),
+            visibleFramesProvider: { [primary, secondary] }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        panel.move(to: CGRect(x: 760, y: 150, width: 400, height: 500))
+
+        coordinator.finishPanelMove()
+
+        XCTAssertTrue(panel.isVisible)
+        XCTAssertEqual(coordinator.presentationState, .visible)
+        XCTAssertEqual(panel.frame.origin.x, 600)
+    }
+
+    func testFullyOffscreenMoveStillStashesOnceTheDragEnds() async throws {
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 0, y: 150, width: 400, height: 500)
+        )
+        let mouse = MutableBoolean(true)
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: FakeStashHandle(),
+            isPrimaryMouseButtonPressed: { mouse.value },
+            visibleFramesProvider: {
+                [CGRect(x: 0, y: 0, width: 1_000, height: 800)]
+            }
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        panel.move(to: CGRect(x: -400, y: 150, width: 400, height: 500))
+
+        coordinator.recordPanelMove()
+        mouse.value = false
+        try await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertFalse(panel.isVisible)
+        XCTAssertEqual(coordinator.presentationState, .stashed)
     }
 
     func testRedCloseRequestsTheSameStashTransition() throws {
