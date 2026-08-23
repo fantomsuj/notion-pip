@@ -268,6 +268,67 @@ final class PanelFramePolicyTests: XCTestCase {
         )
     }
 
+    func testHorizontalOverhangClampCapsTravelSoThePanelStaysPartiallyVisible() {
+        let screen = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let fullyOffscreen = CGRect(x: -400, y: 200, width: 400, height: 500)
+        let maximumOverhang =
+            fullyOffscreen.width * PanelFramePolicy.maximumHorizontalHiddenFraction
+
+        XCTAssertEqual(
+            PanelFramePolicy.clampedAllowingHorizontalOverhang(
+                fullyOffscreen,
+                visibleFrames: [screen]
+            ),
+            CGRect(
+                x: screen.minX - maximumOverhang,
+                y: 200,
+                width: 400,
+                height: 500
+            )
+        )
+        XCTAssertEqual(
+            PanelFramePolicy.cappingHorizontalOverhang(
+                CGRect(x: 1_200, y: 200, width: 400, height: 500),
+                displayFrame: screen
+            ),
+            CGRect(
+                x: screen.maxX - fullyOffscreen.width + maximumOverhang,
+                y: 200,
+                width: 400,
+                height: 500
+            )
+        )
+    }
+
+    func testHorizontalOverhangCapUsesPhysicalDisplayFrameRatherThanDock() {
+        let visibleFrame = CGRect(x: 80, y: 0, width: 920, height: 800)
+        let displayFrame = CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        let proposed = CGRect(x: -160, y: 200, width: 400, height: 500)
+        let maximumOverhang =
+            proposed.width * PanelFramePolicy.maximumHorizontalHiddenFraction
+
+        XCTAssertEqual(
+            PanelFramePolicy.clampedAllowingHorizontalOverhang(
+                proposed,
+                visibleFrames: [visibleFrame],
+                displayFrame: displayFrame
+            ),
+            proposed
+        )
+        XCTAssertEqual(
+            PanelFramePolicy.cappingHorizontalOverhang(
+                CGRect(x: -400, y: 200, width: 400, height: 500),
+                displayFrame: displayFrame
+            ),
+            CGRect(
+                x: displayFrame.minX - maximumOverhang,
+                y: 200,
+                width: 400,
+                height: 500
+            )
+        )
+    }
+
     func testPreservingHorizontalOriginUsesConstrainedVerticalFrame() {
         let proposed = CGRect(x: -180, y: 900, width: 400, height: 500)
         let constrained = CGRect(x: 0, y: 300, width: 400, height: 500)

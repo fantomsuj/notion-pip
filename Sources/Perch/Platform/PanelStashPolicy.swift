@@ -70,11 +70,7 @@ enum PanelStashPolicy {
             return nil
         }
 
-        let centeredY = panelFrame.midY - handleSize.height / 2
-        let handleY = min(
-            max(centeredY, visibleFrame.minY),
-            visibleFrame.maxY - handleSize.height
-        )
+        let handleY = clampedHandleMinY(centering: panelFrame, in: visibleFrame)
         let handleX = switch side {
         case .left:
             visibleFrame.minX
@@ -172,11 +168,7 @@ enum PanelStashPolicy {
         case .right:
             visibleFrame.maxX - handleSize.width
         }
-        let centeredY = panelFrame.midY - handleSize.height / 2
-        let y = min(
-            max(centeredY, visibleFrame.minY),
-            visibleFrame.maxY - handleSize.height
-        )
+        let y = clampedHandleMinY(centering: panelFrame, in: visibleFrame)
 
         return PanelStashPlacement(
             side: side,
@@ -202,9 +194,10 @@ enum PanelStashPolicy {
         case .right:
             visibleFrame.maxX - handleSize.width
         }
+        let travel = max(visibleFrame.height - handleSize.height, 0)
         let y = min(
             max(handleFrame.minY, visibleFrame.minY),
-            visibleFrame.maxY - handleSize.height
+            visibleFrame.minY + travel
         )
 
         return PanelStashPlacement(
@@ -219,22 +212,51 @@ enum PanelStashPolicy {
         panelFrame: CGRect,
         in topology: DisplayTopology
     ) -> Bool {
-        let tolerance: CGFloat = 1
+        let overhang = overhangRect(
+            beyond: side,
+            of: display.frame,
+            panelFrame: panelFrame
+        )
+        guard overhang.width > 0, overhang.height > 0 else { return false }
         return topology.displays.contains { candidate in
             guard candidate.identifier != display.identifier
                     || candidate.frame != display.frame
             else {
                 return false
             }
-            let overlapsVertically = candidate.frame.maxY > panelFrame.minY
-                && candidate.frame.minY < panelFrame.maxY
-            guard overlapsVertically else { return false }
-            return switch side {
-            case .left:
-                abs(candidate.frame.maxX - display.frame.minX) <= tolerance
-            case .right:
-                abs(candidate.frame.minX - display.frame.maxX) <= tolerance
-            }
+            return candidate.frame.intersects(overhang)
         }
+    }
+
+    private static func overhangRect(
+        beyond side: PanelStashSide,
+        of displayFrame: CGRect,
+        panelFrame: CGRect
+    ) -> CGRect {
+        switch side {
+        case .left:
+            CGRect(
+                x: panelFrame.minX,
+                y: panelFrame.minY,
+                width: displayFrame.minX - panelFrame.minX,
+                height: panelFrame.height
+            )
+        case .right:
+            CGRect(
+                x: displayFrame.maxX,
+                y: panelFrame.minY,
+                width: panelFrame.maxX - displayFrame.maxX,
+                height: panelFrame.height
+            )
+        }
+    }
+
+    private static func clampedHandleMinY(
+        centering panelFrame: CGRect,
+        in visibleFrame: CGRect
+    ) -> CGFloat {
+        let travel = max(visibleFrame.height - handleSize.height, 0)
+        let centeredY = panelFrame.midY - handleSize.height / 2
+        return min(max(centeredY, visibleFrame.minY), visibleFrame.minY + travel)
     }
 }

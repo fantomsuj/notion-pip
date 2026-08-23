@@ -163,6 +163,89 @@ final class PanelStashPolicyTests: XCTestCase {
         XCTAssertEqual(decision.placement.side, .right)
     }
 
+    func testDragDecisionDoesNotStashWhenOverhangReachesAGappedNeighbor() {
+        let topology = DisplayTopology(
+            revision: 1,
+            displays: [
+                DisplayDescriptor(
+                    identifier: 11,
+                    frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    backingScaleFactor: 2,
+                    isPrimary: true
+                ),
+                DisplayDescriptor(
+                    identifier: 22,
+                    frame: CGRect(x: 1_050, y: 0, width: 1_000, height: 800),
+                    visibleFrame: CGRect(x: 1_050, y: 0, width: 1_000, height: 800),
+                    backingScaleFactor: 2,
+                    isPrimary: false
+                ),
+            ]
+        )
+
+        XCTAssertNil(
+            PanelStashPolicy.dragDecision(
+                for: CGRect(x: 760, y: 200, width: 400, height: 360),
+                topology: topology
+            )
+        )
+    }
+
+    func testDragDecisionDoesNotStashWhenOverhangEntersAnOverlappingDisplay() {
+        let topology = DisplayTopology(
+            revision: 1,
+            displays: [
+                DisplayDescriptor(
+                    identifier: 11,
+                    frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                    backingScaleFactor: 2,
+                    isPrimary: true
+                ),
+                DisplayDescriptor(
+                    identifier: 22,
+                    frame: CGRect(x: 900, y: 0, width: 1_000, height: 800),
+                    visibleFrame: CGRect(x: 900, y: 0, width: 1_000, height: 800),
+                    backingScaleFactor: 2,
+                    isPrimary: false
+                ),
+            ]
+        )
+
+        XCTAssertNil(
+            PanelStashPolicy.dragDecision(
+                for: CGRect(x: 760, y: 200, width: 400, height: 360),
+                topology: topology
+            )
+        )
+    }
+
+    func testDragDecisionKeepsHandleInsideAShorterVisibleFrame() throws {
+        let topology = DisplayTopology(
+            revision: 1,
+            displays: [
+                DisplayDescriptor(
+                    identifier: 11,
+                    frame: CGRect(x: 0, y: 0, width: 1_000, height: 80),
+                    visibleFrame: CGRect(x: 0, y: 10, width: 1_000, height: 50),
+                    backingScaleFactor: 2,
+                    isPrimary: true
+                )
+            ]
+        )
+
+        let decision = try XCTUnwrap(
+            PanelStashPolicy.dragDecision(
+                for: CGRect(x: -160, y: 0, width: 400, height: 40),
+                topology: topology
+            )
+        )
+
+        XCTAssertEqual(decision.placement.frame, CGRect(x: 0, y: 10, width: 36, height: 96))
+        XCTAssertGreaterThanOrEqual(decision.placement.frame.minY, 10)
+    }
+
     func testDragDecisionAllowsOuterEdgeWithAnotherDisplayPresent() throws {
         let topology = DisplayTopology(
             revision: 1,

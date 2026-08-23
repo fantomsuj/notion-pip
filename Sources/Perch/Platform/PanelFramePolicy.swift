@@ -41,6 +41,7 @@ struct PanelCornerSnapTarget: Equatable {
 enum PanelFramePolicy {
     static let cornerInset: CGFloat = 0
     static let cornerSnapThreshold: CGFloat = 72
+    static let maximumHorizontalHiddenFraction: CGFloat = 0.55
 
     static func cornerPlacement(
         preferredContentSize: CGSize,
@@ -190,15 +191,49 @@ enum PanelFramePolicy {
     }
 
     /// Clamps size and vertical origin inside the target visible frame while
-    /// allowing the panel to travel past the left or right edge.
+    /// allowing the panel to travel past the left or right edge, up to
+    /// `maximumHiddenFraction` of its width.
     static func clampedAllowingHorizontalOverhang(
         _ frame: CGRect,
         visibleFrames: [CGRect],
-        minimumSize: CGSize = .zero
+        displayFrame: CGRect? = nil,
+        minimumSize: CGSize = .zero,
+        maximumHiddenFraction: CGFloat = maximumHorizontalHiddenFraction
     ) -> CGRect {
-        preservingHorizontalOrigin(
+        let verticallyConstrained = preservingHorizontalOrigin(
             of: frame,
             in: clamped(frame, visibleFrames: visibleFrames, minimumSize: minimumSize)
+        )
+        let capBounds = displayFrame
+            ?? targetVisibleFrame(for: verticallyConstrained, from: visibleFrames)
+        guard let capBounds else { return verticallyConstrained }
+        return cappingHorizontalOverhang(
+            verticallyConstrained,
+            displayFrame: capBounds,
+            maximumHiddenFraction: maximumHiddenFraction
+        )
+    }
+
+    /// Limits how far a live drag can travel past a display's physical edge so
+    /// the panel cannot disappear completely if stash later fails.
+    static func cappingHorizontalOverhang(
+        _ frame: CGRect,
+        displayFrame: CGRect,
+        maximumHiddenFraction: CGFloat = maximumHorizontalHiddenFraction
+    ) -> CGRect {
+        guard frame.width > 0 else { return frame }
+        let maximumOverhang = frame.width * min(max(maximumHiddenFraction, 0), 1)
+        let minimumX = displayFrame.minX - maximumOverhang
+        let maximumX = displayFrame.maxX - frame.width + maximumOverhang
+        let originX =
+            maximumX >= minimumX
+            ? min(max(frame.minX, minimumX), maximumX)
+            : frame.minX
+        return CGRect(
+            x: originX,
+            y: frame.minY,
+            width: frame.width,
+            height: frame.height
         )
     }
 

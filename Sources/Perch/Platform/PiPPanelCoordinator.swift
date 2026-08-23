@@ -1271,12 +1271,16 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             return
         }
         guard !shouldIgnoreWindowGeometryNotifications,
-            !panel.isInLiveResize,
-            let visibleFrame = PanelFramePolicy.targetVisibleFrame(
-                for: panel.frame,
-                from: currentTopology().visibleFrames
-            )
+            !panel.isInLiveResize
         else {
+            return
+        }
+        updateSnapTargetVisibility()
+        scheduleCornerSnap()
+        guard let visibleFrame = PanelFramePolicy.targetVisibleFrame(
+            for: panel.frame,
+            from: currentTopology().visibleFrames
+        ) else {
             return
         }
         let previousVisibleFrame = committedGeometry?.visibleFrame
@@ -1286,8 +1290,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             for: panel.frame,
             in: visibleFrame
         )
-        updateSnapTargetVisibility()
-        scheduleCornerSnap()
         if previousVisibleFrame != visibleFrame {
             let placement = PanelFramePolicy.placement(
                 preferredContentSize: desiredContentSize,
@@ -1340,7 +1342,29 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         ), stashAfterPanelDrag(decision, topology: topology) {
             return
         }
+        settleHorizontalOverhangIfNeeded(in: topology)
         snapPanelToCorner()
+    }
+
+    private func settleHorizontalOverhangIfNeeded(in topology: DisplayTopology) {
+        let frame = logicalPanelFrame
+        guard let display = DisplayTopologyPolicy.targetDisplay(
+            for: nil,
+            currentFrame: frame,
+            in: topology
+        ) else {
+            return
+        }
+        let settled = PanelFramePolicy.clamped(
+            frame,
+            visibleFrames: [display.visibleFrame]
+        )
+        guard settled != frame else { return }
+        setPanelFrame(settled, display: panel.isVisible)
+        commitCurrentGeometry(
+            desiredContentSize: committedGeometry?.desiredContentSize.cgSize,
+            frame: settled
+        )
     }
 
     func snapPanelToCorner() {
@@ -1664,7 +1688,8 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
             setFrame(
                 PanelFramePolicy.clampedAllowingHorizontalOverhang(
                     proposedFrame,
-                    visibleFrames: [visibleFrame]
+                    visibleFrames: [visibleFrame],
+                    displayFrame: screen?.frame
                 ),
                 display: isVisible
             )
@@ -1673,9 +1698,14 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     }
 
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
-        PanelFramePolicy.preservingHorizontalOrigin(
+        let unconstrainedHorizontally = PanelFramePolicy.preservingHorizontalOrigin(
             of: frameRect,
             in: super.constrainFrameRect(frameRect, to: screen)
+        )
+        guard let screen else { return unconstrainedHorizontally }
+        return PanelFramePolicy.cappingHorizontalOverhang(
+            unconstrainedHorizontally,
+            displayFrame: screen.frame
         )
     }
 

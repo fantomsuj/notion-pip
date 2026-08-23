@@ -159,6 +159,7 @@ final class PiPPanelGeometryTests: XCTestCase {
         )
         defer { panel.orderOut(nil) }
 
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_000, height: 800)
         let consumed = panel.handleTopEdgeTrackpadMove(
             TopEdgeTrackpadMoveInput(
                 phase: .began,
@@ -168,13 +169,20 @@ final class PiPPanelGeometryTests: XCTestCase {
                 contentBounds: CGRect(x: 0, y: 0, width: 400, height: 500),
                 isContentFlipped: false,
                 isExpanded: false,
-                visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
+                visibleFrame: visibleFrame,
                 translation: CGSize(width: 500, height: 500)
             )
         )
+        let expected = PanelFramePolicy.clampedAllowingHorizontalOverhang(
+            CGRect(x: 1_000, y: 700, width: 400, height: 500),
+            visibleFrames: [visibleFrame],
+            displayFrame: panel.screen?.frame
+        )
 
         XCTAssertTrue(consumed)
-        XCTAssertEqual(panel.frame.origin, CGPoint(x: 1_000, y: 300))
+        XCTAssertEqual(panel.frame.origin, expected.origin)
+        XCTAssertEqual(panel.frame.origin.y, 300)
+        XCTAssertGreaterThan(panel.frame.origin.x, visibleFrame.maxX - 400)
     }
 
     func testTopEdgeTrackpadMoveCanTravelPastLeftEdge() {

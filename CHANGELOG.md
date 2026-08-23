@@ -20,6 +20,12 @@
 - Dragging or trackpad-moving the PiP can travel past a left or right screen
   edge. Releasing with at least 40% of the panel hidden stashes it instead of
   snapping it back on-screen.
+- Drag-to-stash now treats another display as blocking whenever the overhang
+  actually enters that display, including gapped and overlapping arrangements.
+- Releasing a drag below the 40% threshold pulls the panel back on-screen
+  instead of leaving it hanging off the edge.
+- Live horizontal travel is capped so the panel cannot disappear completely
+  during a drag.
 
 ### Privacy
 
