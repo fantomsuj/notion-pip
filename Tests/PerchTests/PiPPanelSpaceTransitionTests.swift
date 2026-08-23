@@ -252,9 +252,11 @@ private final class SpaceTransitionPanelWindow: PiPPanelWindow {
 
     func dismissForStash(
         toward placement: PanelStashPlacement,
+        restoring restoreFrame: CGRect,
         completion: @escaping @MainActor () -> Void
     ) {
         guard defersStashDismissal else {
+            setFrame(restoreFrame, display: false)
             orderOut()
             completion()
             return
