@@ -334,6 +334,154 @@ final class PinCoordinatorTests: XCTestCase {
         XCTAssertEqual(panel.frame, originalFrame)
     }
 
+    func testLiveResizeDuringStashAnimationDoesNotShrinkCommittedFrame() async throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let originalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
+        let panel = FakePanelWindow(
+            frame: originalFrame,
+            defersStashDismissal: true,
+            usesStashTransitionFrame: true
+        )
+        let handle = FakeStashHandle()
+        let geometryStore = TransientPanelGeometryStore()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [visibleFrame] },
+            geometryStore: geometryStore
+        )
+        var recordedManualSizes: [CGSize] = []
+        coordinator.onManualResizeCompletion = { recordedManualSizes.append($0) }
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+        XCTAssertLessThan(panel.frame.width, originalFrame.width)
+        XCTAssertLessThan(panel.frame.height, originalFrame.height)
+
+        NotificationCenter.default.post(
+            name: NSWindow.didEndLiveResizeNotification,
+            object: panel
+        )
+        await Task.yield()
+
+        XCTAssertTrue(recordedManualSizes.isEmpty)
+        XCTAssertEqual(geometryStore.load()?.frame, originalFrame)
+
+        panel.completeStashDismissal()
+        handle.restore()
+
+        XCTAssertEqual(panel.frame, originalFrame)
+    }
+
+    func testLiveResizeDuringRestoreAnimationDoesNotShrinkCommittedFrame() async throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let originalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
+        let panel = FakePanelWindow(
+            frame: originalFrame,
+            defersRestorePresentation: true
+        )
+        let handle = FakeStashHandle()
+        let geometryStore = TransientPanelGeometryStore()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [visibleFrame] },
+            geometryStore: geometryStore
+        )
+        var recordedManualSizes: [CGSize] = []
+        coordinator.onManualResizeCompletion = { recordedManualSizes.append($0) }
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+
+        handle.restore()
+        XCTAssertLessThan(panel.frame.width, originalFrame.width)
+        XCTAssertLessThan(panel.frame.height, originalFrame.height)
+
+        NotificationCenter.default.post(
+            name: NSWindow.didEndLiveResizeNotification,
+            object: panel
+        )
+        await Task.yield()
+
+        XCTAssertTrue(recordedManualSizes.isEmpty)
+        XCTAssertEqual(geometryStore.load()?.frame, originalFrame)
+        XCTAssertEqual(
+            geometryStore.load()?.desiredContentSize.cgSize,
+            originalFrame.size
+        )
+    }
+
+    func testRepeatedStashRestoreCyclesPreserveCommittedFrame() async throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let originalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
+        let panel = FakePanelWindow(
+            frame: originalFrame,
+            defersStashDismissal: true,
+            usesStashTransitionFrame: true
+        )
+        let handle = FakeStashHandle()
+        let geometryStore = TransientPanelGeometryStore()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [visibleFrame] },
+            geometryStore: geometryStore
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        for _ in 1...5 {
+            XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+            XCTAssertLessThan(panel.frame.width, originalFrame.width)
+            NotificationCenter.default.post(
+                name: NSWindow.didEndLiveResizeNotification,
+                object: panel
+            )
+            await Task.yield()
+            panel.completeStashDismissal()
+            handle.restore()
+            NotificationCenter.default.post(
+                name: NSWindow.didEndLiveResizeNotification,
+                object: panel
+            )
+            await Task.yield()
+            XCTAssertEqual(panel.frame.size, originalFrame.size)
+            XCTAssertEqual(geometryStore.load()?.frame.size, originalFrame.size)
+        }
+
+        XCTAssertEqual(panel.frame, originalFrame)
+    }
+
+    func testMoveNotificationDuringStashAnimationDoesNotReplaceCommittedFrame() throws {
+        let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let originalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)
+        let panel = FakePanelWindow(
+            frame: originalFrame,
+            defersStashDismissal: true,
+            usesStashTransitionFrame: true
+        )
+        let handle = FakeStashHandle()
+        let geometryStore = TransientPanelGeometryStore()
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            stashHandle: handle,
+            visibleFramesProvider: { [visibleFrame] },
+            geometryStore: geometryStore
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+
+        XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
+        XCTAssertNotEqual(panel.frame, originalFrame)
+
+        coordinator.recordPanelMove()
+
+        XCTAssertEqual(geometryStore.load()?.frame, originalFrame)
+        XCTAssertNotEqual(panel.frame.size, originalFrame.size)
+    }
+
     func testStashRestorePreservesCommittedHorizontalFrameWhenLegacySizeConflicts() throws {
         let visibleFrame = CGRect(x: 0, y: 0, width: 1_440, height: 900)
         let horizontalFrame = CGRect(x: 656, y: 356, width: 760, height: 520)

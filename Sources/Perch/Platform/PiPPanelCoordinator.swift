@@ -816,6 +816,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     @discardableResult
     private func stash(topology: DisplayTopology) -> Bool {
         cancelActiveSpaceTransition()
+        cancelPendingCornerSnap()
         if isStashDismissalActive {
             cancelPendingStashDismissal()
         }
@@ -823,7 +824,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         guard currentPage != nil,
             let stashHandle,
             let placement = PanelStashPolicy.placement(
-                for: panel.frame,
+                for: logicalPanelFrame,
                 visibleFrames: topology.visibleFrames
             )
         else {
@@ -833,7 +834,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         latestTopology = topology
         commitCurrentGeometry(
             desiredContentSize: committedGeometry?.desiredContentSize.cgSize,
-            topology: topology
+            topology: topology,
+            frame: committedGeometry?.frame
         )
         activeStashIntent = PanelStashPolicy.intent(for: placement, topology: topology)
         presentStashHandle(
@@ -857,6 +859,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         topology: DisplayTopology
     ) -> Bool {
         cancelActiveSpaceTransition()
+        cancelPendingCornerSnap()
         if isStashDismissalActive {
             cancelPendingStashDismissal()
         }
@@ -890,6 +893,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
 
     private func stashImmediately(topology: DisplayTopology) -> Bool {
         cancelActiveSpaceTransition()
+        cancelPendingCornerSnap()
         if isStashDismissalActive {
             cancelPendingStashDismissal()
         }
@@ -897,7 +901,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         guard currentPage != nil,
             let stashHandle,
             let placement = PanelStashPolicy.placement(
-                for: panel.frame,
+                for: logicalPanelFrame,
                 visibleFrames: topology.visibleFrames
             )
         else {
@@ -907,7 +911,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         latestTopology = topology
         commitCurrentGeometry(
             desiredContentSize: committedGeometry?.desiredContentSize.cgSize,
-            topology: topology
+            topology: topology,
+            frame: committedGeometry?.frame
         )
         activeStashIntent = PanelStashPolicy.intent(for: placement, topology: topology)
         presentStashHandle(stashHandle, placement: placement)
@@ -1225,6 +1230,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             logger.debug("Skipped expanded panel resize completion")
             return
         }
+        guard !shouldIgnoreWindowGeometryNotifications, panel.isVisible else {
+            logger.debug("Skipped programmatic or hidden panel resize completion")
+            return
+        }
         let contentSize = currentPanelContentSize
         commitCurrentGeometry(desiredContentSize: contentSize)
         onManualResizeCompletion?(contentSize)
@@ -1233,13 +1242,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     func recordPanelMove() {
         guard !panel.isExpanded else {
             logger.debug("Skipped panel move tracking while expanded")
-            cornerSnapTask?.cancel()
-            snapTargetPresenter?.dismiss()
+            cancelPendingCornerSnap()
             return
         }
-        guard !isApplyingProgrammaticFrame,
-            !isSpaceTransitionActive,
-            !isStashDismissalActive,
+        guard !shouldIgnoreWindowGeometryNotifications,
             let visibleFrame = PanelFramePolicy.targetVisibleFrame(
                 for: panel.frame,
                 from: currentTopology().visibleFrames
@@ -1277,7 +1283,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         cornerSnapTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(140))
             guard !Task.isCancelled else { return }
-            guard let self, !panel.isExpanded else { return }
+            guard let self, !panel.isExpanded, !isStashDismissalActive else { return }
             guard isPrimaryMouseButtonPressed() == false,
                 panel.isTrackpadMoveActive == false
             else {
@@ -1302,6 +1308,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
 
     func snapPanelToCorner() {
         snapTargetPresenter?.dismiss()
+        guard !isStashDismissalActive, pullRevealState == nil else { return }
         let visibleFrames = currentTopology().visibleFrames
         let originalFrame = logicalPanelFrame
         let snappedFrame = PanelFramePolicy.cornerSnapped(
@@ -1419,6 +1426,19 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     private func settleActiveProgrammaticFrameChange() {
         guard let activeProgrammaticFrameTarget else { return }
         setPanelFrame(activeProgrammaticFrameTarget, display: panel.isVisible)
+    }
+
+    private var shouldIgnoreWindowGeometryNotifications: Bool {
+        isApplyingProgrammaticFrame
+            || isStashDismissalActive
+            || pullRevealState != nil
+            || isSpaceTransitionActive
+    }
+
+    private func cancelPendingCornerSnap() {
+        cornerSnapTask?.cancel()
+        cornerSnapTask = nil
+        snapTargetPresenter?.dismiss()
     }
 
     private var spaceTransitionContext: SpaceTransitionContext {
@@ -1815,17 +1835,16 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
 
     func cancelPendingStashDismissal() {
         stashAnimationGeneration &+= 1
+        frameAnimationTask?.cancel()
+        frameAnimationTask = nil
         cancelSpaceTransition()
         guard let pendingStashOriginalFrame else {
             alphaValue = 1
             return
         }
         self.pendingStashOriginalFrame = nil
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0
-            animator().setFrame(pendingStashOriginalFrame, display: true)
-            animator().alphaValue = 1
-        }
+        setFrame(pendingStashOriginalFrame, display: false)
+        alphaValue = 1
     }
 
     override func setFrame(_ frame: CGRect, display: Bool, animate: Bool) {
