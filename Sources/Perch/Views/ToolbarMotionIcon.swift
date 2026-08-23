@@ -16,8 +16,8 @@ struct ToolbarIconTransform: Equatable {
 }
 
 enum ToolbarIconMotionPolicy {
-    static let hoverDuration: TimeInterval = 0.12
-    static let reloadDuration: TimeInterval = 0.14
+    static let hoverDuration = ToolbarHoverMotion.duration
+    static let reloadDuration = ReloadIconSwapPolicy.duration
 
     static func transform(
         for style: ToolbarIconMotionStyle,
@@ -53,7 +53,6 @@ enum ToolbarIconMotionPolicy {
     }
 }
 
-@MainActor
 enum ReloadCompletionMotionPolicy {
     static func shouldAnimate(
         isPending: Bool,
@@ -75,7 +74,6 @@ enum ReloadCompletionMotionPolicy {
 struct ToolbarMotionIcon: View {
     let style: ToolbarIconMotionStyle
     var systemImage: String?
-    var rotationDegrees: Double = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
@@ -90,7 +88,6 @@ struct ToolbarMotionIcon: View {
         glyph
             .offset(transform.offset)
             .scaleEffect(transform.scale)
-            .rotationEffect(.degrees(style == .reload ? rotationDegrees : 0))
             .frame(
                 width: PanelCornerControls.minimumHitTarget,
                 height: PanelCornerControls.minimumHitTarget
@@ -98,16 +95,55 @@ struct ToolbarMotionIcon: View {
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
             .animation(
-                reduceMotion ? nil : .easeOut(duration: ToolbarIconMotionPolicy.hoverDuration),
+                ToolbarHoverMotion.animation(
+                    isHovering: isHovering,
+                    reducesMotion: reduceMotion
+                ),
                 value: isHovering
-            )
-            .animation(
-                reduceMotion ? nil : .easeOut(duration: ToolbarIconMotionPolicy.reloadDuration),
-                value: rotationDegrees
             )
             .accessibilityHidden(true)
     }
+}
 
+struct ReloadGlyphView: View {
+    let glyph: ReloadGlyph
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            ProgressView()
+                .controlSize(.small)
+                .frame(
+                    width: PanelCornerControls.minimumHitTarget,
+                    height: PanelCornerControls.minimumHitTarget
+                )
+                .iconSwapActive(glyph == .loading, reducesMotion: reduceMotion)
+
+            Image(systemName: "checkmark")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(
+                    width: PanelCornerControls.minimumHitTarget,
+                    height: PanelCornerControls.minimumHitTarget
+                )
+                .iconSwapActive(glyph == .success, reducesMotion: reduceMotion)
+
+            ToolbarMotionIcon(style: .reload, systemImage: "arrow.clockwise")
+                .iconSwapActive(glyph == .idle, reducesMotion: reduceMotion)
+        }
+        .frame(
+            width: PanelCornerControls.minimumHitTarget,
+            height: PanelCornerControls.minimumHitTarget
+        )
+        .animation(
+            IconSwapMotion.animation(reducesMotion: reduceMotion),
+            value: glyph
+        )
+        .accessibilityHidden(true)
+    }
+}
+
+extension ToolbarMotionIcon {
     @ViewBuilder
     private var glyph: some View {
         if style == .pageStack {

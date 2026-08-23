@@ -36,6 +36,8 @@ struct PanelCornerControls: View {
     )
 
     @ObservedObject var controller: PanelPositionController
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var selectionPill
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,6 +68,7 @@ struct PanelCornerControls: View {
                     if controller.selectedCorner == corner {
                         RoundedRectangle(cornerRadius: Self.selectedBackgroundRadius)
                             .fill(DesignTokens.Colors.action.opacity(0.14))
+                            .matchedGeometryEffect(id: "corner-pill", in: selectionPill)
                     }
                 }
                 .instantListHoverColor(value: controller.selectedCorner == corner)
@@ -77,6 +80,10 @@ struct PanelCornerControls: View {
                 .help(corner.accessibilityLabel)
             }
         }
+        .animation(
+            CornerSelectionMotion.animation(reducesMotion: reduceMotion),
+            value: controller.selectedCorner
+        )
         .accessibilityElement(children: .contain)
     }
 }

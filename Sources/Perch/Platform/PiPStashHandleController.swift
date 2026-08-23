@@ -392,13 +392,8 @@ final class PiPStashHandleController: PiPStashHandle {
             return false
         }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.20
-            context.timingFunction = CAMediaTimingFunction(
-                controlPoints: 0.22,
-                1,
-                0.36,
-                1
-            )
+            context.duration = MotionTokens.Duration.fast
+            context.timingFunction = MotionTokens.smoothOutTimingFunction()
             handlePanel.animator().setFrame(currentPlacement.frame, display: true)
         }
         return false
