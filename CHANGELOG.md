@@ -15,6 +15,12 @@
 - Global shortcut, menu-bar Show, status-item peek, edge-handle restore, edge
   pull, and Restore Current shelf paths invalidate older asynchronous results.
 
+### Fixed
+
+- Dragging or trackpad-moving the PiP can travel past a left or right screen
+  edge. Releasing with at least 40% of the panel hidden stashes it instead of
+  snapping it back on-screen.
+
 ### Privacy
 
 - Exact-page checks reuse the existing opt-in Accessibility permission, inspect
