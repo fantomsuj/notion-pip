@@ -30,8 +30,11 @@ final class PiPStashHandleController: PiPStashHandle {
     private var shelfDismissTask: Task<Void, Never>?
     private var dropTitleTask: Task<Void, Never>?
     private var handleTransitionTask: Task<Void, Never>?
+    private var spaceTransitionTask: Task<Void, Never>?
     private var shelfRequestGeneration = 0
     private var handleTransitionGeneration = 0
+    private var spaceTransitionGeneration = 0
+    private var spaceTransitionSavedIgnoresMouseEvents: [ObjectIdentifier: Bool] = [:]
     private var pendingShelfRequestsFocus = false
     private var isHandleHovered = false
     private var isShelfHovered = false
@@ -132,6 +135,7 @@ final class PiPStashHandleController: PiPStashHandle {
         onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool
     ) {
         presentationGeneration &+= 1
+        cancelSpaceTransition()
         resetDropTarget()
         let didOwnShelfFocus = isShelfFocusOwned
         handleTransitionTask?.cancel()
@@ -200,6 +204,7 @@ final class PiPStashHandleController: PiPStashHandle {
 
     func orderOut() {
         presentationGeneration &+= 1
+        cancelSpaceTransition()
         resetDropTarget()
         let didOwnShelfFocus = isShelfFocusOwned
         handleTransitionGeneration &+= 1
@@ -223,7 +228,80 @@ final class PiPStashHandleController: PiPStashHandle {
         }
     }
 
+    func playSpaceTransition(
+        _ animation: SpaceTransitionAnimation,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        spaceTransitionTask?.cancel()
+        spaceTransitionGeneration &+= 1
+        let generation = spaceTransitionGeneration
+        let windows = spaceTransitionWindows
+        guard !windows.isEmpty,
+            animatesHandleEntrance,
+            !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        else {
+            completion()
+            return
+        }
+
+        rememberMouseEventIgnoring(for: windows)
+        windows.forEach { $0.ignoresMouseEvents = true }
+        spaceTransitionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await SpaceTransitionWindowAnimator.play(animation, on: windows)
+            guard !Task.isCancelled, spaceTransitionGeneration == generation else { return }
+            if case .hide = animation {
+                SpaceTransitionWindowAnimator.apply(
+                    SpaceTransitionMotionPolicy.departureFrame(direction: animation.direction),
+                    to: windows
+                )
+            } else {
+                restoreSpaceTransitionAppearance(windows)
+            }
+            spaceTransitionTask = nil
+            completion()
+        }
+    }
+
+    func cancelSpaceTransition() {
+        let hadTransition = spaceTransitionTask != nil
+            || !spaceTransitionSavedIgnoresMouseEvents.isEmpty
+        spaceTransitionGeneration &+= 1
+        spaceTransitionTask?.cancel()
+        spaceTransitionTask = nil
+        guard animatesHandleEntrance, hadTransition else { return }
+        restoreSpaceTransitionAppearance(spaceTransitionWindows + [handlePanel, shelfPanel])
+    }
+
+    private var spaceTransitionWindows: [NSWindow] {
+        [handlePanel, shelfPanel].filter(\.isVisible)
+    }
+
+    private func rememberMouseEventIgnoring(for windows: [NSWindow]) {
+        for window in windows where spaceTransitionSavedIgnoresMouseEvents[ObjectIdentifier(window)] == nil {
+            spaceTransitionSavedIgnoresMouseEvents[ObjectIdentifier(window)] = window.ignoresMouseEvents
+        }
+    }
+
+    private func restoreSpaceTransitionAppearance(_ windows: [NSWindow]) {
+        var uniqueWindows: [NSWindow] = []
+        var seen = Set<ObjectIdentifier>()
+        for window in windows {
+            let identifier = ObjectIdentifier(window)
+            guard seen.insert(identifier).inserted else { continue }
+            uniqueWindows.append(window)
+        }
+        SpaceTransitionWindowAnimator.restore(uniqueWindows)
+        for window in uniqueWindows {
+            if let saved = spaceTransitionSavedIgnoresMouseEvents[ObjectIdentifier(window)] {
+                window.ignoresMouseEvents = saved
+            }
+        }
+        spaceTransitionSavedIgnoresMouseEvents.removeAll()
+    }
+
     func dismissForRestore() {
+        cancelSpaceTransition()
         handleTransitionTask?.cancel()
         handleTransitionGeneration &+= 1
         let generation = handleTransitionGeneration

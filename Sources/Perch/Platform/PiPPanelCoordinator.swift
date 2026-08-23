@@ -17,6 +17,11 @@ protocol PiPPanelWindow: AnyObject {
     )
     func presentForPullReveal(at frame: CGRect)
     func pulseLocateHalo()
+    func playSpaceTransition(
+        _ animation: SpaceTransitionAnimation,
+        completion: @escaping @MainActor () -> Void
+    )
+    func cancelSpaceTransition()
     func orderOut()
     func dismissForStash(
         toward placement: PanelStashPlacement,
@@ -45,6 +50,15 @@ extension PiPPanelWindow {
     }
 
     func pulseLocateHalo() {}
+
+    func playSpaceTransition(
+        _: SpaceTransitionAnimation,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        completion()
+    }
+
+    func cancelSpaceTransition() {}
 
     func presentFromStash(
         placement: PanelStashPlacement,
@@ -99,6 +113,11 @@ protocol PiPStashHandle: AnyObject {
         onPullRevealEnd: @escaping @MainActor (CGFloat) -> Bool
     )
     func dismissForRestore()
+    func playSpaceTransition(
+        _ animation: SpaceTransitionAnimation,
+        completion: @escaping @MainActor () -> Void
+    )
+    func cancelSpaceTransition()
     func orderOut()
 }
 
@@ -130,6 +149,15 @@ extension PiPStashHandle {
     func dismissForRestore() {
         orderOut()
     }
+
+    func playSpaceTransition(
+        _: SpaceTransitionAnimation,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        completion()
+    }
+
+    func cancelSpaceTransition() {}
 }
 
 enum PanelStashTransition {
@@ -264,9 +292,13 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     private let frameForContentRect: @MainActor (CGRect) -> CGRect
     private let contentRectForFrameRect: @MainActor (CGRect) -> CGRect
     private let geometryStore: any PanelGeometryPersisting
+    private let spaceTransitionObserver: (any SpaceTransitionObserving)?
     private(set) var currentPage: NotionPageReference?
     private var liveResizeObserver: NSObjectProtocol?
     private var moveObserver: NSObjectProtocol?
+    private var spaceTransitionState = SpaceTransitionState.idle
+    private var spaceTransitionHintTimeout: Task<Void, Never>?
+    private var isSpaceTransitionActive = false
     private var cornerSnapTask: Task<Void, Never>?
     private var initialFrameProvider: (@MainActor () -> CGRect?)?
     private var activeStashPlacement: PanelStashPlacement?
@@ -436,7 +468,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             initialGeometry: initialGeometry,
             geometryStore: geometryStore,
             frameForContentRect: frameForContentRect,
-            contentRectForFrameRect: contentRectForFrameRect
+            contentRectForFrameRect: contentRectForFrameRect,
+            spaceTransitionObserver: AppKitSpaceTransitionObserver()
         )
         panelSizeController?.bind(to: self)
         panelPositionController?.bind(to: self)
@@ -483,7 +516,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         initialGeometry: PanelGeometry? = nil,
         geometryStore: any PanelGeometryPersisting = TransientPanelGeometryStore(),
         frameForContentRect: @escaping @MainActor (CGRect) -> CGRect = { $0 },
-        contentRectForFrameRect: @escaping @MainActor (CGRect) -> CGRect = { $0 }
+        contentRectForFrameRect: @escaping @MainActor (CGRect) -> CGRect = { $0 },
+        spaceTransitionObserver: (any SpaceTransitionObserving)? = nil
     ) {
         self.panel = panel
         self.pageLoader = pageLoader
@@ -511,6 +545,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         self.geometryStore = geometryStore
         self.frameForContentRect = frameForContentRect
         self.contentRectForFrameRect = contentRectForFrameRect
+        self.spaceTransitionObserver = spaceTransitionObserver
         let actualContentSize = PanelFramePolicy.contentSize(
             forFrame: panel.frame,
             contentRectForFrameRect: contentRectForFrameRect
@@ -551,6 +586,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             self?.onExternalPresentationAction?()
             _ = self?.stashOrRestoreCurrentPage()
         }
+        spaceTransitionObserver?.start { [weak self] event in
+            self?.handleSpaceTransitionEvent(event)
+        }
     }
 
     isolated deinit {
@@ -560,6 +598,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         if let moveObserver {
             NotificationCenter.default.removeObserver(moveObserver)
         }
+        spaceTransitionObserver?.stop()
+        spaceTransitionHintTimeout?.cancel()
         cornerSnapTask?.cancel()
     }
 
@@ -775,6 +815,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
 
     @discardableResult
     private func stash(topology: DisplayTopology) -> Bool {
+        cancelActiveSpaceTransition()
         if isStashDismissalActive {
             cancelPendingStashDismissal()
         }
@@ -815,6 +856,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         _ decision: PanelDragStashDecision,
         topology: DisplayTopology
     ) -> Bool {
+        cancelActiveSpaceTransition()
         if isStashDismissalActive {
             cancelPendingStashDismissal()
         }
@@ -847,6 +889,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     private func stashImmediately(topology: DisplayTopology) -> Bool {
+        cancelActiveSpaceTransition()
         if isStashDismissalActive {
             cancelPendingStashDismissal()
         }
@@ -956,6 +999,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     private func presentPanel(animateFromStash: Bool = true) {
+        cancelActiveSpaceTransition()
         guard let placement = activeStashPlacement,
             stashHandle?.isVisible == true
         else {
@@ -1194,6 +1238,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             return
         }
         guard !isApplyingProgrammaticFrame,
+            !isSpaceTransitionActive,
             !isStashDismissalActive,
             let visibleFrame = PanelFramePolicy.targetVisibleFrame(
                 for: panel.frame,
@@ -1375,6 +1420,108 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         guard let activeProgrammaticFrameTarget else { return }
         setPanelFrame(activeProgrammaticFrameTarget, display: panel.isVisible)
     }
+
+    private var spaceTransitionContext: SpaceTransitionContext {
+        SpaceTransitionContext(
+            reducesMotion: reducesMotion(),
+            isBusy: isSpaceTransitionBlocked,
+            hasVisibleOverlay: panel.isVisible || stashHandle?.isVisible == true
+        )
+    }
+
+    private var isSpaceTransitionBlocked: Bool {
+        isStashDismissalActive
+            || pullRevealState != nil
+            || panel.isTrackpadMoveActive
+            || panel.isExpanded
+            || isPrimaryMouseButtonPressed()
+    }
+
+    private func handleSpaceTransitionEvent(_ event: SpaceTransitionEvent) {
+        switch event {
+        case let .gestureHint(direction):
+            applySpaceTransition(signal: .gestureHint(direction))
+            if spaceTransitionState.phase == .hiding {
+                scheduleSpaceTransitionHintTimeout()
+            }
+        case let .activeSpaceDidChange(direction):
+            spaceTransitionHintTimeout?.cancel()
+            spaceTransitionHintTimeout = nil
+            applySpaceTransition(signal: .activeSpaceDidChange(direction))
+        }
+    }
+
+    private func applySpaceTransition(signal: SpaceTransitionSignal) {
+        let reduction = SpaceTransitionMotionPolicy.reduce(
+            state: spaceTransitionState,
+            signal: signal,
+            context: spaceTransitionContext
+        )
+        spaceTransitionState = reduction.state
+        guard let command = reduction.command else { return }
+        performSpaceTransition(command)
+    }
+
+    private func performSpaceTransition(_ command: SpaceTransitionCommand) {
+        switch command {
+        case .cancel:
+            spaceTransitionHintTimeout?.cancel()
+            spaceTransitionHintTimeout = nil
+            isSpaceTransitionActive = false
+            panel.cancelSpaceTransition()
+            stashHandle?.cancelSpaceTransition()
+        case let .hide(direction):
+            playSpaceTransitionOnVisibleOverlay(.hide(direction))
+        case let .show(direction):
+            playSpaceTransitionOnVisibleOverlay(.show(direction))
+        case let .hideThenShow(direction):
+            playSpaceTransitionOnVisibleOverlay(.hideThenShow(direction))
+        }
+    }
+
+    private func playSpaceTransitionOnVisibleOverlay(_ animation: SpaceTransitionAnimation) {
+        isSpaceTransitionActive = true
+        let completion: @MainActor () -> Void = { [weak self] in
+            guard let self else { return }
+            if case .hide = animation {
+                self.applySpaceTransition(signal: .hideCompleted)
+            } else {
+                self.isSpaceTransitionActive = false
+            }
+        }
+        if panel.isVisible {
+            stashHandle?.cancelSpaceTransition()
+            panel.playSpaceTransition(animation, completion: completion)
+        } else if stashHandle?.isVisible == true {
+            panel.cancelSpaceTransition()
+            stashHandle?.playSpaceTransition(animation, completion: completion)
+        } else {
+            isSpaceTransitionActive = false
+            spaceTransitionState = .idle
+        }
+    }
+
+    private func scheduleSpaceTransitionHintTimeout() {
+        spaceTransitionHintTimeout?.cancel()
+        spaceTransitionHintTimeout = Task { @MainActor [weak self] in
+            let delay = SpaceTransitionMotionPolicy.hintTimeout
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled else { return }
+            self.spaceTransitionHintTimeout = nil
+            self.applySpaceTransition(signal: .hintTimedOut)
+        }
+    }
+
+    private func cancelActiveSpaceTransition() {
+        spaceTransitionHintTimeout?.cancel()
+        spaceTransitionHintTimeout = nil
+        let wasActive = spaceTransitionState.phase != .idle || isSpaceTransitionActive
+        spaceTransitionState = .idle
+        isSpaceTransitionActive = false
+        guard wasActive else { return }
+        panel.cancelSpaceTransition()
+        stashHandle?.cancelSpaceTransition()
+    }
 }
 
 final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
@@ -1382,8 +1529,11 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     static let stashCloseButtonHelp = "Move Perch to the nearest screen edge"
     private static let springAnimationDuration: TimeInterval = 0.34
     private var stashAnimationGeneration = 0
+    private var spaceTransitionGeneration = 0
     private var pendingStashOriginalFrame: CGRect?
     private var frameAnimationTask: Task<Void, Never>?
+    private var spaceTransitionTask: Task<Void, Never>?
+    private var spaceTransitionSavedIgnoresMouseEvents: Bool?
     private var locateHaloTask: Task<Void, Never>?
     private var locateHaloPanel: NSPanel?
     private let topEdgeTrackpadMoveController = TopEdgeTrackpadMoveController()
@@ -1464,6 +1614,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
 
     override func orderOut(_ sender: Any?) {
         topEdgeTrackpadMoveController.reset()
+        cancelSpaceTransition()
         super.orderOut(sender)
     }
 
@@ -1492,11 +1643,70 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         makeKeyAndOrderFront(nil)
     }
 
+    func playSpaceTransition(
+        _ animation: SpaceTransitionAnimation,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        spaceTransitionTask?.cancel()
+        spaceTransitionGeneration &+= 1
+        let generation = spaceTransitionGeneration
+        guard isVisible else {
+            completion()
+            return
+        }
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            restoreSpaceTransitionAppearance()
+            completion()
+            return
+        }
+
+        if spaceTransitionSavedIgnoresMouseEvents == nil {
+            spaceTransitionSavedIgnoresMouseEvents = ignoresMouseEvents
+        }
+        ignoresMouseEvents = true
+        spaceTransitionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await SpaceTransitionWindowAnimator.play(animation, on: [self])
+            guard !Task.isCancelled, spaceTransitionGeneration == generation else { return }
+            if case .hide = animation {
+                SpaceTransitionWindowAnimator.apply(
+                    SpaceTransitionMotionPolicy.departureFrame(
+                        direction: animation.direction
+                    ),
+                    to: [self]
+                )
+            } else {
+                restoreSpaceTransitionAppearance()
+            }
+            spaceTransitionTask = nil
+            completion()
+        }
+    }
+
+    func cancelSpaceTransition() {
+        let hadTransition = spaceTransitionTask != nil
+            || spaceTransitionSavedIgnoresMouseEvents != nil
+        spaceTransitionGeneration &+= 1
+        spaceTransitionTask?.cancel()
+        spaceTransitionTask = nil
+        guard hadTransition else { return }
+        restoreSpaceTransitionAppearance()
+    }
+
+    private func restoreSpaceTransitionAppearance() {
+        SpaceTransitionWindowAnimator.restore([self])
+        if let spaceTransitionSavedIgnoresMouseEvents {
+            ignoresMouseEvents = spaceTransitionSavedIgnoresMouseEvents
+            self.spaceTransitionSavedIgnoresMouseEvents = nil
+        }
+    }
+
     func presentFromStash(
         placement: PanelStashPlacement,
         completion: @escaping @MainActor () -> Void
     ) {
         frameAnimationTask?.cancel()
+        cancelSpaceTransition()
         stashAnimationGeneration &+= 1
         let generation = stashAnimationGeneration
         let restoredFrame = frame
@@ -1536,6 +1746,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     }
 
     func presentForPullReveal(at frame: CGRect) {
+        cancelSpaceTransition()
         cancelPendingStashDismissal()
         frameAnimationTask?.cancel()
         setFrame(frame, display: false)
@@ -1604,6 +1815,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
 
     func cancelPendingStashDismissal() {
         stashAnimationGeneration &+= 1
+        cancelSpaceTransition()
         guard let pendingStashOriginalFrame else {
             alphaValue = 1
             return
@@ -1685,6 +1897,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         completion: @escaping @MainActor () -> Void
     ) {
         frameAnimationTask?.cancel()
+        cancelSpaceTransition()
         stashAnimationGeneration &+= 1
         let generation = stashAnimationGeneration
         let originalFrame = frame
