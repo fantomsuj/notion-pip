@@ -15,6 +15,14 @@
 - Global shortcut, menu-bar Show, status-item peek, edge-handle restore, edge
   pull, and Restore Current shelf paths invalidate older asynchronous results.
 
+### Changed
+
+- SwiftData schema migrates to V5, dropping the unused Quick Capture models
+  (`CaptureDraftModel`, `CaptureRecordModel`, `QuickCaptureSettingsModel`) from
+  the live schema. Existing stores migrate automatically via a lightweight
+  V4→V5 stage; pinned pages, recents, active page, and scroll restoration are
+  preserved.
+
 ### Fixed
 
 - Dragging or trackpad-moving the PiP can travel past a left or right screen
@@ -32,3 +40,13 @@
 - Exact-page checks reuse the existing opt-in Accessibility permission, inspect
   only focused `AXDocument`/`AXURL` attributes on a bounded path, and never read
   page contents, clipboard data, or titles for exact-page inference.
+
+### CI
+
+- SwiftPM build artifacts are cached in CI and nightly reliability runs, keyed on
+  `Package.resolved`, so Sparkle is not recompiled from scratch when dependencies
+  are unchanged.
+- Dependabot now monitors the SwiftPM dependency (Sparkle) in addition to
+  GitHub Actions.
+- The release configuration build now runs on pull requests, not only on push,
+  so a broken release build is caught before merge.

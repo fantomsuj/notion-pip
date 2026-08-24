@@ -77,7 +77,7 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(workingSet.activePage?.pageID, pageID)
         XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [pageID])
         XCTAssertEqual(PerchSchemaV3.versionIdentifier, Schema.Version(3, 0, 0))
-        XCTAssertEqual(PerchMigrationPlan.schemas.count, 4)
+        XCTAssertEqual(PerchMigrationPlan.schemas.count, 5)
     }
 
     func testV3PinsMigrateToV4WithNilRolesAndPreservedWorkingSetOrder() async throws {
@@ -128,11 +128,11 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(workingSet.pinnedPages.map(\.role), [nil, nil])
         XCTAssertEqual(workingSet.recentPages.map(\.pageID), [recentID])
         XCTAssertEqual(PerchSchemaV4.versionIdentifier, Schema.Version(4, 0, 0))
-        XCTAssertEqual(PerchMigrationPlan.schemas.count, 4)
+        XCTAssertEqual(PerchMigrationPlan.schemas.count, 5)
     }
 
-    func testV4StorePreservesLegacyCaptureEntitiesAndPageState() async throws {
-        let (directory, storeURL) = try makeStore(named: "V4-current.store")
+    func testV4StoreDropsLegacyCaptureEntitiesWhenMigratingToV5() async throws {
+        let (directory, storeURL) = try makeStore(named: "V4-to-V5.store")
         defer { try? FileManager.default.removeItem(at: directory) }
         let schema = Schema(versionedSchema: PerchSchemaV4.self)
         let pageID = "0123456789abcdef0123456789abcdef"
@@ -168,15 +168,12 @@ final class SchemaMigrationTests: XCTestCase {
 
         let migratedContainer = try PerchPersistence.makeContainer(storeURL: storeURL)
         let workingSet = try await PageRepository(container: migratedContainer).workingSet()
-        let migratedContext = ModelContext(migratedContainer)
-        let legacyDrafts = try migratedContext.fetch(FetchDescriptor<CaptureDraftModel>())
 
         XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [pageID])
-        XCTAssertEqual(legacyDrafts.map(\.stableID), ["retired-draft"])
-        XCTAssertEqual(PerchSchemaV4.models.count, 7)
-        XCTAssertTrue(PerchSchemaV4.models.contains { $0 == CaptureDraftModel.self })
-        XCTAssertTrue(PerchSchemaV4.models.contains { $0 == CaptureRecordModel.self })
-        XCTAssertTrue(PerchSchemaV4.models.contains { $0 == QuickCaptureSettingsModel.self })
+        XCTAssertEqual(PerchSchemaV5.models.count, 4)
+        XCTAssertFalse(PerchSchemaV5.models.contains { $0 == CaptureDraftModel.self })
+        XCTAssertFalse(PerchSchemaV5.models.contains { $0 == CaptureRecordModel.self })
+        XCTAssertFalse(PerchSchemaV5.models.contains { $0 == QuickCaptureSettingsModel.self })
     }
 
     private func makeStore(named name: String) throws -> (URL, URL) {

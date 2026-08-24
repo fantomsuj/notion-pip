@@ -91,6 +91,42 @@ Treat the exported file like a password. The release workflow pipes the secret
 to `generate_appcast` over standard input and publishes the resulting signed
 feed beside the DMG.
 
+## Appcast redirect setup
+
+Sparkle checks `https://pinapage.com/appcast.xml`, which must redirect to the
+`appcast.xml` asset on the latest published GitHub release. The release
+workflow uploads `appcast.xml` as a release asset, so the redirect target is:
+
+```
+https://github.com/fantomsuj/notion-pip/releases/latest/download/appcast.xml
+```
+
+GitHub's `latest` release alias always points at the most recent non-draft,
+non-prerelease release, so no manual redirect update is needed when a new
+release is published — the same target automatically serves the newest feed.
+
+Configure the redirect once on whatever hosts `pinapage.com`. Common options:
+
+- **Vercel:** add a rewrite in `vercel.json` that redirects the path to the
+  GitHub URL above with a permanent (308) status.
+- **Netlify:** add a `_redirects` entry: `/appcast.xml <GitHub URL> 308`.
+- **Nginx / Apache / CDN:** add a permanent redirect rule for the same path.
+
+Verify the redirect returns a 308 (or 301) and lands on the raw `appcast.xml`
+asset, not an HTML release page. Sparkle fetches the URL programmatically and
+does not follow HTML redirects, so the final response must be the XML file
+itself. Check with:
+
+```sh
+curl -sIL https://pinapage.com/appcast.xml | grep -iE '^(HTTP|location)'
+```
+
+The app only trusts feeds whose Ed25519 signature matches the
+`SUPublicEDKey` in `Support/Sparkle.env`, so a tampered or stale appcast at the
+redirect target is rejected by installed copies. The redirect is a
+convenience that keeps the `SUFeedURL` stable across releases; it is not a
+trust boundary.
+
 ## GitHub release automation
 
 Create a GitHub Actions environment named `release`, protect it with required

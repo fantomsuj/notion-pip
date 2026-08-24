@@ -24,7 +24,7 @@ enum PerchPersistence {
         inMemory: Bool = false,
         applicationSupportDirectory: URL? = nil
     ) throws -> ModelContainer {
-        let schema = Schema(versionedSchema: PerchSchemaV4.self)
+        let schema = Schema(versionedSchema: PerchSchemaV5.self)
         let configuration: ModelConfiguration
         if inMemory {
             configuration = ModelConfiguration(
