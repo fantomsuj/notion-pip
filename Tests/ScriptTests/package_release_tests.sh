@@ -123,7 +123,16 @@ printf '\n' >>"$FAKE_CALL_LOG"
 if [[ "$1" == "create" || "$1" == "convert" ]]; then
     output="${!#}"
     printf 'fake disk image\n' >"$output"
-elif [[ "$1" == "attach" || "$1" == "detach" ]]; then
+elif [[ "$1" == "attach" ]]; then
+    exit 0
+elif [[ "$1" == "detach" ]]; then
+    if [[ -n "${FAKE_DETACH_FAILURES:-}" && "$*" != *-force* ]]; then
+        remaining="$(cat "$FAKE_DETACH_FAILURES" 2>/dev/null || echo 0)"
+        if [[ "$remaining" -gt 0 ]]; then
+            printf '%s\n' "$((remaining - 1))" >"$FAKE_DETACH_FAILURES"
+            exit 1
+        fi
+    fi
     exit 0
 elif [[ "$1" == "verify" ]]; then
     [[ -f "$2" ]]
@@ -139,7 +148,14 @@ set -euo pipefail
 printf 'osascript' >>"$FAKE_CALL_LOG"
 printf ' %q' "$@" >>"$FAKE_CALL_LOG"
 printf '\n' >>"$FAKE_CALL_LOG"
-/bin/cp /dev/stdin "$FAKE_APPLESCRIPT_LOG"
+if [[ -n "${FAKE_OSASCRIPT_FAILURES:-}" ]]; then
+    remaining="$(cat "$FAKE_OSASCRIPT_FAILURES" 2>/dev/null || echo 0)"
+    if [[ "$remaining" -gt 0 ]]; then
+        printf '%s\n' "$((remaining - 1))" >"$FAKE_OSASCRIPT_FAILURES"
+        exit 1
+    fi
+fi
+/bin/cat >"$FAKE_APPLESCRIPT_LOG"
 SCRIPT
 
 cat >"$FAKE_BIN/tiffutil" <<'SCRIPT'
@@ -299,5 +315,57 @@ if [[ -s "$CALL_LOG" ]] && grep -Fq 'swift build' "$CALL_LOG"; then
     echo "expected credential validation before starting a release build" >&2
     exit 1
 fi
+
+rm -rf "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR"
+: >"$CALL_LOG"
+export FAKE_SECURITY_OUTPUT='  1) DEVELOPERID123 "Developer ID Application: Perch Developer (TEAMID)"'
+export FAKE_OSASCRIPT_FAILURES="$TEST_DIR/osascript-failures"
+export FAKE_DETACH_FAILURES="$TEST_DIR/detach-failures"
+printf '2\n' >"$FAKE_OSASCRIPT_FAILURES"
+printf '2\n' >"$FAKE_DETACH_FAILURES"
+if ! run_packager >"$TEST_DIR/transient-failure.log" 2>&1; then
+    echo "expected transient Finder and detach failures to be retried" >&2
+    exit 1
+fi
+if [[ ! -f "$OUTPUT_DIR/Perch-0.1.1.dmg" ]]; then
+    echo "expected a release DMG after the retried release" >&2
+    exit 1
+fi
+if [[ "$(grep -c '^osascript' "$CALL_LOG")" -ne 3 ]]; then
+    echo "expected the Finder layout to be retried until it succeeded" >&2
+    exit 1
+fi
+if [[ "$(grep -c '^hdiutil detach' "$CALL_LOG")" -ne 3 ]]; then
+    echo "expected the staging volume detach to be retried until it succeeded" >&2
+    exit 1
+fi
+if grep -Eq 'hdiutil detach .*-force' "$CALL_LOG"; then
+    echo "expected no forced detach while retries were still succeeding" >&2
+    exit 1
+fi
+
+rm -rf "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR"
+: >"$CALL_LOG"
+printf '99\n' >"$FAKE_OSASCRIPT_FAILURES"
+printf '0\n' >"$FAKE_DETACH_FAILURES"
+if run_packager >"$TEST_DIR/layout-failure.log" 2>&1; then
+    echo "expected packaging to stop when the Finder layout never succeeds" >&2
+    exit 1
+fi
+if ! grep -Fq 'could not apply the DMG Finder layout' "$TEST_DIR/layout-failure.log"; then
+    echo "expected an actionable DMG layout error" >&2
+    exit 1
+fi
+if [[ -f "$OUTPUT_DIR/Perch-0.1.1.dmg" ]]; then
+    echo "expected no release artifact from an unstyled DMG" >&2
+    exit 1
+fi
+if grep -Fq 'xcrun notarytool submit' "$CALL_LOG"; then
+    echo "expected an unstyled DMG to never reach notarization" >&2
+    exit 1
+fi
+unset FAKE_OSASCRIPT_FAILURES FAKE_DETACH_FAILURES
 
 echo "package_release tests passed"

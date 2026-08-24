@@ -5,6 +5,10 @@ APP_NAME="Perch"
 BUNDLE_ID="com.fantomsuj.Perch"
 MIN_SYSTEM_VERSION="14.0"
 RELEASE_ARCHITECTURES=(arm64 x86_64)
+# Finder scripting and volume ejection are the two release steps that fail
+# transiently on CI runners, so both get bounded retries before giving up.
+DMG_LAYOUT_ATTEMPTS=3
+DMG_DETACH_ATTEMPTS=5
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="${PERCH_RELEASE_OUTPUT_DIR:-$ROOT_DIR/dist}"
@@ -172,6 +176,22 @@ cleanup() {
     /bin/rm -rf "$TEMP_ROOT"
 }
 trap cleanup EXIT
+
+# Finder and Spotlight can hold the mounted volume open for a moment after the
+# layout pass, so back off before falling back to a forced ejection.
+detach_staging_volume() {
+    local attempt
+    for ((attempt = 1; attempt <= DMG_DETACH_ATTEMPTS; attempt++)); do
+        if "$HDIUTIL_TOOL" detach "$DMG_MOUNT_POINT"; then
+            return 0
+        fi
+        echo "warning: staging volume busy; retrying detach ($attempt/$DMG_DETACH_ATTEMPTS)" >&2
+        /bin/sleep "$attempt"
+    done
+
+    echo "warning: forcing staging volume detach after $DMG_DETACH_ATTEMPTS attempts" >&2
+    "$HDIUTIL_TOOL" detach "$DMG_MOUNT_POINT" -force
+}
 
 /bin/mkdir -p "$OUTPUT_DIR" "$BUILD_ROOT" "$DMG_STAGE"
 
@@ -351,7 +371,7 @@ dmg_size_kb="$((stage_size_kb + 16384))"
 DMG_ATTACHED=true
 "$DITTO_TOOL" "$DMG_STAGE" "$DMG_MOUNT_POINT"
 
-"$OSASCRIPT_TOOL" <<APPLESCRIPT
+DMG_LAYOUT_SCRIPT="$(cat <<APPLESCRIPT
 set dmgFolder to POSIX file "$DMG_MOUNT_POINT" as alias
 tell application "Finder"
     open dmgFolder
@@ -374,9 +394,24 @@ tell application "Finder"
     close dmgWindow
 end tell
 APPLESCRIPT
+)"
+
+dmg_layout_applied=false
+for ((attempt = 1; attempt <= DMG_LAYOUT_ATTEMPTS; attempt++)); do
+    if "$OSASCRIPT_TOOL" <<<"$DMG_LAYOUT_SCRIPT"; then
+        dmg_layout_applied=true
+        break
+    fi
+    echo "warning: Finder layout attempt $attempt/$DMG_LAYOUT_ATTEMPTS failed; retrying" >&2
+    /bin/sleep "$attempt"
+done
+if [[ "$dmg_layout_applied" != true ]]; then
+    echo "error: could not apply the DMG Finder layout after $DMG_LAYOUT_ATTEMPTS attempts" >&2
+    exit 1
+fi
 
 /bin/sync
-"$HDIUTIL_TOOL" detach "$DMG_MOUNT_POINT"
+detach_staging_volume
 DMG_ATTACHED=false
 "$HDIUTIL_TOOL" convert "$RW_DMG_PATH" \
     -format UDZO \
