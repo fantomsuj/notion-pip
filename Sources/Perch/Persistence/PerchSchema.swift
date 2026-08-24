@@ -59,6 +59,19 @@ enum PerchSchemaV4: VersionedSchema {
     }
 }
 
+enum PerchSchemaV5: VersionedSchema {
+    static let versionIdentifier = Schema.Version(5, 0, 0)
+
+    static var models: [any PersistentModel.Type] {
+        [
+            PinnedPageModel.self,
+            RecentPageModel.self,
+            ActivePageModel.self,
+            PageRestorationModel.self,
+        ]
+    }
+}
+
 enum PerchMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
         [
@@ -66,6 +79,7 @@ enum PerchMigrationPlan: SchemaMigrationPlan {
             PerchSchemaV2.self,
             PerchSchemaV3.self,
             PerchSchemaV4.self,
+            PerchSchemaV5.self,
         ]
     }
 
@@ -82,6 +96,10 @@ enum PerchMigrationPlan: SchemaMigrationPlan {
             .lightweight(
                 fromVersion: PerchSchemaV3.self,
                 toVersion: PerchSchemaV4.self
+            ),
+            .lightweight(
+                fromVersion: PerchSchemaV4.self,
+                toVersion: PerchSchemaV5.self
             ),
         ]
     }
