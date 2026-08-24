@@ -6,6 +6,11 @@ PACKAGE_SCRIPT="$ROOT_DIR/script/package_release.sh"
 TEST_DIR="$(mktemp -d /tmp/perch-package-release-tests.XXXXXX)"
 trap 'rm -rf "$TEST_DIR"' EXIT
 
+# shellcheck source=/dev/null
+source "$ROOT_DIR/Support/Version.env"
+EXPECTED_DMG_NAME="Perch-$PERCH_VERSION.dmg"
+EXPECTED_DMG_VERSION_REGEX="${PERCH_VERSION//./\\.}"
+
 FAKE_BIN="$TEST_DIR/bin"
 CALL_LOG="$TEST_DIR/calls.log"
 PLIST_LOG="$TEST_DIR/plist.log"
@@ -211,7 +216,7 @@ run_packager() {
 export FAKE_SECURITY_OUTPUT='  1) DEVELOPERID123 "Developer ID Application: Perch Developer (TEAMID)"'
 run_packager >/dev/null
 
-DMG_PATH="$OUTPUT_DIR/Perch-0.1.1.dmg"
+DMG_PATH="$OUTPUT_DIR/$EXPECTED_DMG_NAME"
 CHECKSUM_PATH="$DMG_PATH.sha256"
 if [[ ! -f "$DMG_PATH" || ! -f "$CHECKSUM_PATH" ]]; then
     echo "expected the DMG and checksum artifacts" >&2
@@ -270,8 +275,8 @@ if ! grep -Fq 'xcrun stapler staple' "$CALL_LOG" || \
     echo "expected the notarization ticket to be stapled and validated" >&2
     exit 1
 fi
-if ! grep -Eq 'hdiutil create -size .* -fs HFS\+ -volname Perch -ov .*Perch-0\.1\.1-rw\.dmg$' "$CALL_LOG" || \
-    ! grep -Eq 'hdiutil convert .*Perch-0\.1\.1-rw\.dmg -format UDZO -o .*Perch-0\.1\.1\.dmg$' "$CALL_LOG"; then
+if ! grep -Eq "hdiutil create -size .* -fs HFS\\+ -volname Perch -ov .*Perch-$EXPECTED_DMG_VERSION_REGEX-rw\\.dmg\$" "$CALL_LOG" || \
+    ! grep -Eq "hdiutil convert .*Perch-$EXPECTED_DMG_VERSION_REGEX-rw\\.dmg -format UDZO -o .*Perch-$EXPECTED_DMG_VERSION_REGEX\\.dmg\$" "$CALL_LOG"; then
     echo "expected a writable DMG to be laid out before final compression" >&2
     exit 1
 fi
@@ -328,7 +333,7 @@ if ! run_packager >"$TEST_DIR/transient-failure.log" 2>&1; then
     echo "expected transient Finder and detach failures to be retried" >&2
     exit 1
 fi
-if [[ ! -f "$OUTPUT_DIR/Perch-0.1.1.dmg" ]]; then
+if [[ ! -f "$OUTPUT_DIR/$EXPECTED_DMG_NAME" ]]; then
     echo "expected a release DMG after the retried release" >&2
     exit 1
 fi
@@ -358,7 +363,7 @@ if ! grep -Fq 'could not apply the DMG Finder layout' "$TEST_DIR/layout-failure.
     echo "expected an actionable DMG layout error" >&2
     exit 1
 fi
-if [[ -f "$OUTPUT_DIR/Perch-0.1.1.dmg" ]]; then
+if [[ -f "$OUTPUT_DIR/$EXPECTED_DMG_NAME" ]]; then
     echo "expected no release artifact from an unstyled DMG" >&2
     exit 1
 fi
