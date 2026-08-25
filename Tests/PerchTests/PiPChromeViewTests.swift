@@ -165,6 +165,13 @@ final class PiPChromeViewTests: XCTestCase {
                 .retryButton("Retry loading Notion page"),
             ]
         )
+        XCTAssertEqual(
+            FailedLoadBannerAccessibilityPresentation.customPinnedFailedLoad.children,
+            [
+                .message("This page couldn't load."),
+                .retryButton("Retry loading this page"),
+            ]
+        )
     }
 
     func testMissingPageChromeExposesANextActionInsteadOfABareEmptyLabel() {

@@ -34,6 +34,10 @@ final class PinCoordinator {
         set { panelCoordinator.onWillReveal = newValue }
     }
 
+    var currentCustomURL: CustomPinnedURL? {
+        panelCoordinator.currentCustomURL
+    }
+
     init(
         panelCoordinator: any PiPPanelCoordinating,
         pasteboard: any PasteboardReading,
@@ -57,11 +61,23 @@ final class PinCoordinator {
             return
         }
 
-        if currentPage.canonicalURL == page.canonicalURL {
+        if currentPage.canonicalURL == page.canonicalURL, currentCustomURL == nil {
             panelCoordinator.show(page: page)
         } else {
             panelCoordinator.replace(page: page, restoration: restoration)
         }
+    }
+
+    func pin(customURL: CustomPinnedURL) {
+        panelCoordinator.show(customURL: customURL)
+    }
+
+    func reloadCustomPinnedURL(_ url: CustomPinnedURL) {
+        panelCoordinator.reloadCustomPinnedURL(url)
+    }
+
+    func createNewPage() {
+        panelCoordinator.createNewPage()
     }
 
     func reloadPinnedPage(_ page: NotionPageReference) {

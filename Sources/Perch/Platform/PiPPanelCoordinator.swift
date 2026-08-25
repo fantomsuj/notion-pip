@@ -216,10 +216,14 @@ protocol PiPPanelCoordinating: AnyObject {
     var onPresentationStateChange: (@MainActor () -> Void)? { get set }
     var onWillReveal: (@MainActor () -> Void)? { get set }
     var currentPage: NotionPageReference? { get }
+    var currentCustomURL: CustomPinnedURL? { get }
     var presentationState: PiPPresentationState { get }
     func show(page: NotionPageReference)
     func show(page: NotionPageReference, restoration: DurablePageRestoration?)
+    func show(customURL: CustomPinnedURL)
     func reloadPinnedPage(_ page: NotionPageReference)
+    func reloadCustomPinnedURL(_ url: CustomPinnedURL)
+    func createNewPage()
     func showCurrentPage() -> Bool
     func showCurrentPageFromShortcut(
         measurement: ShortcutPresentationMeasurement
@@ -250,6 +254,14 @@ extension PiPPanelCoordinating {
     func show(page: NotionPageReference, restoration: DurablePageRestoration?) {
         show(page: page)
     }
+
+    var currentCustomURL: CustomPinnedURL? { nil }
+
+    func show(customURL _: CustomPinnedURL) {}
+
+    func reloadCustomPinnedURL(_: CustomPinnedURL) {}
+
+    func createNewPage() {}
 
     func replace(page: NotionPageReference, restoration: DurablePageRestoration?) {
         replace(page: page)
@@ -302,6 +314,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     private let geometryStore: any PanelGeometryPersisting
     private let spaceTransitionObserver: (any SpaceTransitionObserving)?
     private(set) var currentPage: NotionPageReference?
+    private(set) var currentCustomURL: CustomPinnedURL?
     private var liveResizeObserver: NSObjectProtocol?
     private var moveObserver: NSObjectProtocol?
     private var spaceTransitionState = SpaceTransitionState.idle
@@ -337,16 +350,20 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     var onPanelPositionChange: (@MainActor () -> Void)?
 
     var presentationState: PiPPresentationState {
-        guard currentPage != nil else { return .unavailable }
+        guard hasPinnedDestination else { return .unavailable }
         return panel.isVisible ? .visible : .stashed
     }
 
     var hasPinnedPage: Bool {
-        currentPage != nil
+        hasPinnedDestination
     }
 
     var canPositionPanel: Bool {
-        currentPage != nil
+        hasPinnedDestination
+    }
+
+    private var hasPinnedDestination: Bool {
+        currentPage != nil || currentCustomURL != nil
     }
 
     var selectedCorner: PanelCorner? {
@@ -379,6 +396,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         webSession: NotionWebSession = NotionWebSession(),
         commandModel: AppCommandModel = .noOp,
         onReloadSavedPin: @escaping () -> Void = {},
+        onReturnToNotion: @escaping () -> Void = {},
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
         contextualPageActionState: ContextualPageActionState = ContextualPageActionState(),
@@ -490,7 +508,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
                 onStash: { [weak self] in
                     self?.onExternalPresentationAction?()
                     _ = self?.stashOrRestoreCurrentPage()
-                }
+                },
+                onReturnToNotion: onReturnToNotion
             )
         )
         // The retained panel owns its geometry while SwiftUI swaps the WebView in and out.
@@ -612,11 +631,13 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     func show(page: NotionPageReference, restoration: DurablePageRestoration?) {
-        let hadPinnedPage = currentPage != nil
+        let hadPinnedDestination = hasPinnedDestination
         let measurement = beginFirstPresentation()
         cancelPendingStashDismissal()
         prepareInitialFrameIfNeeded()
-        if currentPage?.canonicalURL != page.canonicalURL {
+        let switchingFromCustomURL = currentCustomURL != nil
+        currentCustomURL = nil
+        if currentPage?.canonicalURL != page.canonicalURL || switchingFromCustomURL {
             pageLoader.activate(page: page, restoration: restoration)
             currentPage = page
         } else {
@@ -626,7 +647,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         presentPanel()
         endFirstPresentation(measurement)
         notifyPanelDidShow()
-        if !hadPinnedPage {
+        if !hadPinnedDestination {
             onPinnedPageAvailabilityChange?()
         }
         onPanelPositionChange?()
@@ -634,25 +655,69 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     func reloadPinnedPage(_ page: NotionPageReference) {
-        let hadPinnedPage = currentPage != nil
+        let hadPinnedDestination = hasPinnedDestination
         let measurement = beginFirstPresentation()
         cancelPendingStashDismissal()
         prepareInitialFrameIfNeeded()
         restoreCommittedPanelFrame()
+        currentCustomURL = nil
         currentPage = page
         presentPanel()
         endFirstPresentation(measurement)
         notifyPanelDidShow()
         pageLoader.reloadPinnedPage(page)
-        if !hadPinnedPage {
+        if !hadPinnedDestination {
             onPinnedPageAvailabilityChange?()
         }
         onPanelPositionChange?()
         logger.notice("Pinned page reload requested")
     }
 
+    func show(customURL: CustomPinnedURL) {
+        let hadPinnedDestination = hasPinnedDestination
+        let measurement = beginFirstPresentation()
+        cancelPendingStashDismissal()
+        prepareInitialFrameIfNeeded()
+        if currentCustomURL?.canonicalURL != customURL.canonicalURL {
+            pageLoader.activate(customURL: customURL)
+            currentCustomURL = customURL
+        }
+        restoreCommittedPanelFrame()
+        presentPanel()
+        endFirstPresentation(measurement)
+        notifyPanelDidShow()
+        if !hadPinnedDestination {
+            onPinnedPageAvailabilityChange?()
+        }
+        onPanelPositionChange?()
+        logger.notice("Custom pinned URL show requested")
+    }
+
+    func reloadCustomPinnedURL(_ url: CustomPinnedURL) {
+        let hadPinnedDestination = hasPinnedDestination
+        let measurement = beginFirstPresentation()
+        cancelPendingStashDismissal()
+        prepareInitialFrameIfNeeded()
+        restoreCommittedPanelFrame()
+        currentCustomURL = url
+        presentPanel()
+        endFirstPresentation(measurement)
+        notifyPanelDidShow()
+        pageLoader.reloadCustomPinnedURL(url)
+        if !hadPinnedDestination {
+            onPinnedPageAvailabilityChange?()
+        }
+        onPanelPositionChange?()
+        logger.notice("Custom pinned URL reload requested")
+    }
+
+    func createNewPage() {
+        currentCustomURL = nil
+        pageLoader.createNewPage()
+    }
+
     func showCurrentPage() -> Bool {
-        guard currentPage != nil else { return false }
+        guard hasPinnedDestination else { return false }
         onWillReveal?()
         let measurement = beginFirstPresentation()
         cancelPendingStashDismissal()
@@ -668,7 +733,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     func showCurrentPageFromShortcut(
         measurement: ShortcutPresentationMeasurement
     ) -> Bool {
-        guard currentPage != nil else {
+        guard hasPinnedDestination else {
             measurement.signposter.end(measurement.requestToken, outcome: .failure)
             measurement.signposter.end(measurement.usefulContentToken, outcome: .failure)
             return false
@@ -698,7 +763,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     func stashOrRestoreCurrentPage() -> Bool {
-        guard currentPage != nil else { return false }
+        guard hasPinnedDestination else { return false }
         switch presentationState {
         case .unavailable:
             return false
@@ -711,7 +776,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     func performGlobalShortcutAction() -> Bool {
-        guard currentPage != nil else { return false }
+        guard hasPinnedDestination else { return false }
         if panel.isVisible, panel.isExpanded {
             panel.restoreFromExpandedState()
             panel.pulseLocateHalo()
@@ -739,7 +804,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     @discardableResult
     func movePanel(to corner: PanelCorner) -> Bool {
         onExternalPresentationAction?()
-        guard currentPage != nil else { return false }
+        guard hasPinnedDestination else { return false }
 
         let topology = currentTopology()
         let desiredContentSize = committedGeometry?.desiredContentSize.cgSize
@@ -768,7 +833,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     @discardableResult
     func applyPanelContentSize(_ contentSize: CGSize) -> Bool {
         onExternalPresentationAction?()
-        guard currentPage != nil else { return false }
+        guard hasPinnedDestination else { return false }
 
         cancelPendingStashDismissal()
         let wasVisible = panel.isVisible
@@ -825,7 +890,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             cancelPendingStashDismissal()
         }
         settleActiveProgrammaticFrameChange()
-        guard currentPage != nil,
+        guard hasPinnedDestination,
             let stashHandle,
             let placement = PanelStashPolicy.placement(
                 for: logicalPanelFrame,
@@ -870,7 +935,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             cancelPendingStashDismissal()
         }
         settleActiveProgrammaticFrameChange()
-        guard currentPage != nil, let stashHandle else { return false }
+        guard hasPinnedDestination, let stashHandle else { return false }
 
         latestTopology = topology
         commitCurrentGeometry(
@@ -908,7 +973,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             cancelPendingStashDismissal()
         }
         settleActiveProgrammaticFrameChange()
-        guard currentPage != nil,
+        guard hasPinnedDestination,
             let stashHandle,
             let placement = PanelStashPolicy.placement(
                 for: logicalPanelFrame,
@@ -937,7 +1002,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
 
     func restoreFromStash() {
         onExternalPresentationAction?()
-        guard currentPage != nil else {
+        guard hasPinnedDestination else {
             dismissStashHandle()
             return
         }

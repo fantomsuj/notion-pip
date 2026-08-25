@@ -3,6 +3,11 @@ import SwiftUI
 struct PageURLInputView: View {
     @ObservedObject var state: PageURLInputState
     let onSubmit: () -> Void
+    var title: String = "Notion page URL"
+    var subtitle: String = "In Notion, choose ••• → Copy link."
+    var placeholder: String = "https://www.notion.com/…"
+    var accessibilityLabel: String = "Notion page URL"
+    var submitTitle: String = "Open in Perch"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shakeToken = 0
 
@@ -11,6 +16,11 @@ struct PageURLInputView: View {
             PageURLField(
                 text: $state.text,
                 focusRequest: state.focusRequest,
+                title: title,
+                subtitle: subtitle,
+                placeholder: placeholder,
+                accessibilityLabel: accessibilityLabel,
+                submitTitle: submitTitle,
                 onSubmit: onSubmit
             )
 

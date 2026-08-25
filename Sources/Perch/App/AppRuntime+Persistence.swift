@@ -19,6 +19,7 @@ extension AppRuntime {
         restorePinnedPageTask = Task { [weak self] in
             guard !Task.isCancelled else { return }
             guard let pageRepository else {
+                self?.restoreCustomPinnedDestinationIfNeeded()
                 self?.showSettingsIfRestoreStillEmpty(expectedGeneration: expectedGeneration)
                 return
             }
@@ -27,28 +28,25 @@ extension AppRuntime {
                 let storedPage = workingSet.activePage
                 guard !Task.isCancelled else { return }
                 self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
-                guard let storedPage else {
-                    self?.showSettingsIfRestoreStillEmpty(
+                guard self?.pageSelectionGeneration == expectedGeneration else { return }
+                if let storedPage,
+                   let page = self?.validRestoredPage(from: storedPage)
+                {
+                    self?.restorePinnedPage(
+                        page,
+                        restoration: workingSet.restoration(for: page.pageID),
                         expectedGeneration: expectedGeneration
                     )
-                    return
                 }
-                guard let page = self?.validRestoredPage(from: storedPage) else {
-                    self?.showSettingsIfRestoreStillEmpty(
-                        expectedGeneration: expectedGeneration
-                    )
-                    return
-                }
-                guard !Task.isCancelled else { return }
-                self?.restorePinnedPage(
-                    page,
-                    restoration: workingSet.restoration(for: page.pageID),
+                self?.restoreCustomPinnedDestinationIfNeeded()
+                self?.showSettingsIfRestoreStillEmpty(
                     expectedGeneration: expectedGeneration
                 )
             } catch {
                 guard !Task.isCancelled else { return }
                 logger.error("Pinned page restore failed category=repository-read")
                 self?.reportServiceIssue(.pinnedPagePersistenceUnavailable)
+                self?.restoreCustomPinnedDestinationIfNeeded()
                 self?.showSettingsIfRestoreStillEmpty(expectedGeneration: expectedGeneration)
             }
         }
@@ -75,6 +73,7 @@ extension AppRuntime {
     private func showSettingsIfRestoreStillEmpty(expectedGeneration: Int) {
         guard expectedGeneration == pageSelectionGeneration,
               activePage == nil,
+              activeCustomURL == nil,
               !suppressesAutomaticCurrentPageSetup,
               automaticSettingsPresentationAllowed(),
               !Task.isCancelled

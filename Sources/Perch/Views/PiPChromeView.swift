@@ -56,6 +56,82 @@ struct FailedLoadBannerAccessibilityPresentation: Equatable {
         retryAccessibilityLabel: "Retry loading Notion page",
         childBehavior: .contain
     )
+
+    static let customPinnedFailedLoad = Self(
+        message: "This page couldn't load.",
+        retryAccessibilityLabel: "Retry loading this page",
+        childBehavior: .contain
+    )
+}
+
+enum PiPDestinationChrome: Equatable {
+    case notion
+    case customPinned
+
+    init(isShowingCustomURL: Bool) {
+        self = isShowingCustomURL ? .customPinned : .notion
+    }
+
+    var showsNotionPageActions: Bool { self == .notion }
+
+    var showNotionAccessibilityLabel: String { "Show Notion page" }
+    var showNotionHelp: String { "Return to your last Notion page" }
+
+    var openInBrowserAccessibilityLabel: String {
+        switch self {
+        case .notion:
+            "Open Notion page in browser"
+        case .customPinned:
+            "Open this page in the browser"
+        }
+    }
+
+    var openInBrowserHelp: String {
+        switch self {
+        case .notion:
+            "Open this page in the Notion app and stash Perch"
+        case .customPinned:
+            "Open this page in your default browser"
+        }
+    }
+
+    var reloadAccessibilityLabel: String {
+        switch self {
+        case .notion:
+            "Reload current Notion page"
+        case .customPinned:
+            "Reload current page"
+        }
+    }
+
+    var reloadHelp: String {
+        switch self {
+        case .notion:
+            "Reload the current Notion page"
+        case .customPinned:
+            "Reload the current page"
+        }
+    }
+
+    var offlineMessage: String {
+        switch self {
+        case .notion:
+            "You're offline. Notion will reconnect when the network is available."
+        case .customPinned:
+            "You're offline. This page will reload when the network is available."
+        }
+    }
+
+    var failedLoadPresentation: FailedLoadBannerAccessibilityPresentation {
+        switch self {
+        case .notion:
+            .failedLoad
+        case .customPinned:
+            .customPinnedFailedLoad
+        }
+    }
+
+    var failedLoadMessage: String { failedLoadPresentation.message }
 }
 
 struct ContextualPageActionPresentation: Equatable {
@@ -118,6 +194,7 @@ struct PiPChromeView: View {
     let panelPositionController: PanelPositionController?
     let onReloadSavedPin: () -> Void
     let onStash: () -> Void
+    let onReturnToNotion: () -> Void
     var showsTopControls: Bool {
         Self.shouldShowTopControls(
             isHoveringTopEdge: topControlsHover.isHovering,
@@ -160,7 +237,8 @@ struct PiPChromeView: View {
         panelPositionController: PanelPositionController? = nil,
         contextualPageActionState: ContextualPageActionState = ContextualPageActionState(),
         onReloadSavedPin: @escaping () -> Void = {},
-        onStash: @escaping () -> Void = {}
+        onStash: @escaping () -> Void = {},
+        onReturnToNotion: @escaping () -> Void = {}
     ) {
         self.webSession = webSession
         self.commandModel = commandModel
@@ -169,6 +247,7 @@ struct PiPChromeView: View {
         self.contextualPageActionState = contextualPageActionState
         self.onReloadSavedPin = onReloadSavedPin
         self.onStash = onStash
+        self.onReturnToNotion = onReturnToNotion
     }
 
     func repinCurrentPage() {
@@ -177,7 +256,17 @@ struct PiPChromeView: View {
 
     func openInNotionAndStash() {
         webSession.openInBrowser()
-        onStash()
+        if destinationChrome == .notion {
+            onStash()
+        }
+    }
+
+    func returnToNotionPage() {
+        onReturnToNotion()
+    }
+
+    private var destinationChrome: PiPDestinationChrome {
+        PiPDestinationChrome(isShowingCustomURL: webSession.isShowingCustomURL)
     }
 
     func continueLoginInBrowser() {
@@ -349,34 +438,48 @@ struct PiPChromeView: View {
 
     private var expandedTopControls: some View {
         VStack(spacing: Self.topControlsSpacing) {
-            Button {
-                commandModel.perform(Self.primaryActionID)
-            } label: {
-                Image(systemName: "plus")
-                    .frame(
-                        width: PanelCornerControls.minimumHitTarget,
-                        height: PanelCornerControls.minimumHitTarget
-                    )
-                    .contentShape(Rectangle())
-            }
-            .chromePressStyle()
-            .disabled(!(commandModel.command(for: Self.primaryActionID)?.isEnabled ?? false))
-            .accessibilityLabel(Self.primaryActionAccessibilityLabel)
-            .help(Self.primaryActionHelp)
+            if destinationChrome.showsNotionPageActions {
+                Button {
+                    commandModel.perform(Self.primaryActionID)
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(
+                            width: PanelCornerControls.minimumHitTarget,
+                            height: PanelCornerControls.minimumHitTarget
+                        )
+                        .contentShape(Rectangle())
+                }
+                .chromePressStyle()
+                .disabled(!(commandModel.command(for: Self.primaryActionID)?.isEnabled ?? false))
+                .accessibilityLabel(Self.primaryActionAccessibilityLabel)
+                .help(Self.primaryActionHelp)
 
-            Button {
-                webSession.presentCommandPalette()
-            } label: {
-                Image(systemName: "book")
-                    .frame(
-                        width: PanelCornerControls.minimumHitTarget,
-                        height: PanelCornerControls.minimumHitTarget
-                    )
-                    .contentShape(Rectangle())
+                Button {
+                    webSession.presentCommandPalette()
+                } label: {
+                    Image(systemName: "book")
+                        .frame(
+                            width: PanelCornerControls.minimumHitTarget,
+                            height: PanelCornerControls.minimumHitTarget
+                        )
+                        .contentShape(Rectangle())
+                }
+                .chromePressStyle()
+                .accessibilityLabel(Self.pageSwitcherAccessibilityLabel)
+                .help(Self.pageSwitcherHelp)
+            } else {
+                Button(action: returnToNotionPage) {
+                    NotionToolbarMark()
+                        .frame(
+                            width: PanelCornerControls.minimumHitTarget,
+                            height: PanelCornerControls.minimumHitTarget
+                        )
+                        .contentShape(Rectangle())
+                }
+                .chromePressStyle()
+                .accessibilityLabel(destinationChrome.showNotionAccessibilityLabel)
+                .help(destinationChrome.showNotionHelp)
             }
-            .chromePressStyle()
-            .accessibilityLabel(Self.pageSwitcherAccessibilityLabel)
-            .help(Self.pageSwitcherHelp)
 
             Button {
                 reloadFeedbackPending = true
@@ -386,19 +489,28 @@ struct PiPChromeView: View {
             }
             .chromePressStyle()
             .accessibilityLabel(reloadControlAccessibilityLabel)
-            .help(Self.reloadHelp)
+            .help(destinationChrome.reloadHelp)
 
             Button(action: openInNotionAndStash) {
-                NotionToolbarMark()
-                    .frame(
-                        width: PanelCornerControls.minimumHitTarget,
-                        height: PanelCornerControls.minimumHitTarget
-                    )
-                    .contentShape(Rectangle())
+                if destinationChrome.showsNotionPageActions {
+                    NotionToolbarMark()
+                        .frame(
+                            width: PanelCornerControls.minimumHitTarget,
+                            height: PanelCornerControls.minimumHitTarget
+                        )
+                        .contentShape(Rectangle())
+                } else {
+                    Image(systemName: "globe")
+                        .frame(
+                            width: PanelCornerControls.minimumHitTarget,
+                            height: PanelCornerControls.minimumHitTarget
+                        )
+                        .contentShape(Rectangle())
+                }
             }
             .chromePressStyle()
-            .accessibilityLabel("Open Notion page in browser")
-            .help("Open this page in the Notion app and stash Perch")
+            .accessibilityLabel(destinationChrome.openInBrowserAccessibilityLabel)
+            .help(destinationChrome.openInBrowserHelp)
 
             PiPAppCommandMenu(
                 commandModel: commandModel,
@@ -457,9 +569,9 @@ struct PiPChromeView: View {
     private var reloadControlAccessibilityLabel: String {
         switch reloadGlyph {
         case .idle:
-            Self.reloadAccessibilityLabel
+            destinationChrome.reloadAccessibilityLabel
         case .loading:
-            "Loading Notion page"
+            destinationChrome == .customPinned ? "Loading page" : "Loading Notion page"
         case .success:
             "Reload complete"
         }
@@ -490,7 +602,7 @@ struct PiPChromeView: View {
         case .offline:
             HStack(spacing: DesignTokens.Spacing.control) {
                 Label(
-                    "You're offline. Notion will reconnect when the network is available.",
+                    destinationChrome.offlineMessage,
                     systemImage: "wifi.slash"
                 )
                 .font(.caption)
@@ -501,9 +613,9 @@ struct PiPChromeView: View {
 
             Divider()
         case .failedLoad:
-            let presentation = FailedLoadBannerAccessibilityPresentation.failedLoad
+            let presentation = destinationChrome.failedLoadPresentation
             HStack(spacing: DesignTokens.Spacing.control) {
-                Label("Notion couldn't load this page.", systemImage: "exclamationmark.triangle")
+                Label(presentation.message, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Colors.error)
                     .accessibilityLabel(presentation.message)

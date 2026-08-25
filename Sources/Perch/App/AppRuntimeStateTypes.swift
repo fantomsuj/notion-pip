@@ -52,6 +52,7 @@ enum PageActivationSource: Equatable, Sendable {
     case pageSwitcher
     case edgeHandleDrop
     case contextSuggestion
+    case customPinnedURL
 }
 
 enum ShortcutPeekGestureState: Equatable, Sendable {

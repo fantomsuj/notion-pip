@@ -100,6 +100,10 @@ extension AppRuntime {
     }
 
     func reloadSavedPin() {
+        if let activeCustomURL {
+            pinCoordinator.reloadCustomPinnedURL(activeCustomURL)
+            return
+        }
         guard let activePage else { return }
         pinCoordinator.reloadPinnedPage(activePage)
     }

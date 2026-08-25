@@ -16,6 +16,50 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .unloaded)
     }
 
+    func testCustomPinnedURLLoadsInThePanelAndSkipsNotionPageAdoption() throws {
+        var loadedURLs: [URL] = []
+        let session = NotionWebSession(loadRequest: { _, request in
+            if let url = request.url {
+                loadedURLs.append(url)
+            }
+        })
+        let pin = try CustomPinnedURL(validatingString: "https://canvas.example.edu/courses/12")
+        let notionURL = try XCTUnwrap(
+            URL(string: "https://www.notion.so/Notes-\(firstPageID)")
+        )
+
+        session.activate(customURL: pin)
+
+        XCTAssertEqual(session.activeCustomURL, pin)
+        XCTAssertNil(session.activePage)
+        XCTAssertEqual(session.browsingMode, .customPinned)
+        XCTAssertEqual(loadedURLs, [pin.canonicalURL])
+        XCTAssertEqual(
+            session.navigationPolicy(
+                for: pin.canonicalURL,
+                context: .mainFrame
+            ),
+            .allow
+        )
+        XCTAssertEqual(
+            session.navigationPolicy(
+                for: try XCTUnwrap(URL(string: "https://sso.example.edu/cas")),
+                context: .mainFrame
+            ),
+            .allow
+        )
+
+        var resolvedPages: [NotionPageReference] = []
+        session.onPageResolved = { resolvedPages.append($0) }
+        let webView = try XCTUnwrap(session.webView)
+        session.adoptResolvedPage(at: notionURL, from: webView)
+
+        XCTAssertTrue(resolvedPages.isEmpty)
+        XCTAssertEqual(session.activeCustomURL, pin)
+        XCTAssertNil(session.activePage)
+    }
+
+
     func testInteractionStateCacheCapsEntriesAndRefreshesUpdatedKeys() {
         var cache = NotionInteractionStateCache(capacity: 2)
         cache.insert("first-state", forKey: "first")

@@ -29,6 +29,9 @@ Pin the Notion page you are living in and keep it close without turning it into 
   pinned favorites or seven recent pages. Give pins optional device-local roles
   such as “Today” or “Project Brief”; the switcher keeps the Notion title visible
   and searches both role and title without creating another live web view.
+- Optionally enable **Custom Pins (Beta)** in Settings to keep an HTTPS site such
+  as Canvas in the same panel. The last Notion page stays saved, and the panel
+  chrome includes **Show Notion page** so you can return in one click.
 - Save device-local panel size presets in Settings and apply them from the panel
   or menu-bar menus without reloading the live Notion page.
 - Opt in to launching Perch when you log in to your Mac. The Settings

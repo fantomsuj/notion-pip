@@ -29,7 +29,10 @@ protocol NotionPageLoading: AnyObject {
     var webViewRetention: WebViewRetention { get }
     func activate(page: NotionPageReference)
     func activate(page: NotionPageReference, restoration: DurablePageRestoration?)
+    func activate(customURL: CustomPinnedURL)
     func reloadPinnedPage(_ page: NotionPageReference)
+    func reloadCustomPinnedURL(_ url: CustomPinnedURL)
+    func createNewPage()
     func reselect(page: NotionPageReference)
     func panelDidShow()
     func panelDidHide()
@@ -49,6 +52,9 @@ extension NotionPageLoading {
         activate(page: page)
     }
 
+    func activate(customURL _: CustomPinnedURL) {}
+    func reloadCustomPinnedURL(_: CustomPinnedURL) {}
+    func createNewPage() {}
     func reselect(page _: NotionPageReference) {}
     func panelDidShow() {}
     func panelDidHide() {}
@@ -92,6 +98,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     @Published private(set) var browserLoginState: NotionBrowserLoginState = .idle
     @Published private(set) var isTypingInPage = false
     private(set) var activePage: NotionPageReference?
+    @Published private(set) var activeCustomURL: CustomPinnedURL?
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
     private(set) var isCreatingNewPage = false
     static let newPageURL = URL(string: "https://www.notion.so/new")!
@@ -204,6 +211,14 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             self.savedEditorSelection = (pageID, nextSnapshot)
             completion(true)
         }
+    }
+
+    var browsingMode: WebBrowsingMode {
+        activeCustomURL == nil ? .notion : .customPinned
+    }
+
+    var isShowingCustomURL: Bool {
+        activeCustomURL != nil
     }
 
     var shouldHostWebView: Bool {
@@ -445,6 +460,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         restoration: DurablePageRestoration?
     ) {
         isCreatingNewPage = false
+        activeCustomURL = nil
         guard activePage?.canonicalURL != page.canonicalURL else {
             return
         }
@@ -475,11 +491,42 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     func reloadPinnedPage(_ page: NotionPageReference) {
         cancelBrowserLogin(resetState: true)
         invalidateEditorSelection()
+        activeCustomURL = nil
         activePage = page
         webContentRecoveryState = .ready
         revealTopControls()
         pageStateRestoration.prepareReload(of: page)
         load(page.canonicalURL, pageID: page.pageID)
+    }
+
+    func activate(customURL: CustomPinnedURL) {
+        isCreatingNewPage = false
+        cancelBrowserLogin(resetState: true)
+        invalidateEditorSelection()
+        if let outgoingPage = activePage, let webView {
+            captureAndTearDown(webView, page: outgoingPage)
+        }
+        activePage = nil
+        activeCustomURL = customURL
+        webContentRecoveryState = .ready
+        revealTopControls()
+        guard panelIsVisible, state != .suspended else {
+            if !panelIsVisible, webView != nil {
+                suspendWebViewIfNeeded()
+            }
+            return
+        }
+        load(customURL.canonicalURL, pageID: customURL.id)
+    }
+
+    func reloadCustomPinnedURL(_ url: CustomPinnedURL) {
+        cancelBrowserLogin(resetState: true)
+        invalidateEditorSelection()
+        activePage = nil
+        activeCustomURL = url
+        webContentRecoveryState = .ready
+        revealTopControls()
+        load(url.canonicalURL, pageID: url.id)
     }
 
     func panelDidShow() {
@@ -497,10 +544,17 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         selectionCaptureGeneration &+= 1
         let resumeCommand = lifecycleController.panelDidShow(
             hasWebView: webView != nil,
-            hasActivePage: activePage != nil
+            hasActivePage: activePage != nil || activeCustomURL != nil
         )
-        if resumeCommand == .loadActivePage, let activePage {
+        if resumeCommand == .loadActivePage, let activeCustomURL {
+            load(activeCustomURL.canonicalURL, pageID: activeCustomURL.id)
+        } else if resumeCommand == .loadActivePage, let activePage {
             restoreOrLoad(page: activePage)
+        } else if let activeCustomURL,
+                  webView != nil,
+                  loadedPageID != activeCustomURL.id
+        {
+            load(activeCustomURL.canonicalURL, pageID: activeCustomURL.id)
         } else if let activePage,
                   webView != nil,
                   loadedPageID != activePage.pageID
@@ -574,6 +628,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     func createNewPage() {
         guard !isCreatingNewPage else { return }
+        activeCustomURL = nil
         isCreatingNewPage = true
         revealTopControls()
         load(Self.newPageURL, pageID: loadedPageID ?? activePage?.pageID)
@@ -613,6 +668,10 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func reload() {
+        if let activeCustomURL {
+            reloadCustomPinnedURL(activeCustomURL)
+            return
+        }
         guard let activePage else {
             return
         }
@@ -635,6 +694,10 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func openInBrowser() {
+        if let customURL = activeCustomURL {
+            openURL(webView?.url ?? customURL.canonicalURL)
+            return
+        }
         guard let activePage else {
             return
         }
@@ -1364,7 +1427,8 @@ extension NotionWebSession: WKNavigationDelegate {
     ) -> WKNavigationActionPolicy {
         switch navigationDecisionPolicy.actionDecision(
             for: url,
-            context: context
+            context: context,
+            mode: browsingMode
         ) {
         case .allow:
             return .allow
@@ -1492,6 +1556,7 @@ extension NotionWebSession: WKNavigationDelegate {
     ) {
         guard let url,
               isCurrent(webView, generation: generation),
+              activeCustomURL == nil,
               var resolvedPage = try? NotionPageReference(validating: url),
               webView.url == url,
               loadedPageID == activePage?.pageID
@@ -1609,11 +1674,11 @@ extension NotionWebSession: WKNavigationDelegate {
     }
 
     private func isCancellation(_ error: Error) -> Bool {
-        navigationDecisionPolicy.failureDecision(for: error) == .cancelled
+        navigationDecisionPolicy.failureDecision(for: error, mode: browsingMode) == .cancelled
     }
 
     private func navigationFailureState(for error: Error) -> NotionWebSessionState {
-        switch navigationDecisionPolicy.failureDecision(for: error) {
+        switch navigationDecisionPolicy.failureDecision(for: error, mode: browsingMode) {
         case .cancelled:
             return .loading
         case .offline:
@@ -1710,7 +1775,7 @@ extension NotionWebSession: WKUIDelegate {
         in webView: WKWebView
     ) -> WKWebView? {
         guard isCurrent(webView) else { return nil }
-        switch navigationDecisionPolicy.newWindowDecision(for: request) {
+        switch navigationDecisionPolicy.newWindowDecision(for: request, mode: browsingMode) {
         case .createPopup:
             return popupCoordinator.present(using: configuration)
         case let .openExternally(url):
