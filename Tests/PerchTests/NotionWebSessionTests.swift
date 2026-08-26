@@ -789,6 +789,9 @@ final class NotionWebSessionTests: XCTestCase {
                 case .insert:
                     XCTFail("Unexpected insertion evaluation")
                     completion(.success(false))
+                case .pasteMarkdown:
+                    XCTFail("Unexpected markdown paste evaluation")
+                    completion(.success(false))
                 }
             },
             scheduleAfterAttachment: { $0() },
@@ -881,6 +884,9 @@ final class NotionWebSessionTests: XCTestCase {
                     case .insert:
                         XCTFail("Unexpected insertion evaluation")
                         completion(.success(false))
+                    case .pasteMarkdown:
+                        XCTFail("Unexpected markdown paste evaluation")
+                        completion(.success(false))
                     }
                 },
                 scheduleAfterAttachment: { $0() },
@@ -966,6 +972,8 @@ final class NotionWebSessionTests: XCTestCase {
                     completion(.success(true))
                 case let .insert(text, _):
                     completion(.success(self.validSelectionSnapshotValue(token: "after-\(text)")))
+                case let .pasteMarkdown(text, _):
+                    completion(.success(self.validSelectionSnapshotValue(token: "after-\(text)")))
                 }
             }
         )
@@ -1005,6 +1013,8 @@ final class NotionWebSessionTests: XCTestCase {
                 case .restore:
                     completion(.success(true))
                 case .insert:
+                    completion(.success(self.validSelectionSnapshotValue(token: "advanced")))
+                case .pasteMarkdown:
                     completion(.success(self.validSelectionSnapshotValue(token: "advanced")))
                 }
             }
@@ -1289,6 +1299,9 @@ final class NotionWebSessionTests: XCTestCase {
                     XCTFail("Terminated DOM selection must never be restored")
                     completion(.success(false))
                 case .insert:
+                    insertionEvaluationCount += 1
+                    completion(.success(self.validSelectionSnapshotValue()))
+                case .pasteMarkdown:
                     insertionEvaluationCount += 1
                     completion(.success(self.validSelectionSnapshotValue()))
                 }
@@ -2429,6 +2442,9 @@ private final class SelectionEvaluationRecorder {
             completion(.success(true))
         case .insert:
             XCTFail("Unexpected insertion evaluation")
+            completion(.success(false))
+        case .pasteMarkdown:
+            XCTFail("Unexpected markdown paste evaluation")
             completion(.success(false))
         }
     }

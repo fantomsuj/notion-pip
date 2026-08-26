@@ -28,6 +28,9 @@ enum PerchApp {
                         coldLaunchToken: coldLaunchToken,
                         applicationDidFinishLaunching: {
                             composition.applicationDidFinishLaunching()
+                        },
+                        prepareAdditionalTermination: {
+                            await composition.prepareForTermination()
                         }
                     )
                     application.run()
@@ -47,7 +50,8 @@ enum AppStartup {
         appDelegate: AppDelegate,
         coldLaunchToken: PerformanceIntervalToken? = nil,
         performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
-        applicationDidFinishLaunching: @escaping @MainActor () -> Void = {}
+        applicationDidFinishLaunching: @escaping @MainActor () -> Void = {},
+        prepareAdditionalTermination: (@MainActor () async -> Void)? = nil
     ) {
         runtime.start()
         appDelegate.bind(
@@ -56,6 +60,7 @@ enum AppStartup {
         )
         appDelegate.bind(applicationDidFinishLaunching: applicationDidFinishLaunching)
         appDelegate.bind {
+            await prepareAdditionalTermination?()
             await runtime.prepareForTermination()
             return true
         }
@@ -81,18 +86,38 @@ private final class AppComposition {
     private let launchAtLoginService: LaunchAtLoginService
     private let contextSuggestionController: ContextSuggestionController
     private let contextSuggestionPanelController: ContextSuggestionPanelController
+    private let agentStreamingService: AgentStreamingService
+    private let agentStreamNotificationDelegate: AgentStreamNotificationDelegate
     private var statusItemAppearanceCancellable: AnyCancellable?
     private var contextSuggestionActivePageCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching() {
         updaterController.start()
+        agentStreamingService.startIfPreferred()
         startupRecoveryCoordinator.applicationDidFinishLaunching()
+    }
+
+    func prepareForTermination() async {
+        await agentStreamingService.prepareForTermination()
     }
 
     init() {
         let actionRelay = AppCommandActionRelay()
         let onboardingPreferenceStore = OnboardingPreferenceStore()
         let webSession = NotionWebSession()
+        let agentStreamController = AgentStreamController(
+            target: webSession,
+            notifier: AgentStreamUserNotifier()
+        )
+        let agentStreamingService = AgentStreamingService(
+            controller: agentStreamController
+        )
+        let agentStreamNotificationDelegate = AgentStreamNotificationDelegate(
+            controller: agentStreamController
+        )
+        AgentStreamUserNotifier.installNotificationCenterDelegate(
+            agentStreamNotificationDelegate
+        )
 
         do {
             try LegacyPersonalTokenRemover().remove()
@@ -150,6 +175,7 @@ private final class AppComposition {
             panelSizeController: panelSizeController,
             panelPositionController: panelPositionController,
             contextualPageActionState: contextualPageActionState,
+            agentStreamController: agentStreamController,
             stashHandle: stashHandle
         )
         let runtime = AppRuntime(
@@ -231,6 +257,7 @@ private final class AppComposition {
                 panelSizeController: panelSizeController,
                 launchAtLoginService: launchAtLoginService,
                 contextSuggestionController: contextSuggestionController,
+                agentStreamingService: agentStreamingService,
                 closeRequestHandler: closeHandler
             )
         }
@@ -336,6 +363,8 @@ private final class AppComposition {
         self.launchAtLoginService = launchAtLoginService
         self.contextSuggestionController = contextSuggestionController
         self.contextSuggestionPanelController = contextSuggestionPanelController
+        self.agentStreamingService = agentStreamingService
+        self.agentStreamNotificationDelegate = agentStreamNotificationDelegate
     }
 
     private static func retainWorkingSetSnapshots(

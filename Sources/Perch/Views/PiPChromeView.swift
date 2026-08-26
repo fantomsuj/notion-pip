@@ -105,6 +105,8 @@ struct PiPChromeView: View {
     static let topControlsHoverOutset: CGFloat = 12
 
     @ObservedObject var webSession: NotionWebSession
+    @ObservedObject var contextualPageActionState: ContextualPageActionState
+    @ObservedObject private var agentStreamController: AgentStreamController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
@@ -112,7 +114,6 @@ struct PiPChromeView: View {
     @State private var reloadFeedbackPending = false
     @State private var reloadSuccessHoldExpiresAt: Date?
     @State private var failedLoadShakeToken = 0
-    @ObservedObject var contextualPageActionState: ContextualPageActionState
     let commandModel: AppCommandModel
     let panelSizeController: PanelSizeController?
     let panelPositionController: PanelPositionController?
@@ -159,6 +160,7 @@ struct PiPChromeView: View {
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
         contextualPageActionState: ContextualPageActionState = ContextualPageActionState(),
+        agentStreamController: AgentStreamController? = nil,
         onReloadSavedPin: @escaping () -> Void = {},
         onStash: @escaping () -> Void = {}
     ) {
@@ -167,6 +169,9 @@ struct PiPChromeView: View {
         self.panelSizeController = panelSizeController
         self.panelPositionController = panelPositionController
         self.contextualPageActionState = contextualPageActionState
+        self.agentStreamController =
+            agentStreamController
+            ?? AgentStreamController(target: webSession, notifier: AgentStreamNotifierNoOp())
         self.onReloadSavedPin = onReloadSavedPin
         self.onStash = onStash
     }
@@ -249,6 +254,9 @@ struct PiPChromeView: View {
         }
         .background(DesignTokens.Colors.background)
         .disablesAnimationOnColorSchemeChange()
+        .overlay(alignment: .bottomLeading) {
+            AgentStreamOverlayView(controller: agentStreamController)
+        }
         .overlay(alignment: .topTrailing) {
             ZStack(alignment: .topTrailing) {
                 Color.clear

@@ -29,16 +29,20 @@ struct RunningApplicationReference {
 
 @MainActor
 final class ApplicationInstanceCoordinator {
-    static let currentBundleIdentifier = "com.fantomsuj.Perch"
-    static let legacyBundleIdentifier = "com.fantomsuj.NotionPiP"
+    nonisolated static let currentBundleIdentifier = "com.fantomsuj.Perch"
+    nonisolated static let legacyBundleIdentifier = "com.fantomsuj.NotionPiP"
 
     // This explicit user-home path is shared by signed and ad-hoc builds from
     // every worktree, unlike a bundle-identity-specific sandbox container.
-    static var defaultLockFileURL: URL {
+    nonisolated static var defaultApplicationSupportDirectoryURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
             .appendingPathComponent(currentBundleIdentifier, isDirectory: true)
+    }
+
+    nonisolated static var defaultLockFileURL: URL {
+        defaultApplicationSupportDirectoryURL
             .appendingPathComponent("instance.lock")
     }
 

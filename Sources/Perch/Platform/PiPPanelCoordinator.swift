@@ -382,6 +382,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
         contextualPageActionState: ContextualPageActionState = ContextualPageActionState(),
+        agentStreamController: AgentStreamController? = nil,
         stashHandle: (any PiPStashHandle)? = nil,
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
@@ -486,6 +487,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
                 panelSizeController: panelSizeController,
                 panelPositionController: panelPositionController,
                 contextualPageActionState: contextualPageActionState,
+                agentStreamController: agentStreamController,
                 onReloadSavedPin: onReloadSavedPin,
                 onStash: { [weak self] in
                     self?.onExternalPresentationAction?()

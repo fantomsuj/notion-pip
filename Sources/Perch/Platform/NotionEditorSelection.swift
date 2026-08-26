@@ -91,6 +91,8 @@ enum NotionEditorSelectionEvaluation: Equatable {
     case capture
     case restore(NotionEditorSelectionSnapshot)
     case insert(String, at: NotionEditorSelectionSnapshot)
+    /// Paste Markdown so Notion converts structure (headings, lists, fences).
+    case pasteMarkdown(String, at: NotionEditorSelectionSnapshot)
 
     var script: String {
         switch self {
@@ -100,6 +102,8 @@ enum NotionEditorSelectionEvaluation: Equatable {
             Self.restoreScript(for: snapshot)
         case let .insert(text, snapshot):
             Self.insertScript(text: text, snapshot: snapshot)
+        case let .pasteMarkdown(markdown, snapshot):
+            Self.pasteMarkdownScript(markdown: markdown, snapshot: snapshot)
         }
     }
 
@@ -234,7 +238,26 @@ enum NotionEditorSelectionEvaluation: Equatable {
         text: String,
         snapshot: NotionEditorSelectionSnapshot
     ) -> String {
-        let payload: [String: Any] = ["snapshot": snapshot.javaScriptValue, "text": text]
+        mutationScript(mode: "insert", text: text, snapshot: snapshot)
+    }
+
+    private static func pasteMarkdownScript(
+        markdown: String,
+        snapshot: NotionEditorSelectionSnapshot
+    ) -> String {
+        mutationScript(mode: "pasteMarkdown", text: markdown, snapshot: snapshot)
+    }
+
+    private static func mutationScript(
+        mode: String,
+        text: String,
+        snapshot: NotionEditorSelectionSnapshot
+    ) -> String {
+        let payload: [String: Any] = [
+            "snapshot": snapshot.javaScriptValue,
+            "text": text,
+            "mode": mode,
+        ]
         guard JSONSerialization.isValidJSONObject(payload),
               let data = try? JSONSerialization.data(withJSONObject: payload),
               let value = String(data: data, encoding: .utf8)
@@ -263,17 +286,42 @@ enum NotionEditorSelectionEvaluation: Equatable {
                 editable.focus({ preventScroll: true });
                 const selection = window.getSelection();
                 selection.setBaseAndExtent(anchor, snapshot.anchorOffset, focus, snapshot.focusOffset);
-                const range = selection.getRangeAt(0);
-                range.deleteContents();
-                const inserted = document.createTextNode(payload.text);
-                range.insertNode(inserted);
-                range.setStartAfter(inserted);
-                range.collapse(true);
-                selection.removeAllRanges();
-                selection.addRange(range);
-                editable.dispatchEvent(new InputEvent('input', {
-                  bubbles: true, inputType: 'insertText', data: payload.text,
-                }));
+                if (payload.mode === 'pasteMarkdown') {
+                  const data = new DataTransfer();
+                  data.setData('text/plain', payload.text);
+                  data.setData('text/markdown', payload.text);
+                  const pasteEvent = new ClipboardEvent('paste', {
+                    bubbles: true,
+                    cancelable: true,
+                    clipboardData: data,
+                  });
+                  const pasteHandled = !editable.dispatchEvent(pasteEvent) || pasteEvent.defaultPrevented;
+                  if (!pasteHandled) {
+                    const range = selection.getRangeAt(0);
+                    range.deleteContents();
+                    const inserted = document.createTextNode(payload.text);
+                    range.insertNode(inserted);
+                    range.setStartAfter(inserted);
+                    range.collapse(true);
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                    editable.dispatchEvent(new InputEvent('input', {
+                      bubbles: true, inputType: 'insertFromPaste', data: payload.text,
+                    }));
+                  }
+                } else {
+                  const range = selection.getRangeAt(0);
+                  range.deleteContents();
+                  const inserted = document.createTextNode(payload.text);
+                  range.insertNode(inserted);
+                  range.setStartAfter(inserted);
+                  range.collapse(true);
+                  selection.removeAllRanges();
+                  selection.addRange(range);
+                  editable.dispatchEvent(new InputEvent('input', {
+                    bubbles: true, inputType: 'insertText', data: payload.text,
+                  }));
+                }
                 delete editable.__perchSelectionToken;
 
                 const currentSelection = window.getSelection();
