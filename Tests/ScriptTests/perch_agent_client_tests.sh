@@ -119,15 +119,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/v1/streams":
             self._send(201, {
                 "id": stream_id,
-                "label": "Fixture",
-                "client": "fixture",
-                "contentType": "text/markdown",
                 "phase": "receiving",
-                "assembledText": "",
                 "nextSequence": 0,
-                "opaquePageID": None,
-                "errorMessage": None,
-                "canAccept": False,
+                "error": None,
+                "limits": {"maxChunkUTF8Bytes": 32768},
             })
             return
 
@@ -138,30 +133,18 @@ class Handler(BaseHTTPRequestHandler):
                 fh.write("CHUNK %s\n" % json.dumps(payload, ensure_ascii=False))
             self._send(200, {
                 "id": stream_id,
-                "label": "Fixture",
-                "client": "fixture",
-                "contentType": "text/markdown",
                 "phase": "receiving",
-                "assembledText": payload.get("text", ""),
                 "nextSequence": int(payload.get("sequence", 0)) + 1,
-                "opaquePageID": None,
-                "errorMessage": None,
-                "canAccept": False,
+                "error": None,
             })
             return
 
         if self.path == f"/v1/streams/{stream_id}/complete":
             self._send(200, {
                 "id": stream_id,
-                "label": "Fixture",
-                "client": "fixture",
-                "contentType": "text/markdown",
                 "phase": "ready",
-                "assembledText": "",
                 "nextSequence": 1,
-                "opaquePageID": None,
-                "errorMessage": None,
-                "canAccept": True,
+                "error": None,
             })
             return
 
@@ -171,15 +154,9 @@ class Handler(BaseHTTPRequestHandler):
                 fh.write("CANCELLED\n")
             self._send(200, {
                 "id": stream_id,
-                "label": "Fixture",
-                "client": "fixture",
-                "contentType": "text/markdown",
                 "phase": "cancelled",
-                "assembledText": "",
                 "nextSequence": 0,
-                "opaquePageID": None,
-                "errorMessage": None,
-                "canAccept": False,
+                "error": None,
             })
             return
 

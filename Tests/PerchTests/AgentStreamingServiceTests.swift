@@ -41,25 +41,21 @@ final class AgentStreamingServiceTests: XCTestCase {
         try? FileManager.default.removeItem(at: home)
     }
 
-    func testSkillDocumentDoesNotFavorAnySingleAgent() {
-        XCTAssertFalse(AgentStreamSkillDocument.markdown.contains("\"client\": \"cursor\""))
-        XCTAssertFalse(AgentStreamSkillDocument.markdown.contains("\"label\": \"Cursor\""))
+    func testBundledSkillDoesNotFavorAnySingleAgent() throws {
+        let markdown = try AgentStreamSkillDocument.load()
+        XCTAssertFalse(markdown.contains("\"client\": \"cursor\""))
+        XCTAssertFalse(markdown.contains("\"label\": \"Cursor\""))
     }
 
-    func testSkillDocumentMentionsAcceptToPaste() {
-        XCTAssertTrue(
-            AgentStreamSkillDocument.markdown.contains("accept_to_paste")
-        )
-        XCTAssertTrue(
-            AgentStreamSkillDocument.markdown.contains("text/markdown")
-        )
-        XCTAssertTrue(
-            AgentStreamSkillDocument.markdown.contains("Accept")
-        )
+    func testBundledSkillMentionsAcceptToPaste() throws {
+        let markdown = try AgentStreamSkillDocument.load()
+        XCTAssertTrue(markdown.contains("accept_to_paste"))
+        XCTAssertTrue(markdown.contains("text/markdown"))
+        XCTAssertTrue(markdown.contains("Accept"))
     }
 
-    func testSkillDocumentCoversProtocolFrictionPoints() {
-        let markdown = AgentStreamSkillDocument.markdown
+    func testBundledSkillCoversProtocolFrictionPoints() throws {
+        let markdown = try AgentStreamSkillDocument.load()
         XCTAssertTrue(markdown.contains("Content-Type: application/json"))
         XCTAssertTrue(markdown.contains("JSON body field"))
         XCTAssertTrue(markdown.contains("Do not send `Content-Type: text/markdown`"))
@@ -69,7 +65,8 @@ final class AgentStreamingServiceTests: XCTestCase {
         XCTAssertTrue(markdown.contains(#""error":{"#))
         XCTAssertTrue(markdown.contains("Branch on `error.code`"))
         XCTAssertTrue(markdown.contains("required **only** on create"))
-        XCTAssertTrue(markdown.contains("assembledText"))
+        XCTAssertTrue(markdown.contains("nextSequence"))
+        XCTAssertFalse(markdown.contains("assembledText"))
         XCTAssertTrue(markdown.contains("Unknown route."))
     }
 
@@ -80,10 +77,21 @@ final class AgentStreamingServiceTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("agent-skills/stream-to-perch/SKILL.md")
         let repoSkill = try String(contentsOf: repoSkillURL, encoding: .utf8)
+        let bundled = try AgentStreamSkillDocument.load()
         XCTAssertEqual(
-            AgentStreamSkillDocument.markdown.trimmingCharacters(in: .whitespacesAndNewlines),
+            bundled.trimmingCharacters(in: .whitespacesAndNewlines),
             repoSkill.trimmingCharacters(in: .whitespacesAndNewlines)
         )
+    }
+
+    func testCopyConnectionDetailsUsesJSONContentTypeHeader() {
+        let details = AgentStreamingService.connectionDetailsText(
+            baseURL: "http://127.0.0.1:9/v1"
+        )
+        XCTAssertTrue(details.contains("HTTP header Content-Type: application/json"))
+        XCTAssertTrue(details.contains("JSON body field contentType: text/markdown"))
+        XCTAssertFalse(details.contains("Content-Type: text/markdown\n"))
+        XCTAssertFalse(details.contains("Bearer ey"))
     }
 }
 

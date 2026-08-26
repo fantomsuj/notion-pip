@@ -21,11 +21,6 @@ struct AgentStreamHTTPParsedRequest: Equatable, Sendable {
     let body: Data
     let authorizationBearer: String?
     let idempotencyKey: String?
-    let host: String?
-    let hasOrigin: Bool
-    let contentType: String?
-    let connection: String?
-    let transferEncoding: String?
     let contentLength: Int
 }
 
@@ -229,11 +224,6 @@ enum AgentStreamHTTPCodec {
                 body: body,
                 authorizationBearer: authorizationBearer,
                 idempotencyKey: headers["idempotency-key"],
-                host: headers["host"],
-                hasOrigin: headers["origin"] != nil,
-                contentType: contentType,
-                connection: headers["connection"],
-                transferEncoding: headers["transfer-encoding"],
                 contentLength: contentLength
             )
         )
@@ -426,30 +416,19 @@ enum AgentStreamHTTPCodec {
         }
     }
 
-    struct StreamDTO: Encodable, Equatable, Sendable {
+    /// Public stream acknowledgment. Content and page identity stay internal.
+    struct StreamAckDTO: Encodable, Equatable, Sendable {
         let id: String
-        let label: String
-        let client: String
-        let contentType: String
         let phase: String
-        let assembledText: String
         let nextSequence: Int
-        let opaquePageID: String?
-        let errorMessage: String?
-        let canAccept: Bool
+        let error: String?
         let limits: LimitsDTO?
 
         init(_ snapshot: AgentStreamSnapshot, limits: AgentStreamLimits? = nil) {
             id = snapshot.id.uuidString
-            label = snapshot.label
-            client = snapshot.client
-            contentType = snapshot.contentType.rawValue
             phase = snapshot.phase.rawValue
-            assembledText = snapshot.assembledText
             nextSequence = snapshot.nextSequence
-            opaquePageID = snapshot.opaquePageID
-            errorMessage = snapshot.errorMessage
-            canAccept = snapshot.canAccept
+            error = snapshot.errorMessage
             self.limits = limits.map(LimitsDTO.init)
         }
     }

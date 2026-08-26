@@ -21,7 +21,11 @@ final class AgentStreamHTTPServerTests: XCTestCase {
             let streamID = try XCTUnwrap(created["id"] as? String)
             XCTAssertEqual(created["phase"] as? String, "receiving")
             XCTAssertEqual(created["nextSequence"] as? Int, 0)
-            XCTAssertEqual(created["contentType"] as? String, "text/markdown")
+            XCTAssertNil(created["assembledText"])
+            XCTAssertNil(created["opaquePageID"])
+            XCTAssertNil(created["canAccept"])
+            XCTAssertNil(created["contentType"])
+            XCTAssertNotNil(created["limits"])
 
             _ = try await harness.getJSON(
                 path: "/v1/streams/\(streamID)/chunks",
@@ -33,8 +37,10 @@ final class AgentStreamHTTPServerTests: XCTestCase {
                 method: "POST",
                 body: "{\"sequence\":1,\"text\":\"body\"}"
             )
-            XCTAssertEqual(afterChunk["assembledText"] as? String, "# Title\nbody")
             XCTAssertEqual(afterChunk["nextSequence"] as? Int, 2)
+            XCTAssertEqual(afterChunk["phase"] as? String, "receiving")
+            XCTAssertNil(afterChunk["assembledText"])
+            XCTAssertNil(afterChunk["opaquePageID"])
 
             let completed = try await harness.getJSON(
                 path: "/v1/streams/\(streamID)/complete",
@@ -42,7 +48,8 @@ final class AgentStreamHTTPServerTests: XCTestCase {
                 body: "{}"
             )
             XCTAssertEqual(completed["phase"] as? String, "ready")
-            XCTAssertEqual(completed["canAccept"] as? Bool, true)
+            XCTAssertNil(completed["canAccept"])
+            XCTAssertNil(completed["assembledText"])
             XCTAssertEqual(harness.target.rememberCount, 0)
             XCTAssertEqual(harness.target.pasteCount, 0)
 
@@ -51,6 +58,8 @@ final class AgentStreamHTTPServerTests: XCTestCase {
                 method: "GET"
             )
             XCTAssertEqual(fetched["phase"] as? String, "ready")
+            XCTAssertNil(fetched["assembledText"])
+            XCTAssertNil(fetched["opaquePageID"])
         }
     }
 

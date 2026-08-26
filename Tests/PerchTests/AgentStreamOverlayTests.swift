@@ -74,6 +74,37 @@ final class AgentStreamOverlayTests: XCTestCase {
             "Accept and paste into Notion"
         )
         XCTAssertEqual(AgentStreamUserFacingCopy.acceptButton, "Accept")
+        XCTAssertEqual(
+            AgentStreamAccessibilityLabels.expandDetails,
+            "Show stream details"
+        )
+        XCTAssertEqual(
+            AgentStreamAccessibilityLabels.collapseDetails,
+            "Hide stream details"
+        )
+    }
+
+    func testCompactOverlayDefaultsCollapsedForReadyAndFailed() {
+        XCTAssertEqual(AgentStreamUserFacingCopy.readyTitle, "Agent response ready")
+        XCTAssertEqual(AgentStreamUserFacingCopy.failedTitle, "Couldn’t paste")
+        // Expansion is view-local (@State); presentation mapping stays phase-only.
+        let ready = AgentStreamSnapshot(
+            id: UUID(),
+            label: "Codex",
+            client: "codex",
+            contentType: .markdown,
+            phase: .ready,
+            assembledText: "## Ready",
+            nextSequence: 1,
+            opaquePageID: nil,
+            errorMessage: nil,
+            canAccept: true,
+            showsOverlay: true
+        )
+        XCTAssertEqual(
+            AgentStreamOverlayPresentation.from(snapshot: ready),
+            .ready(label: "Codex", text: "## Ready", contentType: .markdown)
+        )
     }
 
     func testMarkdownOutputFallsBackToPlainTextWhenParsingFails() {

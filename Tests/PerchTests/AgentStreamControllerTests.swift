@@ -241,6 +241,79 @@ final class AgentStreamControllerTests: XCTestCase {
         )
     }
 
+    func testAcceptAndDismissIgnoreStaleStreamIDs() throws {
+        let target = AgentStreamTargetSpy()
+        let controller = AgentStreamController(
+            target: target,
+            notifier: AgentStreamNotifierSpy()
+        )
+        let id = try controller.create(
+            AgentStreamCreateRequest(client: "a", idempotencyKey: "1")
+        ).snapshot.id
+        _ = try controller.append(
+            streamID: id,
+            chunk: AgentStreamChunk(sequence: 0, text: "keep")
+        )
+        _ = try controller.complete(streamID: id)
+        XCTAssertEqual(controller.snapshot?.phase, .ready)
+
+        controller.accept(streamID: UUID())
+        XCTAssertEqual(controller.snapshot?.phase, .ready)
+        XCTAssertEqual(target.rememberCount, 0)
+
+        controller.dismissFromOverlay(streamID: UUID())
+        XCTAssertEqual(controller.snapshot?.phase, .ready)
+        XCTAssertEqual(
+            controller.overlayPresentation,
+            .ready(label: "a", text: "keep", contentType: .markdown)
+        )
+
+        controller.accept(streamID: id)
+        XCTAssertEqual(controller.snapshot?.phase, .inserting)
+    }
+
+    func testScheduledExpiryExpiresReadyStreamWithoutFurtherAPITraffic() throws {
+        final class ClockBox: @unchecked Sendable {
+            var now = Date(timeIntervalSince1970: 1_000)
+        }
+        let clockBox = ClockBox()
+        var scheduled: [(Duration, @MainActor () -> Void)] = []
+        let limits = AgentStreamLimits(
+            maxChunkUTF8Bytes: 32 * 1_024,
+            maxAssembledUTF8Bytes: 512 * 1_024,
+            maxHeaderUTF8Bytes: 16 * 1_024,
+            maxBodyUTF8Bytes: 64 * 1_024,
+            maxRequestsPerSecond: 30,
+            inactiveExpiration: .seconds(600),
+            terminalRetention: .seconds(600),
+            readyRetention: .seconds(30)
+        )
+        let controller = AgentStreamController(
+            target: AgentStreamTargetSpy(),
+            notifier: AgentStreamNotifierSpy(),
+            limits: limits,
+            clock: { clockBox.now },
+            receiptScheduler: { delay, operation in
+                scheduled.append((delay, operation))
+                return {}
+            }
+        )
+        let id = try controller.create(
+            AgentStreamCreateRequest(client: "a", idempotencyKey: "1")
+        ).snapshot.id
+        _ = try controller.complete(streamID: id)
+        XCTAssertEqual(controller.snapshot?.phase, .ready)
+        XCTAssertTrue(scheduled.contains(where: { $0.0 == limits.readyRetention }))
+
+        clockBox.now = clockBox.now.addingTimeInterval(31)
+        let readyExpiry = try XCTUnwrap(
+            scheduled.last(where: { $0.0 == limits.readyRetention })
+        )
+        readyExpiry.1()
+        XCTAssertEqual(controller.snapshot?.phase, .expired)
+        XCTAssertEqual(controller.overlayPresentation, .hidden)
+    }
+
     private func makeController() -> AgentStreamController {
         AgentStreamController(
             target: AgentStreamTargetSpy(),

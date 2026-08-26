@@ -191,6 +191,36 @@ final class AgentStreamHTTPCodecTests: XCTestCase {
         XCTAssertTrue(text.contains("\"expectedSequence\":3"))
     }
 
+    func testEncodeStreamAckOmitsContentAndPageIdentity() throws {
+        let snapshot = AgentStreamSnapshot(
+            id: UUID(),
+            label: "Codex",
+            client: "codex",
+            contentType: .markdown,
+            phase: .receiving,
+            assembledText: "# Growing body that must not be echoed",
+            nextSequence: 3,
+            opaquePageID: "secret-page",
+            errorMessage: nil,
+            canAccept: false,
+            showsOverlay: true
+        )
+        let data = try AgentStreamHTTPCodec.encodeJSONResponse(
+            status: 200,
+            reason: "OK",
+            object: AgentStreamHTTPCodec.StreamAckDTO(snapshot)
+        )
+        let text = String(decoding: data, as: UTF8.self)
+        XCTAssertTrue(text.contains("\"phase\":\"receiving\""))
+        XCTAssertTrue(text.contains("\"nextSequence\":3"))
+        XCTAssertFalse(text.contains("assembledText"))
+        XCTAssertFalse(text.contains("opaquePageID"))
+        XCTAssertFalse(text.contains("secret-page"))
+        XCTAssertFalse(text.contains("Growing body"))
+        XCTAssertFalse(text.contains("canAccept"))
+        XCTAssertFalse(text.contains("Codex"))
+    }
+
     func testConstantTimeTokenCompare() {
         XCTAssertTrue(AgentStreamHTTPCodec.tokensMatch("abc", "abc"))
         XCTAssertFalse(AgentStreamHTTPCodec.tokensMatch("abc", "abd"))
