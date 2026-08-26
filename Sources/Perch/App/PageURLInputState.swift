@@ -12,9 +12,15 @@ final class PageURLInputState: ObservableObject {
     }
 
     func showOpened(page: NotionPageReference) {
+        showOpened(
+            page.displayTitle.map { "Opened \($0) in Perch." }
+                ?? "Opened this page in Perch."
+        )
+    }
+
+    func showOpened(_ message: String) {
         validationFailed = false
-        validationMessage = page.displayTitle.map { "Opened \($0) in Perch." }
-            ?? "Opened this page in Perch."
+        validationMessage = message
     }
 
     func showValidationFailure(_ message: String) {

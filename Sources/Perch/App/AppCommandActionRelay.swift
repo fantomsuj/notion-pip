@@ -4,6 +4,7 @@ import AppKit
 final class AppCommandActionRelay {
     weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
     var reloadSavedPinAction: () -> Void = {}
+    var returnToNotionPageAction: () -> Void = {}
     var newNotionPageAction: () -> Void = {}
     var gettingStartedAction: () -> Void = {}
 
@@ -21,6 +22,10 @@ final class AppCommandActionRelay {
 
     func reloadSavedPin() {
         reloadSavedPinAction()
+    }
+
+    func returnToNotionPage() {
+        returnToNotionPageAction()
     }
 
     func quit() {

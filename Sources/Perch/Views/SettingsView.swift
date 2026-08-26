@@ -23,7 +23,12 @@ struct SettingsView: View {
                         state: runtime.pageURLInputState,
                         onSubmit: { _ = runtime.validatePageURL() }
                     )
-                    if let activePage = runtime.activePage {
+                    if let customURL = runtime.activeCustomURL {
+                        LabeledContent("Open page", value: customURL.displayTitle)
+                        Text("Custom pin (Beta). Your last Notion page stays saved.")
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.Colors.secondaryText)
+                    } else if let activePage = runtime.activePage {
                         LabeledContent(
                             "Open page",
                             value: activePage.displayTitle ?? activePage.canonicalURL.absoluteString)
@@ -32,6 +37,8 @@ struct SettingsView: View {
                             .foregroundStyle(DesignTokens.Colors.secondaryText)
                     }
                 }
+
+                CustomPinnedURLSettingsView(runtime: runtime)
 
                 Section("Panel Sizes") {
                     PanelSizeSettingsView(controller: panelSizeController)

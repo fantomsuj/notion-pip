@@ -7,6 +7,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var pendingPage: NotionPageReference?
     @Published private(set) var activePage: NotionPageReference?
     @Published private(set) var lastActivationSource: PageActivationSource?
+    @Published private(set) var customPinnedURLsEnabled: Bool
+    @Published private(set) var customPinnedURLs: [CustomPinnedURL]
+    @Published private(set) var activeCustomURL: CustomPinnedURL?
     @Published private(set) var serviceHealth: ServiceHealthState
     @Published private(set) var globalShortcut: GlobalShortcut
     @Published private(set) var holdToPeekEnabled: Bool
@@ -17,6 +20,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var statusItemSummonGeneration: UInt = 0
 
     let pageURLInputState: PageURLInputState
+    let customPinnedURLInputState: PageURLInputState
 
     var pageURLText: String {
         get { pageURLInputState.text }
@@ -41,6 +45,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let peekFocusRestorer: any PeekFocusRestoring
     let performanceSignposter: any PerformanceSignposting
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
+    let customPinnedURLStore: CustomPinnedURLStore
     let pageRepository: (any PageWorkingSetPersisting)?
     let automaticSettingsPresentationAllowed: @MainActor () -> Bool
     weak var settingsWindowPresenter: (any SettingsWindowPresenting)?
@@ -74,6 +79,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         shortcutStore: GlobalShortcutStore = GlobalShortcutStore(),
         menuBarIconPreferenceStore: MenuBarIconPreferenceStore = MenuBarIconPreferenceStore(),
         holdToPeekPreferenceStore: HoldToPeekPreferenceStore = HoldToPeekPreferenceStore(),
+        customPinnedURLStore: CustomPinnedURLStore = CustomPinnedURLStore(),
         peekFocusRestorer: any PeekFocusRestoring = PeekFocusRestorer(),
         performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
         pageRepository: (any PageWorkingSetPersisting)? = nil,
@@ -89,9 +95,11 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             }
     ) {
         let inputState = PageURLInputState()
+        let customInputState = PageURLInputState()
         let inputRequestRelay = PageURLInputRequestRelay()
 
         pageURLInputState = inputState
+        customPinnedURLInputState = customInputState
         pinCoordinator = PinCoordinator(
             panelCoordinator: panelCoordinator ?? PiPPanelCoordinator(),
             pasteboard: pasteboard,
@@ -103,6 +111,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.peekFocusRestorer = peekFocusRestorer
         self.performanceSignposter = performanceSignposter
         self.menuBarIconPreferenceStore = menuBarIconPreferenceStore
+        self.customPinnedURLStore = customPinnedURLStore
         self.pageRepository = pageRepository
         self.automaticSettingsPresentationAllowed = automaticSettingsPresentationAllowed
         self.shortcutHoldDuration = shortcutHoldDuration
@@ -112,6 +121,10 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         serviceHealth = initialServiceHealth
         globalShortcut = shortcutStore.load()
         holdToPeekEnabled = holdToPeekPreferenceStore.load()
+        let customPins = customPinnedURLStore.load()
+        customPinnedURLsEnabled = customPins.isEnabled
+        customPinnedURLs = customPins.pins
+        activeCustomURL = nil
         let iconState = Self.menuBarIconState(
             store: menuBarIconPreferenceStore,
             serviceHealth: initialServiceHealth
@@ -198,6 +211,27 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         activePage = page
         pendingPage = page
         lastActivationSource = source
+        if activeCustomURL != nil {
+            clearActiveCustomURL(persistDestination: true)
+        }
+    }
+
+    func publishCustomPinnedURLsEnabled(_ enabled: Bool) {
+        customPinnedURLsEnabled = enabled
+    }
+
+    func publishCustomPinnedURLs(_ pins: [CustomPinnedURL]) {
+        customPinnedURLs = pins
+    }
+
+    func publishActiveCustomURL(
+        _ url: CustomPinnedURL?,
+        source: PageActivationSource? = nil
+    ) {
+        activeCustomURL = url
+        if let source {
+            lastActivationSource = source
+        }
     }
 
     func publishHoldToPeekEnabled(_ enabled: Bool) {

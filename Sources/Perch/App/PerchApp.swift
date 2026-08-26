@@ -172,6 +172,7 @@ private final class AppComposition {
             webSession: webSession,
             commandModel: commandModel,
             onReloadSavedPin: { actionRelay.reloadSavedPin() },
+            onReturnToNotion: { actionRelay.returnToNotionPage() },
             panelSizeController: panelSizeController,
             panelPositionController: panelPositionController,
             contextualPageActionState: contextualPageActionState,
@@ -226,8 +227,11 @@ private final class AppComposition {
         actionRelay.reloadSavedPinAction = { [weak runtime] in
             runtime?.reloadSavedPin()
         }
-        actionRelay.newNotionPageAction = { [weak webSession] in
-            webSession?.createNewPage()
+        actionRelay.returnToNotionPageAction = { [weak runtime] in
+            runtime?.returnToNotionPage()
+        }
+        actionRelay.newNotionPageAction = { [weak runtime] in
+            runtime?.createNewNotionPage()
         }
         webSession.onPageResolved = { [weak runtime, weak webSession] page in
             runtime?.activate(page: page, source: .notionWebSession)

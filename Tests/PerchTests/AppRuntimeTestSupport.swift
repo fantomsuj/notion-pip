@@ -17,6 +17,7 @@ func makeRuntime(
     accessibilityAnnouncementPoster: any AccessibilityAnnouncementPosting =
         RuntimeAccessibilityAnnouncementPoster(),
     holdToPeekPreferenceStore: HoldToPeekPreferenceStore? = nil,
+    customPinnedURLStore: CustomPinnedURLStore? = nil,
     peekFocusRestorer: any PeekFocusRestoring = PeekFocusRestorer(),
     initialServiceHealth: ServiceHealthState = .healthy,
     menuBarIconPreferenceStore: MenuBarIconPreferenceStore? = nil,
@@ -32,12 +33,18 @@ func makeRuntime(
             suiteName: "AppRuntimeHoldPreferenceTests.\(UUID().uuidString)"
         )!
     )
+    let customPinnedURLStore = customPinnedURLStore ?? CustomPinnedURLStore(
+        defaults: UserDefaults(
+            suiteName: "AppRuntimeCustomPinnedURLTests.\(UUID().uuidString)"
+        )!
+    )
     return AppRuntime(
         panelCoordinator: panel,
         pasteboard: pasteboard,
         shortcutRegistrar: shortcutRegistrar,
         menuBarIconPreferenceStore: preferenceStore,
         holdToPeekPreferenceStore: holdPreferenceStore,
+        customPinnedURLStore: customPinnedURLStore,
         peekFocusRestorer: peekFocusRestorer,
         pageRepository: pageRepository,
         shortcutHoldDuration: shortcutHoldDuration,
@@ -83,8 +90,11 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     var onPresentationStateChange: (@MainActor () -> Void)?
     var onWillReveal: (@MainActor () -> Void)?
     private(set) var currentPage: NotionPageReference?
+    private(set) var currentCustomURL: CustomPinnedURL?
     private(set) var shownPages: [NotionPageReference] = []
+    private(set) var shownCustomURLs: [CustomPinnedURL] = []
     private(set) var reloadedPages: [NotionPageReference] = []
+    private(set) var reloadedCustomURLs: [CustomPinnedURL] = []
     private(set) var replacedPages: [NotionPageReference] = []
     private(set) var isVisible = false
     private(set) var isStashed = false
@@ -96,7 +106,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     private(set) var lastRestoration: DurablePageRestoration?
 
     var presentationState: PiPPresentationState {
-        guard currentPage != nil else { return .unavailable }
+        guard currentPage != nil || currentCustomURL != nil else { return .unavailable }
         return isVisible ? .visible : .stashed
     }
 
@@ -105,6 +115,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     }
 
     func show(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        currentCustomURL = nil
         currentPage = page
         shownPages.append(page)
         lastRestoration = restoration
@@ -113,11 +124,33 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         notePresentationChange()
     }
 
+    func show(customURL: CustomPinnedURL) {
+        currentCustomURL = customURL
+        shownCustomURLs.append(customURL)
+        isVisible = true
+        isStashed = false
+        notePresentationChange()
+    }
+
     func reloadPinnedPage(_ page: NotionPageReference) {
+        currentCustomURL = nil
         currentPage = page
         reloadedPages.append(page)
         isVisible = true
         isStashed = false
+        notePresentationChange()
+    }
+
+    func reloadCustomPinnedURL(_ url: CustomPinnedURL) {
+        currentCustomURL = url
+        reloadedCustomURLs.append(url)
+        isVisible = true
+        isStashed = false
+        notePresentationChange()
+    }
+
+    func createNewPage() {
+        currentCustomURL = nil
         notePresentationChange()
     }
 
@@ -126,6 +159,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     }
 
     func replace(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        currentCustomURL = nil
         currentPage = page
         replacedPages.append(page)
         lastRestoration = restoration
@@ -135,7 +169,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     }
 
     func showCurrentPage() -> Bool {
-        guard currentPage != nil else { return false }
+        guard currentPage != nil || currentCustomURL != nil else { return false }
         willRevealCount += 1
         onWillReveal?()
         isVisible = true
@@ -189,7 +223,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
 
     func performGlobalShortcutAction() -> Bool {
         globalShortcutActionCount += 1
-        guard currentPage != nil else { return false }
+        guard currentPage != nil || currentCustomURL != nil else { return false }
         if isVisible, isExpanded {
             isExpanded = false
             return true
@@ -198,7 +232,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     }
 
     func stashOrRestoreCurrentPage() -> Bool {
-        guard currentPage != nil else { return false }
+        guard currentPage != nil || currentCustomURL != nil else { return false }
         if isVisible {
             isVisible = false
             isStashed = true

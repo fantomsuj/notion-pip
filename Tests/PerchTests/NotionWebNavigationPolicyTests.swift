@@ -114,4 +114,37 @@ final class NotionWebNavigationPolicyTests: XCTestCase {
             .failed("Notion couldn't load this page.")
         )
     }
+
+    func testCustomPinnedModeKeepsHTTPSInThePanelIncludingPopups() throws {
+        let customURL = try XCTUnwrap(URL(string: "https://canvas.example.edu/login"))
+        let ssoURL = try XCTUnwrap(URL(string: "https://sso.example.edu/cas"))
+
+        XCTAssertEqual(
+            policy.actionDecision(for: customURL, context: .mainFrame, mode: .customPinned),
+            .allow
+        )
+        XCTAssertEqual(
+            policy.actionDecision(for: ssoURL, context: .mainFrame, mode: .customPinned),
+            .allow
+        )
+        XCTAssertEqual(
+            policy.actionDecision(
+                for: try XCTUnwrap(URL(string: "javascript:alert(1)")),
+                context: .mainFrame,
+                mode: .customPinned
+            ),
+            .cancel
+        )
+        XCTAssertEqual(
+            policy.newWindowDecision(for: URLRequest(url: ssoURL), mode: .customPinned),
+            .createPopup
+        )
+        XCTAssertEqual(
+            policy.failureDecision(
+                for: NSError(domain: "Test", code: 1),
+                mode: .customPinned
+            ),
+            .failed("This page couldn't load.")
+        )
+    }
 }

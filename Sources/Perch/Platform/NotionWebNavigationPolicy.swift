@@ -24,10 +24,16 @@ enum NotionWebNavigationFailureDecision: Equatable {
     case failed(String)
 }
 
+enum WebBrowsingMode: Equatable, Sendable {
+    case notion
+    case customPinned
+}
+
 struct NotionWebNavigationPolicy {
     func actionDecision(
         for url: URL?,
-        context: NotionWebNavigationContext
+        context: NotionWebNavigationContext,
+        mode: WebBrowsingMode = .notion
     ) -> NotionWebNavigationActionDecision {
         guard context != .newWindow else {
             return .allow
@@ -36,7 +42,7 @@ struct NotionWebNavigationPolicy {
         switch WebNavigationDestination.classify(url) {
         case .trustedNotion:
             return .allow
-        case .externalWeb where context == .subframe:
+        case .externalWeb where context == .subframe || mode == .customPinned:
             return .allow
         case .externalWeb:
             guard let url else { return .cancel }
@@ -46,9 +52,14 @@ struct NotionWebNavigationPolicy {
         }
     }
 
-    func newWindowDecision(for request: URLRequest) -> NotionWebNewWindowDecision {
+    func newWindowDecision(
+        for request: URLRequest,
+        mode: WebBrowsingMode = .notion
+    ) -> NotionWebNewWindowDecision {
         switch WebNavigationDestination.classify(request.url) {
         case .trustedNotion:
+            return .createPopup
+        case .externalWeb where mode == .customPinned:
             return .createPopup
         case .externalWeb:
             guard let url = request.url else { return .ignore }
@@ -58,10 +69,16 @@ struct NotionWebNavigationPolicy {
         }
     }
 
-    func failureDecision(for error: Error) -> NotionWebNavigationFailureDecision {
+    func failureDecision(
+        for error: Error,
+        mode: WebBrowsingMode = .notion
+    ) -> NotionWebNavigationFailureDecision {
         let error = error as NSError
+        let failedMessage = mode == .customPinned
+            ? "This page couldn't load."
+            : "Notion couldn't load this page."
         guard error.domain == NSURLErrorDomain else {
-            return .failed("Notion couldn't load this page.")
+            return .failed(failedMessage)
         }
         if error.code == NSURLErrorCancelled {
             return .cancelled
@@ -69,7 +86,7 @@ struct NotionWebNavigationPolicy {
         if Self.offlineErrorCodes.contains(error.code) {
             return .offline
         }
-        return .failed("Notion couldn't load this page.")
+        return .failed(failedMessage)
     }
 
     private static let offlineErrorCodes: Set<Int> = [
