@@ -32,7 +32,7 @@ Local agent streaming is opt-in under Settings → Local Agents. Agents stream M
 - **`409 stream_active`:** Another local agent already occupies the single stream slot. Stop or cancel that stream from the overlay, or wait until it is dismissed, then retry.
 - **Stream finished but Notion did not change:** Expected for `accept_to_paste`. Click in the Notion page where the note should go, then press **Accept** on the overlay or notification. Accept without a live editor cursor keeps the Markdown and asks you to click first.
 - **Paste failed after Accept:** Stay on an editable Notion page, click the destination again, and Accept once more, or Copy and paste manually. Reloading the page or switching pages before Accept can invalidate the target.
-- **Revoke access:** Turn off **Allow local agents**. The listener stops and the matching discovery file is removed. Installed Cursor skills under `~/.cursor/skills/stream-to-perch/` can be deleted separately if you no longer want that instruction file.
+- **Revoke access:** Turn off **Allow local agents**. The listener stops and the matching discovery file is removed. Installed skills under `~/.claude/skills/stream-to-perch/`, `~/.codex/skills/stream-to-perch/`, or `~/.cursor/skills/stream-to-perch/` can be deleted separately if you no longer want that instruction file.
 
 ## Local storage recovery
 

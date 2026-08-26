@@ -134,8 +134,12 @@ struct SettingsView: View {
                         Button("Copy Connection Details") {
                             _ = agentStreamingService.copyConnectionDetails()
                         }
-                        Button("Install Agent Skill for Cursor") {
-                            _ = agentStreamingService.installAgentSkill()
+                        Menu("Install Agent Skill") {
+                            ForEach(AgentSkillTarget.allCases) { target in
+                                Button("For \(target.displayName)") {
+                                    _ = agentStreamingService.installAgentSkill(for: target)
+                                }
+                            }
                         }
                     case let .failed(message):
                         Label(message, systemImage: "exclamationmark.circle")

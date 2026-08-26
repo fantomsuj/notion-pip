@@ -13,8 +13,11 @@ integration token.
 
 1. Open Settings → Local Agents.
 2. Enable **Allow local agents**.
-3. Optionally choose **Install Agent Skill for Cursor** to write the skill at
-   `~/.cursor/skills/stream-to-perch/SKILL.md`.
+3. Optionally use **Install Agent Skill** to write the same skill document for
+   the coding agent you use:
+   - Claude Code: `~/.claude/skills/stream-to-perch/SKILL.md`
+   - Codex: `~/.codex/skills/stream-to-perch/SKILL.md`
+   - Cursor: `~/.cursor/skills/stream-to-perch/SKILL.md`
 
 While disabled, Perch opens no agent listener and publishes no discovery
 credential. Disable the setting to revoke access immediately: the listener
@@ -67,7 +70,9 @@ Rules:
 - Bind address is loopback only (`127.0.0.1` / `::1`). Never expose this
   listener on `0.0.0.0`, through port forwarding, or an unauthenticated tunnel.
 - HTTP/1.1 with `Content-Length`. Chunked request bodies are rejected.
-- POST bodies use `Content-Type: application/json`.
+- POST bodies use the **HTTP header** `Content-Type: application/json`. The
+  create-body field `"contentType": "text/markdown"` describes the payload
+  format; it is not the HTTP Content-Type.
 - Browser `Origin` headers are rejected.
 - `Host` must be a loopback host for the published port.
 - Connections are not reused (`Connection: close`).
@@ -98,8 +103,31 @@ All paths are relative to `baseURL` (already ends with `/v1`).
 | `POST` | `/streams` | Create the single active stream. Requires `Idempotency-Key`. |
 | `POST` | `/streams/{id}/chunks` | Append `{ "sequence": n, "text": "..." }`. |
 | `POST` | `/streams/{id}/complete` | Finish input; transition to `ready` and notify the user. |
-| `POST` | `/streams/{id}/cancel` | Cancel without pasting; dismiss the overlay. |
-| `GET` | `/streams/{id}` | Recover stream state after a timeout. |
+| `POST` | `/streams/{id}/cancel` | Cancel without pasting; dismiss the overlay; frees the active slot. |
+| `GET` | `/streams/{id}` | Recover or poll stream phase (`ready` → `inserted` / `expired` / …). |
+
+Unknown paths return `invalid_request` / `"Unknown route."` with no 404-vs-405
+distinction and no OpenAPI listing. Agents must use only the routes above (or
+the installed skill), not invent paths.
+
+### Status
+
+Example `GET /status` body:
+
+```json
+{
+  "ready": true,
+  "targetAvailable": true,
+  "limits": {},
+  "activeStreamID": null,
+  "activeStreamPhase": null
+}
+```
+
+`targetAvailable: false` means no Notion page is loaded/focused in Perch yet.
+Create and streaming are still allowed; Accept cannot paste until a page is
+available. If `activeStreamID` is set, cancel that stream (or wait) before a
+new create.
 
 ### Stream phases
 
@@ -127,16 +155,21 @@ Idempotency-Key: <unique-key>
 
 ```json
 {
-  "client": "cursor",
-  "label": "Cursor",
+  "client": "<your-agent-id>",
+  "label": "<Your Agent>",
   "commitMode": "accept_to_paste",
   "contentType": "text/markdown"
 }
 ```
 
+`client`/`label` are free-form identifiers (e.g. `"claude-code"`/`"Claude Code"`,
+`"codex"`/`"Codex"`, `"cursor"`/`"Cursor"`); no agent is treated specially.
+
 Successful response: `201` with stream id, `phase: "receiving"`,
 `nextSequence: 0`, limits, and optional opaque page id for diagnostics only.
 Identical create retries with the same `Idempotency-Key` return the same stream.
+`Idempotency-Key` is required only on create — not on chunks, complete, cancel,
+or GET. Chunk retries are idempotent via matching `sequence`.
 
 ### Chunks
 
@@ -245,8 +278,9 @@ See also [PRIVACY.md](PRIVACY.md).
 Repository skill: [`agent-skills/stream-to-perch/SKILL.md`](../agent-skills/stream-to-perch/SKILL.md).
 
 The same Markdown is embedded as `AgentStreamSkillDocument.markdown` in
-`Sources/Perch/Services/AgentStreamingService.swift` and is what Settings
-installs for Cursor. Keep those copies aligned.
+`Sources/Perch/Services/AgentStreamingService.swift` and is what Settings →
+Install Agent Skill writes for Claude Code, Codex, or Cursor — the document
+itself does not name a specific agent. Keep those copies aligned.
 
 ## Reference client
 
