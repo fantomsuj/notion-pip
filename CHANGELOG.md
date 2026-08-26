@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+## 0.1.3 - 2026-08-26
+
 ### Added
 
+- Settings → Install Agent Skill now writes the same agent-neutral skill for
+  Claude Code, Codex, and Cursor, with expanded protocol documentation for
+  routes, status, cancellation, errors, and idempotency.
 - Context Suggestions can connect a user-initiated Perch reveal to the exact
   Notion page focused in supported browsers or the native Notion app.
 - Empty Perch sessions open a strictly validated detected page through the
