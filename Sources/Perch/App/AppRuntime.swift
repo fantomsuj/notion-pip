@@ -216,6 +216,24 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         }
     }
 
+    func publishCustomPinnedURLsEnabled(_ enabled: Bool) {
+        customPinnedURLsEnabled = enabled
+    }
+
+    func publishCustomPinnedURLs(_ pins: [CustomPinnedURL]) {
+        customPinnedURLs = pins
+    }
+
+    func publishActiveCustomURL(
+        _ url: CustomPinnedURL?,
+        source: PageActivationSource? = nil
+    ) {
+        activeCustomURL = url
+        if let source {
+            lastActivationSource = source
+        }
+    }
+
     func publishHoldToPeekEnabled(_ enabled: Bool) {
         holdToPeekEnabled = enabled
     }

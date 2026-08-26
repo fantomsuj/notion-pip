@@ -7,7 +7,7 @@ extension AppRuntime {
 
     func setCustomPinnedURLsEnabled(_ enabled: Bool) {
         guard enabled != customPinnedURLsEnabled else { return }
-        customPinnedURLsEnabled = enabled
+        publishCustomPinnedURLsEnabled(enabled)
         persistCustomPinnedURLs()
         if !enabled, activeCustomURL != nil {
             returnToNotionPage()
@@ -49,7 +49,7 @@ extension AppRuntime {
     }
 
     func removeCustomPinnedURL(_ pin: CustomPinnedURL) {
-        customPinnedURLs.removeAll { $0.id == pin.id }
+        publishCustomPinnedURLs(customPinnedURLs.filter { $0.id != pin.id })
         let wasActive = activeCustomURL?.id == pin.id
         persistCustomPinnedURLs()
         if wasActive {
@@ -93,8 +93,8 @@ extension AppRuntime {
             return false
         }
         pins.insert(pin, at: 0)
-        customPinnedURLs = pins
-        customPinnedURLsEnabled = true
+        publishCustomPinnedURLs(pins)
+        publishCustomPinnedURLsEnabled(true)
         persistCustomPinnedURLs()
         activate(customURL: pin, persist: true, source: source)
         return true
@@ -108,8 +108,7 @@ extension AppRuntime {
         cancelShortcutGesture(restashTransientPanel: false)
         pageSelectionGeneration &+= 1
         pinCoordinator.pin(customURL: customURL)
-        activeCustomURL = customURL
-        lastActivationSource = source
+        publishActiveCustomURL(customURL, source: source)
         if persist {
             persistCustomPinnedURLs()
         }
@@ -117,7 +116,7 @@ extension AppRuntime {
 
     func clearActiveCustomURL(persistDestination: Bool) {
         guard activeCustomURL != nil else { return }
-        activeCustomURL = nil
+        publishActiveCustomURL(nil)
         if persistDestination {
             persistCustomPinnedURLs()
         }
