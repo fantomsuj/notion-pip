@@ -33,6 +33,7 @@ struct PiPAppCommandMenu: View {
                 )
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
         .accessibilityLabel("App menu")
     }
