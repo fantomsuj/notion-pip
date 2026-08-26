@@ -13,6 +13,7 @@ struct SettingsView: View {
     @ObservedObject var panelSizeController: PanelSizeController
     @ObservedObject var launchAtLoginService: LaunchAtLoginService
     @ObservedObject var contextSuggestionController: ContextSuggestionController
+    @ObservedObject var agentStreamingService: AgentStreamingService
 
     var body: some View {
         ScrollView {
@@ -106,6 +107,56 @@ struct SettingsView: View {
                         ) {
                             Link("Open Accessibility Settings", destination: accessibilitySettings)
                         }
+                    }
+                }
+
+                Section("Local Agents") {
+                    Toggle(
+                        "Allow local agents",
+                        isOn: Binding(
+                            get: { agentStreamingService.isEnabled },
+                            set: { agentStreamingService.setEnabled($0) }
+                        )
+                    )
+
+                    Text(
+                        "Lets coding agents on this Mac stream Markdown into Perch over a loopback-only listener. Agents never write to Notion by themselves—you click where the note should go, then press Accept. Same-user processes that can read the discovery file can authenticate."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Colors.secondaryText)
+
+                    switch agentStreamingService.state {
+                    case .disabled:
+                        EmptyView()
+                    case .starting:
+                        Label("Starting local listener…", systemImage: "hourglass")
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.Colors.secondaryText)
+                    case let .ready(baseURL):
+                        LabeledContent("Status", value: "Ready")
+                        Text(baseURL)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(DesignTokens.Colors.secondaryText)
+                            .textSelection(.enabled)
+                        Button("Copy Connection Details") {
+                            _ = agentStreamingService.copyConnectionDetails()
+                        }
+                        Button("Install Agent Skill for Cursor") {
+                            _ = agentStreamingService.installAgentSkill()
+                        }
+                    case let .failed(message):
+                        Label(message, systemImage: "exclamationmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.Colors.error)
+                        Button("Retry") {
+                            agentStreamingService.retry()
+                        }
+                    }
+
+                    if let skillInstallMessage = agentStreamingService.skillInstallMessage {
+                        Text(skillInstallMessage)
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.Colors.secondaryText)
                     }
                 }
 

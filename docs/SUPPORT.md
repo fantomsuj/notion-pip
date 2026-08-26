@@ -23,6 +23,17 @@ Do not distribute a local `dist/Perch.app` build to another Mac. Local builds ma
 - **A focused Notion page is not detected:** Confirm Context Suggestions is enabled and Settings reports permission as ready. Then focus the page in Safari, Chrome, Firefox, Edge, Brave, Arc, or the native Notion app before revealing Perch. The source app must expose a focused `AXDocument` or `AXURL`; private windows, browser builds with different bundle identifiers, inaccessible views, malformed links, slow Accessibility responses, and workspace/search URLs without a page ID quietly use Perch's ordinary reveal behavior.
 - **Perch already shows another page:** Reveal remains immediate and never replaces that page automatically. Use the slim **Open Here** action inside Perch to switch, or dismiss it. Selecting a pinned or recent page explicitly always wins over an outstanding contextual result.
 
+## Local agents
+
+Local agent streaming is opt-in under Settings → Local Agents. Agents stream Markdown into an overlay; they do not write to Notion until you click a location and press **Accept**. Full protocol details live in [AGENT_STREAMING.md](AGENT_STREAMING.md).
+
+- **Agent cannot find Perch:** Confirm Perch is running and **Allow local agents** is on. Status should read Ready and the discovery file should exist at `~/Library/Application Support/com.fantomsuj.Perch/agent-server.json`. If the setting was just enabled, wait for Ready or press Retry. A missing file usually means the listener is off or still starting.
+- **`401 unauthorized` or stale discovery:** Quit and reopen Perch, or toggle Allow local agents off and on, so the token rotates and the discovery file is rewritten. Agents must reread the file; never paste bearer tokens into chat or issues.
+- **`409 stream_active`:** Another local agent already occupies the single stream slot. Stop or cancel that stream from the overlay, or wait until it is dismissed, then retry.
+- **Stream finished but Notion did not change:** Expected for `accept_to_paste`. Click in the Notion page where the note should go, then press **Accept** on the overlay or notification. Accept without a live editor cursor keeps the Markdown and asks you to click first.
+- **Paste failed after Accept:** Stay on an editable Notion page, click the destination again, and Accept once more, or Copy and paste manually. Reloading the page or switching pages before Accept can invalidate the target.
+- **Revoke access:** Turn off **Allow local agents**. The listener stops and the matching discovery file is removed. Installed Cursor skills under `~/.cursor/skills/stream-to-perch/` can be deleted separately if you no longer want that instruction file.
+
 ## Local storage recovery
 
 If Perch cannot open or migrate its local SwiftData store, it opens a normal recovery window before onboarding or Settings. Your Notion pages, account, sign-in, and embedded website data are unaffected. The failure concerns only Perch's device-local page history, pin roles, and restoration state.

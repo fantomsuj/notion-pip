@@ -82,7 +82,7 @@ enum NotionMemoryPressureLevel: Equatable {
 
 @MainActor
 final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
-    NotionWebScriptMessageHandling, QuickCopyInsertionTarget
+    NotionWebScriptMessageHandling, QuickCopyInsertionTarget, AgentStreamTarget
 {
     private enum WebContentRecoveryState: Equatable {
         case ready
@@ -192,12 +192,39 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         _ text: String,
         completion: @escaping @MainActor (Bool) -> Void
     ) {
+        mutateSavedEditorCursor(text: text, mode: .insertText, completion: completion)
+    }
+
+    func pasteMarkdownAtSavedEditorCursor(
+        _ markdown: String,
+        completion: @escaping @MainActor (Bool) -> Void
+    ) {
+        mutateSavedEditorCursor(text: markdown, mode: .pasteMarkdown, completion: completion)
+    }
+
+    private enum SavedCursorMutationMode {
+        case insertText
+        case pasteMarkdown
+    }
+
+    private func mutateSavedEditorCursor(
+        text: String,
+        mode: SavedCursorMutationMode,
+        completion: @escaping @MainActor (Bool) -> Void
+    ) {
         guard !text.isEmpty, let webView, let pageID = activePage?.pageID,
               loadedPageID == pageID, savedEditorSelection?.pageID == pageID,
               let snapshot = savedEditorSelection?.snapshot,
               Self.isTrustedSelectionContext(webView, pageID: pageID)
         else { completion(false); return }
-        selectionEvaluator(webView, .insert(text, at: snapshot)) { [weak self] result in
+        let evaluation: NotionEditorSelectionEvaluation =
+            switch mode {
+            case .insertText:
+                .insert(text, at: snapshot)
+            case .pasteMarkdown:
+                .pasteMarkdown(text, at: snapshot)
+            }
+        selectionEvaluator(webView, evaluation) { [weak self] result in
             guard let self,
                   case let .success(value) = result,
                   let nextSnapshot = NotionEditorSelectionSnapshot(javaScriptValue: value),
@@ -219,6 +246,15 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     var isShowingCustomURL: Bool {
         activeCustomURL != nil
+    }
+
+    var isAgentStreamTargetAvailable: Bool {
+        guard activeCustomURL == nil, let pageID = activePage?.pageID else { return false }
+        return loadedPageID == pageID && webView != nil
+    }
+
+    var agentStreamOpaquePageID: String? {
+        activeCustomURL == nil ? activePage?.pageID : nil
     }
 
     var shouldHostWebView: Bool {

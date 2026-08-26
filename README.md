@@ -37,6 +37,12 @@ Pin the Notion page you are living in and keep it close without turning it into 
 - Opt in to launching Perch when you log in to your Mac. The Settings
   toggle reads macOS's current registration state and points you to Login Items
   settings when the system requires approval.
+- Optionally enable **Allow local agents** so coding tools on this Mac can stream
+  Markdown into Perch over a loopback-only listener. Agents finish with
+  `accept_to_paste`: you get a notification and overlay, click in Notion, then
+  press **Accept** to paste. Perch never asks for a Notion integration token.
+  The wire contract, discovery file, and reference client are documented in
+  [`docs/AGENT_STREAMING.md`](docs/AGENT_STREAMING.md).
 - Optionally enable Context Suggestions. With explicit macOS Accessibility
   permission, Perch compares the frontmost app, focused window title, and any
   URL that window exposes with the titles and roles of your seven pinned and
