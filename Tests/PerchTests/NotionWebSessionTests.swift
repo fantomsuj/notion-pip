@@ -2272,7 +2272,11 @@ final class NotionWebSessionTests: XCTestCase {
         let chrome = PiPChromeView(webSession: session)
         let presentation = String(reflecting: chrome.body)
 
-        XCTAssertTrue(presentation.contains("Notion couldn't load this page."))
+        XCTAssertEqual(session.state, .failed("Notion couldn't load this page."))
+        XCTAssertEqual(
+            PiPDestinationChrome(isShowingCustomURL: session.isShowingCustomURL).failedLoadMessage,
+            "Notion couldn't load this page."
+        )
         XCTAssertTrue(presentation.contains("Try Again"))
         XCTAssertFalse(presentation.contains("secret"))
     }
