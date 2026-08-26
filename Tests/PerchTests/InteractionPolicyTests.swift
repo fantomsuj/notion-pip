@@ -6,6 +6,9 @@ final class InteractionPolicyTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(InteractionPolicy.pressedScale, 0.95)
         XCTAssertLessThanOrEqual(InteractionPolicy.pressedScale, 0.98)
         XCTAssertEqual(InteractionPolicy.pressDuration, 0.2)
+        XCTAssertEqual(InteractionPolicy.toolbarButtonHighlightOpacity, 0.14)
+        XCTAssertEqual(InteractionPolicy.toolbarButtonShadowOpacity, 0.10)
+        XCTAssertEqual(InteractionPolicy.toolbarButtonShadowOffsetY, 1)
         XCTAssertEqual(
             InteractionPolicy.pressScale(isPressed: true, reducesMotion: false),
             InteractionPolicy.pressedScale
@@ -17,6 +20,12 @@ final class InteractionPolicyTests: XCTestCase {
         XCTAssertEqual(
             InteractionPolicy.pressScale(isPressed: false, reducesMotion: false),
             1
+        )
+        XCTAssertTrue(
+            InteractionPolicy.showsToolbarButtonHighlight(isPressed: true)
+        )
+        XCTAssertFalse(
+            InteractionPolicy.showsToolbarButtonHighlight(isPressed: false)
         )
     }
 
