@@ -17,6 +17,10 @@
 
 ### Changed
 
+- Context Suggestions score the frontmost app, window title, and document URL
+  as separate signals. Browsers match the site and page title instead of the
+  browser name; native apps match their name against page roles and titles;
+  an already-saved Notion page ID in the focused URL is preferred.
 - SwiftData schema migrates to V5, dropping the unused Quick Capture models
   (`CaptureDraftModel`, `CaptureRecordModel`, `QuickCaptureSettingsModel`) from
   the live schema. Existing stores migrate automatically via a lightweight

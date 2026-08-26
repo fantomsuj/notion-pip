@@ -55,9 +55,9 @@ struct ContextSnapshot: Equatable, Sendable {
     }
 }
 
-enum ContextualNotionPageResolver {
-    private static let notionDesktopBundleIdentifier = "notion.id"
-    private static let browserBundleIdentifiers: Set<String> = [
+enum ContextualApplicationKind {
+    static let notionDesktopBundleIdentifier = "notion.id"
+    static let browserBundleIdentifiers: Set<String> = [
         "com.apple.safari",
         "com.apple.safaritechnologypreview",
         "com.brave.browser",
@@ -69,13 +69,24 @@ enum ContextualNotionPageResolver {
         "org.mozilla.firefox",
     ]
 
+    static func ignoresApplicationName(bundleIdentifier: String) -> Bool {
+        let source = bundleIdentifier.lowercased()
+        return source == notionDesktopBundleIdentifier
+            || browserBundleIdentifiers.contains(source)
+    }
+
+    static func isTrustedPageSource(bundleIdentifier: String) -> Bool {
+        ignoresApplicationName(bundleIdentifier: bundleIdentifier)
+    }
+}
+
+enum ContextualNotionPageResolver {
     static func resolve(
         rawURL: String,
         sourceBundleIdentifier: String
     ) -> NotionPageReference? {
         let source = sourceBundleIdentifier.lowercased()
-        guard source == notionDesktopBundleIdentifier
-                || browserBundleIdentifiers.contains(source)
+        guard ContextualApplicationKind.isTrustedPageSource(bundleIdentifier: source)
         else {
             return nil
         }
@@ -83,7 +94,7 @@ enum ContextualNotionPageResolver {
         guard !trimmed.isEmpty, let url = URL(string: trimmed) else { return nil }
 
         if url.scheme?.lowercased() == "notion" {
-            guard source == notionDesktopBundleIdentifier,
+            guard source == ContextualApplicationKind.notionDesktopBundleIdentifier,
                   url.host?.lowercased() == "www.notion.so",
                   var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
             else {
@@ -137,7 +148,28 @@ enum ContextSuggestionMatcher {
     private static let minimumScore = 150
     private static let stopWords: Set<String> = [
         "and", "app", "application", "browser", "com", "for", "from",
-        "http", "https", "net", "org", "page", "the", "with", "www",
+        "http", "https", "net", "new", "org", "page", "tab", "the", "this",
+        "that", "untitled", "window", "with", "www",
+    ]
+    private static let pathNoise: Set<String> = [
+        "applications", "bin", "contents", "desktop", "documents", "downloads",
+        "file", "files", "folder", "folders", "home", "library", "private",
+        "projects", "resources", "source", "sources", "src", "test", "tests",
+        "tmp", "user", "users", "usr", "var", "volumes",
+    ]
+    private static let browserTitleNames = [
+        "Google Chrome Canary",
+        "Google Chrome Beta",
+        "Google Chrome",
+        "Safari Technology Preview",
+        "Microsoft Edge",
+        "Mozilla Firefox",
+        "Chrome",
+        "Safari",
+        "Firefox",
+        "Brave",
+        "Arc",
+        "Notion",
     ]
 
     static func bestSuggestion(
@@ -145,17 +177,6 @@ enum ContextSuggestionMatcher {
         context: ContextSnapshot,
         activePageID: String?
     ) -> ContextSuggestion? {
-        let contextTokens = tokens(
-            in: [
-                context.bundleIdentifier,
-                context.applicationName,
-                context.windowTitle ?? "",
-                context.documentURL?.host ?? "",
-                context.documentURL?.path ?? "",
-            ].joined(separator: " ")
-        )
-        guard !contextTokens.isEmpty else { return nil }
-
         var seen: Set<String> = []
         let candidates = (
             snapshot.pinnedPages.map { ($0, true) }
@@ -165,38 +186,60 @@ enum ContextSuggestionMatcher {
                 && page.pageID.caseInsensitiveCompare(activePageID ?? "") != .orderedSame
         }
 
+        let signals = MatchSignals(context: context)
+        if let exactPageID = signals.exactPageID,
+           let exactPage = candidates.first(where: {
+               $0.0.pageID.caseInsensitiveCompare(exactPageID) == .orderedSame
+           }),
+           let exactSuggestion = suggestion(for: exactPage.0, in: snapshot, context: context)
+        {
+            return exactSuggestion
+        }
+
+        guard !signals.roleMatchTokens.isEmpty else { return nil }
+
         let ranked = candidates.compactMap { page, isPinned -> RankedCandidate? in
-            guard let validatedReference = try? NotionPageReference(validating: page.canonicalURL) else {
+            guard let suggestion = suggestion(for: page, in: snapshot, context: context) else {
                 return nil
             }
-            let reference = validatedReference.resolvingDisplayTitle(page.displayTitle)
 
             let roleTokens = tokens(in: page.role ?? "")
             let titleTokens = tokens(in: page.displayTitle ?? "")
-            let roleOverlap = roleTokens.intersection(contextTokens).count
-            let titleOverlap = titleTokens.intersection(contextTokens).count
-            guard roleOverlap > 0 || titleOverlap > 0 else { return nil }
+            let roleContentOverlap = roleTokens.intersection(signals.contentTokens).count
+            let roleApplicationOverlap = signals.ignoresApplicationName
+                ? 0
+                : roleTokens.intersection(signals.applicationTokens).count
+            let titleContentOverlap = titleTokens.intersection(signals.contentTokens).count
+            let titleApplicationOverlap = signals.ignoresApplicationName
+                ? 0
+                : titleTokens.intersection(signals.applicationTokens).count
+            guard roleContentOverlap > 0
+                    || roleApplicationOverlap > 0
+                    || titleContentOverlap > 0
+                    || titleApplicationOverlap > 0
+            else { return nil }
 
-            var score = roleOverlap * 300 + titleOverlap * 150
-            if !roleTokens.isEmpty, roleTokens.isSubset(of: contextTokens) {
+            var score = roleContentOverlap * 300
+                + roleApplicationOverlap * 300
+                + titleContentOverlap * 150
+                + titleApplicationOverlap * 150
+            if !roleTokens.isEmpty, roleTokens.isSubset(of: signals.roleMatchTokens) {
                 score += 200
             }
-            if !titleTokens.isEmpty, titleTokens.isSubset(of: contextTokens) {
+            if !roleTokens.isEmpty,
+               !signals.hostTokens.isEmpty,
+               roleTokens.isSubset(of: signals.hostTokens)
+            {
+                score += 80
+            }
+            if !titleTokens.isEmpty, titleTokens.isSubset(of: signals.contentTokens) {
                 score += 80
             }
             if isPinned { score += 20 }
             guard score >= minimumScore else { return nil }
 
-            let label = page.role ?? page.displayTitle ?? "Notion page"
             return RankedCandidate(
-                suggestion: ContextSuggestion(
-                    page: reference,
-                    label: label,
-                    sourceApplicationName: context.applicationName,
-                    sourceDescription: sourceDescription(for: context),
-                    contextIdentity: context.identity,
-                    restoration: snapshot.restoration(for: page.pageID)
-                ),
+                suggestion: suggestion,
                 score: score,
                 isPinned: isPinned,
                 timestamp: page.timestamp,
@@ -221,27 +264,144 @@ enum ContextSuggestionMatcher {
         let pageID: String
     }
 
+    private struct MatchSignals {
+        let ignoresApplicationName: Bool
+        let exactPageID: String?
+        let applicationTokens: Set<String>
+        let contentTokens: Set<String>
+        let hostTokens: Set<String>
+        let roleMatchTokens: Set<String>
+
+        init(context: ContextSnapshot) {
+            ignoresApplicationName = ContextualApplicationKind.ignoresApplicationName(
+                bundleIdentifier: context.bundleIdentifier
+            )
+            exactPageID = context.exactPage?.pageID ?? ContextualNotionPageResolver.resolve(
+                rawURL: context.documentURL?.absoluteString ?? "",
+                sourceBundleIdentifier: context.bundleIdentifier
+            )?.pageID
+
+            let lastBundleComponent = context.bundleIdentifier
+                .split(separator: ".")
+                .last
+                .map(String.init) ?? ""
+            applicationTokens = ContextSuggestionMatcher.tokens(
+                in: [lastBundleComponent, context.applicationName].joined(separator: " ")
+            )
+
+            let titleTokens = ContextSuggestionMatcher.tokens(
+                in: ContextSuggestionMatcher.strippedWindowTitle(
+                    context.windowTitle,
+                    applicationName: context.applicationName
+                )
+            )
+            let isNotionDocument = exactPageID != nil
+                || context.documentURL.flatMap { try? NotionPageReference(validating: $0) } != nil
+            if isNotionDocument {
+                hostTokens = []
+                contentTokens = titleTokens
+            } else {
+                hostTokens = ContextSuggestionMatcher.hostTokens(from: context.documentURL)
+                let pathTokens = ContextSuggestionMatcher.pathTokens(from: context.documentURL)
+                contentTokens = titleTokens.union(hostTokens).union(pathTokens)
+            }
+
+            if ignoresApplicationName {
+                roleMatchTokens = contentTokens
+            } else {
+                roleMatchTokens = contentTokens.union(applicationTokens)
+            }
+        }
+    }
+
+    private static func suggestion(
+        for page: StoredPageSnapshot,
+        in snapshot: PageWorkingSetSnapshot,
+        context: ContextSnapshot
+    ) -> ContextSuggestion? {
+        guard let validatedReference = try? NotionPageReference(validating: page.canonicalURL) else {
+            return nil
+        }
+        let reference = validatedReference.resolvingDisplayTitle(page.displayTitle)
+        return ContextSuggestion(
+            page: reference,
+            label: page.role ?? page.displayTitle ?? "Notion page",
+            sourceApplicationName: context.applicationName,
+            sourceDescription: sourceDescription(for: context),
+            contextIdentity: context.identity,
+            restoration: snapshot.restoration(for: page.pageID)
+        )
+    }
+
     private static func tokens(in value: String) -> Set<String> {
         let folded = value.folding(
             options: [.caseInsensitive, .diacriticInsensitive],
             locale: Locale(identifier: "en_US_POSIX")
         )
-        return Set(
-            folded
-                .lowercased()
-                .split { !$0.isLetter && !$0.isNumber }
-                .map(String.init)
-                .filter { $0.count >= 3 && !stopWords.contains($0) }
+        var result: Set<String> = []
+        for raw in folded.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
+            let token = String(raw)
+            guard token.count >= 3, !stopWords.contains(token) else { continue }
+            result.insert(token)
+            if token.count >= 4, token.hasSuffix("s"), !token.hasSuffix("ss") {
+                let stem = String(token.dropLast())
+                if stem.count >= 3, !stopWords.contains(stem) {
+                    result.insert(stem)
+                }
+            }
+        }
+        return result
+    }
+
+    private static func hostTokens(from url: URL?) -> Set<String> {
+        guard let host = url?.host else { return [] }
+        return tokens(
+            in: host
+                .split(separator: ".")
+                .filter { $0.lowercased() != "www" }
+                .joined(separator: " ")
         )
+    }
+
+    private static func pathTokens(from url: URL?) -> Set<String> {
+        guard let url else { return [] }
+        let isFile = url.scheme?.lowercased() == "file"
+        let limit = isFile ? 3 : 4
+        let components = url.path.split(separator: "/").suffix(limit)
+        return tokens(in: components.joined(separator: " "))
+            .subtracting(pathNoise)
+    }
+
+    private static func strippedWindowTitle(_ title: String?, applicationName: String) -> String {
+        guard var current = title?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !current.isEmpty
+        else { return "" }
+
+        let names = [applicationName] + browserTitleNames
+        let separators = [" - ", " — ", " – "]
+        for name in names {
+            let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedName.isEmpty else { continue }
+            for separator in separators {
+                let suffix = separator + trimmedName
+                if current.lowercased().hasSuffix(suffix.lowercased()) {
+                    current.removeLast(suffix.count)
+                    return current.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+        }
+        return current
     }
 
     private static func sourceDescription(for context: ContextSnapshot) -> String? {
         if let host = context.documentURL?.host, !host.isEmpty {
             return host
         }
-        guard let title = context.windowTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !title.isEmpty
-        else { return nil }
+        let title = strippedWindowTitle(
+            context.windowTitle,
+            applicationName: context.applicationName
+        )
+        guard !title.isEmpty else { return nil }
         return String(title.prefix(80))
     }
 }
