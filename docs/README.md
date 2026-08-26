@@ -14,6 +14,8 @@ orientation or rationale, but they do not override the current implementation.
   build and launch instructions, privacy boundaries, and development signing.
 - [Handoff protocol](HANDOFF_PROTOCOL.md) — the current cross-app URL contract
   and validation rules.
+- [Local agent streaming](AGENT_STREAMING.md) — loopback discovery, auth,
+  routes, accept-to-paste Markdown UX, limits, and reference client examples.
 - [Manual test matrix](MANUAL_TEST_MATRIX.md) — current manual verification for
   windowing, Spaces, shortcuts, login items, and other macOS integrations.
 - [External beta readiness](BETA_READINESS.md) — the current release gate and

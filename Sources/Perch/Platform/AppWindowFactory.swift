@@ -48,6 +48,7 @@ enum AppWindowFactory {
         panelSizeController: PanelSizeController,
         launchAtLoginService: LaunchAtLoginService,
         contextSuggestionController: ContextSuggestionController,
+        agentStreamingService: AgentStreamingService,
         closeRequestHandler: @escaping @MainActor () -> Void
     ) -> AppWindowPresenter {
         AppWindowPresenter(
@@ -59,7 +60,8 @@ enum AppWindowFactory {
                         runtime: runtime,
                         panelSizeController: panelSizeController,
                         launchAtLoginService: launchAtLoginService,
-                        contextSuggestionController: contextSuggestionController
+                        contextSuggestionController: contextSuggestionController,
+                        agentStreamingService: agentStreamingService
                     )
                 )
             ),
