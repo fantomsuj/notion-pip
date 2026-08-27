@@ -29,11 +29,6 @@ final class PinCoordinator {
         set { panelCoordinator.onPresentationStateChange = newValue }
     }
 
-    var onWillReveal: (@MainActor () -> Void)? {
-        get { panelCoordinator.onWillReveal }
-        set { panelCoordinator.onWillReveal = newValue }
-    }
-
     var currentCustomURL: CustomPinnedURL? {
         panelCoordinator.currentCustomURL
     }

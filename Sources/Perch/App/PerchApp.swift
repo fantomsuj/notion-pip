@@ -84,12 +84,9 @@ private final class AppComposition {
     private let panelSizeController: PanelSizeController
     private let panelPositionController: PanelPositionController
     private let launchAtLoginService: LaunchAtLoginService
-    private let contextSuggestionController: ContextSuggestionController
-    private let contextSuggestionPanelController: ContextSuggestionPanelController
     private let agentStreamingService: AgentStreamingService
     private let agentStreamNotificationDelegate: AgentStreamNotificationDelegate
     private var statusItemAppearanceCancellable: AnyCancellable?
-    private var contextSuggestionActivePageCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching() {
         updaterController.start()
@@ -161,7 +158,6 @@ private final class AppComposition {
             store: pageRepository,
             currentPageProvider: recentPageSelectionRelay.currentPage
         )
-        let contextualPageActionState = ContextualPageActionState()
         let notionPageDropComposition = NotionPageDropComposition(
             recentPagesController: recentPagesController,
             onSelectRecentPage: recentPageSelectionRelay.perform,
@@ -175,7 +171,6 @@ private final class AppComposition {
             onReturnToNotion: { actionRelay.returnToNotionPage() },
             panelSizeController: panelSizeController,
             panelPositionController: panelPositionController,
-            contextualPageActionState: contextualPageActionState,
             agentStreamController: agentStreamController,
             stashHandle: stashHandle
         )
@@ -190,39 +185,6 @@ private final class AppComposition {
                 )
             }
         )
-        let contextSuggestionController = ContextSuggestionController(
-            monitor: AccessibilityContextMonitor(),
-            store: pageRepository,
-            preferenceStore: ContextSuggestionPreferenceStore(),
-            contextualPageActionState: contextualPageActionState,
-            activePageID: { [weak runtime] in runtime?.activePage?.pageID },
-            onActivate: { [weak runtime] page, restoration in
-                runtime?.activate(
-                    page: page,
-                    source: .contextSuggestion,
-                    restoration: restoration
-                )
-            }
-        )
-        let contextSuggestionPanelController = ContextSuggestionPanelController(
-            controller: contextSuggestionController
-        )
-        stashHandle.onShelfFocusChange = { [weak contextSuggestionController] ownsFocus in
-            if ownsFocus {
-                contextSuggestionController?.prepareContextualRevealSource()
-            } else {
-                contextSuggestionController?.discardPreparedContextualRevealSource()
-            }
-        }
-        runtime.bindContextualRevealHandler { [weak contextSuggestionController] fallback in
-            guard let contextSuggestionController else {
-                fallback?()
-                return
-            }
-            contextSuggestionController.requestContextualReveal(
-                emptyFallback: fallback
-            )
-        }
 
         actionRelay.reloadSavedPinAction = { [weak runtime] in
             runtime?.reloadSavedPin()
@@ -260,7 +222,6 @@ private final class AppComposition {
                 runtime: runtime,
                 panelSizeController: panelSizeController,
                 launchAtLoginService: launchAtLoginService,
-                contextSuggestionController: contextSuggestionController,
                 agentStreamingService: agentStreamingService,
                 closeRequestHandler: closeHandler
             )
@@ -331,14 +292,6 @@ private final class AppComposition {
                 )
             }
         }
-        contextSuggestionActivePageCancellable = runtime.$activePage
-            .dropFirst()
-            .sink { [weak contextSuggestionController] _ in
-                MainActor.assumeIsolated {
-                    contextSuggestionController?.activePageDidChange()
-                }
-            }
-
         actionRelay.settingsWindowPresenter = recoveryGuardedSettingsWindowPresenter
         actionRelay.gettingStartedAction = { [weak onboardingCoordinator] in
             onboardingCoordinator?.show()
@@ -350,7 +303,6 @@ private final class AppComposition {
         panelSizeController.onManagePanelSizes = {
             actionRelay.showSettings()
         }
-        contextSuggestionController.start()
 
         self.runtime = runtime
         self.onboardingCoordinator = onboardingCoordinator
@@ -365,8 +317,6 @@ private final class AppComposition {
         self.panelSizeController = panelSizeController
         self.panelPositionController = panelPositionController
         self.launchAtLoginService = launchAtLoginService
-        self.contextSuggestionController = contextSuggestionController
-        self.contextSuggestionPanelController = contextSuggestionPanelController
         self.agentStreamingService = agentStreamingService
         self.agentStreamNotificationDelegate = agentStreamNotificationDelegate
     }

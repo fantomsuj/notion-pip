@@ -214,7 +214,6 @@ enum PiPPresentationState: Equatable, Sendable {
 protocol PiPPanelCoordinating: AnyObject {
     var onExternalPresentationAction: (@MainActor () -> Void)? { get set }
     var onPresentationStateChange: (@MainActor () -> Void)? { get set }
-    var onWillReveal: (@MainActor () -> Void)? { get set }
     var currentPage: NotionPageReference? { get }
     var currentCustomURL: CustomPinnedURL? { get }
     var presentationState: PiPPresentationState { get }
@@ -242,11 +241,6 @@ extension PiPPanelCoordinating {
     }
 
     var onPresentationStateChange: (@MainActor () -> Void)? {
-        get { nil }
-        set {}
-    }
-
-    var onWillReveal: (@MainActor () -> Void)? {
         get { nil }
         set {}
     }
@@ -346,7 +340,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     var onGeometryPersistenceFailure: (@MainActor () -> Void)?
     var onExternalPresentationAction: (@MainActor () -> Void)?
     var onPresentationStateChange: (@MainActor () -> Void)?
-    var onWillReveal: (@MainActor () -> Void)?
     var onPanelPositionChange: (@MainActor () -> Void)?
 
     var presentationState: PiPPresentationState {
@@ -399,7 +392,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         onReturnToNotion: @escaping () -> Void = {},
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
-        contextualPageActionState: ContextualPageActionState = ContextualPageActionState(),
         agentStreamController: AgentStreamController? = nil,
         stashHandle: (any PiPStashHandle)? = nil,
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
@@ -504,7 +496,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
                 commandModel: commandModel,
                 panelSizeController: panelSizeController,
                 panelPositionController: panelPositionController,
-                contextualPageActionState: contextualPageActionState,
                 agentStreamController: agentStreamController,
                 onReloadSavedPin: onReloadSavedPin,
                 onStash: { [weak self] in
@@ -720,7 +711,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
 
     func showCurrentPage() -> Bool {
         guard hasPinnedDestination else { return false }
-        onWillReveal?()
         let measurement = beginFirstPresentation()
         cancelPendingStashDismissal()
         prepareInitialFrameIfNeeded()
@@ -740,7 +730,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             measurement.signposter.end(measurement.usefulContentToken, outcome: .failure)
             return false
         }
-        onWillReveal?()
         let retention = pageLoader.webViewRetention
         pageLoader.beginShortcutPresentationMeasurement(
             signposter: measurement.signposter,
@@ -1008,7 +997,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             dismissStashHandle()
             return
         }
-        onWillReveal?()
         let measurement = beginFirstPresentation()
         cancelPendingStashDismissal()
         prepareInitialFrameIfNeeded()
@@ -1262,7 +1250,6 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             return false
         }
 
-        onWillReveal?()
         panel.present()
         setPanelFrame(pullRevealState.visibleFrame, display: true, animate: true)
         dismissStashHandle()

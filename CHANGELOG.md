@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Removed
+
+- Context Suggestions (frontmost-app page matching and reveal-time exact-page
+  detection) has been removed. Perch no longer requests Accessibility access.
+
 ## 0.1.3 - 2026-08-26
 
 ### Added

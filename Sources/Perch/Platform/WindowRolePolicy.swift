@@ -8,7 +8,6 @@ enum WindowRole {
     case pictureInPicture
     case stashHandle
     case stashShelf
-    case contextSuggestion
 
     var policy: WindowRolePolicy {
         switch self {
@@ -54,7 +53,7 @@ enum WindowRole {
                 initialContentSize: CGSize(width: 480, height: 720),
                 minimumContentSize: CGSize(width: 360, height: 420)
             )
-        case .stashHandle, .stashShelf, .contextSuggestion:
+        case .stashHandle, .stashShelf:
             WindowRolePolicy(
                 kind: self == .stashShelf
                     ? .focusableNonactivatingPanel
@@ -67,9 +66,7 @@ enum WindowRole {
                     .transient,
                     .ignoresCycle,
                 ],
-                initialContentSize: self == .contextSuggestion
-                    ? CGSize(width: 320, height: 112)
-                    : .zero,
+                initialContentSize: .zero,
                 minimumContentSize: .zero
             )
         }
@@ -78,7 +75,7 @@ enum WindowRole {
     func makeWindow() -> NSWindow {
         let window = policy.makeWindow()
         switch self {
-        case .stashHandle, .stashShelf, .contextSuggestion:
+        case .stashHandle, .stashShelf:
             window.isOpaque = false
             window.backgroundColor = .clear
             window.hasShadow = true
