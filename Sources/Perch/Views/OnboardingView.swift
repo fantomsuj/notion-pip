@@ -21,7 +21,7 @@ struct OnboardingView: View {
                 .staggeredEntrance(index: 0)
                 .id("heading-\(selection.id)")
 
-            Text(selection.detail)
+            Text(selection.detail(globalShortcut: globalShortcut))
                 .font(.body)
                 .foregroundStyle(DesignTokens.Colors.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -117,11 +117,11 @@ struct OnboardingView: View {
         case .bringItBack:
             ShortcutArtwork(
                 title: "Bring Perch forward",
-                detail: "Use this shortcut from any app whenever you want your page nearby.",
-                shortcut: globalShortcut.displayString
+                detail: "Hold the modifier keys, then press the letter key.",
+                shortcut: globalShortcut
             )
         case .stashIt:
-            StashArtwork(shortcut: globalShortcut.displayString)
+            StashArtwork(shortcut: globalShortcut)
         }
     }
 
@@ -212,12 +212,12 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         }
     }
 
-    var detail: String {
+    func detail(globalShortcut: GlobalShortcut) -> String {
         switch self {
         case .openPage:
             "Paste a Notion page link below to open it in Perch. Sign in to Notion in the panel if needed."
         case .bringItBack:
-            "Press the displayed shortcut from any app to bring Perch forward. You can choose a different shortcut in Settings."
+            "From any app, press \(globalShortcut.tutorialDisplayString) to bring Perch forward. You can choose a different shortcut in Settings."
         case .stashIt:
             "When Perch is in the way, press the same shortcut to stash it. Press it again whenever you want it back."
         }
@@ -253,7 +253,7 @@ private struct PinPageArtwork: View {
 private struct ShortcutArtwork: View {
     let title: String
     let detail: String
-    let shortcut: String
+    let shortcut: GlobalShortcut
 
     var body: some View {
         ShortcutRow(title: title, detail: detail, shortcut: shortcut)
@@ -262,7 +262,7 @@ private struct ShortcutArtwork: View {
 }
 
 private struct StashArtwork: View {
-    let shortcut: String
+    let shortcut: GlobalShortcut
 
     var body: some View {
         VStack(spacing: DesignTokens.Spacing.section) {
@@ -278,18 +278,16 @@ private struct StashArtwork: View {
             )
         }
         .frame(maxWidth: 440)
-        .padding(18)
-        .background(DesignTokens.Colors.surface, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.card))
     }
 }
 
 private struct ShortcutRow: View {
     let title: String
     let detail: String
-    let shortcut: String
+    let shortcut: GlobalShortcut
 
     var body: some View {
-        HStack(spacing: DesignTokens.Spacing.container) {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.section) {
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.compact) {
                 Text(title)
                     .font(.callout.weight(.semibold))
@@ -297,29 +295,42 @@ private struct ShortcutRow: View {
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
             }
-            Spacer()
-            Text(shortcut)
-                .font(.system(.body, design: .rounded, weight: .semibold))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(
-                    DesignTokens.Colors.background,
-                    in: RoundedRectangle(cornerRadius: DesignTokens.Radius.control)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: DesignTokens.Radius.control)
-                        .stroke(DesignTokens.Colors.border)
-                }
-                .accessibilityLabel(shortcutAccessibilityLabel)
-        }
-        .padding(.horizontal, 4)
-    }
 
-    private var shortcutAccessibilityLabel: String {
-        shortcut
-            .replacingOccurrences(of: "⌃", with: "Control ")
-            .replacingOccurrences(of: "⌥", with: "Option ")
-            .replacingOccurrences(of: "⇧", with: "Shift ")
-            .replacingOccurrences(of: "⌘", with: "Command ")
+            TutorialShortcutBadges(labels: shortcut.tutorialKeyLabels)
+        }
+        .padding(18)
+        .background(DesignTokens.Colors.surface, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.card))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title). \(detail) Shortcut: \(shortcut.tutorialDisplayString)")
+    }
+}
+
+private struct TutorialShortcutBadges: View {
+    let labels: [String]
+
+    var body: some View {
+        HStack(spacing: DesignTokens.Spacing.compact) {
+            ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
+                if index > 0 {
+                    Text("+")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(DesignTokens.Colors.secondaryText)
+                        .accessibilityHidden(true)
+                }
+
+                Text(label)
+                    .font(.system(.callout, design: .rounded, weight: .semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        DesignTokens.Colors.background,
+                        in: RoundedRectangle(cornerRadius: DesignTokens.Radius.control)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: DesignTokens.Radius.control)
+                            .stroke(DesignTokens.Colors.border)
+                    }
+            }
+        }
     }
 }
