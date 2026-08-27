@@ -31,12 +31,13 @@ struct GlobalShortcut: Codable, Equatable, Hashable, Sendable {
 
     /// Spelled-out key labels for onboarding and other tutorial surfaces.
     /// Symbols like ⇧ are easy to confuse with arrow keys, so tutorials use words.
+    /// Modifiers are listed Cmd-first for readability, even though menu symbols use Apple's order.
     var tutorialKeyLabels: [String] {
         let modifierLabels = [
+            (UInt32(cmdKey), "Cmd"),
+            (UInt32(shiftKey), "Shift"),
             (UInt32(controlKey), "Control"),
             (UInt32(optionKey), "Option"),
-            (UInt32(shiftKey), "Shift"),
-            (UInt32(cmdKey), "Cmd"),
         ]
         return modifierLabels
             .filter { modifiers & $0.0 != 0 }
