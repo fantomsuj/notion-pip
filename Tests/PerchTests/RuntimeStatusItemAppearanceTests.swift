@@ -70,21 +70,6 @@ final class RuntimeStatusItemAppearanceTests: XCTestCase {
         XCTAssertEqual(harness.focus.finishCount, 1)
     }
 
-    func testStatusItemPeekRequestsContextBeforeRevealingPanel() throws {
-        let harness = try makePeekHarness()
-        var contextualRevealCount = 0
-        harness.runtime.bindContextualRevealHandler { fallback in
-            XCTAssertNil(fallback)
-            contextualRevealCount += 1
-        }
-
-        XCTAssertTrue(harness.runtime.beginStatusItemPeek())
-
-        XCTAssertEqual(contextualRevealCount, 1)
-        XCTAssertEqual(harness.panel.willRevealCount, 1)
-        XCTAssertTrue(harness.panel.isVisible)
-    }
-
     func testStatusItemPeekDoesNotRunWhenPanelIsVisibleOrUnavailable() throws {
         let visible = try makePeekHarness(stashed: false)
         XCTAssertFalse(visible.runtime.beginStatusItemPeek())

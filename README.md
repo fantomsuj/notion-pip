@@ -43,17 +43,6 @@ Pin the Notion page you are living in and keep it close without turning it into 
   press **Accept** to paste. Perch never asks for a Notion integration token.
   The wire contract, discovery file, and reference client are documented in
   [`docs/AGENT_STREAMING.md`](docs/AGENT_STREAMING.md).
-- Optionally enable Context Suggestions. With explicit macOS Accessibility
-  permission, Perch compares the frontmost app, focused window title, and any
-  URL that window exposes with the titles and roles of your seven pinned and
-  seven recent pages. A quiet card can open the best match at its saved page
-  position without storing or uploading the surrounding app context. When you
-  deliberately reveal Perch, it also performs one bounded check for the exact
-  Notion page focused in a supported browser or the native Notion app. An empty
-  Perch opens a valid detected page; an occupied Perch stays on its current page
-  and offers a dismissible **Open Here** action only when the detected page is
-  different.
-
 Hover over the edge handle to see up to five pages you recently opened in Perch. Click a recent page to restore it where you left off, click the handle itself to restore the current page, or drag the handle to move it to another edge or display.
 
 You can also drop a valid Notion page link onto the stashed handle to open that page; hovering a link over the handle only previews it and never switches pages.
@@ -137,15 +126,7 @@ Codex will check the Mac and Xcode prerequisites, build and verify the app, and 
 
 Perch accepts HTTPS page URLs on `app.notion.com`, `notion.com`, and `www.notion.com` with a canonical 32-character hexadecimal page ID. Legacy `notion.so` and `www.notion.so` links remain accepted; all non-app hosts canonicalize to `www.notion.com`. Every accepted host retains its percent-encoded path, while credentials, query strings, and fragments are removed. The `perch` handoff contract is documented in [the handoff protocol](docs/HANDOFF_PROTOCOL.md).
 
-Context Suggestions is off by default and requests Accessibility access only
-when enabled. Exact-page checks run only in response to a reveal, use focused
-`AXDocument`/`AXURL` attributes plus a four-element focused parent path, and do
-not inspect page contents, window titles, screenshots, keystrokes, or the
-clipboard. Raw Accessibility app, window, and URL candidates remain transient
-and are not logged. When Perch auto-opens a detected page, or you choose
-**Open Here**, its validated page URL and identifier enter the same device-local
-page history and persistence flow as any page you open normally. Quick Copy
-remains deferred and its separate selection monitor is not started. Perch does
+Quick Copy remains deferred and its separate selection monitor is not started. Perch does
 not ask for, store, or send a personal integration token;
 the signed-in Notion session remains in WebKit's website data store.
 Local builds use an available Apple Development or Perch local-development

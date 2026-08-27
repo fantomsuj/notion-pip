@@ -186,29 +186,6 @@ final class PiPChromeViewTests: XCTestCase {
         )
     }
 
-    func testContextualPageActionPresentsSlimOpenAndDismissControls() throws {
-        let page = try NotionPageReference(
-            validating: XCTUnwrap(
-                URL(string: "https://www.notion.com/Roadmap-0123456789abcdef0123456789abcdef")
-            )
-        )
-
-        XCTAssertEqual(
-            ContextualPageActionPresentation(
-                action: ContextualPageAction(
-                    page: page,
-                    sourceApplicationName: "Safari"
-                )
-            ),
-            ContextualPageActionPresentation(
-                message: "Notion page found in Safari",
-                actionTitle: "Open Here",
-                actionAccessibilityLabel: "Open the Notion page from Safari in Perch",
-                dismissAccessibilityLabel: "Dismiss Open Here"
-            )
-        )
-    }
-
     func testOpenInNotionAndStashOpensActivePageBeforeStashing() throws {
         let page = try NotionPageReference(
             validating: XCTUnwrap(

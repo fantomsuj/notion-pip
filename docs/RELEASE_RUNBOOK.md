@@ -3,8 +3,7 @@
 The per-release checklist for shipping a notarized Perch DMG. This is the short
 operational companion to [Direct Distribution](DISTRIBUTION.md), which has the
 full certificate, secret, and signing detail. Run this alongside
-[External Beta Readiness](BETA_READINESS.md) and the
-[Contextual release checklist](release-checklist.md).
+[External Beta Readiness](BETA_READINESS.md).
 
 ## Prerequisites (verified once)
 
