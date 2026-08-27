@@ -1,122 +1,74 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
   <defs>
-    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#fbfcff"/>
-      <stop offset="0.52" stop-color="#f4f8ff"/>
-      <stop offset="1" stop-color="#edf4ff"/>
-    </linearGradient>
-    <radialGradient id="warmLight" cx="0.14" cy="0.08" r="0.76">
-      <stop offset="0" stop-color="#fff6e9" stop-opacity="0.88"/>
-      <stop offset="0.52" stop-color="#fffaf3" stop-opacity="0.2"/>
-      <stop offset="1" stop-color="#fffaf3" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="blueLight" cx="0.89" cy="0.86" r="0.66">
-      <stop offset="0" stop-color="#99c7ff" stop-opacity="0.46"/>
-      <stop offset="0.52" stop-color="#cfe4ff" stop-opacity="0.15"/>
-      <stop offset="1" stop-color="#dfeeff" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="well" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.88"/>
-      <stop offset="1" stop-color="#e9f2ff" stop-opacity="0.67"/>
-    </linearGradient>
-    <linearGradient id="wellEdge" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.98"/>
-      <stop offset="0.48" stop-color="#bdd8fa" stop-opacity="0.66"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.72"/>
-    </linearGradient>
-    <linearGradient id="current" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#8fc7ff" stop-opacity="0"/>
-      <stop offset="0.2" stop-color="#6aacff" stop-opacity="0.45"/>
-      <stop offset="0.52" stop-color="#1677ff" stop-opacity="0.92"/>
-      <stop offset="0.76" stop-color="#3d95ff" stop-opacity="0.56"/>
-      <stop offset="1" stop-color="#9fd0ff" stop-opacity="0"/>
-    </linearGradient>
-    <linearGradient id="currentHighlight" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
-      <stop offset="0.48" stop-color="#ffffff" stop-opacity="0.68"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-    <filter id="wellShadow" x="-35%" y="-35%" width="170%" height="180%">
-      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#376aa8" flood-opacity="0.13"/>
-      <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#ffffff" flood-opacity="0.9"/>
-    </filter>
-    <filter id="softGlow" x="-45%" y="-80%" width="190%" height="260%">
-      <feGaussianBlur stdDeviation="8"/>
-    </filter>
-    <filter id="arrowShadow" x="-40%" y="-60%" width="180%" height="220%">
-      <feDropShadow dx="0" dy="2" stdDeviation="2.4" flood-color="#074ba2" flood-opacity="0.24"/>
+    <filter id="badgeShadow" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#1c2b3d" flood-opacity="0.16"/>
     </filter>
   </defs>
 
-  <!-- Pearl canvas with restrained warm and cool atmospheric light. -->
-  <rect width="640" height="400" fill="url(#canvas)"/>
-  <rect width="640" height="400" fill="url(#warmLight)"/>
-  <rect width="640" height="400" fill="url(#blueLight)"/>
+  <!-- Plain white canvas: no gradients, no glass panels. -->
+  <rect width="640" height="400" fill="#ffffff"/>
 
-  <!-- Large glass contours keep the frame dimensional without competing with icons. -->
-  <path d="M-72 184 C42 53 180 28 304 77 C440 131 511 30 704 9"
-        fill="none" stroke="#ffffff" stroke-width="2" stroke-opacity="0.74"/>
-  <path d="M-56 194 C50 76 174 54 292 98 C438 153 521 56 688 36"
-        fill="none" stroke="#bfdcff" stroke-width="1" stroke-opacity="0.42"/>
-  <path d="M492 -45 C575 45 602 118 596 190 C591 253 617 291 693 329"
-        fill="none" stroke="#a8cdfa" stroke-width="2" stroke-opacity="0.36"/>
-
-  <!-- Editorial header: native typography, deliberately left aligned. -->
+  <!-- Editorial header, left aligned. -->
   <circle cx="43" cy="36" r="4" fill="#1476ff"/>
   <text x="56" y="40"
         font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif"
-        font-size="10" font-weight="700" letter-spacing="1.8" fill="#426181">
+        font-size="10" font-weight="700" letter-spacing="1.8" fill="#8a97a6">
     PERCH FOR MAC
   </text>
-  <text x="42" y="72"
+  <text x="42" y="73"
         font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif"
-        font-size="25" font-weight="650" letter-spacing="-0.35" fill="#17283f">
+        font-size="26" font-weight="650" letter-spacing="-0.35" fill="#17283f">
     Drag Perch to Applications
   </text>
-  <text x="43" y="96"
-        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif"
-        font-size="12.5" fill="#536b86">
-    Move it first for reliable updates and Launch at Login.
-  </text>
-  <path d="M43 111 H597" stroke="#7297bf" stroke-width="1" stroke-opacity="0.22"/>
 
-  <!-- Finder icon landing wells. -->
-  <g filter="url(#wellShadow)">
-    <rect x="104" y="132" width="152" height="152" rx="47"
-          fill="url(#well)" stroke="url(#wellEdge)" stroke-width="1.5"/>
-    <rect x="384" y="132" width="152" height="152" rx="47"
-          fill="url(#well)" stroke="url(#wellEdge)" stroke-width="1.5"/>
-  </g>
-  <path d="M124 153 C150 137 214 137 239 153"
-        fill="none" stroke="#ffffff" stroke-width="2" stroke-opacity="0.84"/>
-  <path d="M404 153 C430 137 494 137 519 153"
-        fill="none" stroke="#ffffff" stroke-width="2" stroke-opacity="0.84"/>
-
-  <!-- A single purposeful transfer gesture between the two destinations. -->
-  <g fill="#1476ff" opacity="0.52">
-    <circle cx="278" cy="208" r="2"/>
-    <circle cx="288" cy="208" r="2" opacity="0.72"/>
-    <circle cx="298" cy="208" r="2" opacity="0.9"/>
-  </g>
-  <g filter="url(#arrowShadow)" fill="none" stroke="#1476ff" stroke-width="5.5"
-     stroke-linecap="round" stroke-linejoin="round">
-    <path d="M309 208 H355"/>
-    <path d="M341 194 L355 208 L341 222"/>
+  <!-- Minimal transfer arrow between the two icon wells. -->
+  <g transform="translate(320,215)">
+    <circle r="19" fill="#ffffff" filter="url(#badgeShadow)"/>
+    <path d="M-7 0 H7 M2 -6 L8 0 L2 6"
+          fill="none" stroke="#1476ff" stroke-width="2.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
-  <!-- The cobalt current is the memorable brand gesture and reinforces left-to-right movement. -->
-  <path d="M-52 338 C55 279 140 310 222 347 C304 384 371 376 440 332 C510 287 576 283 694 335"
-        fill="none" stroke="#4399ff" stroke-width="34" stroke-opacity="0.12"
-        filter="url(#softGlow)"/>
-  <path d="M-44 340 C55 286 140 314 221 348 C300 382 368 376 439 333 C513 289 582 291 688 337"
-        fill="none" stroke="url(#current)" stroke-width="19" stroke-linecap="round"/>
-  <path d="M-41 333 C58 283 142 311 223 344 C302 377 368 370 437 329 C509 286 578 288 685 333"
-        fill="none" stroke="url(#currentHighlight)" stroke-width="3" stroke-linecap="round"/>
-  <path d="M-38 367 C71 323 155 345 235 373 C320 403 392 392 460 356 C532 318 590 322 682 365"
-        fill="none" stroke="#ffffff" stroke-width="1.4" stroke-opacity="0.58"/>
+  <!-- Cute accent doodles, kept out of the icon-drop zones. -->
 
-  <!-- Fine perimeter accents provide finish at the exact Finder crop. -->
-  <circle cx="604" cy="45" r="2.2" fill="#1476ff" fill-opacity="0.7"/>
+  <!-- Amber mascot blob, upper gap. -->
+  <g transform="translate(282,132)">
+    <path d="M18 4 L27 12 L18 15 Z" fill="#f0a84a"/>
+    <path d="M0 11 C0 4 6 -1 13 0 C20 1 24 7 22 13 C20 19 12 21 6 19 C1 17 0 14 0 11 Z" fill="#c9803a"/>
+    <circle cx="7" cy="9" r="1.5" fill="#5c3d1a"/>
+    <circle cx="13" cy="8" r="1.5" fill="#5c3d1a"/>
+  </g>
+
+  <!-- Violet mascot blob, lower gap. -->
+  <g transform="translate(282,262)">
+    <path d="M18 18 L28 11 L20 24 Z" fill="#a78bfa"/>
+    <path d="M0 9 C0 3 6 -2 13 0 C20 2 23 8 21 13 C19 19 11 21 5 18 C1 16 0 12 0 9 Z" fill="#8b5cf6"/>
+    <circle cx="6" cy="8" r="1.5" fill="#3a2a6d"/>
+    <circle cx="12" cy="7" r="1.5" fill="#3a2a6d"/>
+  </g>
+
+  <!-- Teal pin doodle, right margin. -->
+  <g transform="translate(578,140)">
+    <path d="M11 0 C17 0 22 5 22 11 C22 17 11 30 11 30 C11 30 0 17 0 11 C0 5 5 0 11 0 Z" fill="#2bb8a3"/>
+    <circle cx="8" cy="10" r="1.4" fill="#0d453d"/>
+    <circle cx="14" cy="10" r="1.4" fill="#0d453d"/>
+  </g>
+
+  <!-- Blue cursor badge, lower right. -->
+  <g transform="translate(572,296)">
+    <circle cx="9" cy="9" r="9" fill="#1476ff"/>
+    <path d="M5 4 L14 8 L10 10 L8 14 Z" fill="#ffffff"/>
+  </g>
+
+  <!-- Coral "drop here" cue above the Applications folder. -->
+  <g transform="translate(460,124)">
+    <circle r="9" fill="#ff6b6b"/>
+    <rect x="-4" y="-1.4" width="8" height="2.8" rx="1.4" fill="#ffffff"/>
+    <path d="M-7 12 L7 12 L0 22 Z" fill="#ff6b6b"/>
+  </g>
+
+  <!-- Fine perimeter accents. -->
+  <circle cx="604" cy="45" r="2.2" fill="#1476ff" fill-opacity="0.55"/>
   <circle cx="613" cy="45" r="1.2" fill="#1476ff" fill-opacity="0.32"/>
-  <path d="M596 377 H616" stroke="#4d7ead" stroke-width="1" stroke-opacity="0.28"/>
+  <path d="M14 372 L26 364 L20 380 Z" fill="#f0a84a" fill-opacity="0.65"/>
 </svg>
