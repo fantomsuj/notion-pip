@@ -4,10 +4,12 @@
 
 Context Suggestions remains one optional, local-only feature with one macOS
 Accessibility permission and one Settings control. Its original behavior
-continues to suggest a saved pinned/recent page by matching transient app,
-focused-window title, and exposed document-URL tokens. The exact connection is
-an additive reveal-time behavior; it does not create another monitor,
-preference, prompt, or activation service.
+continues to suggest a saved pinned/recent page by matching the frontmost app
+against native-app roles and titles, and by matching focused-window titles and
+exposed document URLs—including an exact working-set page ID when the URL is a
+trusted Notion page. Browser names are not used as match tokens. The exact
+connection is an additive reveal-time behavior; it does not create another
+monitor, preference, prompt, or activation service.
 
 ## Reveal behavior
 

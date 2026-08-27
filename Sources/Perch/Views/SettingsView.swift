@@ -90,7 +90,7 @@ struct SettingsView: View {
                     )
 
                     Text(
-                        "Perch locally compares the active app, window title, and an available page URL with your pinned and recent pages. When you reveal Perch, it can also check the focused URL for an exact Notion page. Raw Accessibility context is never saved or uploaded; pages you open follow normal local history."
+                        "Perch locally compares the active app or website with your pinned and recent pages, using the window title and any available page URL. Browser names are not treated as the match. When you reveal Perch, it can also check the focused URL for an exact Notion page. Raw Accessibility context is never saved or uploaded; pages you open follow normal local history."
                     )
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Colors.secondaryText)

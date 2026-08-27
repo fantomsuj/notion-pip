@@ -24,8 +24,12 @@ explicitly enabled, and never requires a Notion token.
   persisted, uploaded, or added to the Notion page. A page subsequently opened
   from a suggestion still follows Perch's ordinary device-local page history
   and persistence behavior.
-- Matching is deterministic. Page roles receive the strongest weight, page
-  titles the next strongest weight, and pinned pages win ties.
+- Matching is deterministic. An exact Notion page already in the working set
+  outranks token overlap. Browser and native-Notion sources match the focused
+  window title and document URL, not the browser's own name. Native apps also
+  match their application name against page roles and titles. Page roles
+  receive the strongest token weight, page titles the next strongest weight,
+  and pinned pages win remaining ties.
 - The current page is never suggested. Low-confidence matches, secure fields,
   Perch itself, repeated identical contexts, and recently dismissed suggestions
   remain silent.
@@ -73,8 +77,9 @@ window, or Accessibility mechanics move into `AppRuntime`.
 ## Testing
 
 - Pure tests cover normalization, role/title weighting, current-page exclusion,
-  deterministic ties, URL tokenization, minimum confidence, and restoration
-  propagation.
+  deterministic ties, URL tokenization, minimum confidence, restoration
+  propagation, browser-name isolation, native-app role matching, exact working-set
+  page IDs, Notion-host noise, and plural title stems.
 - Controller tests use an in-memory monitor/store/presenter to cover opt-in,
   permission denial, changed context, dismissal cooldown, acceptance, and
   disabling.

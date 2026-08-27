@@ -44,9 +44,11 @@ Pin the Notion page you are living in and keep it close without turning it into 
   The wire contract, discovery file, and reference client are documented in
   [`docs/AGENT_STREAMING.md`](docs/AGENT_STREAMING.md).
 - Optionally enable Context Suggestions. With explicit macOS Accessibility
-  permission, Perch compares the frontmost app, focused window title, and any
-  URL that window exposes with the titles and roles of your seven pinned and
-  seven recent pages. A quiet card can open the best match at its saved page
+  permission, Perch compares the frontmost native app, or a browser's focused
+  window title and any URL that window exposes, with the titles and roles of
+  your seven pinned and seven recent pages. Browser names are not used as
+  match tokens; a Notion page already in that working set wins if its ID is in
+  the focused URL. A quiet card can open the best match at its saved page
   position without storing or uploading the surrounding app context. When you
   deliberately reveal Perch, it also performs one bounded check for the exact
   Notion page focused in a supported browser or the native Notion app. An empty
