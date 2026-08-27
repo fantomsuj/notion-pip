@@ -29,6 +29,25 @@ struct GlobalShortcut: Codable, Equatable, Hashable, Sendable {
             .joined() + keyLabel
     }
 
+    /// Spelled-out key labels for onboarding and other tutorial surfaces.
+    /// Symbols like ⇧ are easy to confuse with arrow keys, so tutorials use words.
+    var tutorialKeyLabels: [String] {
+        let modifierLabels = [
+            (UInt32(controlKey), "Control"),
+            (UInt32(optionKey), "Option"),
+            (UInt32(shiftKey), "Shift"),
+            (UInt32(cmdKey), "Cmd"),
+        ]
+        return modifierLabels
+            .filter { modifiers & $0.0 != 0 }
+            .map(\.1)
+            + [keyLabel]
+    }
+
+    var tutorialDisplayString: String {
+        tutorialKeyLabels.joined(separator: " + ")
+    }
+
     private var keyLabel: String {
         let labels: [UInt32: String] = [
             UInt32(kVK_ANSI_A): "A", UInt32(kVK_ANSI_B): "B", UInt32(kVK_ANSI_C): "C",

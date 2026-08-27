@@ -11,6 +11,9 @@ final class GlobalShortcutTests: XCTestCase {
             modifiers: UInt32(cmdKey | shiftKey)
         ))
         XCTAssertTrue(GlobalShortcut.default.isValid)
+        XCTAssertEqual(GlobalShortcut.default.displayString, "⌘⇧P")
+        XCTAssertEqual(GlobalShortcut.default.tutorialDisplayString, "Cmd + Shift + P")
+        XCTAssertEqual(GlobalShortcut.default.tutorialKeyLabels, ["Cmd", "Shift", "P"])
     }
 
     func testShortcutRejectsEmptyAndUnsupportedModifierCombinations() {

@@ -31,9 +31,17 @@ final class OnboardingContentTests: XCTestCase {
         )
     }
 
+    func testBringItBackStepSpellsOutTheDefaultShortcut() {
+        let detail = OnboardingStep.bringItBack.detail(globalShortcut: .default)
+
+        XCTAssertTrue(detail.contains("Cmd + Shift + P"))
+        XCTAssertFalse(detail.contains("⇧"))
+        XCTAssertFalse(detail.contains("⌘"))
+    }
+
     func testFirstRunDoesNotTeachDeferredControlsOrShortcutTiming() {
         let copy = OnboardingStep.allCases
-            .map { "\($0.sidebarTitle) \($0.heading) \($0.detail)" }
+            .map { "\($0.sidebarTitle) \($0.heading) \($0.detail(globalShortcut: .default))" }
             .joined(separator: " ")
             .lowercased()
 
