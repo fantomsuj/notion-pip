@@ -11,7 +11,7 @@ protocol AgentStreamHTTPServing: Sendable {
     func stream(id: UUID) async throws -> AgentStreamSnapshot
 }
 
-final class AgentStreamHTTPGateway: AgentStreamHTTPServing, @unchecked Sendable {
+actor AgentStreamHTTPGateway: AgentStreamHTTPServing {
     private let controller: AgentStreamController
 
     init(controller: AgentStreamController) {

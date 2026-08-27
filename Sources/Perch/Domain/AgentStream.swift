@@ -23,7 +23,6 @@ enum AgentStreamErrorCode: String, Equatable, Sendable {
     case rateLimited = "rate_limited"
     case streamGone = "stream_gone"
     case invalidRequest = "invalid_request"
-    case unsupported = "unsupported"
 }
 
 struct AgentStreamError: Error, Equatable, Sendable {
@@ -301,6 +300,8 @@ enum AgentStreamAccessibilityLabels {
     static let copy = "Copy stream output"
     static let accept = "Accept and paste into Notion"
     static let dismiss = "Dismiss stream"
+    static let expandDetails = "Show stream details"
+    static let collapseDetails = "Hide stream details"
 }
 
 enum AgentStreamUserFacingCopy {
@@ -312,4 +313,5 @@ enum AgentStreamUserFacingCopy {
     static let dismissButton = "Dismiss"
     static let addedReceipt = "Added to Notion"
     static let clickFirstHint = "Click in the Notion page where you want this, then Accept."
+    static let failedTitle = "Couldn’t paste"
 }

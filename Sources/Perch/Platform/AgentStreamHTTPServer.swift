@@ -2,23 +2,11 @@ import Foundation
 import Network
 import OSLog
 import Security
-import os
 
-final class AgentStreamHTTPServer: @unchecked Sendable {
+actor AgentStreamHTTPServer {
     struct StartResult: Equatable, Sendable {
         let record: AgentStreamDiscoveryRecord
         let port: UInt16
-    }
-
-    private struct State {
-        var listener: NWListener?
-        var port: UInt16?
-        var token: String?
-        var startedAt: Date?
-        var isStopping = false
-        var connectionTasks: [UUID: Task<Void, Never>] = [:]
-        var recentRequestTimestamps: [ContinuousClock.Instant] = []
-        var startContinuation: CheckedContinuation<StartResult, Error>?
     }
 
     private let gateway: any AgentStreamHTTPServing
@@ -31,7 +19,15 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
         subsystem: "com.fantomsuj.Perch",
         category: "agent-stream-http"
     )
-    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    private var listener: NWListener?
+    private var port: UInt16?
+    private var token: String?
+    private var startedAt: Date?
+    private var isStopping = false
+    private var connectionTasks: [UUID: Task<Void, Never>] = [:]
+    private var recentRequestTimestamps: [ContinuousClock.Instant] = []
+    private var startContinuation: CheckedContinuation<StartResult, Error>?
 
     init(
         gateway: any AgentStreamHTTPServing,
@@ -52,13 +48,11 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
     }
 
     var isRunning: Bool {
-        state.withLock { state in
-            state.listener != nil && state.token != nil && state.port != nil
-        }
+        listener != nil && token != nil && port != nil
     }
 
     var publishedPort: UInt16? {
-        state.withLock { $0.port }
+        port
     }
 
     func start() async throws -> StartResult {
@@ -66,18 +60,7 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
             let token = tokenGenerator()
             let startedAt = clock()
 
-            let shouldStart: Bool = state.withLock { state in
-                if state.listener != nil || state.startContinuation != nil {
-                    return false
-                }
-                state.isStopping = false
-                state.token = token
-                state.startedAt = startedAt
-                state.startContinuation = continuation
-                return true
-            }
-
-            guard shouldStart else {
+            if listener != nil || startContinuation != nil {
                 continuation.resume(
                     throwing: AgentStreamError.invalidRequest(
                         "Agent stream HTTP server is already running."
@@ -85,6 +68,11 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
                 )
                 return
             }
+
+            isStopping = false
+            self.token = token
+            self.startedAt = startedAt
+            startContinuation = continuation
 
             do {
                 let parameters = NWParameters.tcp
@@ -96,22 +84,21 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
                 parameters.acceptLocalOnly = true
 
                 let newListener = try NWListener(using: parameters, on: .any)
-                state.withLock { state in
-                    state.listener = newListener
+                listener = newListener
+
+                newListener.newConnectionHandler = { connection in
+                    Task { await self.accept(connection) }
                 }
 
-                newListener.newConnectionHandler = { [weak self] connection in
-                    self?.accept(connection)
-                }
-
-                newListener.stateUpdateHandler = { [weak self] listenerState in
-                    guard let self else { return }
-                    self.handleListenerState(
-                        listenerState,
-                        listener: newListener,
-                        token: token,
-                        startedAt: startedAt
-                    )
+                newListener.stateUpdateHandler = { listenerState in
+                    Task {
+                        await self.handleListenerState(
+                            listenerState,
+                            listener: newListener,
+                            token: token,
+                            startedAt: startedAt
+                        )
+                    }
                 }
 
                 newListener.start(queue: DispatchQueue(
@@ -126,38 +113,29 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
     }
 
     func stop() async {
-        let snapshot: (
-            token: String?,
-            listener: NWListener?,
-            tasks: [Task<Void, Never>]
-        ) = state.withLock { state in
-            state.isStopping = true
-            let token = state.token
-            let listener = state.listener
-            let tasks = Array(state.connectionTasks.values)
-            state.connectionTasks.removeAll()
-            state.listener = nil
-            state.port = nil
-            state.token = nil
-            state.startedAt = nil
-            if let continuation = state.startContinuation {
-                state.startContinuation = nil
-                continuation.resume(
-                    throwing: CancellationError()
-                )
-            }
-            return (token, listener, tasks)
+        isStopping = true
+        let token = self.token
+        let listener = self.listener
+        let tasks = Array(connectionTasks.values)
+        connectionTasks.removeAll()
+        self.listener = nil
+        port = nil
+        self.token = nil
+        startedAt = nil
+        if let continuation = startContinuation {
+            startContinuation = nil
+            continuation.resume(throwing: CancellationError())
         }
 
-        snapshot.listener?.cancel()
-        for task in snapshot.tasks {
+        listener?.cancel()
+        for task in tasks {
             task.cancel()
         }
-        for task in snapshot.tasks {
+        for task in tasks {
             _ = await task.result
         }
 
-        if let token = snapshot.token {
+        if let token {
             do {
                 try discoveryStore.removeIfMatches(
                     pid: processIdentifier,
@@ -199,9 +177,7 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
                     startedAt: startedAt
                 )
                 try discoveryStore.publish(record)
-                state.withLock { state in
-                    state.port = boundPort
-                }
+                port = boundPort
                 logger.info(
                     "Agent stream listener ready on loopback port \(boundPort, privacy: .public)"
                 )
@@ -212,10 +188,10 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
                 clearListenerState()
                 resumeStart(.failure(error))
             }
-        case .failed(let error):
+        case .failed:
             logger.error("Agent stream listener failed")
             clearListenerState()
-            resumeStart(.failure(error))
+            resumeStart(.failure(AgentStreamError.invalidRequest("Listener failed.")))
         case .cancelled:
             clearListenerState()
             resumeStart(.failure(CancellationError()))
@@ -225,28 +201,18 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
     }
 
     private func resumeStart(_ result: Result<StartResult, Error>) {
-        let continuation = state.withLock { state -> CheckedContinuation<StartResult, Error>? in
-            let value = state.startContinuation
-            state.startContinuation = nil
-            return value
-        }
+        let continuation = startContinuation
+        startContinuation = nil
         continuation?.resume(with: result)
     }
 
     // MARK: - Connections
 
     private func accept(_ connection: NWConnection) {
-        let credentials: (port: UInt16, token: String)? = state.withLock { state in
-            guard !state.isStopping,
-                  let port = state.port,
-                  let token = state.token
-            else {
-                return nil
-            }
-            return (port, token)
-        }
-
-        guard let credentials else {
+        guard !isStopping,
+              let port,
+              let token
+        else {
             connection.cancel()
             return
         }
@@ -257,23 +223,15 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
         }
 
         let taskID = UUID()
-        let task = Task { [weak self] in
-            guard let self else {
-                connection.cancel()
-                return
-            }
+        let task = Task {
             await self.handleConnection(
                 connection,
-                expectedPort: credentials.port,
-                expectedToken: credentials.token
+                expectedPort: port,
+                expectedToken: token
             )
-            self.state.withLock { state in
-                state.connectionTasks[taskID] = nil
-            }
+            self.connectionTasks[taskID] = nil
         }
-        state.withLock { state in
-            state.connectionTasks[taskID] = task
-        }
+        connectionTasks[taskID] = task
     }
 
     private func handleConnection(
@@ -364,7 +322,7 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
                 return try AgentStreamHTTPCodec.encodeJSONResponse(
                     status: 201,
                     reason: "Created",
-                    object: AgentStreamHTTPCodec.StreamDTO(
+                    object: AgentStreamHTTPCodec.StreamAckDTO(
                         result.snapshot,
                         limits: result.limits
                     )
@@ -376,7 +334,7 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
                 return try AgentStreamHTTPCodec.encodeJSONResponse(
                     status: 200,
                     reason: "OK",
-                    object: AgentStreamHTTPCodec.StreamDTO(snapshot)
+                    object: AgentStreamHTTPCodec.StreamAckDTO(snapshot)
                 )
 
             case .complete(let id):
@@ -384,7 +342,7 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
                 return try AgentStreamHTTPCodec.encodeJSONResponse(
                     status: 200,
                     reason: "OK",
-                    object: AgentStreamHTTPCodec.StreamDTO(snapshot)
+                    object: AgentStreamHTTPCodec.StreamAckDTO(snapshot)
                 )
 
             case .cancel(let id):
@@ -392,7 +350,7 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
                 return try AgentStreamHTTPCodec.encodeJSONResponse(
                     status: 200,
                     reason: "OK",
-                    object: AgentStreamHTTPCodec.StreamDTO(snapshot)
+                    object: AgentStreamHTTPCodec.StreamAckDTO(snapshot)
                 )
 
             case .getStream(let id):
@@ -400,7 +358,7 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
                 return try AgentStreamHTTPCodec.encodeJSONResponse(
                     status: 200,
                     reason: "OK",
-                    object: AgentStreamHTTPCodec.StreamDTO(snapshot)
+                    object: AgentStreamHTTPCodec.StreamAckDTO(snapshot)
                 )
             }
         } catch let error as AgentStreamError {
@@ -498,16 +456,14 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
     // MARK: - Helpers
 
     private func consumeRateLimitSlot() -> Bool {
-        state.withLock { state in
-            let now = ContinuousClock.now
-            let window = Duration.seconds(1)
-            state.recentRequestTimestamps.removeAll { now - $0 >= window }
-            if state.recentRequestTimestamps.count >= limits.maxRequestsPerSecond {
-                return false
-            }
-            state.recentRequestTimestamps.append(now)
-            return true
+        let now = ContinuousClock.now
+        let window = Duration.seconds(1)
+        recentRequestTimestamps.removeAll { now - $0 >= window }
+        if recentRequestTimestamps.count >= limits.maxRequestsPerSecond {
+            return false
         }
+        recentRequestTimestamps.append(now)
+        return true
     }
 
     private func isLoopbackConnection(_ connection: NWConnection) -> Bool {
@@ -529,12 +485,10 @@ final class AgentStreamHTTPServer: @unchecked Sendable {
     }
 
     private func clearListenerState() {
-        state.withLock { state in
-            state.listener = nil
-            state.port = nil
-            state.token = nil
-            state.startedAt = nil
-        }
+        listener = nil
+        port = nil
+        token = nil
+        startedAt = nil
     }
 
     static func makeToken() -> String {

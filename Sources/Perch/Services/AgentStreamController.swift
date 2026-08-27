@@ -139,6 +139,7 @@ final class AgentStreamController: ObservableObject {
     private var createIdempotency: [String: UUID] = [:]
     private var lastActivityAt: Date?
     private var cancelSuccessReceipt: AgentStreamReceiptCancellation?
+    private var cancelExpiryWork: AgentStreamReceiptCancellation?
     private var assembledBuffer = ""
     private var lastAcceptedSequence: Int = -1
 
@@ -342,8 +343,15 @@ final class AgentStreamController: ObservableObject {
 
     /// User Accept: capture the live cursor, then paste Markdown once.
     func accept() {
+        guard let current = snapshot else { return }
+        accept(streamID: current.id)
+    }
+
+    /// Accept only when `streamID` still matches the active stream.
+    func accept(streamID: UUID) {
         expireIfNeeded()
         guard let current = snapshot,
+              current.id == streamID,
               current.canAccept || current.phase == .failed,
               current.phase == .ready || current.phase == .failed
         else {
@@ -354,7 +362,6 @@ final class AgentStreamController: ObservableObject {
             return
         }
 
-        let streamID = current.id
         let markdown = assembledBuffer
         publish(
             AgentStreamSnapshot(
@@ -415,6 +422,12 @@ final class AgentStreamController: ObservableObject {
 
     func dismissFromOverlay() {
         guard let current = snapshot else { return }
+        dismissFromOverlay(streamID: current.id)
+    }
+
+    /// Dismiss only when `streamID` still matches the active stream.
+    func dismissFromOverlay(streamID: UUID) {
+        guard let current = snapshot, current.id == streamID else { return }
         switch current.phase {
         case .ready, .failed, .cancelled, .expired, .inserted:
             clearOverlayAndBuffer(retainingMetadata: current)
@@ -433,6 +446,7 @@ final class AgentStreamController: ObservableObject {
 
     func prepareForTermination() {
         cancelPendingSuccessReceipt()
+        cancelScheduledExpiry()
         notifier.clearStreamNotifications()
         if let current = snapshot, current.phase == .receiving || current.phase == .ready {
             publish(
@@ -464,6 +478,7 @@ final class AgentStreamController: ObservableObject {
         of current: AgentStreamSnapshot
     ) -> AgentStreamSnapshot {
         cancelPendingSuccessReceipt()
+        cancelScheduledExpiry()
         notifier.clearStreamNotifications()
         let cancelled = AgentStreamSnapshot(
             id: current.id,
@@ -537,6 +552,7 @@ final class AgentStreamController: ObservableObject {
 
     private func clearOverlayAndBuffer(retainingMetadata current: AgentStreamSnapshot) {
         cancelPendingSuccessReceipt()
+        cancelScheduledExpiry()
         notifier.clearStreamNotifications()
         assembledBuffer = ""
         publish(
@@ -559,60 +575,62 @@ final class AgentStreamController: ObservableObject {
     private func publish(_ snapshot: AgentStreamSnapshot) {
         self.snapshot = snapshot
         overlayPresentation = .from(snapshot: snapshot)
+        scheduleExpiryIfNeeded(for: snapshot)
     }
 
     private func touch() {
         lastActivityAt = clock()
+        if let snapshot {
+            scheduleExpiryIfNeeded(for: snapshot)
+        }
     }
 
-    private func expireIfNeeded() {
+    private func scheduleExpiryIfNeeded(for snapshot: AgentStreamSnapshot) {
+        cancelScheduledExpiry()
+        let delay: Duration?
+        switch snapshot.phase {
+        case .receiving:
+            delay = limits.inactiveExpiration
+        case .ready, .failed:
+            delay = limits.readyRetention
+        case .inserted, .cancelled, .expired:
+            delay = limits.terminalRetention
+        case .inserting:
+            delay = nil
+        }
+        guard let delay else { return }
+        let streamID = snapshot.id
+        let phase = snapshot.phase
+        cancelExpiryWork = receiptScheduler(delay) { [weak self] in
+            guard let self,
+                  let latest = self.snapshot,
+                  latest.id == streamID,
+                  latest.phase == phase
+            else {
+                return
+            }
+            self.cancelExpiryWork = nil
+            self.expireIfNeeded(force: true)
+        }
+    }
+
+    private func expireIfNeeded(force: Bool = false) {
         guard let current = snapshot, let lastActivityAt else { return }
         let now = clock()
         let elapsed = now.timeIntervalSince(lastActivityAt)
 
         switch current.phase {
         case .receiving:
-            if elapsed >= limits.inactiveExpiration.timeInterval {
-                publish(
-                    AgentStreamSnapshot(
-                        id: current.id,
-                        label: current.label,
-                        client: current.client,
-                        contentType: current.contentType,
-                        phase: .expired,
-                        assembledText: "",
-                        nextSequence: current.nextSequence,
-                        opaquePageID: current.opaquePageID,
-                        errorMessage: nil,
-                        canAccept: false,
-                        showsOverlay: false
-                    )
-                )
-                assembledBuffer = ""
-                notifier.clearStreamNotifications()
+            if force || elapsed >= limits.inactiveExpiration.timeInterval {
+                expire(current)
             }
         case .ready, .failed:
-            if elapsed >= limits.readyRetention.timeInterval {
-                publish(
-                    AgentStreamSnapshot(
-                        id: current.id,
-                        label: current.label,
-                        client: current.client,
-                        contentType: current.contentType,
-                        phase: .expired,
-                        assembledText: "",
-                        nextSequence: current.nextSequence,
-                        opaquePageID: current.opaquePageID,
-                        errorMessage: nil,
-                        canAccept: false,
-                        showsOverlay: false
-                    )
-                )
-                assembledBuffer = ""
-                notifier.clearStreamNotifications()
+            if force || elapsed >= limits.readyRetention.timeInterval {
+                expire(current)
             }
         case .inserted, .cancelled, .expired:
-            if elapsed >= limits.terminalRetention.timeInterval {
+            if force || elapsed >= limits.terminalRetention.timeInterval {
+                cancelScheduledExpiry()
                 snapshot = nil
                 overlayPresentation = .hidden
                 self.lastActivityAt = nil
@@ -620,6 +638,28 @@ final class AgentStreamController: ObservableObject {
         case .inserting:
             break
         }
+    }
+
+    private func expire(_ current: AgentStreamSnapshot) {
+        cancelScheduledExpiry()
+        publish(
+            AgentStreamSnapshot(
+                id: current.id,
+                label: current.label,
+                client: current.client,
+                contentType: current.contentType,
+                phase: .expired,
+                assembledText: "",
+                nextSequence: current.nextSequence,
+                opaquePageID: current.opaquePageID,
+                errorMessage: nil,
+                canAccept: false,
+                showsOverlay: false
+            )
+        )
+        assembledBuffer = ""
+        notifier.clearStreamNotifications()
+        touch()
     }
 
     private func normalizedLabel(_ label: String?, fallbackClient: String) -> String {
@@ -641,6 +681,11 @@ final class AgentStreamController: ObservableObject {
     private func cancelPendingSuccessReceipt() {
         cancelSuccessReceipt?()
         cancelSuccessReceipt = nil
+    }
+
+    private func cancelScheduledExpiry() {
+        cancelExpiryWork?()
+        cancelExpiryWork = nil
     }
 }
 

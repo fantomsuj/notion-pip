@@ -4,16 +4,18 @@ import UserNotifications
 /// Routes notification Accept/Dismiss actions to the shared stream controller.
 ///
 /// `UNUserNotificationCenterDelegate` methods are called off the main actor.
-/// The controller reference is only used after hopping to the main queue.
+/// Actions hop to the main actor and only affect the stream matching the
+/// notification's `streamID`.
+@MainActor
 final class AgentStreamNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
-    nonisolated(unsafe) private weak var controller: AgentStreamController?
+    private weak var controller: AgentStreamController?
 
     init(controller: AgentStreamController) {
         self.controller = controller
         super.init()
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler:
@@ -22,25 +24,27 @@ final class AgentStreamNotificationDelegate: NSObject, UNUserNotificationCenterD
         completionHandler([.banner, .sound, .list])
     }
 
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let actionIdentifier = response.actionIdentifier
-        let controller = controller
+        let userInfo = response.notification.request.content.userInfo
+        let streamIDString = (userInfo["streamID"] as? String)
+            ?? response.notification.request.identifier
+        let streamID = UUID(uuidString: streamIDString)
         completionHandler()
-        DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                switch actionIdentifier {
-                case AgentStreamUserNotifier.acceptActionIdentifier,
-                    UNNotificationDefaultActionIdentifier:
-                    controller?.accept()
-                case AgentStreamUserNotifier.dismissActionIdentifier:
-                    controller?.dismissFromOverlay()
-                default:
-                    break
-                }
+        Task { @MainActor in
+            guard let streamID else { return }
+            switch actionIdentifier {
+            case AgentStreamUserNotifier.acceptActionIdentifier,
+                UNNotificationDefaultActionIdentifier:
+                controller?.accept(streamID: streamID)
+            case AgentStreamUserNotifier.dismissActionIdentifier:
+                controller?.dismissFromOverlay(streamID: streamID)
+            default:
+                break
             }
         }
     }

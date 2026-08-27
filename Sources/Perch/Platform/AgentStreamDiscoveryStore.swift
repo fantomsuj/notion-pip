@@ -22,26 +22,22 @@ struct AgentStreamDiscoveryRecord: Codable, Equatable, Sendable {
     }
 }
 
-final class AgentStreamDiscoveryStore: @unchecked Sendable {
+final class AgentStreamDiscoveryStore: Sendable {
     static var defaultFileURL: URL {
         ApplicationInstanceCoordinator.defaultApplicationSupportDirectoryURL
             .appendingPathComponent("agent-server.json")
     }
 
     private let fileURL: URL
-    private let fileManager: FileManager
 
-    init(
-        fileURL: URL = AgentStreamDiscoveryStore.defaultFileURL,
-        fileManager: FileManager = .default
-    ) {
+    init(fileURL: URL = AgentStreamDiscoveryStore.defaultFileURL) {
         self.fileURL = fileURL
-        self.fileManager = fileManager
     }
 
     var url: URL { fileURL }
 
     func publish(_ record: AgentStreamDiscoveryRecord) throws {
+        let fileManager = FileManager.default
         let directory = fileURL.deletingLastPathComponent()
         try fileManager.createDirectory(
             at: directory,
@@ -79,6 +75,7 @@ final class AgentStreamDiscoveryStore: @unchecked Sendable {
     }
 
     func load() throws -> AgentStreamDiscoveryRecord? {
+        let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return nil
         }
@@ -96,10 +93,11 @@ final class AgentStreamDiscoveryStore: @unchecked Sendable {
         else {
             return
         }
-        try fileManager.removeItem(at: fileURL)
+        try FileManager.default.removeItem(at: fileURL)
     }
 
     func removeFileIfPresent() throws {
+        let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: fileURL.path) else { return }
         try fileManager.removeItem(at: fileURL)
     }
