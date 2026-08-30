@@ -59,6 +59,21 @@ struct SettingsView: View {
                     )
                     .font(.caption)
                     .foregroundStyle(DesignTokens.Colors.secondaryText)
+
+                    Toggle(
+                        "Show stash icon",
+                        isOn: Binding(
+                            get: { !runtime.stashHandleHidden },
+                            set: { isVisible in
+                                runtime.setStashHandleHidden(!isVisible)
+                            }
+                        )
+                    )
+                    Text(
+                        "When off, Perch stays hidden while stashed instead of showing an icon at the screen edge. Use the global shortcut to bring it back."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.Colors.secondaryText)
                 }
 
                 Section("Menu Bar") {

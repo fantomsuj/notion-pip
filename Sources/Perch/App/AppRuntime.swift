@@ -13,6 +13,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     @Published private(set) var serviceHealth: ServiceHealthState
     @Published private(set) var globalShortcut: GlobalShortcut
     @Published private(set) var holdToPeekEnabled: Bool
+    @Published private(set) var stashHandleHidden: Bool
     @Published private(set) var savedMenuBarIconVisibility: Bool
     @Published private(set) var effectiveMenuBarIconVisibility: Bool
     @Published private(set) var isMenuBarIconVisibilityForced: Bool
@@ -42,6 +43,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let shortcutRegistrar: any GlobalShortcutRegistering
     let shortcutStore: GlobalShortcutStore
     let holdToPeekPreferenceStore: HoldToPeekPreferenceStore
+    let stashHandleVisibilityPreferenceStore: StashHandleVisibilityPreferenceStore
     let peekFocusRestorer: any PeekFocusRestoring
     let performanceSignposter: any PerformanceSignposting
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
@@ -78,6 +80,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         shortcutStore: GlobalShortcutStore = GlobalShortcutStore(),
         menuBarIconPreferenceStore: MenuBarIconPreferenceStore = MenuBarIconPreferenceStore(),
         holdToPeekPreferenceStore: HoldToPeekPreferenceStore = HoldToPeekPreferenceStore(),
+        stashHandleVisibilityPreferenceStore: StashHandleVisibilityPreferenceStore =
+            StashHandleVisibilityPreferenceStore(),
         customPinnedURLStore: CustomPinnedURLStore = CustomPinnedURLStore(),
         peekFocusRestorer: any PeekFocusRestoring = PeekFocusRestorer(),
         performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
@@ -107,6 +111,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.shortcutRegistrar = shortcutRegistrar
         self.shortcutStore = shortcutStore
         self.holdToPeekPreferenceStore = holdToPeekPreferenceStore
+        self.stashHandleVisibilityPreferenceStore = stashHandleVisibilityPreferenceStore
         self.peekFocusRestorer = peekFocusRestorer
         self.performanceSignposter = performanceSignposter
         self.menuBarIconPreferenceStore = menuBarIconPreferenceStore
@@ -120,6 +125,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         serviceHealth = initialServiceHealth
         globalShortcut = shortcutStore.load()
         holdToPeekEnabled = holdToPeekPreferenceStore.load()
+        stashHandleHidden = stashHandleVisibilityPreferenceStore.load()
         let customPins = customPinnedURLStore.load()
         customPinnedURLsEnabled = customPins.isEnabled
         customPinnedURLs = customPins.pins
@@ -136,6 +142,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
             sessionState: .unloaded,
             loginState: .idle
         )
+        pinCoordinator.setStashHandleHidden(stashHandleHidden)
         pinCoordinator.onExternalPresentationAction = { [weak self] in
             self?.cancelShortcutGesture(restashTransientPanel: false)
         }
@@ -226,6 +233,10 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
 
     func publishHoldToPeekEnabled(_ enabled: Bool) {
         holdToPeekEnabled = enabled
+    }
+
+    func publishStashHandleHidden(_ hidden: Bool) {
+        stashHandleHidden = hidden
     }
 
     func publishGlobalShortcut(_ shortcut: GlobalShortcut) {

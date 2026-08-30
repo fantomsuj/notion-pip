@@ -232,6 +232,7 @@ protocol PiPPanelCoordinating: AnyObject {
     func performGlobalShortcutAction() -> Bool
     func replace(page: NotionPageReference)
     func replace(page: NotionPageReference, restoration: DurablePageRestoration?)
+    func setStashHandleHidden(_ hidden: Bool)
 }
 
 extension PiPPanelCoordinating {
@@ -264,6 +265,8 @@ extension PiPPanelCoordinating {
     func performGlobalShortcutAction() -> Bool {
         stashOrRestoreCurrentPage()
     }
+
+    func setStashHandleHidden(_: Bool) {}
 
     func showCurrentPageFromShortcut(
         measurement: ShortcutPresentationMeasurement
@@ -327,6 +330,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     private var isApplyingProgrammaticFrame = false
     private var activeProgrammaticFrameTarget: CGRect?
     private var pullRevealState: PullRevealState?
+    private var isStashHandleHidden = false
 
     private struct PullRevealState {
         let side: PanelStashSide
@@ -1098,6 +1102,18 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         dismissStashHandle(forRestore: true)
     }
 
+    func setStashHandleHidden(_ hidden: Bool) {
+        guard hidden != isStashHandleHidden else { return }
+        isStashHandleHidden = hidden
+        guard let stashHandle else { return }
+        if hidden {
+            guard stashHandle.isVisible else { return }
+            stashHandle.orderOut()
+        } else if !panel.isVisible, hasPinnedDestination, let placement = activeStashPlacement {
+            presentStashHandle(stashHandle, placement: placement)
+        }
+    }
+
     private func dismissStashHandle(forRestore: Bool = false) {
         pullRevealState = nil
         activeStashPlacement = nil
@@ -1151,6 +1167,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         entrance: PiPStashHandleEntrance = .immediate
     ) {
         activeStashPlacement = placement
+        guard !isStashHandleHidden else { return }
         stashHandle.configurePullRevealTravel(
             PanelPullRevealPolicy.revealTravel(forPanelWidth: pullRevealPanelWidth)
         )

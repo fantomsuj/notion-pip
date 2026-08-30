@@ -32,6 +32,13 @@ extension AppRuntime {
         publishHoldToPeekEnabled(enabled)
     }
 
+    func setStashHandleHidden(_ hidden: Bool) {
+        guard hidden != stashHandleHidden else { return }
+        stashHandleVisibilityPreferenceStore.save(hidden)
+        pinCoordinator.setStashHandleHidden(hidden)
+        publishStashHandleHidden(hidden)
+    }
+
     func recoverShortcut(trigger: ShortcutRecoveryTrigger) {
         let expectedGeneration = shortcutRegistrationGeneration
         let panelFailure = revalidationFailure(from: shortcutRegistrar)
