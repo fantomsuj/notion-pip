@@ -19,6 +19,26 @@ private struct ChromePressButtonBody: View {
 
     var body: some View {
         configuration.label
+            .background {
+                if InteractionPolicy.showsToolbarButtonHighlight(
+                    isPressed: configuration.isPressed
+                ) {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .fill(
+                            DesignTokens.Colors.action.opacity(
+                                InteractionPolicy.toolbarButtonHighlightOpacity
+                            )
+                        )
+                        .shadow(
+                            color: .black.opacity(
+                                InteractionPolicy.toolbarButtonShadowOpacity
+                            ),
+                            radius: 0,
+                            x: 0,
+                            y: InteractionPolicy.toolbarButtonShadowOffsetY
+                        )
+                }
+            }
             .scaleEffect(
                 InteractionPolicy.pressScale(
                     isPressed: configuration.isPressed,
