@@ -101,6 +101,10 @@ final class PinCoordinator {
         panelCoordinator.performGlobalShortcutAction()
     }
 
+    func setStashHandleHidden(_ hidden: Bool) {
+        panelCoordinator.setStashHandleHidden(hidden)
+    }
+
     func page(from urlString: String) -> Result<NotionPageReference, PinInputError> {
         let trimmedURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmedURL), !trimmedURL.isEmpty else {
