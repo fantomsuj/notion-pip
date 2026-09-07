@@ -138,7 +138,7 @@ final class FlipOccupancyPolicyTests: XCTestCase {
             currentProcessIdentifier: currentPID
         ) {
         case let .failure(error):
-            error
+            return error
         case .success:
             XCTFail("expected occupancy to fail")
             return .missingWindow

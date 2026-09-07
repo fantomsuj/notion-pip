@@ -102,7 +102,10 @@ private final class FlipRuntimeHarness {
         resolver.target = FlipTestSupport.target()
         permissions.status = status
         let suiteName = "flip.tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName) ?? UserDefaults()
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            preconditionFailure("Could not create isolated UserDefaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
         runtime = FlipRuntime(
             resolver: resolver,
             permissions: permissions,

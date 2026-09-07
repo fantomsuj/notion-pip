@@ -98,8 +98,11 @@ final class FlipShortcutTests: XCTestCase {
     }
 
     func testStoreFallsBackToDefaultWhenPersistedValueIsInvalid() throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
-        defaults.removePersistentDomain(forName: defaults.suiteName ?? "")
+        let suiteName = "FlipShortcutTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw XCTSkip("Could not create isolated UserDefaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
         let store = FlipShortcutStore(defaults: defaults)
         defaults.set(
             try JSONEncoder().encode(FlipShortcut(keyCode: 3, modifiers: 0)),
