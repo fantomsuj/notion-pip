@@ -63,6 +63,9 @@ material with the same August 3 boundary.
   explored on July 30, 2026. Its Quick Capture direction was superseded on
   August 10, so it is retained as historical research rather than current
   product guidance.
+- [Window-flip research](WINDOW_FLIP_RESEARCH.md) — evaluation of flipping
+  another app's window to reveal Notion. Recommends a separate application if
+  prototyped; not a Perch option.
 
 ## Historical plans and specifications
 
