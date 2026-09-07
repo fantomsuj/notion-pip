@@ -1,6 +1,6 @@
 import Foundation
 
-enum FlipOccupancyRejection: Equatable, Sendable {
+enum FlipOccupancyRejection: Error, Equatable, Sendable {
     case missingWindow
     case ownProcess
     case excludedBundle

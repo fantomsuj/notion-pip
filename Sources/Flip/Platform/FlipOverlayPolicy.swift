@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 enum FlipOverlayPolicy {
     static let styleMask: NSWindow.StyleMask = [.borderless, .resizable]
     static let level = NSWindow.Level.floating
@@ -34,6 +35,7 @@ enum FlipOverlayPolicy {
     }
 }
 
+@MainActor
 final class FlipOccupancyWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }

@@ -126,8 +126,8 @@ final class FlipCardHostView: NSView {
         var perspective = CATransform3DIdentity
         perspective.m34 = -FlipMotionPolicy.perspective
         sceneLayer.sublayerTransform = perspective
-        frontLayer.doubleSided = false
-        backLayer.doubleSided = false
+        frontLayer.isDoubleSided = false
+        backLayer.isDoubleSided = false
         backLayer.transform = CATransform3DMakeRotation(CGFloat.pi, 0, 1, 0)
         layer?.addSublayer(sceneLayer)
         sceneLayer.addSublayer(backLayer)
