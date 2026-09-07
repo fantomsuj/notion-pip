@@ -1,0 +1,9 @@
+{
+  "redirects": [
+    {
+      "source": "/appcast.xml",
+      "destination": "https://github.com/fantomsuj/notion-pip/releases/latest/download/appcast.xml",
+      "permanent": true
+    }
+  ]
+}
