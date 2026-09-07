@@ -28,6 +28,8 @@ orientation or rationale, but they do not override the current implementation.
   clean-Mac release workflow.
 - [Upstream reuse record](UPSTREAM_REUSE.md) — provenance, licensing context,
   reused behavior, and explicit reuse exclusions.
+- [Flip prototype](FLIP.md) — experimental sibling app that occupies another
+  window with Notion. Separate bundle ID and permissions from Perch.
 
 For implementation details, consult [`Sources/`](../Sources) and
 [`Tests/`](../Tests) directly. Public behavior and release claims should be
@@ -65,7 +67,8 @@ material with the same August 3 boundary.
   product guidance.
 - [Window-flip research](WINDOW_FLIP_RESEARCH.md) — evaluation of flipping
   another app's window to reveal Notion. Recommends a separate application if
-  prototyped; not a Perch option.
+  prototyped; not a Perch option. The experimental sibling is documented in
+  [Flip prototype](FLIP.md).
 
 ## Historical plans and specifications
 

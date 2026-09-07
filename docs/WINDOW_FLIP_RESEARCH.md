@@ -1,7 +1,8 @@
 # Research: flip any window to Notion
 
 **Prepared:** 2026-09-07
-**Status:** desk research only; no product or implementation commitment
+**Status:** research complete; experimental sibling prototype lives in
+[`docs/FLIP.md`](FLIP.md) and `Sources/Flip`. Still not a Perch option.
 **Question:** Can a user click the top of another app (for example ChatGPT) and
 have that window flip over so Notion is on the other side? Should that live in
 Perch, or as a separate application?
@@ -332,6 +333,9 @@ Keep it small enough to falsify the idea:
 
 Do not start with naked title-bar clicks. Add modifier-click only after the
 shortcut occupancy loop is trustworthy.
+
+The first cut of that sibling is `Sources/Flip`, staged as `dist/Flip.app`,
+and documented in [`docs/FLIP.md`](FLIP.md).
 
 ## Decision
 

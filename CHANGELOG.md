@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- Flip, an experimental sibling app that occupies the frontmost window with
+  Notion using a snapshot-and-overlay card-flip. It has its own bundle ID,
+  first-launch permission copy, and staged `dist/Flip.app`. It is not a Perch
+  setting or entitlement.
+
 ### Removed
 
 - Context Suggestions (frontmost-app page matching and reveal-time exact-page
