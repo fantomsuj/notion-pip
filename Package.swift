@@ -9,6 +9,7 @@ let package = Package(
     ],
     products: [
         .executable(name: "Perch", targets: ["Perch"]),
+        .executable(name: "Flip", targets: ["Flip"]),
     ],
     dependencies: [
         .package(
@@ -37,6 +38,15 @@ let package = Package(
             name: "PerchTests",
             dependencies: ["Perch"],
             path: "Tests/PerchTests"
+        ),
+        .executableTarget(
+            name: "Flip",
+            path: "Sources/Flip"
+        ),
+        .testTarget(
+            name: "FlipTests",
+            dependencies: ["Flip"],
+            path: "Tests/FlipTests"
         ),
     ]
 )

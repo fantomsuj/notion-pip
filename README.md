@@ -82,6 +82,13 @@ Full Xcode 26.2 or newer is required. The project-local script builds the SwiftP
 
 Optional modes are `--debug`, `--logs`, `--telemetry`, and `--verify`.
 
+An experimental sibling prototype, Flip, occupies another app's window with
+Notion. It is not part of Perch. See [`docs/FLIP.md`](docs/FLIP.md) and:
+
+```sh
+./script/build_and_run_flip.sh
+```
+
 Launch at Login must be exercised from the staged `dist/Perch.app`. Running
 the SwiftPM executable directly does not provide the signed app-bundle identity
 required by ServiceManagement. The local bundle is ad-hoc signed and is rebuilt
