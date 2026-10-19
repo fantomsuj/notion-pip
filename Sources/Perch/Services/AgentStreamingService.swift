@@ -26,6 +26,10 @@ final class AgentStreamingService: ObservableObject {
         category: "agent-streaming"
     )
     private var startTask: Task<Void, Never>?
+    /// The most recent start or stop. Each new one waits for it, so a stop
+    /// queued by a quick off/on toggle can't land after the next start and
+    /// tear down the fresh listener.
+    private var lifecycleTask: Task<Void, Never>?
 
     init(
         controller: AgentStreamController,
@@ -108,6 +112,11 @@ final class AgentStreamingService: ObservableObject {
         startTask?.cancel()
         startTask = nil
         controller.prepareForTermination()
+        // Stop first: it also releases a start that is still waiting on the listener.
+        await stopServerAsync()
+        await lifecycleTask?.value
+        lifecycleTask = nil
+        // A queued step may have started a listener after the first stop.
         await stopServerAsync()
         state = .disabled
     }
@@ -115,8 +124,10 @@ final class AgentStreamingService: ObservableObject {
     private func startServer() {
         startTask?.cancel()
         state = .starting
-        startTask = Task { [weak self] in
-            guard let self else { return }
+        let previous = lifecycleTask
+        let task = Task { [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled else { return }
             do {
                 if await server.isRunning {
                     await stopServerAsync()
@@ -135,12 +146,16 @@ final class AgentStreamingService: ObservableObject {
                 logger.error("Agent stream HTTP server failed to start")
             }
         }
+        startTask = task
+        lifecycleTask = task
     }
 
     private func stopServer() {
         startTask?.cancel()
         startTask = nil
-        Task { [weak self] in
+        let previous = lifecycleTask
+        lifecycleTask = Task { [weak self] in
+            await previous?.value
             await self?.stopServerAsync()
         }
     }

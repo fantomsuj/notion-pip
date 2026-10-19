@@ -57,6 +57,16 @@ final class TopEdgeTrackpadMoveController {
         activeVisibleFrame != nil
     }
 
+    /// Whether `handle(_:)` reads `visibleFrame` for an event with these
+    /// phases. Only a gesture's first non-momentum event does, so callers can
+    /// skip looking up the screen's visible frame for every other event.
+    static func needsVisibleFrame(
+        phase: TopEdgeTrackpadMovePhase,
+        momentumPhase: TopEdgeTrackpadMovePhase
+    ) -> Bool {
+        momentumPhase == .none && phase == .began
+    }
+
     func reset() {
         activeVisibleFrame = nil
         suppressesMomentum = false

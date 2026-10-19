@@ -220,6 +220,10 @@ protocol PiPPanelCoordinating: AnyObject {
     func show(page: NotionPageReference)
     func show(page: NotionPageReference, restoration: DurablePageRestoration?)
     func show(customURL: CustomPinnedURL)
+    /// Pins a page at launch while leaving the panel stashed, without loading it.
+    func restoreStashed(page: NotionPageReference, restoration: DurablePageRestoration?)
+    /// Pins a custom URL at launch while leaving the panel stashed, without loading it.
+    func restoreStashed(customURL: CustomPinnedURL)
     func reloadPinnedPage(_ page: NotionPageReference)
     func reloadCustomPinnedURL(_ url: CustomPinnedURL)
     func createNewPage()
@@ -253,6 +257,14 @@ extension PiPPanelCoordinating {
     var currentCustomURL: CustomPinnedURL? { nil }
 
     func show(customURL _: CustomPinnedURL) {}
+
+    func restoreStashed(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        show(page: page, restoration: restoration)
+    }
+
+    func restoreStashed(customURL: CustomPinnedURL) {
+        show(customURL: customURL)
+    }
 
     func reloadCustomPinnedURL(_: CustomPinnedURL) {}
 
@@ -325,6 +337,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     private var lastAcceptedTopologyRevision: UInt64
     private var didAttemptFirstPresentation = false
     private var committedGeometry: PanelGeometry?
+    /// True while a drag or trackpad move has updated `committedGeometry`
+    /// in memory but not yet written it to `geometryStore`.
+    private var hasUnsavedPanelMove = false
     private var isStashDismissalActive = false
     private var programmaticFrameChangeGeneration = 0
     private var isApplyingProgrammaticFrame = false
@@ -612,6 +627,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     isolated deinit {
+        savePendingPanelMove()
         if let liveResizeObserver {
             NotificationCenter.default.removeObserver(liveResizeObserver)
         }
@@ -688,6 +704,55 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         }
         onPanelPositionChange?()
         logger.notice("Custom pinned URL show requested")
+    }
+
+    func restoreStashed(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        guard let placement = launchStashPlacement() else {
+            show(page: page, restoration: restoration)
+            return
+        }
+        // Hide first so the loader records the page without building a web view.
+        pageLoader.panelDidHide()
+        pageLoader.activate(page: page, restoration: restoration)
+        currentCustomURL = nil
+        currentPage = page
+        finishStashedRestore(placement: placement)
+        logger.notice("Panel restored stashed at launch")
+    }
+
+    func restoreStashed(customURL: CustomPinnedURL) {
+        guard let placement = launchStashPlacement() else {
+            show(customURL: customURL)
+            return
+        }
+        pageLoader.panelDidHide()
+        pageLoader.activate(customURL: customURL)
+        currentCustomURL = customURL
+        finishStashedRestore(placement: placement)
+        logger.notice("Custom pinned URL restored stashed at launch")
+    }
+
+    /// The edge placement for a launch-time stash, or nil when the panel should
+    /// be shown normally instead (already pinned or visible, no handle, no screen).
+    private func launchStashPlacement() -> PanelStashPlacement? {
+        guard !hasPinnedDestination, !panel.isVisible, stashHandle != nil else { return nil }
+        prepareInitialFrameIfNeeded()
+        restoreCommittedPanelFrame()
+        return PanelStashPolicy.placement(
+            for: logicalPanelFrame,
+            visibleFrames: currentTopology().visibleFrames
+        )
+    }
+
+    private func finishStashedRestore(placement: PanelStashPlacement) {
+        guard let stashHandle else { return }
+        let topology = currentTopology()
+        latestTopology = topology
+        activeStashIntent = PanelStashPolicy.intent(for: placement, topology: topology)
+        presentStashHandle(stashHandle, placement: placement)
+        onPinnedPageAvailabilityChange?()
+        onPresentationStateChange?()
+        onPanelPositionChange?()
     }
 
     func reloadCustomPinnedURL(_ url: CustomPinnedURL) {
@@ -1296,11 +1361,17 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         )
     }
 
+    /// Captures the panel's geometry as the committed geometry.
+    ///
+    /// Pass `persist: false` while a drag is in progress: the geometry is
+    /// kept in memory and written once by `savePendingPanelMove()` when the
+    /// move ends, instead of encoding and saving on every move event.
     private func commitCurrentGeometry(
         desiredContentSize: CGSize? = nil,
         anchor: PanelFrameAnchor? = nil,
         topology: DisplayTopology? = nil,
-        frame: CGRect? = nil
+        frame: CGRect? = nil,
+        persist: Bool = true
     ) {
         guard let geometry = PanelGeometryPolicy.capture(
             frame: frame ?? logicalPanelFrame,
@@ -1313,12 +1384,28 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         }
         committedGeometry = geometry
         onPanelPositionChange?()
+        guard persist else {
+            hasUnsavedPanelMove = true
+            return
+        }
+        saveGeometry(geometry)
+    }
+
+    private func saveGeometry(_ geometry: PanelGeometry) {
+        hasUnsavedPanelMove = false
         do {
             try geometryStore.save(geometry)
         } catch {
             logger.error("Failed to save panel geometry: \(error.localizedDescription, privacy: .public)")
             onGeometryPersistenceFailure?()
         }
+    }
+
+    /// Writes geometry that a drag kept in memory. Does nothing when no move
+    /// is pending, so it is safe to call from every path that ends a move.
+    private func savePendingPanelMove() {
+        guard hasUnsavedPanelMove, let committedGeometry else { return }
+        saveGeometry(committedGeometry)
     }
 
     private func recordManualResizeCompletion() {
@@ -1373,7 +1460,10 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             if placement.frame != panel.frame {
                 setPanelFrame(placement.frame, display: panel.isVisible)
             }
-            commitCurrentGeometry(desiredContentSize: desiredContentSize)
+            commitCurrentGeometry(
+                desiredContentSize: desiredContentSize,
+                persist: false
+            )
             return
         }
 
@@ -1384,7 +1474,8 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         }
         commitCurrentGeometry(
             desiredContentSize: desiredContentSize,
-            frame: stableFrame
+            frame: stableFrame,
+            persist: false
         )
     }
 
@@ -1393,7 +1484,11 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         cornerSnapTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(140))
             guard !Task.isCancelled else { return }
-            guard let self, !panel.isExpanded, !isStashDismissalActive else { return }
+            guard let self else { return }
+            guard !panel.isExpanded, !isStashDismissalActive else {
+                savePendingPanelMove()
+                return
+            }
             guard isPrimaryMouseButtonPressed() == false,
                 panel.isTrackpadMoveActive == false
             else {
@@ -1405,6 +1500,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
     }
 
     func finishPanelMove() {
+        defer { savePendingPanelMove() }
         snapTargetPresenter?.dismiss()
         let topology = currentTopology()
         if let decision = PanelStashPolicy.dragDecision(
@@ -1578,6 +1674,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         cornerSnapTask?.cancel()
         cornerSnapTask = nil
         snapTargetPresenter?.dismiss()
+        savePendingPanelMove()
     }
 
     private var spaceTransitionContext: SpaceTransitionContext {
@@ -1723,18 +1820,30 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
             return
         }
 
+        let phase = TopEdgeTrackpadMovePhase(appKitPhase: event.phase)
+        let momentumPhase = TopEdgeTrackpadMovePhase(appKitPhase: event.momentumPhase)
+        // Only a gesture's first event reads the visible frame, so skip the
+        // NSScreen lookup for every other scroll event.
+        let visibleFrame: CGRect? = if TopEdgeTrackpadMoveController.needsVisibleFrame(
+            phase: phase,
+            momentumPhase: momentumPhase
+        ) {
+            PanelFramePolicy.targetVisibleFrame(
+                for: frame,
+                from: NSScreen.screens.map(\.visibleFrame)
+            )
+        } else {
+            nil
+        }
         let input = TopEdgeTrackpadMoveInput(
-            phase: TopEdgeTrackpadMovePhase(appKitPhase: event.phase),
-            momentumPhase: TopEdgeTrackpadMovePhase(appKitPhase: event.momentumPhase),
+            phase: phase,
+            momentumPhase: momentumPhase,
             hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
             locationInContent: contentView.convert(event.locationInWindow, from: nil),
             contentBounds: contentView.bounds,
             isContentFlipped: contentView.isFlipped,
             isExpanded: isExpanded,
-            visibleFrame: PanelFramePolicy.targetVisibleFrame(
-                for: frame,
-                from: NSScreen.screens.map(\.visibleFrame)
-            ),
+            visibleFrame: visibleFrame,
             translation: CGSize(
                 width: event.scrollingDeltaX,
                 height: event.scrollingDeltaY

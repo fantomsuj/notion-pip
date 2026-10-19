@@ -512,8 +512,9 @@ final class PinCoordinatorTests: XCTestCase {
         coordinator.recordPanelMove()
 
         XCTAssertEqual(panel.frame.size, originalFrame.size)
-        XCTAssertEqual(geometryStore.load()?.frame.size, originalFrame.size)
         XCTAssertEqual(panel.frame.origin, CGPoint(x: originalFrame.minX + 12, y: originalFrame.minY - 8))
+        coordinator.finishPanelMove()
+        XCTAssertEqual(geometryStore.load()?.frame.size, originalFrame.size)
 
         XCTAssertTrue(coordinator.stash(visibleFrames: [visibleFrame]))
         handle.restore()
@@ -1129,6 +1130,122 @@ final class PinCoordinatorTests: XCTestCase {
         mouse.value = false
         coordinator.recordPanelMove()
         XCTAssertEqual(snapTargets.dismissCount, 1)
+    }
+
+    func testDragSavesGeometryOnceWhenMoveEnds() throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 875)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 500, y: 200, width: 400, height: 500)
+        )
+        let geometryStore = CountingPanelGeometryStore()
+        let mouse = MutableBoolean(true)
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            isPrimaryMouseButtonPressed: { mouse.value },
+            visibleFramesProvider: { [screen] },
+            initialPreferredContentSize: panel.frame.size,
+            geometryStore: geometryStore
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let savesBeforeDrag = geometryStore.saveCount
+
+        for step in 1...60 {
+            panel.move(
+                to: CGRect(x: 500 + CGFloat(step), y: 200, width: 400, height: 500)
+            )
+            coordinator.recordPanelMove()
+        }
+
+        XCTAssertEqual(geometryStore.saveCount, savesBeforeDrag)
+
+        mouse.value = false
+        coordinator.finishPanelMove()
+
+        XCTAssertEqual(geometryStore.saveCount, savesBeforeDrag + 1)
+        XCTAssertEqual(
+            geometryStore.load()?.frame,
+            CGRect(x: 560, y: 200, width: 400, height: 500)
+        )
+    }
+
+    func testCornerSnapTaskSavesDragOnceAfterMouseRelease() async throws {
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 875)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 500, y: 200, width: 400, height: 500)
+        )
+        let geometryStore = CountingPanelGeometryStore()
+        let mouse = MutableBoolean(true)
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            isPrimaryMouseButtonPressed: { mouse.value },
+            visibleFramesProvider: { [screen] },
+            initialPreferredContentSize: panel.frame.size,
+            geometryStore: geometryStore
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        let savesBeforeDrag = geometryStore.saveCount
+
+        for step in 1...10 {
+            panel.move(
+                to: CGRect(x: 500, y: 200 + CGFloat(step), width: 400, height: 500)
+            )
+            coordinator.recordPanelMove()
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(geometryStore.saveCount, savesBeforeDrag)
+
+        mouse.value = false
+        try await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(geometryStore.saveCount, savesBeforeDrag + 1)
+        XCTAssertEqual(
+            geometryStore.load()?.frame,
+            CGRect(x: 500, y: 210, width: 400, height: 500)
+        )
+        withExtendedLifetime(coordinator) {}
+    }
+
+    func testDraggedPositionSurvivesRelaunch() throws {
+        let suiteName = "PinCoordinatorTests.drag.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 875)
+        let draggedFrame = CGRect(x: 420, y: 180, width: 400, height: 500)
+        let panel = FakePanelWindow(
+            frame: CGRect(x: 500, y: 200, width: 400, height: 500)
+        )
+        let coordinator = PiPPanelCoordinator(
+            panel: panel,
+            pageLoader: FakePageLoader(),
+            isPrimaryMouseButtonPressed: { false },
+            visibleFramesProvider: { [screen] },
+            initialPreferredContentSize: panel.frame.size,
+            geometryStore: PanelGeometryStore(defaults: defaults)
+        )
+        coordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        panel.move(to: draggedFrame)
+        coordinator.recordPanelMove()
+        coordinator.finishPanelMove()
+
+        let relaunchedStore = PanelGeometryStore(defaults: defaults)
+        XCTAssertEqual(relaunchedStore.load()?.frame, draggedFrame)
+
+        let relaunchedPanel = FakePanelWindow(
+            frame: CGRect(x: 0, y: 0, width: 400, height: 500)
+        )
+        let relaunchedCoordinator = PiPPanelCoordinator(
+            panel: relaunchedPanel,
+            pageLoader: FakePageLoader(),
+            visibleFramesProvider: { [screen] },
+            geometryStore: relaunchedStore
+        )
+        relaunchedCoordinator.show(page: try makePage(id: firstPageID, title: "Roadmap"))
+        XCTAssertEqual(relaunchedPanel.frame, draggedFrame)
     }
 
     func testCornerSnapWaitsUntilTrackpadMoveEnds() async throws {
@@ -2224,6 +2341,20 @@ private final class MutableVisibleFrames {
 
     init(_ value: [CGRect]) {
         self.value = value
+    }
+}
+
+private final class CountingPanelGeometryStore: PanelGeometryPersisting {
+    private(set) var saveCount = 0
+    private var geometry: PanelGeometry?
+
+    func load() -> PanelGeometry? {
+        geometry
+    }
+
+    func save(_ geometry: PanelGeometry) throws {
+        saveCount += 1
+        self.geometry = geometry
     }
 }
 

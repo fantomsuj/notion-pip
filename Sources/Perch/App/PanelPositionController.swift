@@ -35,7 +35,15 @@ final class PanelPositionController: ObservableObject {
     }
 
     func refresh() {
-        canPosition = target?.canPositionPanel == true
-        selectedCorner = target?.selectedCorner
+        // Panel moves call this on every drag event; only publish real
+        // changes so SwiftUI isn't invalidated 60-120 times a second.
+        let canPosition = target?.canPositionPanel == true
+        if self.canPosition != canPosition {
+            self.canPosition = canPosition
+        }
+        let selectedCorner = target?.selectedCorner
+        if self.selectedCorner != selectedCorner {
+            self.selectedCorner = selectedCorner
+        }
     }
 }
