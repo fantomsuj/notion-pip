@@ -158,6 +158,102 @@ final class NotionEditorSelectionTests: XCTestCase {
         XCTAssertEqual(result, "abcalphabetadefghij")
     }
 
+    func testInsertUsesTheBrowserEditingCommand() async throws {
+        let webView = try await makeLoadedWebView()
+        let snapshot = try await captureSelection(in: webView, start: 3, end: 3)
+        _ = try await webView.callAsyncJavaScript(
+            """
+            window.__perchTestExecCommands = [];
+            const original = document.execCommand.bind(document);
+            document.execCommand = (command, ui, value) => {
+              window.__perchTestExecCommands.push(command);
+              return original(command, ui, value);
+            };
+            return true;
+            """, arguments: [:], in: nil, contentWorld: .page
+        )
+
+        let insertion = try await webView.evaluateJavaScript(
+            NotionEditorSelectionEvaluation.insert("XYZ", at: snapshot).script
+        )
+        let commands = try await webView.callAsyncJavaScript(
+            "return window.__perchTestExecCommands",
+            arguments: [:], in: nil, contentWorld: .page
+        ) as? [String]
+
+        XCTAssertNotNil(NotionEditorSelectionSnapshot(javaScriptValue: insertion))
+        XCTAssertEqual(commands, ["insertText"])
+        let text = try await editorText(in: webView)
+        XCTAssertEqual(text, "abcXYZdefghij")
+    }
+
+    func testInsertFallsBackToDirectInsertWhenEditingCommandDoesNothing() async throws {
+        let webView = try await makeLoadedWebView()
+        let snapshot = try await captureSelection(in: webView, start: 3, end: 3)
+        _ = try await webView.callAsyncJavaScript(
+            "document.execCommand = () => false; return true;",
+            arguments: [:], in: nil, contentWorld: .page
+        )
+
+        _ = try await webView.evaluateJavaScript(
+            NotionEditorSelectionEvaluation.insert("XYZ", at: snapshot).script
+        )
+
+        let text = try await editorText(in: webView)
+        XCTAssertEqual(text, "abcXYZdefghij")
+    }
+
+    func testInsertDoesNotDuplicateTextWhenEditorCancelsBeforeInput() async throws {
+        let webView = try await makeLoadedWebView()
+        let snapshot = try await captureSelection(in: webView, start: 3, end: 3)
+        _ = try await webView.callAsyncJavaScript(
+            """
+            document.getElementById('editor').addEventListener('beforeinput', (event) => {
+              event.preventDefault();
+            });
+            const original = document.execCommand.bind(document);
+            document.execCommand = (command, ui, value) => {
+              original(command, ui, value);
+              return false;
+            };
+            return true;
+            """, arguments: [:], in: nil, contentWorld: .page
+        )
+
+        _ = try await webView.evaluateJavaScript(
+            NotionEditorSelectionEvaluation.insert("XYZ", at: snapshot).script
+        )
+
+        let text = try await editorText(in: webView)
+        XCTAssertEqual(text, "abcdefghij")
+    }
+
+    private func captureSelection(
+        in webView: WKWebView,
+        start: Int,
+        end: Int
+    ) async throws -> NotionEditorSelectionSnapshot {
+        _ = try await webView.callAsyncJavaScript(
+            """
+            const text = document.getElementById('editor').firstChild;
+            document.getElementById('editor').focus();
+            window.getSelection().setBaseAndExtent(text, start, text, end);
+            return true;
+            """, arguments: ["start": start, "end": end], in: nil, contentWorld: .page
+        )
+        let value = try await webView.evaluateJavaScript(
+            NotionEditorSelectionEvaluation.capture.script
+        )
+        return try XCTUnwrap(NotionEditorSelectionSnapshot(javaScriptValue: value))
+    }
+
+    private func editorText(in webView: WKWebView) async throws -> String? {
+        try await webView.callAsyncJavaScript(
+            "return document.getElementById('editor').textContent",
+            arguments: [:], in: nil, contentWorld: .page
+        ) as? String
+    }
+
     private func makeLoadedWebView() async throws -> WKWebView {
         let webView = WKWebView()
         let navigationFinished = expectation(description: "HTML loaded")
