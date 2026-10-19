@@ -202,6 +202,9 @@ private final class AppComposition {
                 from: pageRepository
             )
         }
+        webSession.onPageMetadataChanged = { [weak runtime] page in
+            runtime?.updateActivePageMetadata(page)
+        }
         webSession.onRestorationCaptured = { restoration in
             guard let pageRepository else { return }
             Task {

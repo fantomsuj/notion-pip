@@ -14,6 +14,8 @@ func makeRuntime(
     shortcutHoldDuration: Duration = .milliseconds(300),
     shortcutGestureScheduler: any ShortcutGestureScheduling =
         TaskShortcutGestureScheduler(),
+    pageMetadataSaveScheduler: any ShortcutGestureScheduling =
+        TaskShortcutGestureScheduler(),
     accessibilityAnnouncementPoster: any AccessibilityAnnouncementPosting =
         RuntimeAccessibilityAnnouncementPoster(),
     holdToPeekPreferenceStore: HoldToPeekPreferenceStore? = nil,
@@ -49,6 +51,7 @@ func makeRuntime(
         pageRepository: pageRepository,
         shortcutHoldDuration: shortcutHoldDuration,
         shortcutGestureScheduler: shortcutGestureScheduler,
+        pageMetadataSaveScheduler: pageMetadataSaveScheduler,
         accessibilityAnnouncementPoster: accessibilityAnnouncementPoster,
         initialServiceHealth: initialServiceHealth,
         automaticSettingsPresentationAllowed: automaticSettingsPresentationAllowed
@@ -95,6 +98,7 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     private(set) var reloadedPages: [NotionPageReference] = []
     private(set) var reloadedCustomURLs: [CustomPinnedURL] = []
     private(set) var replacedPages: [NotionPageReference] = []
+    private(set) var metadataUpdates: [NotionPageReference] = []
     private(set) var isVisible = false
     private(set) var isStashed = false
     private(set) var isExpanded = false
@@ -164,6 +168,12 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         isVisible = true
         isStashed = false
         notePresentationChange()
+    }
+
+    func updateCurrentPageMetadata(_ page: NotionPageReference) {
+        metadataUpdates.append(page)
+        guard currentCustomURL == nil, currentPage?.pageID == page.pageID else { return }
+        currentPage = page
     }
 
     func showCurrentPage() -> Bool {
@@ -400,6 +410,7 @@ actor RuntimePinnedPageRepository: PageWorkingSetPersisting {
     private var restoreReturned = false
     private var restoreContinuation: CheckedContinuation<StoredPageSnapshot?, any Error>?
     private var pagesSaved: [NotionPageReference] = []
+    private var metadataSaved: [NotionPageReference] = []
     private var failedSaves = 0
     private var saveContinuations: [String: CheckedContinuation<Void, Never>] = [:]
 
@@ -464,6 +475,14 @@ actor RuntimePinnedPageRepository: PageWorkingSetPersisting {
         )
     }
 
+    func updatePageMetadata(_ page: NotionPageReference) async throws {
+        metadataSaved.append(page)
+        if failingPageIDs.contains(page.pageID) {
+            failedSaves += 1
+            throw RuntimeRepositoryError.saveFailed
+        }
+    }
+
     func setPinned(
         _ isPinned: Bool,
         page: NotionPageReference
@@ -516,6 +535,17 @@ actor RuntimePinnedPageRepository: PageWorkingSetPersisting {
 
     func savedPages() -> [NotionPageReference] {
         pagesSaved
+    }
+
+    func savedMetadata() -> [NotionPageReference] {
+        metadataSaved
+    }
+
+    func waitUntilMetadataSaveCount(_ count: Int) async throws {
+        try await waitUntil(
+            { metadataSaved.count >= count },
+            operation: "metadata save count \(count)"
+        )
     }
 
     func savedPageIDs() -> [String] {

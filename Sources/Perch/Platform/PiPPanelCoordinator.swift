@@ -232,6 +232,9 @@ protocol PiPPanelCoordinating: AnyObject {
     func performGlobalShortcutAction() -> Bool
     func replace(page: NotionPageReference)
     func replace(page: NotionPageReference, restoration: DurablePageRestoration?)
+    /// Refreshes the title and URL of the page already shown, without loading,
+    /// showing or stashing anything.
+    func updateCurrentPageMetadata(_ page: NotionPageReference)
     func setStashHandleHidden(_ hidden: Bool)
 }
 
@@ -261,6 +264,8 @@ extension PiPPanelCoordinating {
     func replace(page: NotionPageReference, restoration: DurablePageRestoration?) {
         replace(page: page)
     }
+
+    func updateCurrentPageMetadata(_: NotionPageReference) {}
 
     func performGlobalShortcutAction() -> Bool {
         stashOrRestoreCurrentPage()
@@ -649,6 +654,11 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         }
         onPanelPositionChange?()
         logger.notice("Panel show requested")
+    }
+
+    func updateCurrentPageMetadata(_ page: NotionPageReference) {
+        guard currentCustomURL == nil, currentPage?.pageID == page.pageID else { return }
+        currentPage = page
     }
 
     func reloadPinnedPage(_ page: NotionPageReference) {

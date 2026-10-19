@@ -160,6 +160,24 @@ extension AppRuntime {
         )
     }
 
+    /// Takes a new title or URL slug for the page that is already open, as
+    /// Notion reports while someone types the page title. Unlike `activate`,
+    /// this never pins, shows or un-stashes the panel or records a visit; the
+    /// title is saved once typing settles.
+    func updateActivePageMetadata(_ page: NotionPageReference) {
+        guard activeCustomURL == nil,
+              let activePage,
+              activePage.pageID == page.pageID
+        else {
+            activate(page: page, source: .notionWebSession)
+            return
+        }
+        guard page != activePage else { return }
+        publishActivePageMetadata(page)
+        pinCoordinator.updateCurrentPageMetadata(page)
+        schedulePageMetadataSave(of: page)
+    }
+
     private func activate(
         page: NotionPageReference,
         source: PageActivationSource,
@@ -167,6 +185,7 @@ extension AppRuntime {
         restoration: DurablePageRestoration? = nil
     ) {
         cancelShortcutGesture(restashTransientPanel: false)
+        flushPendingPageMetadataSave()
         pageSelectionGeneration &+= 1
         if persist {
             restorePinnedPageTask?.cancel()

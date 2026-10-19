@@ -306,6 +306,61 @@ final class PageRepositoryTests: XCTestCase {
         XCTAssertEqual(workingSet.recentPages.map(\.pageID), [recent.pageID])
     }
 
+    func testUpdatePageMetadataRenamesPageWithoutRecordingVisit() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("PageTitles.store")
+        let renamedPinned = try page(slug: "Q4-Roadmap", id: firstPageID)
+            .resolvingDisplayTitle("Q4 Roadmap")
+        let renamedActive = try page(slug: "Weekly-Notes", id: secondPageID)
+            .resolvingDisplayTitle("Weekly Notes")
+        let before: PageWorkingSetSnapshot
+
+        do {
+            let repository = PageRepository(
+                container: try PerchPersistence.makeContainer(storeURL: storeURL),
+                clock: AdvancingPageClock(start: Date(timeIntervalSince1970: 1_000))
+            )
+            _ = try await repository.setPinned(true, page: page(slug: "Roadmap", id: firstPageID))
+            _ = try await repository.recordVisit(page(number: 3))
+            _ = try await repository.recordVisit(page(slug: "Notes", id: secondPageID))
+            before = try await repository.workingSet()
+
+            try await repository.updatePageMetadata(renamedPinned)
+            try await repository.updatePageMetadata(renamedActive)
+        }
+
+        let reopened = PageRepository(
+            container: try PerchPersistence.makeContainer(storeURL: storeURL)
+        )
+        let after = try await reopened.workingSet()
+
+        XCTAssertEqual(after.activePage?.pageID, secondPageID)
+        XCTAssertEqual(after.activePage?.displayTitle, "Weekly Notes")
+        XCTAssertEqual(after.activePage?.canonicalURL, renamedActive.canonicalURL)
+        XCTAssertEqual(after.activePage?.timestamp, before.activePage?.timestamp)
+        XCTAssertEqual(after.pinnedPages.map(\.displayTitle), ["Q4 Roadmap"])
+        XCTAssertEqual(after.pinnedPages.map(\.canonicalURL), [renamedPinned.canonicalURL])
+        XCTAssertEqual(after.pinnedPages.map(\.timestamp), before.pinnedPages.map(\.timestamp))
+        XCTAssertEqual(after.recentPages.map(\.pageID), before.recentPages.map(\.pageID))
+        XCTAssertEqual(after.recentPages.map(\.timestamp), before.recentPages.map(\.timestamp))
+        XCTAssertEqual(after.recentPages.first?.displayTitle, "Weekly Notes")
+    }
+
+    func testUpdatePageMetadataIgnoresPagesOutsideWorkingSet() async throws {
+        let repository = PageRepository(container: try makeContainer())
+        let known = try page(slug: "Roadmap", id: firstPageID)
+        _ = try await repository.recordVisit(known)
+
+        try await repository.updatePageMetadata(page(slug: "Elsewhere", id: secondPageID))
+
+        let workingSet = try await repository.workingSet()
+        XCTAssertEqual(workingSet.activePage?.pageID, firstPageID)
+        XCTAssertEqual(workingSet.recentPages.map(\.pageID), [firstPageID])
+    }
+
     func testDuplicateRoleIsRejectedWithoutMutatingPersistedRoles() async throws {
         let repository = PageRepository(container: try makeContainer())
         let first = try page(slug: "First", id: firstPageID)

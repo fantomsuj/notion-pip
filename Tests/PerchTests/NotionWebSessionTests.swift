@@ -1874,7 +1874,9 @@ final class NotionWebSessionTests: XCTestCase {
     func testSamePageSlugResolutionPublishesRecoveredTitle() throws {
         var resolvedPages: [NotionPageReference] = []
         let session = NotionWebSession()
+        var metadataPages: [NotionPageReference] = []
         session.onPageResolved = { resolvedPages.append($0) }
+        session.onPageMetadataChanged = { metadataPages.append($0) }
         let barePage = try NotionPageReference(
             validating: XCTUnwrap(URL(string: "https://www.notion.so/\(firstPageID)"))
         )
@@ -1889,7 +1891,8 @@ final class NotionWebSessionTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(resolvedPages.map(\.displayTitle), ["Project Roadmap"])
+        XCTAssertTrue(resolvedPages.isEmpty)
+        XCTAssertEqual(metadataPages.map(\.displayTitle), ["Project Roadmap"])
         XCTAssertEqual(session.activePage?.displayTitle, "Project Roadmap")
     }
 
@@ -1906,19 +1909,24 @@ final class NotionWebSessionTests: XCTestCase {
             loadRequest: { _, _ in }
         )
         var resolvedPages: [NotionPageReference] = []
+        var metadataPages: [NotionPageReference] = []
         session.onPageResolved = { resolvedPages.append($0) }
+        session.onPageMetadataChanged = { metadataPages.append($0) }
         session.activate(page: barePage)
 
         session.webView(webView, didFinish: nil)
 
-        XCTAssertEqual(resolvedPages.map(\.displayTitle), ["Project Roadmap"])
+        XCTAssertTrue(resolvedPages.isEmpty)
+        XCTAssertEqual(metadataPages.map(\.displayTitle), ["Project Roadmap"])
         XCTAssertEqual(session.activePage?.displayTitle, "Project Roadmap")
     }
 
     func testSamePageBareRouteDoesNotDiscardKnownTitle() throws {
         var resolvedPages: [NotionPageReference] = []
         let session = NotionWebSession()
+        var metadataPages: [NotionPageReference] = []
         session.onPageResolved = { resolvedPages.append($0) }
+        session.onPageMetadataChanged = { metadataPages.append($0) }
         let namedPage = try makePage(id: firstPageID, title: "Project-Roadmap")
         session.activate(page: namedPage)
         let webView = try XCTUnwrap(session.webView)
@@ -1929,7 +1937,8 @@ final class NotionWebSessionTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(resolvedPages.map(\.displayTitle), ["Project Roadmap"])
+        XCTAssertTrue(resolvedPages.isEmpty)
+        XCTAssertEqual(metadataPages.map(\.displayTitle), ["Project Roadmap"])
         XCTAssertEqual(session.activePage?.displayTitle, "Project Roadmap")
     }
 
@@ -1943,15 +1952,42 @@ final class NotionWebSessionTests: XCTestCase {
             loadRequest: { _, _ in }
         )
         var resolvedPages: [NotionPageReference] = []
+        var metadataPages: [NotionPageReference] = []
         session.onPageResolved = { resolvedPages.append($0) }
+        session.onPageMetadataChanged = { metadataPages.append($0) }
         session.activate(page: barePage)
         session.handleEditorActivity(.typingStarted)
 
         webView.publishTitle("Project Roadmap | Notion")
 
-        XCTAssertEqual(resolvedPages.map(\.displayTitle), ["Project Roadmap"])
+        XCTAssertTrue(resolvedPages.isEmpty)
+        XCTAssertEqual(metadataPages.map(\.displayTitle), ["Project Roadmap"])
         XCTAssertEqual(session.activePage?.displayTitle, "Project Roadmap")
         XCTAssertTrue(session.isTypingInPage)
+    }
+
+    func testTypingPageTitleReportsMetadataOnlyAndNeverReopensPage() throws {
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = TrustedURLWebView(url: page.canonicalURL)
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in }
+        )
+        var resolvedPages: [NotionPageReference] = []
+        var metadataPages: [NotionPageReference] = []
+        session.onPageResolved = { resolvedPages.append($0) }
+        session.onPageMetadataChanged = { metadataPages.append($0) }
+        session.activate(page: page)
+
+        webView.publishTitle("R | Notion")
+        webView.publishTitle("Ro | Notion")
+        webView.publishTitle("Ro | Notion")
+        webView.publishTitle("Roadmap 2 | Notion")
+
+        XCTAssertTrue(resolvedPages.isEmpty)
+        XCTAssertEqual(metadataPages.map(\.displayTitle), ["R", "Ro", "Roadmap 2"])
+        XCTAssertEqual(metadataPages.map(\.pageID), [firstPageID, firstPageID, firstPageID])
+        XCTAssertEqual(session.activePage?.displayTitle, "Roadmap 2")
     }
 
     func testAppHostSPAURLChangeAdoptsCanonicalPage() throws {

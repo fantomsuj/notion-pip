@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- Typing a Notion page title no longer re-runs the full "open page" path on
+  every keystroke. Perch now updates the title in memory, saves it once typing
+  settles (or before quitting or switching pages), and no longer pins, shows,
+  un-stashes the panel, or records a page visit when only the title or URL
+  slug of the current page changes.
+
 ### Removed
 
 - Context Suggestions (frontmost-app page matching and reveal-time exact-page

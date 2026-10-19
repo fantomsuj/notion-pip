@@ -4,6 +4,7 @@ import OSLog
 extension AppRuntime {
     func prepareForTermination() async {
         cancelShortcutGesture(restashTransientPanel: true)
+        flushPendingPageMetadataSave()
         while let persistenceTask = persistPinnedPageTask {
             let expectedGeneration = persistenceGeneration
             await persistenceTask.value
@@ -100,6 +101,50 @@ extension AppRuntime {
                 logger.error(
                     """
                     Pinned page save failed page_id=\(page.pageID, privacy: .private) \
+                    category=repository-write
+                    """
+                )
+                self?.reportServiceIssue(.pinnedPagePersistenceUnavailable)
+            }
+        }
+    }
+
+    func schedulePageMetadataSave(of page: NotionPageReference) {
+        guard pageRepository != nil else { return }
+        pendingPageMetadataSave = page
+        pageMetadataSaveTimer?.cancel()
+        pageMetadataSaveTimer = pageMetadataSaveScheduler.schedule(
+            after: pageMetadataSaveDelay
+        ) { [weak self] in
+            self?.flushPendingPageMetadataSave()
+        }
+    }
+
+    func flushPendingPageMetadataSave() {
+        pageMetadataSaveTimer?.cancel()
+        pageMetadataSaveTimer = nil
+        guard let page = pendingPageMetadataSave else { return }
+        pendingPageMetadataSave = nil
+        enqueueMetadataPersistence(of: page)
+    }
+
+    private func enqueueMetadataPersistence(of page: NotionPageReference) {
+        guard let pageRepository else { return }
+        let previousTask = persistPinnedPageTask
+        let logger = logger
+        persistenceGeneration &+= 1
+        persistPinnedPageTask = Task { [weak self] in
+            await previousTask?.value
+            guard !Task.isCancelled else { return }
+            do {
+                try await pageRepository.updatePageMetadata(page)
+                guard !Task.isCancelled else { return }
+                self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
+            } catch {
+                guard !Task.isCancelled else { return }
+                logger.error(
+                    """
+                    Page title save failed page_id=\(page.pageID, privacy: .private) \
                     category=repository-write
                     """
                 )

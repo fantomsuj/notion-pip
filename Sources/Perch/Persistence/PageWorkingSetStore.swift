@@ -3,6 +3,9 @@ import Foundation
 protocol PageWorkingSetPersisting: PiPRecentPagesProviding, Sendable {
     func workingSet() async throws -> PageWorkingSetSnapshot
     func recordVisit(_ page: NotionPageReference) async throws -> StoredPageSnapshot
+    /// Saves a new title and URL for a page already in the working set,
+    /// without counting a visit or changing any timestamps.
+    func updatePageMetadata(_ page: NotionPageReference) async throws
     func setPinned(
         _ isPinned: Bool,
         page: NotionPageReference
@@ -64,6 +67,28 @@ actor InMemoryPageWorkingSetStore: PageWorkingSetPersisting {
         recentHistory = policy.orderedUnique([value] + recentHistory)
         apply(policy.recordVisit(value, in: snapshot))
         return value
+    }
+
+    func updatePageMetadata(_ page: NotionPageReference) {
+        func updated(_ value: StoredPageSnapshot) -> StoredPageSnapshot {
+            guard value.pageID.caseInsensitiveCompare(page.pageID) == .orderedSame else {
+                return value
+            }
+            return StoredPageSnapshot(
+                pageID: value.pageID,
+                canonicalURL: page.canonicalURL,
+                displayTitle: page.displayTitle,
+                role: value.role,
+                timestamp: value.timestamp
+            )
+        }
+        recentHistory = recentHistory.map(updated)
+        snapshot = PageWorkingSetSnapshot(
+            activePage: snapshot.activePage.map(updated),
+            pinnedPages: snapshot.pinnedPages.map(updated),
+            recentPages: snapshot.recentPages.map(updated),
+            restorations: snapshot.restorations
+        )
     }
 
     func setPinned(
