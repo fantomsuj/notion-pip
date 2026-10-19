@@ -12,6 +12,11 @@
   saves its position once when the move ends instead of on every frame of the
   drag. The panel position menu only updates when its values change, and
   trackpad scrolling no longer looks up screen frames on every event.
+- A hidden Perch now gives its Notion web view back after 10 minutes, or right
+  away when macOS warns about memory pressure. Showing the panel again restores
+  the page and its scroll position.
+- If WebKit's page process exits while Perch is hidden, the page now reloads
+  the next time you show the panel instead of straight away in the background.
 
 ### Fixed
 
@@ -32,6 +37,9 @@
   silent close.
 - Quickly turning Local Agents off and on no longer lets the old listener's
   shutdown clear the new listener's state.
+- Saved scroll positions now read Notion's own page scroller instead of the
+  window, which Notion never scrolls, so returning to a page lands where you
+  left it. The active page's position is also saved when you quit.
 
 ### Removed
 
