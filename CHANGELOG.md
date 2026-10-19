@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Fixed
+
+- The hover strip that reveals the top controls now covers only the top
+  corner, so it no longer catches clicks on Notion's scrollbar.
+- Panel spring animations use `NSAnimationContext` and stay smooth at 120 Hz.
+  A cancelled animation always finishes, so later drags are never ignored.
+- Space-change key hints are filtered before any work is scheduled, so
+  ordinary typing no longer spawns a task per keystroke.
+- Perch's typing, scroll, and content-ready bridges run in an isolated
+  JavaScript world, so scripts on a page can't fake their messages.
+- Custom pinned URLs no longer run Notion-only scripts, and they get the same
+  single automatic reload as Notion pages when the web content crashes.
+- Agent text is inserted with the browser's `insertText` editing command,
+  falling back to a direct insert only when the command does nothing.
+
 ### Removed
 
 - Context Suggestions (frontmost-app page matching and reveal-time exact-page
