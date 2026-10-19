@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 
 @testable import Perch
@@ -43,6 +44,31 @@ final class PanelPositionControllerTests: XCTestCase {
         target.onPanelPositionChange?()
 
         XCTAssertNil(controller.selectedCorner)
+    }
+
+    func testRepeatedPositionChangesWithoutNewValuesDoNotPublish() {
+        let target = PanelPositioningSpy(
+            canPositionPanel: true,
+            selectedCorner: .topRight
+        )
+        let controller = PanelPositionController()
+        controller.bind(to: target)
+        var changeCount = 0
+        let subscription = controller.objectWillChange.sink { changeCount += 1 }
+
+        for _ in 0..<120 {
+            target.onPanelPositionChange?()
+        }
+
+        XCTAssertEqual(changeCount, 0)
+
+        target.selectedCorner = nil
+        target.onPanelPositionChange?()
+        target.onPanelPositionChange?()
+
+        XCTAssertEqual(changeCount, 1)
+        XCTAssertNil(controller.selectedCorner)
+        subscription.cancel()
     }
 
     func testMoveIsDisabledWithoutAPositionablePanel() {

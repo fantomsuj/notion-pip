@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+
+- Dragging the panel, or moving it with the two-finger top-edge gesture, now
+  saves its position once when the move ends instead of on every frame of the
+  drag. The panel position menu only updates when its values change, and
+  trackpad scrolling no longer looks up screen frames on every event.
+
 ### Fixed
 
 - Quitting Perch, or turning off Local Agents, no longer hangs when a local
