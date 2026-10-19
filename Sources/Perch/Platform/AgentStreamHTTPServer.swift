@@ -9,12 +9,25 @@ actor AgentStreamHTTPServer {
         let port: UInt16
     }
 
+    /// How long a client has to send a full request, and to accept the response.
+    static let defaultConnectionTimeout: Duration = .seconds(5)
+    /// Open connections allowed at once. Agents send one request per connection,
+    /// so a handful is plenty; more are answered with 503 and closed.
+    static let defaultMaxConcurrentConnections = 8
+
+    private struct OpenConnection {
+        let connection: NWConnection
+        let task: Task<Void, Never>
+    }
+
     private let gateway: any AgentStreamHTTPServing
     private let discoveryStore: AgentStreamDiscoveryStore
     private let limits: AgentStreamLimits
     private let processIdentifier: pid_t
     private let clock: @Sendable () -> Date
     private let tokenGenerator: @Sendable () -> String
+    private let connectionTimeout: Duration
+    private let maxConcurrentConnections: Int
     private let logger = Logger(
         subsystem: "com.fantomsuj.Perch",
         category: "agent-stream-http"
@@ -25,7 +38,7 @@ actor AgentStreamHTTPServer {
     private var token: String?
     private var startedAt: Date?
     private var isStopping = false
-    private var connectionTasks: [UUID: Task<Void, Never>] = [:]
+    private var openConnections: [UUID: OpenConnection] = [:]
     private var recentRequestTimestamps: [ContinuousClock.Instant] = []
     private var startContinuation: CheckedContinuation<StartResult, Error>?
 
@@ -37,7 +50,9 @@ actor AgentStreamHTTPServer {
         clock: @escaping @Sendable () -> Date = { Date() },
         tokenGenerator: @escaping @Sendable () -> String = {
             AgentStreamHTTPServer.makeToken()
-        }
+        },
+        connectionTimeout: Duration = AgentStreamHTTPServer.defaultConnectionTimeout,
+        maxConcurrentConnections: Int = AgentStreamHTTPServer.defaultMaxConcurrentConnections
     ) {
         self.gateway = gateway
         self.discoveryStore = discoveryStore
@@ -45,6 +60,8 @@ actor AgentStreamHTTPServer {
         self.processIdentifier = processIdentifier
         self.clock = clock
         self.tokenGenerator = tokenGenerator
+        self.connectionTimeout = connectionTimeout
+        self.maxConcurrentConnections = max(1, maxConcurrentConnections)
     }
 
     var isRunning: Bool {
@@ -53,6 +70,11 @@ actor AgentStreamHTTPServer {
 
     var publishedPort: UInt16? {
         port
+    }
+
+    /// Number of connections currently being served. Exposed for tests.
+    var openConnectionCount: Int {
+        openConnections.count
     }
 
     func start() async throws -> StartResult {
@@ -112,12 +134,18 @@ actor AgentStreamHTTPServer {
         }
     }
 
+    /// Stops the listener and closes every open connection.
+    ///
+    /// Returns promptly even when a client holds a socket open without sending
+    /// anything: each connection is cancelled directly, which wakes any
+    /// `receive` or `send` parked on it. Cancelling the Swift task alone would
+    /// not, because `NWConnection` callbacks ignore task cancellation.
     func stop() async {
         isStopping = true
         let token = self.token
         let listener = self.listener
-        let tasks = Array(connectionTasks.values)
-        connectionTasks.removeAll()
+        let open = Array(openConnections.values)
+        openConnections.removeAll()
         self.listener = nil
         port = nil
         self.token = nil
@@ -128,11 +156,12 @@ actor AgentStreamHTTPServer {
         }
 
         listener?.cancel()
-        for task in tasks {
-            task.cancel()
+        for entry in open {
+            entry.connection.cancel()
+            entry.task.cancel()
         }
-        for task in tasks {
-            _ = await task.result
+        for entry in open {
+            _ = await entry.task.result
         }
 
         if let token {
@@ -155,6 +184,11 @@ actor AgentStreamHTTPServer {
         token: String,
         startedAt: Date
     ) {
+        // A stopped listener reports `.cancelled` asynchronously. If the server
+        // was restarted in the meantime, that late callback belongs to the old
+        // listener and must not clear the new one's port and token.
+        guard listener === self.listener else { return }
+
         switch listenerState {
         case .ready:
             guard let nwPort = listener.port else {
@@ -222,16 +256,28 @@ actor AgentStreamHTTPServer {
             return
         }
 
-        let taskID = UUID()
+        guard openConnections.count < maxConcurrentConnections else {
+            connection.start(queue: Self.connectionQueue())
+            Self.closeConnection(
+                connection,
+                replyingWith: AgentStreamHTTPCodec.encodeErrorResponse(.serverBusy())
+            )
+            return
+        }
+
+        let connectionID = UUID()
         let task = Task {
             await self.handleConnection(
                 connection,
                 expectedPort: port,
                 expectedToken: token
             )
-            self.connectionTasks[taskID] = nil
+            self.openConnections[connectionID] = nil
         }
-        connectionTasks[taskID] = task
+        openConnections[connectionID] = OpenConnection(
+            connection: connection,
+            task: task
+        )
     }
 
     private func handleConnection(
@@ -239,23 +285,25 @@ actor AgentStreamHTTPServer {
         expectedPort: UInt16,
         expectedToken: String
     ) async {
-        connection.start(queue: DispatchQueue(
-            label: "com.fantomsuj.Perch.agent-stream-http.connection",
-            qos: .userInitiated
-        ))
+        connection.start(queue: Self.connectionQueue())
 
         defer {
             connection.cancel()
         }
 
         do {
-            if !consumeRateLimitSlot() {
-                let response = AgentStreamHTTPCodec.encodeErrorResponse(.rateLimited())
-                try await send(response, on: connection)
-                return
+            let buffer: Data
+            do {
+                // A client that connects and goes quiet gets a 408 and is closed.
+                let timeout = Self.scheduleTimeout(
+                    for: connection,
+                    after: connectionTimeout,
+                    replyingWith: AgentStreamHTTPCodec.encodeErrorResponse(.requestTimeout())
+                )
+                defer { timeout.cancel() }
+                buffer = try await readRequestBuffer(from: connection)
             }
 
-            let buffer = try await readRequestBuffer(from: connection)
             let outcome = AgentStreamHTTPCodec.decodeRequest(
                 from: buffer,
                 limits: limits,
@@ -271,20 +319,30 @@ actor AgentStreamHTTPServer {
             case .failure(_, let error):
                 responseData = AgentStreamHTTPCodec.encodeErrorResponse(error)
             case .request(let request):
-                responseData = await dispatch(
-                    request,
+                responseData = await respond(
+                    to: request,
                     expectedToken: expectedToken
                 )
             }
-            try await send(responseData, on: connection)
+            try await sendWithTimeout(responseData, on: connection)
+        } catch let error as AgentStreamError {
+            // Rejected while reading (for example, too large): answer before closing.
+            try? await sendWithTimeout(
+                AgentStreamHTTPCodec.encodeErrorResponse(error),
+                on: connection
+            )
         } catch {
-            // Connection dropped or timed out; never log request bodies or tokens.
+            // Connection dropped, timed out, or the server stopped.
+            // Never log request bodies or tokens.
             logger.debug("Agent stream connection closed before completion")
         }
     }
 
-    private func dispatch(
-        _ request: AgentStreamHTTPParsedRequest,
+    /// Checks the token first, so only callers that hold it spend the shared
+    /// rate limit. Unauthenticated noise from other local processes can't push
+    /// the real agent into 429s.
+    private func respond(
+        to request: AgentStreamHTTPParsedRequest,
         expectedToken: String
     ) async -> Data {
         guard let bearer = request.authorizationBearer,
@@ -293,6 +351,14 @@ actor AgentStreamHTTPServer {
             return AgentStreamHTTPCodec.encodeErrorResponse(.unauthorized())
         }
 
+        guard consumeRateLimitSlot() else {
+            return AgentStreamHTTPCodec.encodeErrorResponse(.rateLimited())
+        }
+
+        return await dispatch(request)
+    }
+
+    private func dispatch(_ request: AgentStreamHTTPParsedRequest) async -> Data {
         do {
             switch request.route {
             case .status:
@@ -372,11 +438,12 @@ actor AgentStreamHTTPServer {
 
     // MARK: - IO
 
+    /// Reads until a full request is buffered, the peer closes, or the request
+    /// fails to decode. The caller bounds how long this may take.
     private func readRequestBuffer(from connection: NWConnection) async throws -> Data {
         var buffer = Data()
-        let deadline = ContinuousClock.now + Duration.seconds(5)
 
-        while ContinuousClock.now < deadline {
+        while true {
             if Task.isCancelled {
                 throw CancellationError()
             }
@@ -436,6 +503,17 @@ actor AgentStreamHTTPServer {
         }
     }
 
+    private func sendWithTimeout(_ data: Data, on connection: NWConnection) async throws {
+        // A client that stops reading can't hold the connection open forever.
+        let timeout = Self.scheduleTimeout(
+            for: connection,
+            after: connectionTimeout,
+            replyingWith: nil
+        )
+        defer { timeout.cancel() }
+        try await send(data, on: connection)
+    }
+
     private func send(_ data: Data, on connection: NWConnection) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             connection.send(
@@ -451,6 +529,54 @@ actor AgentStreamHTTPServer {
                 }
             )
         }
+    }
+
+    /// Closes `connection` once `timeout` passes, unless the returned task is
+    /// cancelled first. Cancelling the connection is what wakes a pending
+    /// `receive` or `send`; task cancellation alone does not.
+    private nonisolated static func scheduleTimeout(
+        for connection: NWConnection,
+        after timeout: Duration,
+        replyingWith reply: Data?
+    ) -> Task<Void, Never> {
+        Task {
+            do {
+                try await Task.sleep(for: timeout)
+            } catch {
+                return
+            }
+            closeConnection(connection, replyingWith: reply)
+        }
+    }
+
+    /// Sends `reply` (if any) and then cancels the connection. The connection
+    /// is cancelled within a second even if the reply never drains.
+    private nonisolated static func closeConnection(
+        _ connection: NWConnection,
+        replyingWith reply: Data?
+    ) {
+        guard let reply else {
+            connection.cancel()
+            return
+        }
+        connection.send(
+            content: reply,
+            contentContext: .finalMessage,
+            isComplete: true,
+            completion: .contentProcessed { _ in
+                connection.cancel()
+            }
+        )
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
+            connection.cancel()
+        }
+    }
+
+    private nonisolated static func connectionQueue() -> DispatchQueue {
+        DispatchQueue(
+            label: "com.fantomsuj.Perch.agent-stream-http.connection",
+            qos: .userInitiated
+        )
     }
 
     // MARK: - Helpers

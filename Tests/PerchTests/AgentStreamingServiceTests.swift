@@ -93,6 +93,53 @@ final class AgentStreamingServiceTests: XCTestCase {
         XCTAssertFalse(details.contains("Content-Type: text/markdown\n"))
         XCTAssertFalse(details.contains("Bearer ey"))
     }
+
+    func testQuickOffOnToggleLeavesListenerRunning() async throws {
+        let defaults = UserDefaults(suiteName: "AgentStreamingServiceTests.\(UUID().uuidString)")!
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let discoveryURL = directory.appendingPathComponent("agent-server.json")
+        let controller = AgentStreamController(
+            target: AgentStreamingServiceTargetSpy(),
+            notifier: AgentStreamNotifierNoOp()
+        )
+        let server = AgentStreamHTTPServer(
+            gateway: AgentStreamHTTPGateway(controller: controller),
+            discoveryStore: AgentStreamDiscoveryStore(fileURL: discoveryURL),
+            processIdentifier: 55_556
+        )
+        let service = AgentStreamingService(
+            controller: controller,
+            preferenceStore: AgentStreamingPreferenceStore(defaults: defaults),
+            server: server
+        )
+
+        service.setEnabled(true)
+        service.setEnabled(false)
+        service.setEnabled(true)
+
+        for _ in 0..<500 {
+            if case .ready = service.state { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        guard case .ready = service.state else {
+            XCTFail("Expected the listener to be ready, got \(service.state)")
+            await service.prepareForTermination()
+            return
+        }
+        // Let any stop left over from the toggle land if it was going to.
+        try await Task.sleep(for: .milliseconds(300))
+
+        let running = await server.isRunning
+        XCTAssertTrue(running)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: discoveryURL.path))
+
+        await service.prepareForTermination()
+        let runningAfterQuit = await server.isRunning
+        XCTAssertFalse(runningAfterQuit)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: discoveryURL.path))
+    }
 }
 
 @MainActor
