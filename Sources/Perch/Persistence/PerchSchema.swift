@@ -1,14 +1,21 @@
 import SwiftData
 
+// Every schema version lists frozen, namespaced model types (for example
+// `RecentPageSchemaV1.RecentPageModel`), never the live typealiases. A version
+// must keep describing exactly what shipped, so changing a model means adding
+// a new namespaced copy, a new schema version, and a migration stage, and
+// leaving the older copies untouched. `SchemaMigrationTests` pins every
+// version's entities and attributes so an accidental edit fails a test.
+
 enum PerchSchemaV1: VersionedSchema {
     static let versionIdentifier = Schema.Version(1, 0, 0)
 
     static var models: [any PersistentModel.Type] {
         [
-            CaptureDraftModel.self,
-            CaptureRecordModel.self,
+            CaptureDraftSchemaV1.CaptureDraftModel.self,
+            CaptureRecordSchemaV1.CaptureRecordModel.self,
             PinnedPageSchemaV3.PinnedPageModel.self,
-            RecentPageModel.self,
+            RecentPageSchemaV1.RecentPageModel.self,
         ]
     }
 }
@@ -18,11 +25,11 @@ enum PerchSchemaV2: VersionedSchema {
 
     static var models: [any PersistentModel.Type] {
         [
-            CaptureDraftModel.self,
-            CaptureRecordModel.self,
+            CaptureDraftSchemaV1.CaptureDraftModel.self,
+            CaptureRecordSchemaV1.CaptureRecordModel.self,
             PinnedPageSchemaV3.PinnedPageModel.self,
-            RecentPageModel.self,
-            QuickCaptureSettingsModel.self,
+            RecentPageSchemaV1.RecentPageModel.self,
+            QuickCaptureSettingsSchemaV2.QuickCaptureSettingsModel.self,
         ]
     }
 }
@@ -32,13 +39,13 @@ enum PerchSchemaV3: VersionedSchema {
 
     static var models: [any PersistentModel.Type] {
         [
-            CaptureDraftModel.self,
-            CaptureRecordModel.self,
+            CaptureDraftSchemaV1.CaptureDraftModel.self,
+            CaptureRecordSchemaV1.CaptureRecordModel.self,
             PinnedPageSchemaV3.PinnedPageModel.self,
-            RecentPageModel.self,
-            QuickCaptureSettingsModel.self,
-            ActivePageModel.self,
-            PageRestorationModel.self,
+            RecentPageSchemaV1.RecentPageModel.self,
+            QuickCaptureSettingsSchemaV2.QuickCaptureSettingsModel.self,
+            ActivePageSchemaV3.ActivePageModel.self,
+            PageRestorationSchemaV3.PageRestorationModel.self,
         ]
     }
 }
@@ -48,13 +55,13 @@ enum PerchSchemaV4: VersionedSchema {
 
     static var models: [any PersistentModel.Type] {
         [
-            CaptureDraftModel.self,
-            CaptureRecordModel.self,
-            PinnedPageModel.self,
-            RecentPageModel.self,
-            QuickCaptureSettingsModel.self,
-            ActivePageModel.self,
-            PageRestorationModel.self,
+            CaptureDraftSchemaV1.CaptureDraftModel.self,
+            CaptureRecordSchemaV1.CaptureRecordModel.self,
+            PinnedPageSchemaV4.PinnedPageModel.self,
+            RecentPageSchemaV1.RecentPageModel.self,
+            QuickCaptureSettingsSchemaV2.QuickCaptureSettingsModel.self,
+            ActivePageSchemaV3.ActivePageModel.self,
+            PageRestorationSchemaV3.PageRestorationModel.self,
         ]
     }
 }
@@ -64,10 +71,10 @@ enum PerchSchemaV5: VersionedSchema {
 
     static var models: [any PersistentModel.Type] {
         [
-            PinnedPageModel.self,
-            RecentPageModel.self,
-            ActivePageModel.self,
-            PageRestorationModel.self,
+            PinnedPageSchemaV4.PinnedPageModel.self,
+            RecentPageSchemaV1.RecentPageModel.self,
+            ActivePageSchemaV3.ActivePageModel.self,
+            PageRestorationSchemaV3.PageRestorationModel.self,
         ]
     }
 }

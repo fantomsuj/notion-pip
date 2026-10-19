@@ -17,11 +17,21 @@ struct StorageRecoveryView: View {
                     Text(StorageRecoveryPresentation.explanation)
                         .foregroundStyle(DesignTokens.Colors.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
+                    if let openFailureLabel = controller.openFailureLabel {
+                        Text("Error: \(openFailureLabel)")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(DesignTokens.Colors.secondaryText)
+                            .textSelection(.enabled)
+                    }
                 }
             }
 
             GroupBox("What you can do") {
                 VStack(alignment: .leading, spacing: DesignTokens.Spacing.control) {
+                    Label(
+                        "Try opening the local store again, in case the problem was temporary.",
+                        systemImage: "arrow.clockwise"
+                    )
                     Label(
                         "Keep working in Notion for this session without local Perch history.",
                         systemImage: "checkmark.circle"
@@ -45,7 +55,14 @@ struct StorageRecoveryView: View {
                     .font(.callout)
                     .foregroundStyle(DesignTokens.Colors.error)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel("Archive failed. \(message)")
+                    .accessibilityLabel(message)
+            } else if controller.phase == .storeAvailable {
+                Label(
+                    StorageRecoveryPresentation.retrySucceededMessage,
+                    systemImage: "checkmark.circle.fill"
+                )
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
             } else if controller.isBusy {
                 ProgressView("Archiving local store…")
                     .controlSize(.small)
@@ -61,19 +78,30 @@ struct StorageRecoveryView: View {
 
                 Spacer()
 
-                actionButton(.continueWithoutSaving) {
-                    controller.continueWithoutSaving()
-                }
-                .keyboardShortcut(.defaultAction)
+                if controller.phase == .storeAvailable {
+                    Button(StorageRecoveryPresentation.quitToReopenLabel) {
+                        controller.quitToReopen()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                } else {
+                    actionButton(.retryOpenStore) {
+                        controller.retryOpeningStore()
+                    }
 
-                actionButton(.archiveStoreAndQuit, role: .destructive) {
-                    controller.requestArchiveConfirmation()
+                    actionButton(.continueWithoutSaving) {
+                        controller.continueWithoutSaving()
+                    }
+                    .keyboardShortcut(.defaultAction)
+
+                    actionButton(.archiveStoreAndQuit, role: .destructive) {
+                        controller.requestArchiveConfirmation()
+                    }
                 }
             }
             .disabled(controller.isBusy)
         }
         .padding(DesignTokens.Spacing.container)
-        .frame(width: 560, height: 430)
+        .frame(width: 600, height: 480)
         .alert(
             StorageRecoveryPresentation.archiveConfirmationTitle,
             isPresented: archiveConfirmationBinding

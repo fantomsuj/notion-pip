@@ -99,6 +99,68 @@ final class PersistenceBootstrapTests: XCTestCase {
         XCTAssertEqual(archiveCount, 1)
     }
 
+    func testOpenFailureRecordsOnlyErrorDomainAndCode() throws {
+        let bootstrapper = PersistenceBootstrapper(
+            openRepository: {
+                throw NSError(
+                    domain: "PerchTestStoreDomain",
+                    code: 134_110,
+                    userInfo: [
+                        NSFilePathErrorKey: "/Users/someone/Library/Application Support/private",
+                    ]
+                )
+            },
+            recoveryContext: PersistentStoreRecoveryContext(
+                archiveStore: { throw PersistenceBootstrapTestError.unexpectedArchive },
+                revealStore: {}
+            )
+        )
+
+        let context = try XCTUnwrap(bootstrapper.bootstrap().recoveryContext)
+
+        XCTAssertEqual(
+            context.openFailure,
+            PersistentStoreOpenFailure(domain: "PerchTestStoreDomain", code: 134_110)
+        )
+        XCTAssertEqual(context.openFailure?.label, "PerchTestStoreDomain 134110")
+    }
+
+    func testLiveRetryOpensStoreOnceTheBlockingProblemIsGone() throws {
+        let supportDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: supportDirectory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: supportDirectory) }
+        let blockedStoreDirectory = supportDirectory.appendingPathComponent(
+            "com.fantomsuj.Perch"
+        )
+        XCTAssertTrue(
+            FileManager.default.createFile(
+                atPath: blockedStoreDirectory.path,
+                contents: Data("not a directory".utf8)
+            )
+        )
+
+        let context = try XCTUnwrap(
+            PersistenceBootstrapper.live(
+                applicationSupportDirectory: supportDirectory
+            ).bootstrap().recoveryContext
+        )
+        XCTAssertNotNil(context.openFailure)
+        XCTAssertThrowsError(try context.retryOpenStore())
+
+        try FileManager.default.removeItem(at: blockedStoreDirectory)
+
+        XCTAssertNoThrow(try context.retryOpenStore())
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: blockedStoreDirectory.appendingPathComponent("Perch.store").path
+            )
+        )
+    }
+
     func testSuccessfulOpenReturnsUsableRepositoryAndHealthyState() throws {
         let container = try PerchPersistence.makeContainer(inMemory: true)
         let repository = PageRepository(container: container)

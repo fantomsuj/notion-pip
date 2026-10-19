@@ -1,5 +1,6 @@
 enum StorageRecoveryAction: CaseIterable, Equatable {
     case revealStore
+    case retryOpenStore
     case continueWithoutSaving
     case archiveStoreAndQuit
 
@@ -7,6 +8,8 @@ enum StorageRecoveryAction: CaseIterable, Equatable {
         switch self {
         case .revealStore:
             "Reveal Store in Finder"
+        case .retryOpenStore:
+            "Try Again"
         case .continueWithoutSaving:
             "Continue Without Saving"
         case .archiveStoreAndQuit:
@@ -18,6 +21,8 @@ enum StorageRecoveryAction: CaseIterable, Equatable {
         switch self {
         case .revealStore:
             "Selects the local Perch store, or its containing folder when the primary store is missing."
+        case .retryOpenStore:
+            "Tries to open the local Perch store again without changing any files."
         case .continueWithoutSaving:
             "Closes this window and uses Perch for this session without saving local page history."
         case .archiveStoreAndQuit:
@@ -34,6 +39,9 @@ enum StorageRecoveryPresentation {
     static let title = "Perch Couldn’t Open Local Storage"
     static let explanation =
         "Notion pages and account data are unaffected. You can keep using the embedded Notion site, but Perch will not save local page history during this session."
+    static let retrySucceededMessage =
+        "Perch can open its local store now. Quit and reopen Perch to load your saved pages."
+    static let quitToReopenLabel = "Quit Perch"
     static let archiveConfirmationTitle = "Archive Local Store and Quit Perch?"
     static let archiveConfirmationMessage =
         "Perch will move any existing Perch.store, Perch.store-wal, Perch.store-shm, Perch.store-journal, and Perch.store_SUPPORT artifacts into a new dated Recovery folder, then quit. No files are deleted or overwritten. Reopening Perch starts with empty local page history. Notion pages and account data are unaffected."
