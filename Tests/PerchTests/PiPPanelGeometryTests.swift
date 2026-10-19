@@ -303,17 +303,79 @@ final class PiPPanelGeometryTests: XCTestCase {
         XCTAssertFalse(panel.isTrackpadMoveActive)
     }
 
-    func testCornerLandingCurveIsMonotonicAndNeverOvershoots() {
-        let samples = stride(from: CGFloat.zero, through: 1, by: 0.05).map {
-            KeyCapablePiPPanel.criticallyDampedSpringProgress($0)
-        }
+    func testCornerLandingCurveNeverOvershoots() {
+        let timing = KeyCapablePiPPanel.springTimingFunction()
+        var controlPoints = [Float](repeating: 0, count: 2)
 
-        XCTAssertEqual(samples.first, 0)
-        XCTAssertTrue(zip(samples, samples.dropFirst()).allSatisfy { pair in
-            pair.0 <= pair.1
-        })
-        XCTAssertTrue(samples.allSatisfy { (0...1).contains($0) })
-        XCTAssertGreaterThan(samples.last ?? 0, 0.99)
+        for index in 0..<4 {
+            controlPoints.withUnsafeMutableBufferPointer { buffer in
+                timing.getControlPoint(at: index, values: buffer.baseAddress!)
+            }
+            XCTAssertTrue((0...1).contains(controlPoints[0]))
+            XCTAssertTrue((0...1).contains(controlPoints[1]))
+        }
+        controlPoints.withUnsafeMutableBufferPointer { buffer in
+            timing.getControlPoint(at: 1, values: buffer.baseAddress!)
+        }
+        // An ease-out: the curve rises faster than linear at the start.
+        XCTAssertGreaterThan(controlPoints[1], controlPoints[0])
+    }
+
+    func testCancellingAnimatedFrameChangeStillRunsCompletion() {
+        let panel = KeyCapablePiPPanel(
+            contentRect: CGRect(x: 100, y: 100, width: 400, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { panel.orderOut(nil) }
+        var completionCount = 0
+
+        panel.setFrame(
+            CGRect(x: 300, y: 200, width: 400, height: 500),
+            display: false,
+            animate: true
+        ) {
+            completionCount += 1
+        }
+        panel.cancelPendingStashDismissal()
+
+        XCTAssertEqual(completionCount, 1)
+        XCTAssertFalse(panel.isAnimatingFrame)
+
+        panel.cancelFrameAnimation()
+
+        XCTAssertEqual(completionCount, 1)
+    }
+
+    func testStartingNewFrameAnimationFinishesThePreviousOne() {
+        let panel = KeyCapablePiPPanel(
+            contentRect: CGRect(x: 100, y: 100, width: 400, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { panel.orderOut(nil) }
+        var firstCompletionCount = 0
+
+        panel.setFrame(
+            CGRect(x: 300, y: 200, width: 400, height: 500),
+            display: false,
+            animate: true
+        ) {
+            firstCompletionCount += 1
+        }
+        panel.setFrame(
+            CGRect(x: 40, y: 60, width: 400, height: 500),
+            display: false
+        )
+        panel.setFrame(
+            CGRect(x: 40, y: 60, width: 400, height: 500),
+            display: false,
+            animate: true
+        ) {}
+
+        XCTAssertEqual(firstCompletionCount, 1)
     }
 
     func testStashAnimationCompressesTowardChosenHandle() {
