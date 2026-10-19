@@ -16,8 +16,8 @@ enum NotionEditorActivity: String, Equatable {
     case editingEnded
 }
 
-private enum NotionScriptMessageOrigin {
-    private static let trustedHosts: Set<String> = [
+enum NotionScriptMessageOrigin {
+    static let trustedHosts: Set<String> = [
         "app.notion.com",
         "notion.com",
         "www.notion.com",
@@ -287,7 +287,7 @@ final class NotionWebScriptMessageCoordinator {
 
         controller.addUserScript(
             WKUserScript(
-                source: Self.editorActivityScript,
+                source: Self.notionHostsOnly(Self.editorActivityScript),
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true,
                 in: NotionBridgeContentWorld.world
@@ -300,7 +300,7 @@ final class NotionWebScriptMessageCoordinator {
         )
         controller.addUserScript(
             WKUserScript(
-                source: Self.scrollScript,
+                source: Self.notionHostsOnly(Self.scrollScript),
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true,
                 in: NotionBridgeContentWorld.world
@@ -313,7 +313,7 @@ final class NotionWebScriptMessageCoordinator {
         )
         controller.addUserScript(
             WKUserScript(
-                source: Self.usefulContentScript(),
+                source: Self.notionHostsOnly(Self.usefulContentScript()),
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true,
                 in: NotionBridgeContentWorld.world
@@ -325,6 +325,21 @@ final class NotionWebScriptMessageCoordinator {
             name: NotionUsefulContentBridge.handlerName
         )
         return generation
+    }
+
+    /// Wraps a bridge script so it only runs on Notion's own hosts. Custom
+    /// pinned URLs share the web view, and the Notion scripts (including a
+    /// whole-document MutationObserver) have no work to do on other sites.
+    static func notionHostsOnly(_ script: String) -> String {
+        let hosts = NotionScriptMessageOrigin.trustedHosts.sorted()
+            .map { "'\($0)'" }
+            .joined(separator: ", ")
+        return """
+            if (window.location.protocol === 'https:' &&
+                [\(hosts)].includes(window.location.hostname.toLowerCase())) {
+            \(script)
+            }
+            """
     }
 
     func remove(from controller: WKUserContentController) {

@@ -1495,7 +1495,7 @@ extension NotionWebSession: WKNavigationDelegate {
         guard isCurrent(webView) else { return }
         switch webContentRecoveryState {
         case let .attempting(pageID):
-            guard pageID == activePage?.pageID, pageID == loadedPageID else { return }
+            guard pageID == activeRecoveryTarget?.id, pageID == loadedPageID else { return }
             webContentRecoveryState = .ready
         case .failed:
             return
@@ -1738,29 +1738,49 @@ extension NotionWebSession: WKNavigationDelegate {
             page: page,
             loadedPageID: loadedPageID
         )
-        guard let page else {
+        // Notion pages and custom pinned URLs both get one automatic reload.
+        guard let target = activeRecoveryTarget else {
             publishNavigationState(.failed("Notion couldn't reload after its web content stopped."))
             return
         }
 
         switch webContentRecoveryState {
-        case .attempting(pageID: page.pageID), .failed(pageID: page.pageID):
-            webContentRecoveryState = .failed(pageID: page.pageID)
+        case .attempting(pageID: target.id), .failed(pageID: target.id):
+            webContentRecoveryState = .failed(pageID: target.id)
             pageStateRestoration.discardPendingScrollRestoration()
-            publishNavigationState(.failed("Notion couldn't reload after its web content stopped."))
+            publishNavigationState(.failed(Self.rendererRecoveryFailureMessage(
+                isCustomURL: page == nil
+            )))
             return
         case .ready, .attempting, .failed:
-            webContentRecoveryState = .attempting(pageID: page.pageID)
+            webContentRecoveryState = .attempting(pageID: target.id)
         }
 
-        loadedPageID = page.pageID
-        loadedRequestURL = page.canonicalURL
+        loadedPageID = target.id
+        loadedRequestURL = target.url
         publishNavigationState(.loading)
         rendererRecoveryToUsefulContentToken = performanceSignposter?.begin(
             .rendererRecoveryToUsefulContent
         )
         beginNavigationRequestMeasurement(preservingUsefulContentContext: true)
-        loadRequest(webView, URLRequest(url: page.canonicalURL))
+        loadRequest(webView, URLRequest(url: target.url))
+    }
+
+    /// The page or custom URL a crashed renderer should come back to.
+    private var activeRecoveryTarget: (id: String, url: URL)? {
+        if let activePage {
+            return (activePage.pageID, activePage.canonicalURL)
+        }
+        if let activeCustomURL {
+            return (activeCustomURL.id, activeCustomURL.canonicalURL)
+        }
+        return nil
+    }
+
+    static func rendererRecoveryFailureMessage(isCustomURL: Bool) -> String {
+        isCustomURL
+            ? "This page couldn't reload after its web content stopped."
+            : "Notion couldn't reload after its web content stopped."
     }
 
     private func markWebContentRecoveryFailedIfNeeded() {

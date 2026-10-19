@@ -1326,6 +1326,33 @@ final class NotionWebSessionTests: XCTestCase {
         }
     }
 
+    func testCustomPinnedURLGetsOneAutomaticReloadAfterRendererTermination() throws {
+        var loadedURLs: [URL?] = []
+        let session = NotionWebSession(
+            loadRequest: { _, request in loadedURLs.append(request.url) }
+        )
+        let pin = try CustomPinnedURL(validatingString: "https://canvas.example.edu/courses/12")
+        session.activate(customURL: pin)
+        let webView = try XCTUnwrap(session.webView)
+
+        session.webViewWebContentProcessDidTerminate(webView)
+
+        XCTAssertEqual(loadedURLs, [pin.canonicalURL, pin.canonicalURL])
+        XCTAssertEqual(session.state, .loading)
+        XCTAssertEqual(session.activeCustomURL, pin)
+
+        session.webViewWebContentProcessDidTerminate(webView)
+
+        XCTAssertEqual(loadedURLs, [pin.canonicalURL, pin.canonicalURL])
+        guard case let .failed(message) = session.state else {
+            return XCTFail("Expected a second termination to stop automatic reloads")
+        }
+        XCTAssertEqual(
+            message,
+            NotionWebSession.rendererRecoveryFailureMessage(isCustomURL: true)
+        )
+    }
+
     func testSuccessfulRecoveryRestoresSamePageScrollButNeverDOMSelection() throws {
         let page = try makePage(id: firstPageID, title: "Roadmap")
         let webView = TrustedURLWebView(url: page.canonicalURL)

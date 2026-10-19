@@ -210,6 +210,57 @@ final class NotionWebScriptMessageCoordinatorTests: XCTestCase {
         XCTAssertEqual(pageValue, "undefined,undefined,undefined,undefined")
     }
 
+    func testNotionScriptsDoNothingOnCustomURLHosts() async throws {
+        let coordinator = NotionWebScriptMessageCoordinator()
+        let configuration = WKWebViewConfiguration()
+        coordinator.install(in: configuration.userContentController)
+        defer { coordinator.remove(from: configuration.userContentController) }
+        let webView = WKWebView(
+            frame: .init(x: 0, y: 0, width: 400, height: 300),
+            configuration: configuration
+        )
+        webView.loadHTMLString(
+            "<!doctype html><html><body><p>Course</p></body></html>",
+            baseURL: try XCTUnwrap(URL(string: "https://canvas.example.edu/courses/12"))
+        )
+        let probe = """
+            return [
+              typeof window.__perchChromeActivityInstalled,
+              typeof window.__perchScrollInstalled,
+              typeof window.__perchUsefulContentInstalled,
+              document.readyState,
+            ].join(',');
+            """
+
+        try await waitUntil {
+            let value = try? await webView.callAsyncJavaScript(
+                probe,
+                arguments: [:],
+                in: nil,
+                contentWorld: NotionBridgeContentWorld.world
+            ) as? String
+            return value?.hasSuffix(",complete") == true
+        }
+        let value = try await webView.callAsyncJavaScript(
+            probe,
+            arguments: [:],
+            in: nil,
+            contentWorld: NotionBridgeContentWorld.world
+        ) as? String
+
+        XCTAssertEqual(value, "undefined,undefined,undefined,complete")
+    }
+
+    func testHostGuardListsEveryTrustedNotionHost() {
+        let guarded = NotionWebScriptMessageCoordinator.notionHostsOnly("run();")
+
+        for host in NotionScriptMessageOrigin.trustedHosts {
+            XCTAssertTrue(guarded.contains("'\(host)'"))
+        }
+        XCTAssertTrue(guarded.contains("window.location.protocol === 'https:'"))
+        XCTAssertTrue(guarded.contains("run();"))
+    }
+
     func testRemovingBridgesClearsTheIsolatedWorldSoTheyCanBeReinstalled() {
         let coordinator = NotionWebScriptMessageCoordinator()
         let controller = WKUserContentController()
