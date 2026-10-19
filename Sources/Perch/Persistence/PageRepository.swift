@@ -427,8 +427,10 @@ actor PageRepository: NotionPageDropTitleProviding {
         let retainedIDs = policy.retainedRestorationIDs(pinnedPages: pins, recentPages: recents)
         let models = try fetch(PageRestorationModel.self, scope: .restorations)
         var changed = false
-        for model in models where !retainedIDs.contains(policy.canonicalID(model.stableID))
-            || restorationIfValid(model) == nil {
+        for model in models {
+            let isRetained = retainedIDs.contains(policy.canonicalID(model.stableID))
+            let isValid = restorationIfValid(model) != nil
+            guard !isRetained || !isValid else { continue }
             modelContext.delete(model)
             changed = true
         }
