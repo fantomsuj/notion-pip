@@ -86,6 +86,7 @@ private final class AppComposition {
     private let launchAtLoginService: LaunchAtLoginService
     private let agentStreamingService: AgentStreamingService
     private let agentStreamNotificationDelegate: AgentStreamNotificationDelegate
+    private let saveActivePageRestoration: @MainActor () async -> Void
     private var statusItemAppearanceCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching() {
@@ -95,6 +96,7 @@ private final class AppComposition {
     }
 
     func prepareForTermination() async {
+        await saveActivePageRestoration()
         await agentStreamingService.prepareForTermination()
     }
 
@@ -319,6 +321,16 @@ private final class AppComposition {
         self.launchAtLoginService = launchAtLoginService
         self.agentStreamingService = agentStreamingService
         self.agentStreamNotificationDelegate = agentStreamNotificationDelegate
+        // Page switches save the outgoing page's scroll position; quitting has to save the
+        // active page itself so the next launch opens at the same spot.
+        saveActivePageRestoration = { [weak webSession] in
+            guard let pageRepository,
+                  let restoration = webSession?.captureActivePageRestoration()
+            else {
+                return
+            }
+            _ = try? await pageRepository.saveRestoration(restoration)
+        }
     }
 
     private static func retainWorkingSetSnapshots(

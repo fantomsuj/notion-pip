@@ -134,6 +134,12 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var titleObservation: NSKeyValueObservation?
     private var lifecycleObservation: AnyCancellable?
     private var memoryPressureSource: DispatchSourceMemoryPressure?
+    private let hiddenIdleEvictionDelay: TimeInterval
+    private let scheduleHiddenIdleEviction: NotionWebEvictionScheduler
+    private var hiddenIdleEvictionCancellable: AnyCancellable?
+    /// The page or custom URL whose renderer died while the panel was hidden.
+    /// It reloads on the next show.
+    private var deferredRendererRecoveryPageID: String?
     private var panelIsVisible: Bool {
         lifecycleController.isVisible
     }
@@ -384,9 +390,14 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
                     }
                 }
             },
-        performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
+        performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared,
+        hiddenIdleEvictionDelay: TimeInterval = NotionWebSession.hiddenIdleEvictionDelay,
+        scheduleHiddenIdleEviction: @escaping NotionWebEvictionScheduler =
+            NotionWebSession.scheduleOnMainActor(after:action:)
     ) {
         self.webView = nil
+        self.hiddenIdleEvictionDelay = hiddenIdleEvictionDelay
+        self.scheduleHiddenIdleEviction = scheduleHiddenIdleEviction
         self.openURL = openURL
         self.browserAuthenticationSessionFactory = browserAuthenticationSessionFactory
         self.browserLoginPresentationAnchor = browserLoginPresentationAnchor
@@ -483,6 +494,21 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         return webView
     }
 
+    /// How long a hidden panel keeps its web view before giving the memory back.
+    static let hiddenIdleEvictionDelay: TimeInterval = 10 * 60
+
+    static func scheduleOnMainActor(
+        after interval: TimeInterval,
+        action: @escaping @MainActor () -> Void
+    ) -> AnyCancellable {
+        let task = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(interval))
+            guard !Task.isCancelled else { return }
+            action()
+        }
+        return AnyCancellable { task.cancel() }
+    }
+
     func activate(page: NotionPageReference) {
         activate(page: page, restoration: nil)
     }
@@ -574,11 +600,18 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             ? warmResumeSignposter?.begin(.hiddenPanelWarmResume)
             : nil
         selectionCaptureGeneration &+= 1
+        hiddenIdleEvictionCancellable = nil
         let resumeCommand = lifecycleController.panelDidShow(
             hasWebView: webView != nil,
             hasActivePage: activePage != nil || activeCustomURL != nil
         )
-        if resumeCommand == .loadActivePage, let activeCustomURL {
+        if let deferredPageID = deferredRendererRecoveryPageID,
+           let target = activeRecoveryTarget,
+           target.id == deferredPageID,
+           let webView
+        {
+            reloadAfterRendererTermination(webView, target: target)
+        } else if resumeCommand == .loadActivePage, let activeCustomURL {
             load(activeCustomURL.canonicalURL, pageID: activeCustomURL.id)
         } else if resumeCommand == .loadActivePage, let activePage {
             restoreOrLoad(page: activePage)
@@ -629,6 +662,48 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         finishShortcutPresentationMeasurement(outcome: .cancelled)
         lifecycleController.panelDidHide()
         captureSelectionAndSuspendIfNeeded()
+        startHiddenIdleEvictionTimer()
+    }
+
+    private func startHiddenIdleEvictionTimer() {
+        hiddenIdleEvictionCancellable = scheduleHiddenIdleEviction(
+            hiddenIdleEvictionDelay
+        ) { [weak self] in
+            self?.hiddenIdleEvictionTimerFired()
+        }
+    }
+
+    private func hiddenIdleEvictionTimerFired() {
+        hiddenIdleEvictionCancellable = nil
+        guard !panelIsVisible, webView != nil else { return }
+        // Suspending clears the typing flag, so only finish a pending suspension when
+        // nobody is typing. Typing protection blocks eviction; try again after another period.
+        if !isTypingInPage {
+            suspendWebViewIfNeeded()
+        }
+        if !lifecycleController.requestEvictionIfEligible() {
+            startHiddenIdleEvictionTimer()
+        }
+    }
+
+    /// Captures the active page's last URL and scroll position so a quit doesn't lose them.
+    ///
+    /// Page switches and evictions already capture this. Quitting does neither, so the app
+    /// calls this while terminating and saves the result.
+    func captureActivePageRestoration() -> DurablePageRestoration? {
+        guard let webView,
+              activeCustomURL == nil,
+              let activePage,
+              loadedPageID == activePage.pageID,
+              webContentRecoveryState == .ready
+        else {
+            return nil
+        }
+        return pageStateRestoration.capture(
+            page: activePage,
+            currentURL: webView.url,
+            interactionState: nil
+        )
     }
 
     func beginShortcutPresentationMeasurement(
@@ -647,6 +722,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     ) {
         invalidateEditorSelection()
         webContentRecoveryState = .ready
+        deferredRendererRecoveryPageID = nil
         pageStateRestoration.recordLoad(
             url: url,
             pageID: pageID,
@@ -1087,12 +1163,20 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func handleMemoryPressure(_ level: NotionMemoryPressureLevel) {
-        guard level == .critical else { return }
-        if !panelIsVisible, webView != nil {
+        switch level {
+        case .warning:
+            // A hidden panel gives its renderer back unless someone is still typing in it.
+            // Check typing first: suspending clears the typing flag.
+            guard !panelIsVisible, webView != nil, !isTypingInPage else { return }
             suspendWebViewIfNeeded()
-        }
-        if lifecycleController.requestEvictionIfEligible(ignoringProtection: true) {
-            pageStateRestoration.removeAllInteractionStates()
+            lifecycleController.requestEvictionIfEligible()
+        case .critical:
+            if !panelIsVisible, webView != nil {
+                suspendWebViewIfNeeded()
+            }
+            if lifecycleController.requestEvictionIfEligible(ignoringProtection: true) {
+                pageStateRestoration.removeAllInteractionStates()
+            }
         }
     }
 
@@ -1132,6 +1216,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.webView = nil
         loadedPageID = nil
         loadedRequestURL = nil
+        deferredRendererRecoveryPageID = nil
         detachedPageID = nil
         if let urlObservation {
             invalidateURLObservation(urlObservation)
@@ -1439,18 +1524,21 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     ) {
         Task { @MainActor [weak webView] in
             guard let webView else { return }
+            // Notion renders its page scroller late, so look it up again on every attempt
+            // and keep retrying until the target is reachable or the deadline passes.
             let script = """
+                \(NotionScrollBridge.scrollerHelpers)
                 return await new Promise((resolve) => {
                   const deadline = performance.now() + timeoutMilliseconds;
                   const apply = () => {
-                    const root = document.scrollingElement || document.documentElement;
-                    if (root) {
-                      const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
+                    const scroller = perchNotionScroller();
+                    if (scroller) {
+                      const maximum = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
                       const target = maximum > 0
                         ? Math.max(scrollY, maximum * scrollProgress)
                         : scrollY;
-                      window.scrollTo(scrollX, target);
-                      if (Math.abs(window.scrollY - target) < tolerancePixels || maximum === 0) {
+                      scroller.scrollTo(scrollX, target);
+                      if (Math.abs(scroller.scrollTop - target) < tolerancePixels) {
                         resolve(true);
                         return;
                       }
@@ -1820,6 +1908,24 @@ extension NotionWebSession: WKNavigationDelegate {
             webContentRecoveryState = .attempting(pageID: target.id)
         }
 
+        guard panelIsVisible else {
+            // Don't rebuild the page for a panel nobody can see. It stays unloaded
+            // and reloads once, with its scroll fallback, the next time the panel shows.
+            loadedPageID = nil
+            loadedRequestURL = nil
+            deferredRendererRecoveryPageID = target.id
+            publishNavigationState(.unloaded)
+            suspendWebViewIfNeeded()
+            return
+        }
+        reloadAfterRendererTermination(webView, target: target)
+    }
+
+    private func reloadAfterRendererTermination(
+        _ webView: WKWebView,
+        target: (id: String, url: URL)
+    ) {
+        deferredRendererRecoveryPageID = nil
         loadedPageID = target.id
         loadedRequestURL = target.url
         publishNavigationState(.loading)
