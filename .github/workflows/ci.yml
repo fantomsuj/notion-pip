@@ -48,13 +48,14 @@ jobs:
         run: >-
           swift test
           --skip
-          '(ExternalDropActivatingWebViewTests|NotionEditorSelectionTests|NotionWebSessionTests|PiPChromeViewTests|PiPPanelGeometryTests|WebNavigationDestinationTests)'
+          '(ExternalDropActivatingWebViewTests|NotionEditorSelectionTests|NotionPageReaderTests|NotionWebSessionTests|PiPChromeViewTests|PiPPanelGeometryTests|WebNavigationDestinationTests)'
 
       - name: Run WebKit-dependent suites in isolated processes
         run: |
           suites=(
             ExternalDropActivatingWebViewTests
             NotionEditorSelectionTests
+            NotionPageReaderTests
             NotionWebSessionTests
             PiPChromeViewTests
             PiPPanelGeometryTests

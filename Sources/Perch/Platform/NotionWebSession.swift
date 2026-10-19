@@ -128,6 +128,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let invalidateURLObservation: NotionWebURLObservationInvalidator
     private let usefulContentDocumentIdentifierReader:
         NotionUsefulContentDocumentIdentifierReader
+    private let pageReader: NotionPageReaderEvaluator
     private let scriptMessageCoordinator: NotionWebScriptMessageCoordinator
     private let performanceSignposter: (any PerformanceSignposting)?
     private var urlObservation: NSKeyValueObservation?
@@ -255,6 +256,65 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     var agentStreamOpaquePageID: String? {
         activeCustomURL == nil ? activePage?.pageID : nil
+    }
+
+    /// Reads the open page for Copy for Agent.
+    ///
+    /// Reads the live page only while the panel shows it on a trusted page.
+    /// Otherwise, such as while the panel is stashed and the web view is
+    /// suspended, it returns the page's title and URL alone.
+    func readPageForAgent(
+        completion: @escaping @MainActor (Result<AgentPageSnapshot, AgentPageCopyError>) -> Void
+    ) {
+        let identity: (title: String, url: URL, mode: NotionPageReaderMode, pageID: String)
+        if let activeCustomURL {
+            identity = (
+                activeCustomURL.displayTitle,
+                webView?.url ?? activeCustomURL.canonicalURL,
+                .generic,
+                activeCustomURL.id
+            )
+        } else if let activePage {
+            identity = (
+                activePage.displayTitle ?? "",
+                activePage.canonicalURL,
+                .notion,
+                activePage.pageID
+            )
+        } else {
+            completion(.failure(.noPage))
+            return
+        }
+
+        let linkOnly = AgentPageSnapshot.linkOnly(title: identity.title, url: identity.url)
+        guard let webView,
+              panelIsVisible,
+              state == .active,
+              loadedPageID == identity.pageID,
+              identity.mode == .generic
+                  || Self.isTrustedSelectionContext(webView, pageID: identity.pageID)
+        else {
+            completion(.success(linkOnly))
+            return
+        }
+
+        pageReader(webView, identity.mode) { [weak self, weak webView] result in
+            guard let self,
+                  let webView,
+                  self.webView === webView,
+                  self.loadedPageID == identity.pageID,
+                  case let .success(value) = result,
+                  let snapshot = AgentPageSnapshot(
+                      javaScriptValue: value,
+                      url: identity.url,
+                      fallbackTitle: identity.title
+                  )
+            else {
+                completion(.success(linkOnly))
+                return
+            }
+            completion(.success(snapshot))
+        }
     }
 
     var shouldHostWebView: Bool {
@@ -388,6 +448,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
                     }
                 }
             },
+        pageReader: @escaping NotionPageReaderEvaluator = NotionPageReader.evaluate,
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
         self.webView = nil
@@ -415,6 +476,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.invalidateURLObservation = invalidateURLObservation
         self.usefulContentDocumentIdentifierReader =
             usefulContentDocumentIdentifierReader
+        self.pageReader = pageReader
         scriptMessageCoordinator = NotionWebScriptMessageCoordinator(
             removeBridges: removeActivityBridge
         )

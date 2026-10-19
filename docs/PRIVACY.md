@@ -13,6 +13,10 @@ Perch is a small macOS app that displays the real Notion website in a native flo
 - **System permissions:** Perch does not request Accessibility, screen-recording, microphone, camera, Contacts, or location access. Website features presented by Notion remain subject to Notion's behavior and macOS permission controls. Launch at Login is changed only when the user operates its Settings toggle.
 - **Local agent streaming:** Off by default. When you enable Settings → Local Agents → Allow local agents, Perch opens a loopback-only HTTP listener and publishes a short-lived discovery file at `~/Library/Application Support/com.fantomsuj.Perch/agent-server.json` with owner-only (`0600`) permissions. The file contains a per-launch bearer token, base URL, process id, and start time—not Notion cookies, page bodies, or an integration token. Same-user processes that can read that file can authenticate. Streamed Markdown is retained in memory for the live overlay until you Accept (paste once), Dismiss, cancel, the stream expires, or Perch quits. Ready streams may also show a local notification with Accept and Dismiss actions; notifications summarize readiness and do not include the Markdown body or bearer token. Disabling Allow local agents stops the listener and removes the matching discovery file. See [AGENT_STREAMING.md](AGENT_STREAMING.md).
 
+## Copy for Agent
+
+Copy for Agent runs only when you choose it. It reads the open page's title, URL, and rendered text inside the app and writes them to the system clipboard as Markdown. Perch does not send, store, or log that text; what happens after you paste it is up to the app you paste into.
+
 ## Quick Copy
 
 Quick Copy is deferred from Perch 0.1. The app has no Quick Copy control and does not start its Accessibility selection monitor.

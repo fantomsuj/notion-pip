@@ -2,6 +2,10 @@ import AppKit
 
 @MainActor
 enum AppMainMenuFactory {
+    /// Routed through the responder chain so ⌥⌘C works only while the
+    /// Perch panel is the key window.
+    static let copyForAgentAction = NSSelectorFromString("copyForAgent:")
+
     static func make() -> NSMenu {
         let mainMenu = NSMenu()
         let editMenuItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
@@ -57,6 +61,14 @@ enum AppMainMenuFactory {
                 title: "Copy",
                 action: #selector(NSText.copy(_:)),
                 keyEquivalent: "c"
+            )
+        )
+        menu.addItem(
+            command(
+                title: "Copy for Agent",
+                action: copyForAgentAction,
+                keyEquivalent: "c",
+                modifiers: [.command, .option]
             )
         )
         menu.addItem(

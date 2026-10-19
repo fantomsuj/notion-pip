@@ -397,6 +397,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
         agentStreamController: AgentStreamController? = nil,
+        agentPageCopyController: AgentPageCopyController? = nil,
         stashHandle: (any PiPStashHandle)? = nil,
         performanceSignposter: (any PerformanceSignposting)? = AppPerformanceSignposter.shared
     ) {
@@ -409,6 +410,9 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
             preconditionFailure("PiP role must create KeyCapablePiPPanel")
         }
         panel.title = "Perch"
+        panel.onCopyForAgent = { [weak agentPageCopyController] in
+            agentPageCopyController?.copy()
+        }
 
         let geometryStore = PanelGeometryStore()
         let storedGeometry = geometryStore.load()
@@ -501,6 +505,7 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
                 panelSizeController: panelSizeController,
                 panelPositionController: panelPositionController,
                 agentStreamController: agentStreamController,
+                agentPageCopyController: agentPageCopyController,
                 onReloadSavedPin: onReloadSavedPin,
                 onStash: { [weak self] in
                     self?.onExternalPresentationAction?()
@@ -1698,6 +1703,12 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     private let topEdgeTrackpadMoveController = TopEdgeTrackpadMoveController()
 
     var onClose: (@MainActor () -> Void)?
+    var onCopyForAgent: (@MainActor () -> Void)?
+
+    /// Target of the main menu's Copy for Agent item (⌥⌘C).
+    @objc func copyForAgent(_: Any?) {
+        onCopyForAgent?()
+    }
 
     var isExpanded: Bool {
         styleMask.contains(.fullScreen) || isZoomed

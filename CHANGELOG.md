@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- **Copy for Agent** (⌥⌘C, or ⋯ → Copy for Agent) copies the open page as
+  Markdown for a coding agent: front matter with the title, URL, copy time,
+  and coverage, then the page's rendered blocks converted to Markdown. A
+  read-only script in its own WebKit content world reads the page, so no new
+  permission is needed. While the panel is stashed it copies the title and
+  URL only.
+
 ### Removed
 
 - Context Suggestions (frontmost-app page matching and reveal-time exact-page

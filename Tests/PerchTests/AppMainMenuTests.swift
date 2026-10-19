@@ -52,6 +52,13 @@ final class AppMainMenuTests: XCTestCase {
             in: editMenu
         )
         assertCommand(
+            titled: "Copy for Agent",
+            action: AppMainMenuFactory.copyForAgentAction,
+            keyEquivalent: "c",
+            modifiers: [.command, .option],
+            in: editMenu
+        )
+        assertCommand(
             titled: "Paste",
             action: #selector(NSText.paste(_:)),
             keyEquivalent: "v",
@@ -71,6 +78,21 @@ final class AppMainMenuTests: XCTestCase {
             let action = try XCTUnwrap(editMenu.item(withTitle: title)?.action)
             XCTAssertTrue(windowResponder.tryToPerform(action, with: nil))
         }
+    }
+
+    func testCopyForAgentReachesOnlyThePerchPanel() {
+        let panel = KeyCapablePiPPanel(
+            contentRect: .zero,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        var copyCount = 0
+        panel.onCopyForAgent = { copyCount += 1 }
+
+        XCTAssertTrue(panel.tryToPerform(AppMainMenuFactory.copyForAgentAction, with: nil))
+        XCTAssertEqual(copyCount, 1)
+        XCTAssertFalse(NSWindow().responds(to: AppMainMenuFactory.copyForAgentAction))
     }
 
     private func assertCommand(

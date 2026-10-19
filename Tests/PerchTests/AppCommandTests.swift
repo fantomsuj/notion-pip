@@ -11,7 +11,7 @@ final class AppCommandTests: XCTestCase {
         XCTAssertEqual(
             model.groups.map { $0.commands.map(\.id) },
             [
-                [.newNotionPage],
+                [.newNotionPage, .copyForAgent],
                 [.settings, .gettingStarted, .checkForUpdates],
                 [.quit],
             ])
@@ -19,12 +19,18 @@ final class AppCommandTests: XCTestCase {
             model.commands.map(\.title),
             [
                 "New Notion Page",
+                "Copy for Agent",
                 "Settings…",
                 "Getting Started…",
                 "Check for Updates…",
                 "Quit Perch",
             ])
         XCTAssertEqual(model.command(for: .newNotionPage)?.keyEquivalent, "n")
+        XCTAssertEqual(model.command(for: .copyForAgent)?.keyEquivalent, "c")
+        XCTAssertEqual(
+            model.command(for: .copyForAgent)?.modifierMask,
+            [.command, .option]
+        )
         XCTAssertEqual(model.command(for: .settings)?.keyEquivalent, ",")
         XCTAssertEqual(model.command(for: .gettingStarted)?.keyEquivalent, "")
         XCTAssertEqual(model.command(for: .checkForUpdates)?.keyEquivalent, "")
@@ -37,6 +43,7 @@ final class AppCommandTests: XCTestCase {
         var checkCount = 0
         let model = AppCommandModel(
             newNotionPage: {},
+            copyForAgent: {},
             settings: {},
             gettingStarted: {},
             canCheckForUpdates: { canCheck.value },
@@ -189,6 +196,7 @@ final class AppCommandTests: XCTestCase {
     private func makeModel(events: @escaping (AppCommandID) -> Void) -> AppCommandModel {
         AppCommandModel(
             newNotionPage: { events(.newNotionPage) },
+            copyForAgent: { events(.copyForAgent) },
             settings: { events(.settings) },
             gettingStarted: { events(.gettingStarted) },
             canCheckForUpdates: { true },
