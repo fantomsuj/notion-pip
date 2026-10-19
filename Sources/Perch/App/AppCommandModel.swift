@@ -2,6 +2,7 @@ import AppKit
 
 enum AppCommandID: Int, CaseIterable, Sendable {
     case newNotionPage
+    case copyForAgent
     case settings
     case gettingStarted
     case checkForUpdates
@@ -58,6 +59,7 @@ final class AppCommandModel {
     static var noOp: AppCommandModel {
         AppCommandModel(
             newNotionPage: {},
+            copyForAgent: {},
             settings: {},
             gettingStarted: {},
             canCheckForUpdates: { false },
@@ -68,6 +70,7 @@ final class AppCommandModel {
 
     init(
         newNotionPage: @escaping @MainActor () -> Void,
+        copyForAgent: @escaping @MainActor () -> Void,
         settings: @escaping @MainActor () -> Void,
         gettingStarted: @escaping @MainActor () -> Void,
         canCheckForUpdates: @escaping @MainActor () -> Bool,
@@ -81,6 +84,13 @@ final class AppCommandModel {
                     title: "New Notion Page",
                     keyEquivalent: "n",
                     action: newNotionPage
+                ),
+                AppCommand(
+                    id: .copyForAgent,
+                    title: "Copy for Agent",
+                    keyEquivalent: "c",
+                    modifierMask: [.command, .option],
+                    action: copyForAgent
                 ),
             ]),
             AppCommandGroup(commands: [

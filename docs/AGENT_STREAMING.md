@@ -109,6 +109,32 @@ curl -sS -X POST "$BASE/streams" \
 After `complete`, click in Notion and press **Accept** in Perch. Never print the
 token.
 
+## Giving agents page context
+
+The listener only receives text. To hand an agent the page you are looking
+at, use **Copy for Agent** (⌥⌘C, or ⋯ → Copy for Agent) and paste into the
+agent. Perch reads the page with a read-only script in its own WebKit content
+world and writes Markdown to the clipboard:
+
+```markdown
+---
+source: Perch
+title: "Project Brief"
+url: "https://www.notion.com/Project-Brief-…"
+copied: 2026-10-19T18:30:00Z
+coverage: rendered blocks only
+---
+
+# Project Brief
+
+…page body…
+```
+
+`coverage` is `rendered blocks only` for Notion pages, `visible text only` for
+custom pinned sites, and `link only` when the panel is stashed and the page
+cannot be read. Output is capped at 512 KiB. Nothing reaches an agent until
+you paste it.
+
 ## Out of scope for version 1
 
 - Notion REST API credentials or remote Notion writes from Perch

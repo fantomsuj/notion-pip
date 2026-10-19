@@ -153,6 +153,7 @@ struct PiPChromeView: View {
 
     @ObservedObject var webSession: NotionWebSession
     @ObservedObject private var agentStreamController: AgentStreamController
+    @ObservedObject private var agentPageCopyController: AgentPageCopyController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
@@ -207,6 +208,7 @@ struct PiPChromeView: View {
         panelSizeController: PanelSizeController? = nil,
         panelPositionController: PanelPositionController? = nil,
         agentStreamController: AgentStreamController? = nil,
+        agentPageCopyController: AgentPageCopyController? = nil,
         onReloadSavedPin: @escaping () -> Void = {},
         onStash: @escaping () -> Void = {},
         onReturnToNotion: @escaping () -> Void = {}
@@ -218,6 +220,9 @@ struct PiPChromeView: View {
         self.agentStreamController =
             agentStreamController
             ?? AgentStreamController(target: webSession, notifier: AgentStreamNotifierNoOp())
+        self.agentPageCopyController =
+            agentPageCopyController
+            ?? AgentPageCopyController(webSession: webSession)
         self.onReloadSavedPin = onReloadSavedPin
         self.onStash = onStash
         self.onReturnToNotion = onReturnToNotion
@@ -285,6 +290,17 @@ struct PiPChromeView: View {
         .overlay(alignment: .bottomLeading) {
             AgentStreamOverlayView(controller: agentStreamController)
         }
+        .overlay(alignment: .bottom) {
+            if let feedback = agentPageCopyController.feedback {
+                AgentPageCopyFeedbackView(feedback: feedback)
+                    .padding(.bottom, DesignTokens.Spacing.compact)
+                    .transition(.opacity)
+            }
+        }
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: MotionTokens.Duration.fast),
+            value: agentPageCopyController.feedback
+        )
         .overlay(alignment: .topTrailing) {
             ZStack(alignment: .topTrailing) {
                 Color.clear

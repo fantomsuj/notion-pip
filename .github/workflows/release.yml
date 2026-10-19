@@ -55,11 +55,12 @@ jobs:
           bash Tests/ScriptTests/sparkle_key_tests.sh
           swift test \
             --skip \
-            '(ExternalDropActivatingWebViewTests|NotionEditorSelectionTests|NotionWebSessionTests|PiPChromeViewTests|PiPPanelGeometryTests|WebNavigationDestinationTests)'
+            '(ExternalDropActivatingWebViewTests|NotionEditorSelectionTests|NotionPageReaderTests|NotionWebSessionTests|PiPChromeViewTests|PiPPanelGeometryTests|WebNavigationDestinationTests)'
 
           suites=(
             ExternalDropActivatingWebViewTests
             NotionEditorSelectionTests
+            NotionPageReaderTests
             NotionWebSessionTests
             PiPChromeViewTests
             PiPPanelGeometryTests

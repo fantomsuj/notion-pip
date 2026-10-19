@@ -2338,6 +2338,109 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(call.arguments["retryDelayMilliseconds"] as? Int, 100)
     }
 
+    func testCopyForAgentReportsNoPageBeforeAnythingIsOpen() {
+        let session = NotionWebSession(loadRequest: { _, _ in })
+        var results: [Result<AgentPageSnapshot, AgentPageCopyError>] = []
+
+        session.readPageForAgent { results.append($0) }
+
+        XCTAssertEqual(results, [.failure(.noPage)])
+    }
+
+    func testCopyForAgentReadsTheVisibleTrustedPage() throws {
+        var readModes: [NotionPageReaderMode] = []
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = WKWebView()
+        webView.load(URLRequest(url: page.canonicalURL))
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            pageReader: { _, mode, completion in
+                readModes.append(mode)
+                let value: [String: Any] = [
+                    "version": 1,
+                    "title": "Roadmap",
+                    "body": "# Goals\n\nShip it.",
+                    "coverage": "blocks",
+                    "unrecognized": 0,
+                    "truncated": false,
+                ]
+                completion(.success(value))
+            }
+        )
+        session.activate(page: page)
+        session.webView(webView, didFinish: nil)
+        var results: [Result<AgentPageSnapshot, AgentPageCopyError>] = []
+
+        session.readPageForAgent { results.append($0) }
+
+        XCTAssertEqual(readModes, [.notion])
+        XCTAssertEqual(
+            results,
+            [
+                .success(
+                    AgentPageSnapshot(
+                        title: "Roadmap",
+                        url: page.canonicalURL,
+                        body: "# Goals\n\nShip it.",
+                        coverage: .renderedBlocks
+                    )
+                ),
+            ]
+        )
+    }
+
+    func testCopyForAgentFallsBackToTheLinkWhileThePanelIsHidden() throws {
+        var readCount = 0
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = WKWebView()
+        webView.load(URLRequest(url: page.canonicalURL))
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            selectionEvaluator: { _, _, completion in completion(.success(nil)) },
+            pageReader: { _, _, completion in
+                readCount += 1
+                completion(.success(nil))
+            }
+        )
+        session.activate(page: page)
+        session.webView(webView, didFinish: nil)
+        session.panelDidHide()
+        var results: [Result<AgentPageSnapshot, AgentPageCopyError>] = []
+
+        session.readPageForAgent { results.append($0) }
+
+        XCTAssertEqual(readCount, 0)
+        XCTAssertEqual(
+            results,
+            [.success(.linkOnly(title: "Roadmap", url: page.canonicalURL))]
+        )
+    }
+
+    func testCopyForAgentFallsBackToTheLinkWhenTheReaderFails() throws {
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let webView = WKWebView()
+        webView.load(URLRequest(url: page.canonicalURL))
+        let session = NotionWebSession(
+            webView: webView,
+            loadRequest: { _, _ in },
+            pageReader: { _, _, completion in
+                completion(.failure(CocoaError(.featureUnsupported)))
+            }
+        )
+        session.activate(page: page)
+        session.webView(webView, didFinish: nil)
+        var results: [Result<AgentPageSnapshot, AgentPageCopyError>] = []
+
+        session.readPageForAgent { results.append($0) }
+
+        XCTAssertEqual(
+            results,
+            [.success(.linkOnly(title: "Roadmap", url: page.canonicalURL))]
+        )
+    }
+
     private func makePage(id: String, title: String) throws -> NotionPageReference {
         try NotionPageReference(
             validating: XCTUnwrap(URL(string: "https://www.notion.so/\(title)-\(id)"))

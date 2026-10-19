@@ -86,6 +86,7 @@ private final class AppComposition {
     private let launchAtLoginService: LaunchAtLoginService
     private let agentStreamingService: AgentStreamingService
     private let agentStreamNotificationDelegate: AgentStreamNotificationDelegate
+    private let agentPageCopyController: AgentPageCopyController
     private var statusItemAppearanceCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching() {
@@ -102,6 +103,7 @@ private final class AppComposition {
         let actionRelay = AppCommandActionRelay()
         let onboardingPreferenceStore = OnboardingPreferenceStore()
         let webSession = NotionWebSession()
+        let agentPageCopyController = AgentPageCopyController(webSession: webSession)
         let agentStreamController = AgentStreamController(
             target: webSession,
             notifier: AgentStreamUserNotifier()
@@ -143,6 +145,9 @@ private final class AppComposition {
         let updaterController = AppUpdaterController()
         let commandModel = AppCommandModel(
             newNotionPage: { actionRelay.openNewNotionPage() },
+            copyForAgent: { [weak agentPageCopyController] in
+                agentPageCopyController?.copy()
+            },
             settings: { actionRelay.showSettings() },
             gettingStarted: { actionRelay.showGettingStarted() },
             canCheckForUpdates: { [weak updaterController] in
@@ -172,6 +177,7 @@ private final class AppComposition {
             panelSizeController: panelSizeController,
             panelPositionController: panelPositionController,
             agentStreamController: agentStreamController,
+            agentPageCopyController: agentPageCopyController,
             stashHandle: stashHandle
         )
         let runtime = AppRuntime(
@@ -319,6 +325,7 @@ private final class AppComposition {
         self.launchAtLoginService = launchAtLoginService
         self.agentStreamingService = agentStreamingService
         self.agentStreamNotificationDelegate = agentStreamNotificationDelegate
+        self.agentPageCopyController = agentPageCopyController
     }
 
     private static func retainWorkingSetSnapshots(
