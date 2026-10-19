@@ -220,6 +220,10 @@ protocol PiPPanelCoordinating: AnyObject {
     func show(page: NotionPageReference)
     func show(page: NotionPageReference, restoration: DurablePageRestoration?)
     func show(customURL: CustomPinnedURL)
+    /// Pins a page at launch while leaving the panel stashed, without loading it.
+    func restoreStashed(page: NotionPageReference, restoration: DurablePageRestoration?)
+    /// Pins a custom URL at launch while leaving the panel stashed, without loading it.
+    func restoreStashed(customURL: CustomPinnedURL)
     func reloadPinnedPage(_ page: NotionPageReference)
     func reloadCustomPinnedURL(_ url: CustomPinnedURL)
     func createNewPage()
@@ -253,6 +257,14 @@ extension PiPPanelCoordinating {
     var currentCustomURL: CustomPinnedURL? { nil }
 
     func show(customURL _: CustomPinnedURL) {}
+
+    func restoreStashed(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        show(page: page, restoration: restoration)
+    }
+
+    func restoreStashed(customURL: CustomPinnedURL) {
+        show(customURL: customURL)
+    }
 
     func reloadCustomPinnedURL(_: CustomPinnedURL) {}
 
@@ -688,6 +700,55 @@ final class PiPPanelCoordinator: PiPPanelCoordinating, PanelSizing, PanelPositio
         }
         onPanelPositionChange?()
         logger.notice("Custom pinned URL show requested")
+    }
+
+    func restoreStashed(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        guard let placement = launchStashPlacement() else {
+            show(page: page, restoration: restoration)
+            return
+        }
+        // Hide first so the loader records the page without building a web view.
+        pageLoader.panelDidHide()
+        pageLoader.activate(page: page, restoration: restoration)
+        currentCustomURL = nil
+        currentPage = page
+        finishStashedRestore(placement: placement)
+        logger.notice("Panel restored stashed at launch")
+    }
+
+    func restoreStashed(customURL: CustomPinnedURL) {
+        guard let placement = launchStashPlacement() else {
+            show(customURL: customURL)
+            return
+        }
+        pageLoader.panelDidHide()
+        pageLoader.activate(customURL: customURL)
+        currentCustomURL = customURL
+        finishStashedRestore(placement: placement)
+        logger.notice("Custom pinned URL restored stashed at launch")
+    }
+
+    /// The edge placement for a launch-time stash, or nil when the panel should
+    /// be shown normally instead (already pinned or visible, no handle, no screen).
+    private func launchStashPlacement() -> PanelStashPlacement? {
+        guard !hasPinnedDestination, !panel.isVisible, stashHandle != nil else { return nil }
+        prepareInitialFrameIfNeeded()
+        restoreCommittedPanelFrame()
+        return PanelStashPolicy.placement(
+            for: logicalPanelFrame,
+            visibleFrames: currentTopology().visibleFrames
+        )
+    }
+
+    private func finishStashedRestore(placement: PanelStashPlacement) {
+        guard let stashHandle else { return }
+        let topology = currentTopology()
+        latestTopology = topology
+        activeStashIntent = PanelStashPolicy.intent(for: placement, topology: topology)
+        presentStashHandle(stashHandle, placement: placement)
+        onPinnedPageAvailabilityChange?()
+        onPresentationStateChange?()
+        onPanelPositionChange?()
     }
 
     func reloadCustomPinnedURL(_ url: CustomPinnedURL) {

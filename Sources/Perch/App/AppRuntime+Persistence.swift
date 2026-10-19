@@ -19,36 +19,73 @@ extension AppRuntime {
         restorePinnedPageTask = Task { [weak self] in
             guard !Task.isCancelled else { return }
             guard let pageRepository else {
-                self?.restoreCustomPinnedDestinationIfNeeded()
-                self?.showSettingsIfRestoreStillEmpty(expectedGeneration: expectedGeneration)
+                self?.restoreLaunchDestination(
+                    page: nil,
+                    restoration: nil,
+                    expectedGeneration: expectedGeneration
+                )
                 return
             }
             do {
                 let workingSet = try await pageRepository.workingSet()
-                let storedPage = workingSet.activePage
                 guard !Task.isCancelled else { return }
                 self?.resolveServiceIssue(.pinnedPagePersistenceUnavailable)
-                guard self?.pageSelectionGeneration == expectedGeneration else { return }
-                if let storedPage,
-                   let page = self?.validRestoredPage(from: storedPage)
-                {
-                    self?.restorePinnedPage(
-                        page,
-                        restoration: workingSet.restoration(for: page.pageID),
-                        expectedGeneration: expectedGeneration
-                    )
+                let page = workingSet.activePage.flatMap {
+                    self?.validRestoredPage(from: $0)
                 }
-                self?.restoreCustomPinnedDestinationIfNeeded()
-                self?.showSettingsIfRestoreStillEmpty(
+                self?.restoreLaunchDestination(
+                    page: page,
+                    restoration: page.flatMap { workingSet.restoration(for: $0.pageID) },
                     expectedGeneration: expectedGeneration
                 )
             } catch {
                 guard !Task.isCancelled else { return }
                 logger.error("Pinned page restore failed category=repository-read")
                 self?.reportServiceIssue(.pinnedPagePersistenceUnavailable)
-                self?.restoreCustomPinnedDestinationIfNeeded()
-                self?.showSettingsIfRestoreStillEmpty(expectedGeneration: expectedGeneration)
+                self?.restoreLaunchDestination(
+                    page: nil,
+                    restoration: nil,
+                    expectedGeneration: expectedGeneration
+                )
             }
+        }
+    }
+
+    /// Picks one launch target before anything is shown: the last custom URL
+    /// when one was open, otherwise the saved Notion page. The panel comes back
+    /// stashed when it was stashed at quit.
+    private func restoreLaunchDestination(
+        page: NotionPageReference?,
+        restoration: DurablePageRestoration?,
+        expectedGeneration: Int
+    ) {
+        guard expectedGeneration == pageSelectionGeneration, !Task.isCancelled else { return }
+        let stashed = panelStashStateStore.load()
+        if let customURL = launchCustomPinnedDestination() {
+            if let page {
+                // Keep the Notion page as the return target without loading it.
+                publishActivation(page: page, source: .restored)
+            }
+            restoreCustomPinnedDestination(customURL, stashed: stashed)
+        } else if let page {
+            restorePinnedPage(
+                page,
+                restoration: restoration,
+                expectedGeneration: expectedGeneration,
+                stashed: stashed
+            )
+        }
+        showSettingsIfRestoreStillEmpty(expectedGeneration: expectedGeneration)
+    }
+
+    func persistPanelStashState() {
+        switch pipPresentationState {
+        case .visible:
+            panelStashStateStore.save(false)
+        case .stashed:
+            panelStashStateStore.save(true)
+        case .unavailable:
+            break
         }
     }
 

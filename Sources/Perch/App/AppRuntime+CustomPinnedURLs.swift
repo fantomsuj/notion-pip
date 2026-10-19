@@ -71,13 +71,14 @@ extension AppRuntime {
         pinCoordinator.createNewPage()
     }
 
-    func restoreCustomPinnedDestinationIfNeeded() {
-        guard customPinnedURLsEnabled,
-              let pin = customPinnedURLStore.load().lastActivePin
-        else {
-            return
-        }
-        activate(customURL: pin, persist: false)
+    /// The custom URL that was open at quit, if custom pins are still enabled.
+    func launchCustomPinnedDestination() -> CustomPinnedURL? {
+        guard customPinnedURLsEnabled else { return nil }
+        return customPinnedURLStore.load().lastActivePin
+    }
+
+    func restoreCustomPinnedDestination(_ pin: CustomPinnedURL, stashed: Bool) {
+        activate(customURL: pin, persist: false, stashed: stashed)
     }
 
     @discardableResult
@@ -103,11 +104,16 @@ extension AppRuntime {
     private func activate(
         customURL: CustomPinnedURL,
         persist: Bool,
-        source: PageActivationSource = .customPinnedURL
+        source: PageActivationSource = .customPinnedURL,
+        stashed: Bool = false
     ) {
         cancelShortcutGesture(restashTransientPanel: false)
         pageSelectionGeneration &+= 1
-        pinCoordinator.pin(customURL: customURL)
+        if stashed {
+            pinCoordinator.restoreStashed(customURL: customURL)
+        } else {
+            pinCoordinator.pin(customURL: customURL)
+        }
         publishActiveCustomURL(customURL, source: source)
         if persist {
             persistCustomPinnedURLs()
