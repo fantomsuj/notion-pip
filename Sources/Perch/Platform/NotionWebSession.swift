@@ -140,6 +140,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
 
     private var loadedPageID: String?
     private var loadedRequestURL: URL?
+    /// The page the reused view showed before the latest page switch. Until a
+    /// navigation away from it commits, the view can still report that page's URL,
+    /// for example when the new load fails and WebKit reverts `url`. Adopting it
+    /// would silently switch back to the page the person just left.
+    private var detachedPageID: String?
     private var webContentRecoveryState = WebContentRecoveryState.ready
     private var restorationToken: PerformanceIntervalToken?
     private var navigationRequestToCommitToken: PerformanceIntervalToken?
@@ -506,9 +511,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             invalidateEditorSelection()
             if outgoingPage.pageID == page.pageID {
                 pageStateRestoration.discardCachedState(for: page.pageID)
-                _ = retire(webView)
+                releaseOutgoingPage(outgoingPage, from: webView, capturingState: false)
             } else {
-                captureAndTearDown(webView, page: outgoingPage)
+                releaseOutgoingPage(outgoingPage, from: webView, capturingState: true)
             }
         }
         activePage = page
@@ -540,7 +545,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         cancelBrowserLogin(resetState: true)
         invalidateEditorSelection()
         if let outgoingPage = activePage, let webView {
-            captureAndTearDown(webView, page: outgoingPage)
+            releaseOutgoingPage(outgoingPage, from: webView, capturingState: true)
         }
         activePage = nil
         activeCustomURL = customURL
@@ -595,7 +600,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
                   webView != nil,
                   loadedPageID != activePage.pageID
         {
-            load(activePage.canonicalURL, pageID: activePage.pageID)
+            // A page selected while hidden reuses the retained view, so it gets
+            // the same interaction-state or durable restoration as a visible switch.
+            restoreOrLoad(page: activePage)
         }
         if wasHidden,
            let retainedWebView,
@@ -656,6 +663,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         )
         loadedPageID = pageID
         loadedRequestURL = url
+        clearDetachedPageIfReturning(to: pageID)
         lifecycleController.setState(.loading)
         let webView = ensureWebView()
         beginNavigationRequestMeasurement()
@@ -1133,6 +1141,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         self.webView = nil
         loadedPageID = nil
         loadedRequestURL = nil
+        detachedPageID = nil
         if let urlObservation {
             invalidateURLObservation(urlObservation)
             self.urlObservation = nil
@@ -1266,6 +1275,7 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             )
             interactionStateWriter(webView, interactionState)
             loadedPageID = page.pageID
+            clearDetachedPageIfReturning(to: page.pageID)
             lifecycleController.setState(.loading)
         case let .load(restorationURL, isDurableRestoration):
             load(
@@ -1329,16 +1339,62 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         invalidateUsefulContentDocumentTracking()
     }
 
+    /// Captures the page's state and destroys the view. Only eviction uses this;
+    /// page switches keep the view through `releaseOutgoingPage`.
     private func captureAndTearDown(
         _ webView: WKWebView,
         page: NotionPageReference
+    ) {
+        guard isCurrent(webView) else { return }
+        if webContentRecoveryState == .ready {
+            captureState(of: webView, for: page)
+        }
+        _ = retire(webView)
+    }
+
+    /// Frees the live view from the outgoing page so the next page or custom URL
+    /// navigates the same `WKWebView`. Keeping the view keeps its WebContent
+    /// process, caches, and storage warm instead of booting Notion from scratch.
+    /// A view whose renderer is still recovering is retired instead, because its
+    /// state can't be trusted.
+    private func releaseOutgoingPage(
+        _ page: NotionPageReference,
+        from webView: WKWebView,
+        capturingState: Bool
     ) {
         guard isCurrent(webView) else { return }
         guard webContentRecoveryState == .ready else {
             _ = retire(webView)
             return
         }
+        if capturingState {
+            captureState(of: webView, for: page)
+        }
+        finishNavigationRequestMeasurement(outcome: .cancelled)
+        finishUsefulContentMeasurements(outcome: .cancelled)
+        if restorationToken != nil {
+            performanceSignposter?.end(restorationToken, outcome: .cancelled)
+            restorationToken = nil
+        }
+        popupCoordinator.close()
+        detachedPageID = loadedPageID ?? detachedPageID
+        loadedPageID = nil
+        loadedRequestURL = nil
+    }
+
+    /// Loading the page the view just left is a deliberate return, so its URL
+    /// may be adopted again.
+    private func clearDetachedPageIfReturning(to pageID: String?) {
+        if pageID != nil, pageID == detachedPageID {
+            detachedPageID = nil
+        }
+    }
+
+    private func captureState(of webView: WKWebView, for page: NotionPageReference) {
         endEditing(webView)
+        // After a page is selected while hidden, the retained view still holds the
+        // previous document. Its state must never be saved under the new page.
+        guard loadedPageID == page.pageID else { return }
         if let restoration = pageStateRestoration.capture(
             page: page,
             currentURL: webView.url,
@@ -1346,7 +1402,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         ) {
             onRestorationCaptured?(restoration)
         }
-        _ = retire(webView)
     }
 
     private func publishNavigationState(_ navigationState: NotionWebSessionState) {
@@ -1493,6 +1548,14 @@ extension NotionWebSession: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didCommit _: WKNavigation!) {
         guard isCurrent(webView) else { return }
+        if let detachedPageID {
+            let committedPageID = webView.url.flatMap {
+                try? NotionPageReference(validating: $0)
+            }?.pageID
+            if committedPageID != detachedPageID {
+                self.detachedPageID = nil
+            }
+        }
         finishNavigationRequestMeasurement(outcome: .success)
         if commitToUsefulContentToken != nil {
             performanceSignposter?.end(commitToUsefulContentToken, outcome: .cancelled)
@@ -1595,7 +1658,8 @@ extension NotionWebSession: WKNavigationDelegate {
               activeCustomURL == nil,
               var resolvedPage = try? NotionPageReference(validating: url),
               webView.url == url,
-              loadedPageID == activePage?.pageID
+              loadedPageID == activePage?.pageID,
+              resolvedPage.pageID != detachedPageID
         else {
             return
         }

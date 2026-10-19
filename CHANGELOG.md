@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Switching pages, or between a page and a custom URL, now navigates the one
+  live web view instead of destroying it and building a new one, so a switch
+  no longer starts a new web content process or throws away its warm caches.
+  The view is still destroyed on eviction.
 - Dragging the panel, or moving it with the two-finger top-edge gesture, now
   saves its position once when the move ends instead of on every frame of the
   drag. The panel position menu only updates when its values change, and
@@ -11,6 +15,9 @@
 
 ### Fixed
 
+- When the panel's web view is replaced while it is on screen (for example a
+  page switch while Notion recovers from a web content crash), the panel shows
+  the new view instead of possibly staying blank on the removed one.
 - Quitting Perch, or turning off Local Agents, no longer hangs when a local
   process has opened an agent connection and sent nothing. Stopping the
   listener now closes every open connection, and each connection gets a
