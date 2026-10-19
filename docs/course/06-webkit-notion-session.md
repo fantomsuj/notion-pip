@@ -49,14 +49,15 @@ that temporarily displays it. No prior WebKit experience is required.
 
 Think of `NotionWebSession` as a librarian responsible for one reading desk.
 The desk can show only one live volume at a time. When the reader changes
-pages, the librarian records useful state, clears the desk, and prepares the
-next page. When the panel is stashed, the desk is detached but kept warm for a
+pages, the librarian records useful state and opens the next page on the same
+desk. When the panel is stashed, the desk is detached but kept warm for a
 short time. Under memory pressure or after the warm period, the desk can be
 removed and reconstructed later from safer records.
 
 “One live `WKWebView`” therefore means **one at a time**, not one immortal
-object. A warm hide/show keeps the same instance. A page switch or warm eviction
-can retire it and create a replacement. WebKit renderer recovery keeps the same
+object. A warm hide/show and a page switch keep the same instance; a switch
+navigates it to the next page. Eviction retires it, and the next show creates a
+replacement. WebKit renderer recovery keeps the same
 view object when WebKit permits and refreshes its document-bound bridges. The
 session never keeps one browser instance per pinned page.
 
@@ -221,20 +222,28 @@ small helper methods while retaining ownership and failure behavior.
 
 ### Flow 5: switch pages and restore scroll
 
-1. Before a different page replaces the active page,
-   `captureAndTearDown` ends editing and reads WebKit's opaque interaction
-   state.
+1. Before a different page replaces the active page, `releaseOutgoingPage`
+   ends editing and reads WebKit's opaque interaction state, but only while
+   the view still holds the outgoing page's document.
 2. It creates a `DurablePageRestoration` only if the URL validates to the same
    page ID, using the latest strict scroll snapshot or zero defaults.
-3. The current view is retired. The next page gets a newly ensured view, so
-   there is still only one live view.
-4. Returning to a page first tries the one-shot opaque interaction state. If it
+3. The view is kept. In-flight measurements end as cancelled, popups close,
+   and the session forgets which page the view had loaded, so late callbacks
+   from the old document cannot be credited to the new page. The next page
+   navigates the same view and its warm WebContent process. A page selected
+   while hidden waits for the next show, then restores the same way.
+4. Until a navigation away from the old page commits, its URL is never
+   adopted again. Otherwise a failed load, where WebKit reports the old URL
+   again, would silently switch back to the page the person just left.
+5. Returning to a page first tries the one-shot opaque interaction state. If it
    is absent, the session loads the durable last URL or canonical URL.
-5. After navigation finishes, scroll restoration retries every 100 ms for at
+6. After navigation finishes, scroll restoration retries every 100 ms for at
    most two seconds. It combines saved absolute y with saved progress so it can
    adapt to changed document height. This is explicitly best effort.
-6. If the saved noncanonical URL fails, the session retries the canonical page
+7. If the saved noncanonical URL fails, the session retries the canonical page
    once; a second failure becomes the visible failure state.
+8. A view whose renderer is still recovering is the exception: it is retired
+   on a switch and the next page gets a replacement.
 
 ### Flow 6: evict or recover a renderer
 
@@ -261,13 +270,20 @@ small helper methods while retaining ownership and failure behavior.
 
 ## Deep dive
 
-### Why the session tears down on a page switch
+### Why the session navigates one view on a page switch
 
 Keeping a `WKWebView` per page would make switching easy but would multiply
 renderer memory, cookie-bearing browser objects, delegates, and stale callback
 paths. The committed design instead keeps per-page *values* and at most one
 live framework object. The cost is that opaque interaction restoration remains
 best effort and must have a durable fallback.
+
+An earlier version also destroyed that one view on every switch. That meant a
+new WebContent process, Notion's full JavaScript startup, and a fresh IndexedDB
+and websocket connection each time, which cost seconds per switch. Navigating
+the same view avoids a view per page just as well while keeping the process
+and its caches warm. Destroying the view is now reserved for eviction, where
+freeing memory is the point.
 
 ### Why restoration is layered
 
@@ -297,9 +313,9 @@ document; it is not a general bridge into the hosted Notion site.
 
 ## Common misconceptions and failure modes
 
-- **“One live view means the same instance forever.”** No. A warm hide/show and
-  renderer recovery keep it when possible; page replacement and eviction can
-  still retire it.
+- **“One live view means the same instance forever.”** No. A warm hide/show, a
+  page switch, and renderer recovery keep it when possible; eviction, or a
+  switch while the renderer is recovering, still retires it.
 - **“Suspended means navigation stopped producing callbacks.”** No. Outcomes
   are recorded behind the suspended presentation state and become visible on
   resume.
@@ -354,7 +370,7 @@ cookie, or token into a test script or terminal command.
 2. Follow `activate` → `restoreOrLoad` → `didFinish`, then contrast it with
    `panelDidHide` → selection capture → `suspend`.
 3. In tests, use `testShowingPanelResumesWarmLiveWebViewWithoutReloading` and
-   `testPageSwitchCapturesOutgoingStateTearsDownViewAndRestoresItOnReturn` to
+   `testPageSwitchCapturesOutgoingStateReusesViewAndRestoresItOnReturn` to
    show the two meanings of continuity.
 4. For trust, compare
    `testClassifiesLookalikeNotionHostsAsExternal` with
@@ -382,8 +398,9 @@ do not change trust policy to make a demo pass.
 
 ### Expected answers
 
-1. No. It means at most one live view at once. A switch may capture state,
-   retire the old view, and configure a replacement.
+1. No. It means at most one live view at once. A page switch keeps the same
+   object and navigates it, but eviction retires it and a later show configures
+   a replacement.
 2. Only `DurablePageRestoration` is designed for persistence. The other two are
    in-process and have narrower validity.
 3. Live navigation trusts the exact identity host for Notion authentication;
@@ -405,7 +422,7 @@ next source method to inspect.
 | Event | Start your trace here |
 |---|---|
 | Hide an active panel, then show it after 10 seconds | `panelDidHide()` and `panelDidShow()` |
-| Switch from page A to page B, then return to A | `activate(page:restoration:)` and `captureAndTearDown` |
+| Switch from page A to page B, then return to A | `activate(page:restoration:)` and `releaseOutgoingPage` |
 | Leave a panel hidden for an extended period | `NotionWebLifecycleController.suspend` and `panelDidShow` |
 | Send warning, then critical memory pressure while hidden | `handleMemoryPressure(_:)` and `requestEvictionIfEligible` |
 | Fail while loading a durable noncanonical URL | `fallBackFromFailedDurableRestoration()` |
@@ -420,9 +437,8 @@ matching committed test. Do not edit source.
 
 - A hide/show of any duration normally resumes the same view, and same-page
   selection may restore after attachment.
-- Page A → B retires A's view after capturing opaque and durable state; B gets
-  the only live view, and returning to A can apply the stored opaque state to a
-  replacement.
+- Page A → B captures A's opaque and durable state, then navigates the same
+  view to B. Returning to A applies the stored opaque state to that same view.
 - Explicit warm eviction leaves the session unloaded and may retain a safe
   fallback. Critical memory-pressure eviction additionally clears opaque
   interaction snapshots; a warning keeps the detached view warm.

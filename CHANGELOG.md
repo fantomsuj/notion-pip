@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Changed
+
+- Switching pages, or between a page and a custom URL, now navigates the one
+  live web view instead of destroying it and building a new one, so a switch
+  no longer starts a new web content process or throws away its warm caches.
+  The view is still destroyed on eviction.
+
+### Fixed
+
+- When the panel's web view is replaced while it is on screen (for example a
+  page switch while Notion recovers from a web content crash), the panel shows
+  the new view instead of possibly staying blank on the removed one.
+
 ### Removed
 
 - Context Suggestions (frontmost-app page matching and reveal-time exact-page
