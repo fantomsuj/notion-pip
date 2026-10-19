@@ -222,6 +222,15 @@ final class PiPChromeViewTests: XCTestCase {
         XCTAssertEqual(PiPChromeView.topControlsRevealHeight, 16)
     }
 
+    func testTopControlsHoverStripOnlyCoversTopTrailingCorner() {
+        let size = PiPChromeView.topControlsRevealSize
+
+        XCTAssertEqual(size.width, PiPChromeView.topControlsRevealHeight)
+        XCTAssertEqual(size.height, TopEdgeTrackpadMoveController.activeHeight)
+        XCTAssertTrue(size.height.isFinite)
+        XCTAssertLessThan(size.height, 100)
+    }
+
     func testTopControlsDoNotAppearWhenPointerLeavesBeforeRevealDelay() {
         let scheduler = TestTopControlsHoverScheduler()
         let controller = TopControlsHoverController(
