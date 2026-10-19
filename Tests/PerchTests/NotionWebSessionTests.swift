@@ -1469,19 +1469,7 @@ final class NotionWebSessionTests: XCTestCase {
             },
             removeActivityBridge: { controller in
                 bridgeRemovalCount += 1
-                controller.removeScriptMessageHandler(
-                    forName: NotionEditorActivityBridge.handlerName,
-                    contentWorld: .page
-                )
-                controller.removeScriptMessageHandler(
-                    forName: NotionScrollBridge.handlerName,
-                    contentWorld: .page
-                )
-                controller.removeScriptMessageHandler(
-                    forName: NotionUsefulContentBridge.handlerName,
-                    contentWorld: .page
-                )
-                controller.removeAllUserScripts()
+                NotionWebScriptMessageCoordinator.removeAllBridges(from: controller)
             }
         )
         try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))

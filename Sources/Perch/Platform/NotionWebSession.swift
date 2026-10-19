@@ -362,28 +362,19 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         invalidateURLObservation: @escaping NotionWebURLObservationInvalidator = {
             $0.invalidate()
         },
-        removeActivityBridge: @escaping NotionWebActivityBridgeRemover = {
-            $0.removeScriptMessageHandler(
-                forName: NotionEditorActivityBridge.handlerName,
-                contentWorld: .page
-            )
-            $0.removeScriptMessageHandler(
-                forName: NotionScrollBridge.handlerName,
-                contentWorld: .page
-            )
-            $0.removeScriptMessageHandler(
-                forName: NotionUsefulContentBridge.handlerName,
-                contentWorld: .page
-            )
-            $0.removeAllUserScripts()
-        },
+        removeActivityBridge: @escaping NotionWebActivityBridgeRemover =
+            NotionWebScriptMessageCoordinator.removeAllBridges(from:),
         usefulContentDocumentIdentifierReader:
             @escaping NotionUsefulContentDocumentIdentifierReader = { webView, completion in
+                // The ID lives in the bridge's isolated world, so read it there.
                 webView.evaluateJavaScript(
-                    NotionUsefulContentBridge.documentIdentifierExpression
-                ) { value, _ in
+                    NotionUsefulContentBridge.documentIdentifierExpression,
+                    in: nil,
+                    in: NotionBridgeContentWorld.world
+                ) { result in
                     MainActor.assumeIsolated {
-                        let documentID = (value as? String).flatMap(UUID.init(uuidString:))
+                        let documentID = (try? result.get() as? String)
+                            .flatMap(UUID.init(uuidString:))
                         completion(documentID)
                     }
                 }
