@@ -20,6 +20,57 @@ final class TopEdgeTrackpadMoveControllerTests: XCTestCase {
         )
     }
 
+    func testOnlyGestureStartNeedsVisibleFrame() {
+        XCTAssertTrue(
+            TopEdgeTrackpadMoveController.needsVisibleFrame(
+                phase: .began,
+                momentumPhase: .none
+            )
+        )
+        for phase in [
+            TopEdgeTrackpadMovePhase.none, .changed, .stationary, .ended, .cancelled,
+        ] {
+            XCTAssertFalse(
+                TopEdgeTrackpadMoveController.needsVisibleFrame(
+                    phase: phase,
+                    momentumPhase: .none
+                ),
+                "\(phase)"
+            )
+        }
+        XCTAssertFalse(
+            TopEdgeTrackpadMoveController.needsVisibleFrame(
+                phase: .began,
+                momentumPhase: .changed
+            )
+        )
+    }
+
+    func testChangedEventsMoveWithoutAVisibleFrame() {
+        let controller = TopEdgeTrackpadMoveController()
+        _ = controller.handle(
+            input(
+                phase: .began,
+                location: CGPoint(x: 240, y: 712),
+                translation: CGSize(width: 12, height: -9)
+            )
+        )
+
+        let decision = controller.handle(
+            input(
+                phase: .changed,
+                location: CGPoint(x: 240, y: 712),
+                visibleFrame: nil,
+                translation: CGSize(width: 4, height: 2)
+            )
+        )
+
+        XCTAssertEqual(
+            decision,
+            .move(translation: CGSize(width: 4, height: 2), visibleFrame: visibleFrame)
+        )
+    }
+
     func testPreciseGestureBeginsInsideHiddenRevealStrip() {
         let controller = TopEdgeTrackpadMoveController()
 

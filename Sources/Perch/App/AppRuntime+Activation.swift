@@ -149,14 +149,16 @@ extension AppRuntime {
     func restorePinnedPage(
         _ page: NotionPageReference,
         restoration: DurablePageRestoration?,
-        expectedGeneration: Int
+        expectedGeneration: Int,
+        stashed: Bool = false
     ) {
         guard expectedGeneration == pageSelectionGeneration, !Task.isCancelled else { return }
         activate(
             page: page,
             source: .restored,
             persist: false,
-            restoration: restoration
+            restoration: restoration,
+            stashed: stashed
         )
     }
 
@@ -164,7 +166,8 @@ extension AppRuntime {
         page: NotionPageReference,
         source: PageActivationSource,
         persist: Bool,
-        restoration: DurablePageRestoration? = nil
+        restoration: DurablePageRestoration? = nil,
+        stashed: Bool = false
     ) {
         cancelShortcutGesture(restashTransientPanel: false)
         pageSelectionGeneration &+= 1
@@ -172,7 +175,11 @@ extension AppRuntime {
             restorePinnedPageTask?.cancel()
             restorePinnedPageTask = nil
         }
-        pinCoordinator.pin(page: page, restoration: restoration)
+        if stashed {
+            pinCoordinator.restoreStashed(page: page, restoration: restoration)
+        } else {
+            pinCoordinator.pin(page: page, restoration: restoration)
+        }
         publishActivation(page: page, source: source)
 
         if persist {

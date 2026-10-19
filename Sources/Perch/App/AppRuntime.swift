@@ -44,6 +44,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     let shortcutStore: GlobalShortcutStore
     let holdToPeekPreferenceStore: HoldToPeekPreferenceStore
     let stashHandleVisibilityPreferenceStore: StashHandleVisibilityPreferenceStore
+    let panelStashStateStore: PanelStashStateStore
     let peekFocusRestorer: any PeekFocusRestoring
     let performanceSignposter: any PerformanceSignposting
     let menuBarIconPreferenceStore: MenuBarIconPreferenceStore
@@ -82,6 +83,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         holdToPeekPreferenceStore: HoldToPeekPreferenceStore = HoldToPeekPreferenceStore(),
         stashHandleVisibilityPreferenceStore: StashHandleVisibilityPreferenceStore =
             StashHandleVisibilityPreferenceStore(),
+        panelStashStateStore: PanelStashStateStore = PanelStashStateStore(),
         customPinnedURLStore: CustomPinnedURLStore = CustomPinnedURLStore(),
         peekFocusRestorer: any PeekFocusRestoring = PeekFocusRestorer(),
         performanceSignposter: any PerformanceSignposting = AppPerformanceSignposter.shared,
@@ -112,6 +114,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.shortcutStore = shortcutStore
         self.holdToPeekPreferenceStore = holdToPeekPreferenceStore
         self.stashHandleVisibilityPreferenceStore = stashHandleVisibilityPreferenceStore
+        self.panelStashStateStore = panelStashStateStore
         self.peekFocusRestorer = peekFocusRestorer
         self.performanceSignposter = performanceSignposter
         self.menuBarIconPreferenceStore = menuBarIconPreferenceStore
@@ -148,6 +151,7 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         }
         pinCoordinator.onPresentationStateChange = { [weak self] in
             self?.refreshStatusItemGlyph()
+            self?.persistPanelStashState()
         }
         inputRequestRelay.handler = { [weak self] in
             self?.presentCurrentPageSetup()

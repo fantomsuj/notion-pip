@@ -117,7 +117,7 @@ private final class AppComposition {
         )
 
         do {
-            try LegacyPersonalTokenRemover().remove()
+            try LegacyPersonalTokenCleanup().runIfNeeded()
         } catch let LegacyPersonalTokenRemovalError.unexpectedStatus(status) {
             Logger(subsystem: "com.fantomsuj.Perch", category: "cleanup")
                 .error("Legacy personal-token cleanup failed status=\(status, privacy: .public)")

@@ -8,6 +8,10 @@
   live web view instead of destroying it and building a new one, so a switch
   no longer starts a new web content process or throws away its warm caches.
   The view is still destroyed on eviction.
+- Dragging the panel, or moving it with the two-finger top-edge gesture, now
+  saves its position once when the move ends instead of on every frame of the
+  drag. The panel position menu only updates when its values change, and
+  trackpad scrolling no longer looks up screen frames on every event.
 
 ### Fixed
 
@@ -19,6 +23,20 @@
 
 - Context Suggestions (frontmost-app page matching and reveal-time exact-page
   detection) has been removed. Perch no longer requests Accessibility access.
+
+### Changed
+
+- Perch now remembers whether the panel was stashed. A launch (including
+  Launch at Login) after quitting with the panel tucked away restores it
+  stashed behind the edge handle and does not build the web view or load the
+  page until the panel is shown.
+- Launch picks one restore target before showing anything: the last custom
+  URL when one was open, otherwise the saved Notion page. Perch no longer
+  starts loading the Notion page only to replace it; the Notion page stays the
+  return target.
+- The retired personal-token Keychain cleanup runs once per install behind a
+  done flag instead of on every launch. It still deletes the items without
+  reading them, and a failed pass retries on the next launch.
 
 ## 0.1.3 - 2026-08-26
 

@@ -50,4 +50,66 @@ final class LegacyPersonalTokenRemoverTests: XCTestCase {
         }
         XCTAssertEqual(deletionCount, 2)
     }
+
+    func testCleanupDeletesOnceThenSkipsTheKeychainOnLaterLaunches() throws {
+        let defaults = try makeCleanupDefaults()
+        var queries: [[String: Any]] = []
+        let remover = LegacyPersonalTokenRemover { query in
+            queries.append(query)
+            return errSecItemNotFound
+        }
+
+        XCTAssertTrue(try LegacyPersonalTokenCleanup(defaults: defaults, remover: remover).runIfNeeded())
+        XCTAssertEqual(queries.count, 2)
+
+        XCTAssertFalse(try LegacyPersonalTokenCleanup(defaults: defaults, remover: remover).runIfNeeded())
+        XCTAssertEqual(queries.count, 2)
+    }
+
+    func testCleanupNeverAsksTheKeychainToReturnTheToken() throws {
+        let defaults = try makeCleanupDefaults()
+        var queries: [[String: Any]] = []
+        let remover = LegacyPersonalTokenRemover { query in
+            queries.append(query)
+            return errSecSuccess
+        }
+
+        try LegacyPersonalTokenCleanup(defaults: defaults, remover: remover).runIfNeeded()
+
+        XCTAssertEqual(queries.count, 2)
+        for query in queries {
+            XCTAssertNil(query[kSecReturnData as String])
+            XCTAssertNil(query[kSecReturnAttributes as String])
+            XCTAssertNil(query[kSecReturnRef as String])
+        }
+    }
+
+    func testFailedCleanupRetriesOnTheNextLaunch() throws {
+        let defaults = try makeCleanupDefaults()
+        var deletionCount = 0
+        var failing = true
+        let remover = LegacyPersonalTokenRemover { _ in
+            deletionCount += 1
+            return failing ? errSecInteractionNotAllowed : errSecSuccess
+        }
+
+        XCTAssertThrowsError(
+            try LegacyPersonalTokenCleanup(defaults: defaults, remover: remover).runIfNeeded()
+        )
+        failing = false
+
+        XCTAssertTrue(try LegacyPersonalTokenCleanup(defaults: defaults, remover: remover).runIfNeeded())
+        XCTAssertEqual(deletionCount, 4)
+        XCTAssertFalse(try LegacyPersonalTokenCleanup(defaults: defaults, remover: remover).runIfNeeded())
+        XCTAssertEqual(deletionCount, 4)
+    }
+
+    private func makeCleanupDefaults() throws -> UserDefaults {
+        let suiteName = "LegacyPersonalTokenCleanupTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw XCTSkip("Could not create isolated UserDefaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
 }

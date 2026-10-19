@@ -18,6 +18,7 @@ func makeRuntime(
         RuntimeAccessibilityAnnouncementPoster(),
     holdToPeekPreferenceStore: HoldToPeekPreferenceStore? = nil,
     customPinnedURLStore: CustomPinnedURLStore? = nil,
+    panelStashStateStore: PanelStashStateStore? = nil,
     peekFocusRestorer: any PeekFocusRestoring = PeekFocusRestorer(),
     initialServiceHealth: ServiceHealthState = .healthy,
     menuBarIconPreferenceStore: MenuBarIconPreferenceStore? = nil,
@@ -38,12 +39,18 @@ func makeRuntime(
             suiteName: "AppRuntimeCustomPinnedURLTests.\(UUID().uuidString)"
         )!
     )
+    let panelStashStateStore = panelStashStateStore ?? PanelStashStateStore(
+        defaults: UserDefaults(
+            suiteName: "AppRuntimePanelStashStateTests.\(UUID().uuidString)"
+        )!
+    )
     return AppRuntime(
         panelCoordinator: panel,
         pasteboard: pasteboard,
         shortcutRegistrar: shortcutRegistrar,
         menuBarIconPreferenceStore: preferenceStore,
         holdToPeekPreferenceStore: holdPreferenceStore,
+        panelStashStateStore: panelStashStateStore,
         customPinnedURLStore: customPinnedURLStore,
         peekFocusRestorer: peekFocusRestorer,
         pageRepository: pageRepository,
@@ -95,6 +102,8 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
     private(set) var reloadedPages: [NotionPageReference] = []
     private(set) var reloadedCustomURLs: [CustomPinnedURL] = []
     private(set) var replacedPages: [NotionPageReference] = []
+    private(set) var stashedRestorePages: [NotionPageReference] = []
+    private(set) var stashedRestoreCustomURLs: [CustomPinnedURL] = []
     private(set) var isVisible = false
     private(set) var isStashed = false
     private(set) var isExpanded = false
@@ -127,6 +136,24 @@ final class RuntimePanelCoordinator: PiPPanelCoordinating {
         shownCustomURLs.append(customURL)
         isVisible = true
         isStashed = false
+        notePresentationChange()
+    }
+
+    func restoreStashed(page: NotionPageReference, restoration: DurablePageRestoration?) {
+        currentCustomURL = nil
+        currentPage = page
+        stashedRestorePages.append(page)
+        lastRestoration = restoration
+        isVisible = false
+        isStashed = true
+        notePresentationChange()
+    }
+
+    func restoreStashed(customURL: CustomPinnedURL) {
+        currentCustomURL = customURL
+        stashedRestoreCustomURLs.append(customURL)
+        isVisible = false
+        isStashed = true
         notePresentationChange()
     }
 
