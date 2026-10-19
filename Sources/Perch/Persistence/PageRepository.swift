@@ -107,6 +107,40 @@ actor PageRepository: NotionPageDropTitleProviding {
         return try snapshot(recent)
     }
 
+    func updatePageMetadata(_ page: NotionPageReference) throws {
+        let pageID = policy.canonicalID(page.pageID)
+        let canonicalURL = page.canonicalURL.absoluteString
+        var changed = false
+
+        for model in try modelContext.fetch(FetchDescriptor<ActivePageModel>()) {
+            guard policy.canonicalID(model.pageID) == pageID,
+                  model.canonicalURL != canonicalURL || model.displayTitle != page.displayTitle
+            else { continue }
+            model.canonicalURL = canonicalURL
+            model.displayTitle = page.displayTitle
+            changed = true
+        }
+        for model in try modelContext.fetch(FetchDescriptor<PinnedPageModel>()) {
+            guard policy.canonicalID(model.stableID) == pageID,
+                  model.canonicalURL != canonicalURL || model.displayTitle != page.displayTitle
+            else { continue }
+            model.canonicalURL = canonicalURL
+            model.displayTitle = page.displayTitle
+            changed = true
+        }
+        for model in try modelContext.fetch(FetchDescriptor<RecentPageModel>()) {
+            guard policy.canonicalID(model.stableID) == pageID,
+                  model.canonicalURL != canonicalURL || model.displayTitle != page.displayTitle
+            else { continue }
+            model.canonicalURL = canonicalURL
+            model.displayTitle = page.displayTitle
+            changed = true
+        }
+
+        guard changed else { return }
+        try saveOrRollback()
+    }
+
     func setPinned(_ isPinned: Bool, page: NotionPageReference) throws -> StoredPageSnapshot {
         let pageID = policy.canonicalID(page.pageID)
         let models = try modelContext.fetch(FetchDescriptor<PinnedPageModel>())

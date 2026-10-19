@@ -54,6 +54,10 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     var persistentStoreRecoveryAction: @MainActor () -> Void = {}
     var restorePinnedPageTask: Task<Void, Never>?
     var persistPinnedPageTask: Task<Void, Never>?
+    let pageMetadataSaveDelay: Duration
+    let pageMetadataSaveScheduler: any ShortcutGestureScheduling
+    var pageMetadataSaveTimer: (any ShortcutGestureTimer)?
+    var pendingPageMetadataSave: NotionPageReference?
     var suppressesAutomaticCurrentPageSetup = false
     var persistenceGeneration = 0
     var pageSelectionGeneration = 0
@@ -88,6 +92,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         pageRepository: (any PageWorkingSetPersisting)? = nil,
         shortcutHoldDuration: Duration = .milliseconds(300),
         shortcutGestureScheduler: any ShortcutGestureScheduling = TaskShortcutGestureScheduler(),
+        pageMetadataSaveDelay: Duration = .milliseconds(750),
+        pageMetadataSaveScheduler: any ShortcutGestureScheduling = TaskShortcutGestureScheduler(),
         accessibilityAnnouncementPoster: any AccessibilityAnnouncementPosting =
             AppAccessibilityAnnouncementPoster(),
         initialServiceHealth: ServiceHealthState = .healthy,
@@ -120,6 +126,8 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         self.automaticSettingsPresentationAllowed = automaticSettingsPresentationAllowed
         self.shortcutHoldDuration = shortcutHoldDuration
         self.shortcutGestureScheduler = shortcutGestureScheduler
+        self.pageMetadataSaveDelay = pageMetadataSaveDelay
+        self.pageMetadataSaveScheduler = pageMetadataSaveScheduler
         self.accessibilityAnnouncementPoster = accessibilityAnnouncementPoster
         self.shortcutLifecycleCoordinatorFactory = shortcutLifecycleCoordinatorFactory
         serviceHealth = initialServiceHealth
@@ -210,6 +218,13 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         lastActivationSource = source
         if activeCustomURL != nil {
             clearActiveCustomURL(persistDestination: true)
+        }
+    }
+
+    func publishActivePageMetadata(_ page: NotionPageReference) {
+        activePage = page
+        if pendingPage?.pageID == page.pageID {
+            pendingPage = page
         }
     }
 

@@ -99,7 +99,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     @Published private(set) var isTypingInPage = false
     private(set) var activePage: NotionPageReference?
     @Published private(set) var activeCustomURL: CustomPinnedURL?
+    /// Called when the web view lands on a different Notion page.
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?
+    /// Called when the current page's title or URL slug changes but it is
+    /// still the same page, such as while someone types a new page title.
+    var onPageMetadataChanged: (@MainActor (NotionPageReference) -> Void)?
     private(set) var isCreatingNewPage = false
     static let newPageURL = URL(string: "https://www.notion.so/new")!
     private let openURL: @MainActor (URL) -> Void
@@ -1627,7 +1631,11 @@ extension NotionWebSession: WKNavigationDelegate {
             webContentRecoveryState = .attempting(pageID: resolvedPage.pageID)
             pageStateRestoration.discardPendingScrollRestoration()
         }
-        onPageResolved?(resolvedPage)
+        if changesPage {
+            onPageResolved?(resolvedPage)
+        } else {
+            onPageMetadataChanged?(resolvedPage)
+        }
         retryPendingUsefulContentMessage()
     }
 

@@ -63,6 +63,10 @@ final class PinCoordinator {
         }
     }
 
+    func updateCurrentPageMetadata(_ page: NotionPageReference) {
+        panelCoordinator.updateCurrentPageMetadata(page)
+    }
+
     func pin(customURL: CustomPinnedURL) {
         panelCoordinator.show(customURL: customURL)
     }
