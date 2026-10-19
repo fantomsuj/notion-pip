@@ -1,3 +1,4 @@
+import Foundation
 import Security
 
 enum LegacyPersonalTokenRemovalError: Error, Equatable {
@@ -43,5 +44,33 @@ struct LegacyPersonalTokenRemover {
         var query = legacyQuery
         query[kSecUseDataProtectionKeychain as String] = true
         return query
+    }
+}
+
+/// Runs the legacy token deletion once per install. The deletes never read the
+/// item; after one clean pass a flag skips the keychain on every later launch.
+struct LegacyPersonalTokenCleanup {
+    static let completedKey = "legacyPersonalTokenCleanupCompleted"
+
+    private let defaults: UserDefaults
+    private let remover: LegacyPersonalTokenRemover
+
+    init(
+        defaults: UserDefaults = .standard,
+        remover: LegacyPersonalTokenRemover = LegacyPersonalTokenRemover()
+    ) {
+        self.defaults = defaults
+        self.remover = remover
+    }
+
+    /// Deletes the legacy items unless an earlier launch already did.
+    /// A failed pass leaves the flag unset so the next launch tries again.
+    /// - Returns: Whether the keychain was touched.
+    @discardableResult
+    func runIfNeeded() throws -> Bool {
+        guard !defaults.bool(forKey: Self.completedKey) else { return false }
+        try remover.remove()
+        defaults.set(true, forKey: Self.completedKey)
+        return true
     }
 }

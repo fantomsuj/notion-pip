@@ -67,6 +67,17 @@ final class PinCoordinator {
         panelCoordinator.show(customURL: customURL)
     }
 
+    func restoreStashed(
+        page: NotionPageReference,
+        restoration: DurablePageRestoration?
+    ) {
+        panelCoordinator.restoreStashed(page: page, restoration: restoration)
+    }
+
+    func restoreStashed(customURL: CustomPinnedURL) {
+        panelCoordinator.restoreStashed(customURL: customURL)
+    }
+
     func reloadCustomPinnedURL(_ url: CustomPinnedURL) {
         panelCoordinator.reloadCustomPinnedURL(url)
     }
