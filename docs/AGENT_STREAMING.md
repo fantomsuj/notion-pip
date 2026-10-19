@@ -55,6 +55,20 @@ Rules:
   field `"contentType": "text/markdown"` describes payload format only.
 - Browser `Origin` headers are rejected. Host must be loopback for the published
   port. Chunked request bodies are rejected. Connections are not reused.
+- Each connection must deliver its full request within 5 seconds and read the
+  response within another 5; otherwise Perch replies `408 request_timeout`
+  (or just closes) and frees the slot.
+- At most 8 connections are served at once. Extra connections get
+  `503 server_busy` with `Retry-After: 1` and are closed.
+- The token is checked before the 30 requests/second rate limit, so only
+  requests carrying the token count toward it. Unauthenticated requests get
+  `401` and can't push the real agent into `429 rate_limited`.
+- Requests over the header or body size limits get `413 payload_too_large`
+  rather than a silent close.
+- Turning the setting off or quitting Perch closes every open connection
+  immediately, including idle ones, so neither can hang on a client that
+  connected and sent nothing. Quick off/on toggles run in order, so a late stop
+  can't tear down the new listener.
 - Stream acknowledgments return `id`, `phase`, `nextSequence`, and optional
   `error` (create may include `limits`). Assembled Markdown and page identity
   stay internal.

@@ -286,9 +286,14 @@ enum AgentStreamHTTPCodec {
         let data = (try? JSONEncoder().encode(body)) ?? Data(
             #"{"error":{"code":"invalid_request","message":"Unable to encode error."}}"#.utf8
         )
+        var headers: [(String, String)] = []
+        if error.code == .rateLimited || error.code == .serverBusy {
+            headers.append(("Retry-After", "1"))
+        }
         return encodeResponse(
             status: error.httpStatus,
             reason: reasonPhrase(for: error.httpStatus),
+            headers: headers,
             body: data
         )
     }
@@ -302,6 +307,7 @@ enum AgentStreamHTTPCodec {
         case 403: "Forbidden"
         case 404: "Not Found"
         case 405: "Method Not Allowed"
+        case 408: "Request Timeout"
         case 409: "Conflict"
         case 410: "Gone"
         case 413: "Payload Too Large"
@@ -309,6 +315,7 @@ enum AgentStreamHTTPCodec {
         case 429: "Too Many Requests"
         case 431: "Request Header Fields Too Large"
         case 500: "Internal Server Error"
+        case 503: "Service Unavailable"
         case 505: "HTTP Version Not Supported"
         default: "Error"
         }

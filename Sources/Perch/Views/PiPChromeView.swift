@@ -272,7 +272,10 @@ struct PiPChromeView: View {
             if Self.shouldHostNotionWebView(for: webSession),
                 let webView = webSession.webView
             {
+                // `NotionWebView` never swaps its NSView, so a replacement web view
+                // needs a new identity or SwiftUI keeps showing the removed one.
                 NotionWebView(webView: webView)
+                    .id(ObjectIdentifier(webView))
             } else {
                 let emptyPage = EmptyPageChromePresentation.missingPage
                 ContentUnavailableView {

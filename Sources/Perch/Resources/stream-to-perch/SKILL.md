@@ -136,7 +136,9 @@ Branch on `error.code`, not the message string. Common codes:
 | `stream_active` | 409 | Wait, or `POST /streams/{activeId}/cancel`, then create |
 | `sequence_mismatch` | 409 | Resend with `expectedSequence` from the error if present |
 | `payload_too_large` | 413 | Smaller chunks; total assembled cap is 512 KiB |
-| `rate_limited` | 429 | Back off and retry |
+| `rate_limited` | 429 | Back off and retry (`Retry-After` gives seconds) |
+| `server_busy` | 503 | Too many open connections; retry after `Retry-After` |
+| `request_timeout` | 408 | The request didn't arrive within 5 s; resend it whole |
 | `stream_gone` | 410 | Stop forwarding; stream cancelled/expired/unknown |
 
 ## Rules

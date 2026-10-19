@@ -186,10 +186,9 @@ final class NotionWebSessionTests: XCTestCase {
         let documentID = UUID()
         let first = try makePage(id: firstPageID, title: "First")
         let second = try makePage(id: secondPageID, title: "Second")
-        var factoryURLs = [first.canonicalURL, second.canonicalURL, first.canonicalURL]
         let session = NotionWebSession(
             loadRequest: { _, _ in },
-            webViewFactory: { TrustedURLWebView(url: factoryURLs.removeFirst()) },
+            webViewFactory: { TrustedURLWebView(url: first.canonicalURL) },
             interactionStateReader: { _ in "saved-state" },
             interactionStateWriter: { _, _ in },
             usefulContentDocumentIdentifierReader: { _, completion in
@@ -211,7 +210,7 @@ final class NotionWebSessionTests: XCTestCase {
         session.handleUsefulContent(
             NotionUsefulContentMessage(state: .ready, documentID: documentID),
             from: restoredWebView,
-            generation: 5
+            generation: 1
         )
 
         XCTAssertEqual(
@@ -540,49 +539,180 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertNotNil(session.webView)
     }
 
-    func testPageSwitchCapturesOutgoingStateTearsDownViewAndRestoresItOnReturn() throws {
+    func testPageSwitchCapturesOutgoingStateReusesViewAndRestoresItOnReturn() throws {
+        let signposter = PerformanceSignposterSpy()
         var createdWebViews: [WKWebView] = []
+        var requests: [(WKWebView, URL?)] = []
         var stoppedWebViews: [WKWebView] = []
         var endedEditing: [WKWebView] = []
-        var restoredStates: [String] = []
+        var capturedStates = ["first-state", "second-state"]
+        var restoredStates: [(WKWebView, String)] = []
         var capturedRestorations: [DurablePageRestoration] = []
         let session = NotionWebSession(
-            loadRequest: { _, _ in },
+            loadRequest: { webView, request in requests.append((webView, request.url)) },
             webViewFactory: {
                 let webView = WKWebView()
                 createdWebViews.append(webView)
                 return webView
             },
             stopLoading: { stoppedWebViews.append($0) },
-            interactionStateReader: { webView in
-                createdWebViews.firstIndex(where: { $0 === webView }) == 0
-                    ? "first-state"
-                    : "second-state"
-            },
-            interactionStateWriter: { _, state in
+            interactionStateReader: { _ in capturedStates.removeFirst() },
+            interactionStateWriter: { webView, state in
                 if let state = state as? String {
-                    restoredStates.append(state)
+                    restoredStates.append((webView, state))
                 }
             },
-            endEditing: { endedEditing.append($0) }
+            endEditing: { endedEditing.append($0) },
+            performanceSignposter: signposter
         )
         session.onRestorationCaptured = { capturedRestorations.append($0) }
         let first = try makePage(id: firstPageID, title: "First")
         let second = try makePage(id: secondPageID, title: "Second")
 
         session.activate(page: first)
-        let firstWebView = try XCTUnwrap(session.webView)
+        let webView = try XCTUnwrap(session.webView)
         session.activate(page: second)
-        let secondWebView = try XCTUnwrap(session.webView)
         session.activate(page: first)
 
-        XCTAssertFalse(firstWebView === secondWebView)
-        XCTAssertFalse(secondWebView === session.webView)
-        XCTAssertEqual(createdWebViews.count, 3)
-        XCTAssertEqual(stoppedWebViews, [firstWebView, secondWebView])
-        XCTAssertEqual(endedEditing, [firstWebView, secondWebView])
-        XCTAssertEqual(restoredStates, ["first-state"])
+        XCTAssertIdentical(session.webView, webView)
+        XCTAssertEqual(createdWebViews.count, 1)
+        XCTAssertEqual(
+            signposter.beginCalls.filter { $0 == .webViewConstruction }.count,
+            1,
+            "Switching pages must navigate the live view, not construct another one"
+        )
+        XCTAssertTrue(requests.allSatisfy { $0.0 === webView })
+        XCTAssertEqual(requests.map(\.1), [first.canonicalURL, second.canonicalURL])
+        XCTAssertTrue(stoppedWebViews.isEmpty)
+        XCTAssertEqual(endedEditing, [webView, webView])
+        XCTAssertEqual(restoredStates.map(\.1), ["first-state"])
+        XCTAssertIdentical(restoredStates.first?.0, webView)
         XCTAssertEqual(capturedRestorations.map(\.pageID), [firstPageID, secondPageID])
+        XCTAssertTrue(webView.navigationDelegate === session)
+        XCTAssertFalse(webView.configuration.userContentController.userScripts.isEmpty)
+        XCTAssertEqual(session.state, .loading)
+    }
+
+    func testPageSelectedWhileHiddenReusesViewAndRestoresOnShow() throws {
+        let signposter = PerformanceSignposterSpy()
+        var requests: [URL?] = []
+        var restoredStates: [(WKWebView, String)] = []
+        let session = NotionWebSession(
+            loadRequest: { _, request in requests.append(request.url) },
+            interactionStateReader: { _ in "first-state" },
+            interactionStateWriter: { webView, state in
+                if let state = state as? String {
+                    restoredStates.append((webView, state))
+                }
+            },
+            performanceSignposter: signposter
+        )
+        let first = try makePage(id: firstPageID, title: "First")
+        let second = try makePage(id: secondPageID, title: "Second")
+        session.activate(page: first)
+        session.activate(page: second)
+        let webView = try XCTUnwrap(session.webView)
+        session.panelDidHide()
+        requests.removeAll()
+
+        session.activate(page: first)
+
+        XCTAssertTrue(requests.isEmpty, "A hidden switch must not load until the panel shows")
+        XCTAssertTrue(restoredStates.isEmpty)
+        XCTAssertIdentical(session.webView, webView)
+        XCTAssertEqual(session.state, .suspended)
+
+        session.panelDidShow()
+
+        XCTAssertIdentical(session.webView, webView)
+        XCTAssertEqual(restoredStates.map(\.1), ["first-state"])
+        XCTAssertIdentical(restoredStates.first?.0, webView)
+        XCTAssertTrue(requests.isEmpty)
+        XCTAssertEqual(session.state, .loading)
+        XCTAssertEqual(
+            signposter.beginCalls.filter { $0 == .webViewConstruction }.count,
+            1
+        )
+    }
+
+    func testSwitchingBetweenPageAndCustomURLReusesTheLiveView() throws {
+        var requests: [(WKWebView, URL?)] = []
+        var creationCount = 0
+        let session = NotionWebSession(
+            loadRequest: { webView, request in requests.append((webView, request.url)) },
+            webViewFactory: {
+                creationCount += 1
+                return WKWebView()
+            },
+            interactionStateReader: { _ in nil }
+        )
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        let pin = try CustomPinnedURL(validatingString: "https://canvas.example.edu/courses/12")
+
+        session.activate(page: page)
+        let webView = try XCTUnwrap(session.webView)
+        session.activate(customURL: pin)
+        session.activate(page: page)
+
+        XCTAssertEqual(creationCount, 1)
+        XCTAssertIdentical(session.webView, webView)
+        XCTAssertTrue(requests.allSatisfy { $0.0 === webView })
+        XCTAssertEqual(requests.map(\.1), [page.canonicalURL, pin.canonicalURL, page.canonicalURL])
+    }
+
+    func testFailedSwitchThatRevertsToOutgoingURLDoesNotReadoptOutgoingPage() throws {
+        let webView = MutableURLWebView()
+        var resolvedPages: [NotionPageReference] = []
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            webViewFactory: { webView }
+        )
+        session.onPageResolved = { resolvedPages.append($0) }
+        let first = try makePage(id: firstPageID, title: "First")
+        let second = try makePage(id: secondPageID, title: "Second")
+        session.activate(page: first)
+        webView.publishURL(first.canonicalURL)
+        session.webView(webView, didCommit: nil)
+        session.webView(webView, didFinish: nil)
+        resolvedPages.removeAll()
+
+        session.activate(page: second)
+        webView.publishURL(second.canonicalURL)
+        // WebKit reports the committed document's URL again when the new load fails.
+        webView.publishURL(first.canonicalURL)
+        session.webView(
+            webView,
+            didFailProvisionalNavigation: nil,
+            withError: NSError(domain: "Test", code: 1)
+        )
+
+        XCTAssertEqual(session.activePage?.pageID, secondPageID)
+        XCTAssertFalse(resolvedPages.contains { $0.pageID == firstPageID })
+    }
+
+    func testInPageNavigationBackToOutgoingPageIsAdoptedAfterSwitchCommits() throws {
+        let webView = MutableURLWebView()
+        var resolvedPages: [NotionPageReference] = []
+        let session = NotionWebSession(
+            loadRequest: { _, _ in },
+            webViewFactory: { webView }
+        )
+        session.onPageResolved = { resolvedPages.append($0) }
+        let first = try makePage(id: firstPageID, title: "First")
+        let second = try makePage(id: secondPageID, title: "Second")
+        session.activate(page: first)
+        webView.publishURL(first.canonicalURL)
+        session.webView(webView, didCommit: nil)
+        session.activate(page: second)
+        webView.publishURL(second.canonicalURL)
+        session.webView(webView, didCommit: nil)
+        session.webView(webView, didFinish: nil)
+        resolvedPages.removeAll()
+
+        webView.publishURL(first.canonicalURL)
+
+        XCTAssertEqual(session.activePage?.pageID, firstPageID)
+        XCTAssertEqual(resolvedPages.map(\.pageID), [firstPageID])
     }
 
     func testDurableRestorationLoadsValidatedLastURLAndAppliesScrollAfterFinish() throws {
@@ -1671,7 +1801,7 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertTrue(resolvedPages.isEmpty)
     }
 
-    func testPostResumeStaleCandidateCannotReplaceReplacementWebViewURL() throws {
+    func testPostResumeStaleCandidateCannotReplaceReusedWebViewURL() throws {
         var resolvedPages: [NotionPageReference] = []
         let webView = WKWebView()
         let session = NotionWebSession(
@@ -1686,9 +1816,9 @@ final class NotionWebSessionTests: XCTestCase {
         session.activate(page: secondPage)
 
         session.panelDidShow()
-        let replacementWebView = try XCTUnwrap(session.webView)
-        XCTAssertFalse(replacementWebView === webView)
-        XCTAssertEqual(replacementWebView.url, secondPage.canonicalURL)
+        let reusedWebView = try XCTUnwrap(session.webView)
+        XCTAssertIdentical(reusedWebView, webView)
+        XCTAssertEqual(reusedWebView.url, secondPage.canonicalURL)
         session.adoptResolvedPage(at: firstPage.canonicalURL)
 
         XCTAssertEqual(session.activePage, secondPage)
@@ -2465,6 +2595,30 @@ private final class TrustedURLWebView: WKWebView {
         willChangeValue(forKey: "title")
         documentTitle = title
         didChangeValue(forKey: "title")
+    }
+}
+
+private final class MutableURLWebView: WKWebView {
+    private var currentURL: URL?
+
+    init() {
+        super.init(frame: .zero, configuration: WKWebViewConfiguration())
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        nil
+    }
+
+    override var url: URL? {
+        currentURL
+    }
+
+    func publishURL(_ url: URL?) {
+        // WebKit's Objective-C property, and so its KVO key, is `URL`.
+        willChangeValue(forKey: "URL")
+        currentURL = url
+        didChangeValue(forKey: "URL")
     }
 }
 

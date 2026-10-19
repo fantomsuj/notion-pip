@@ -2,8 +2,36 @@
 
 ## Unreleased
 
+### Changed
+
+- Switching pages, or between a page and a custom URL, now navigates the one
+  live web view instead of destroying it and building a new one, so a switch
+  no longer starts a new web content process or throws away its warm caches.
+  The view is still destroyed on eviction.
+- Dragging the panel, or moving it with the two-finger top-edge gesture, now
+  saves its position once when the move ends instead of on every frame of the
+  drag. The panel position menu only updates when its values change, and
+  trackpad scrolling no longer looks up screen frames on every event.
+
 ### Fixed
 
+- When the panel's web view is replaced while it is on screen (for example a
+  page switch while Notion recovers from a web content crash), the panel shows
+  the new view instead of possibly staying blank on the removed one.
+- Quitting Perch, or turning off Local Agents, no longer hangs when a local
+  process has opened an agent connection and sent nothing. Stopping the
+  listener now closes every open connection, and each connection gets a
+  5-second read and write timeout (idle clients receive `408
+  request_timeout`).
+- The local agent listener serves at most 8 connections at once and answers
+  extras with `503 server_busy` and `Retry-After`.
+- The bearer token is checked before the shared rate limit, so other local
+  processes without the token can no longer cause `429` responses for the real
+  agent. `429` responses now include `Retry-After`.
+- Oversized agent requests get a `413 payload_too_large` response instead of a
+  silent close.
+- Quickly turning Local Agents off and on no longer lets the old listener's
+  shutdown clear the new listener's state.
 - The hover strip that reveals the top controls now covers only the top
   corner, so it no longer catches clicks on Notion's scrollbar.
 - Panel spring animations use `NSAnimationContext` and stay smooth at 120 Hz.
@@ -21,6 +49,20 @@
 
 - Context Suggestions (frontmost-app page matching and reveal-time exact-page
   detection) has been removed. Perch no longer requests Accessibility access.
+
+### Changed
+
+- Perch now remembers whether the panel was stashed. A launch (including
+  Launch at Login) after quitting with the panel tucked away restores it
+  stashed behind the edge handle and does not build the web view or load the
+  page until the panel is shown.
+- Launch picks one restore target before showing anything: the last custom
+  URL when one was open, otherwise the saved Notion page. Perch no longer
+  starts loading the Notion page only to replace it; the Notion page stays the
+  return target.
+- The retired personal-token Keychain cleanup runs once per install behind a
+  done flag instead of on every launch. It still deletes the items without
+  reading them, and a failed pass retries on the next launch.
 
 ## 0.1.3 - 2026-08-26
 
