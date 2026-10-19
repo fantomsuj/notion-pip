@@ -126,8 +126,18 @@ final class AgentStreamUserNotifier: AgentStreamNotifying {
 @MainActor
 final class AgentStreamController: ObservableObject {
     static let successReceiptDuration: Duration = .milliseconds(900)
+    /// Shortest gap between overlay updates while text is arriving (about 10 a second).
+    static let overlayRefreshInterval: Duration = .milliseconds(100)
 
-    @Published private(set) var snapshot: AgentStreamSnapshot?
+    /// Latest stream state. Not published: only `overlayPresentation` drives the UI, so
+    /// API traffic doesn't re-render views. While receiving, the text comes from the live
+    /// buffer, so appends don't have to copy text that a stored snapshot still holds.
+    var snapshot: AgentStreamSnapshot? {
+        guard let storedSnapshot, storedSnapshot.phase == .receiving else {
+            return storedSnapshot
+        }
+        return storedSnapshot.replacingAssembledText(assembledBuffer)
+    }
     @Published private(set) var overlayPresentation: AgentStreamOverlayPresentation = .hidden
 
     private weak var target: (any AgentStreamTarget)?
@@ -140,6 +150,10 @@ final class AgentStreamController: ObservableObject {
     private var lastActivityAt: Date?
     private var cancelSuccessReceipt: AgentStreamReceiptCancellation?
     private var cancelExpiryWork: AgentStreamReceiptCancellation?
+    private var cancelOverlayRefresh: AgentStreamReceiptCancellation?
+    private var lastOverlayRefreshAt: Date?
+    /// Stream state without the text while receiving; see `snapshot`.
+    private var storedSnapshot: AgentStreamSnapshot?
     private var assembledBuffer = ""
     private var lastAcceptedSequence: Int = -1
 
@@ -234,7 +248,9 @@ final class AgentStreamController: ObservableObject {
     @discardableResult
     func append(streamID: UUID, chunk: AgentStreamChunk) throws -> AgentStreamSnapshot {
         expireIfNeeded()
-        guard var current = snapshot, current.id == streamID else {
+        // Read the stored state, not `snapshot`: a local copy of the text would make the
+        // `+=` below copy the whole buffer.
+        guard var current = storedSnapshot, current.id == streamID else {
             throw AgentStreamError.streamGone()
         }
         guard current.phase == .receiving else {
@@ -242,7 +258,7 @@ final class AgentStreamController: ObservableObject {
         }
 
         if chunk.sequence == lastAcceptedSequence {
-            return current
+            return current.replacingAssembledText(assembledBuffer)
         }
         guard chunk.sequence == current.nextSequence else {
             throw AgentStreamError.sequenceMismatch(expected: current.nextSequence)
@@ -266,7 +282,7 @@ final class AgentStreamController: ObservableObject {
             client: current.client,
             contentType: current.contentType,
             phase: .receiving,
-            assembledText: assembledBuffer,
+            assembledText: "",
             nextSequence: chunk.sequence + 1,
             opaquePageID: current.opaquePageID,
             errorMessage: nil,
@@ -275,7 +291,7 @@ final class AgentStreamController: ObservableObject {
         )
         publish(current)
         touch()
-        return current
+        return current.replacingAssembledText(assembledBuffer)
     }
 
     /// Agent signals input is finished. Does not write to Notion.
@@ -468,8 +484,8 @@ final class AgentStreamController: ObservableObject {
         assembledBuffer = ""
         lastAcceptedSequence = -1
         lastActivityAt = nil
-        snapshot = nil
-        overlayPresentation = .hidden
+        storedSnapshot = nil
+        setOverlayPresentation(.hidden)
     }
 
     // MARK: - Private
@@ -573,15 +589,55 @@ final class AgentStreamController: ObservableObject {
     }
 
     private func publish(_ snapshot: AgentStreamSnapshot) {
-        self.snapshot = snapshot
-        overlayPresentation = .from(snapshot: snapshot)
+        let isMoreText = snapshot.phase == .receiving
+            && storedSnapshot?.id == snapshot.id
+            && storedSnapshot?.phase == .receiving
+        storedSnapshot = snapshot
+        if isMoreText {
+            scheduleOverlayRefresh()
+        } else {
+            refreshOverlayNow()
+        }
         scheduleExpiryIfNeeded(for: snapshot)
+    }
+
+    /// Shows new text at most once per `overlayRefreshInterval`. Phase changes skip this
+    /// and show at once.
+    private func scheduleOverlayRefresh() {
+        guard cancelOverlayRefresh == nil else { return }
+        let interval = Self.overlayRefreshInterval.timeInterval
+        let elapsed = lastOverlayRefreshAt.map { clock().timeIntervalSince($0) } ?? interval
+        guard elapsed < interval else {
+            refreshOverlayNow()
+            return
+        }
+        let remaining = Duration.milliseconds(
+            max(1, Int(((interval - elapsed) * 1_000).rounded(.up)))
+        )
+        cancelOverlayRefresh = receiptScheduler(remaining) { [weak self] in
+            guard let self else { return }
+            self.cancelOverlayRefresh = nil
+            self.refreshOverlayNow()
+        }
+    }
+
+    private func refreshOverlayNow() {
+        setOverlayPresentation(.from(snapshot: snapshot))
+        lastOverlayRefreshAt = clock()
+    }
+
+    private func setOverlayPresentation(_ presentation: AgentStreamOverlayPresentation) {
+        cancelOverlayRefresh?()
+        cancelOverlayRefresh = nil
+        if overlayPresentation != presentation {
+            overlayPresentation = presentation
+        }
     }
 
     private func touch() {
         lastActivityAt = clock()
-        if let snapshot {
-            scheduleExpiryIfNeeded(for: snapshot)
+        if let storedSnapshot {
+            scheduleExpiryIfNeeded(for: storedSnapshot)
         }
     }
 
@@ -603,7 +659,7 @@ final class AgentStreamController: ObservableObject {
         let phase = snapshot.phase
         cancelExpiryWork = receiptScheduler(delay) { [weak self] in
             guard let self,
-                  let latest = self.snapshot,
+                  let latest = self.storedSnapshot,
                   latest.id == streamID,
                   latest.phase == phase
             else {
@@ -615,7 +671,7 @@ final class AgentStreamController: ObservableObject {
     }
 
     private func expireIfNeeded(force: Bool = false) {
-        guard let current = snapshot, let lastActivityAt else { return }
+        guard let current = storedSnapshot, let lastActivityAt else { return }
         let now = clock()
         let elapsed = now.timeIntervalSince(lastActivityAt)
 
@@ -631,8 +687,8 @@ final class AgentStreamController: ObservableObject {
         case .inserted, .cancelled, .expired:
             if force || elapsed >= limits.terminalRetention.timeInterval {
                 cancelScheduledExpiry()
-                snapshot = nil
-                overlayPresentation = .hidden
+                storedSnapshot = nil
+                setOverlayPresentation(.hidden)
                 self.lastActivityAt = nil
             }
         case .inserting:

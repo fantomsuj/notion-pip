@@ -230,29 +230,114 @@ struct AgentStreamMarkdownOutput: View {
     let text: String
     let contentType: AgentStreamContentType
 
+    /// Keeps parsed blocks between renders so a growing stream only re-parses its tail.
+    @State private var renderer = AgentStreamMarkdownRenderer()
+    @State private var autoScroll = AgentStreamAutoScroll()
+    @State private var viewportHeight: CGFloat = 0
+
     var body: some View {
-        ScrollView {
-            Text(markdownText)
-                .font(.body)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.compact) {
+                    let blocks = renderer.blocks(for: text, contentType: contentType)
+                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                        AgentStreamMarkdownBlockView(block: block)
+                    }
+                    Color.clear
+                        .frame(height: 0)
+                        .id(AgentStreamOutputLayout.bottomAnchorID)
+                }
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGRect.self) { geometry in
+                    geometry.frame(in: .named(AgentStreamOutputLayout.coordinateSpace))
+                } action: { frame in
+                    let jumpsToBottom = autoScroll.update(
+                        contentMinY: frame.minY,
+                        contentHeight: frame.height,
+                        viewportHeight: viewportHeight
+                    )
+                    if jumpsToBottom {
+                        proxy.scrollTo(AgentStreamOutputLayout.bottomAnchorID, anchor: .bottom)
+                    }
+                }
+            }
+            .coordinateSpace(.named(AgentStreamOutputLayout.coordinateSpace))
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.height
+            } action: { height in
+                viewportHeight = height
+            }
         }
         .focusable(false)
     }
+}
 
-    private var markdownText: AttributedString {
-        guard contentType == .markdown, !text.isEmpty else {
-            return AttributedString(text)
-        }
-        do {
-            return try AttributedString(
-                markdown: text,
-                options: AttributedString.MarkdownParsingOptions(
-                    interpretedSyntax: .inlineOnlyPreservingWhitespace
+/// Not inside the view so the geometry closures, which aren't main-actor isolated, can
+/// read them.
+private enum AgentStreamOutputLayout {
+    static let bottomAnchorID = "agent-stream-output-bottom"
+    static let coordinateSpace = "agent-stream-output"
+}
+
+/// One rendered block of the stream preview.
+struct AgentStreamMarkdownBlockView: View {
+    let block: AgentStreamMarkdownBlock
+
+    var body: some View {
+        switch block.kind {
+        case .paragraph:
+            Text(block.content)
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
+        case let .heading(level):
+            Text(block.content)
+                .font(Self.headingFont(level: level))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+        case let .listItem(marker, indentLevel):
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(marker)
+                    .font(.body.monospacedDigit())
+                    .foregroundStyle(DesignTokens.Colors.secondaryText)
+                    .accessibilityHidden(marker == "•")
+                Text(block.content)
+                    .font(.body)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.leading, CGFloat(indentLevel) * 14)
+        case .quote:
+            Text(block.content)
+                .font(.body)
+                .foregroundStyle(DesignTokens.Colors.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 11)
+                .overlay(alignment: .leading) {
+                    // Sized by the overlay, so the bar is exactly as tall as the quote.
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(DesignTokens.Colors.border)
+                        .frame(width: 3)
+                }
+        case .code:
+            Text(block.content)
+                .font(.callout.monospaced())
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    DesignTokens.Colors.border.opacity(0.25),
+                    in: RoundedRectangle(cornerRadius: 4)
                 )
-            )
-        } catch {
-            return AttributedString(text)
+        case .divider:
+            Divider()
+        }
+    }
+
+    static func headingFont(level: Int) -> Font {
+        switch level {
+        case 1: .title3.weight(.semibold)
+        case 2: .headline
+        default: .subheadline.weight(.semibold)
         }
     }
 }

@@ -1730,6 +1730,22 @@ final class NotionWebSessionTests: XCTestCase {
         withExtendedLifetime(observation) {}
     }
 
+    func testTypingActivityDoesNotRepublishTheSession() throws {
+        let session = NotionWebSession()
+        try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))
+        var publicationCount = 0
+        let observation = session.objectWillChange.sink {
+            publicationCount += 1
+        }
+
+        session.handleEditorActivity(.typingStarted)
+        session.handleEditorActivity(.editingEnded)
+
+        XCTAssertFalse(session.isTypingInPage)
+        XCTAssertEqual(publicationCount, 0)
+        withExtendedLifetime(observation) {}
+    }
+
     func testShowingPanelResumesWarmLiveWebViewWithoutReloading() throws {
         var requests: [URLRequest] = []
         let session = NotionWebSession(

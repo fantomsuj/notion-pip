@@ -96,7 +96,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     @Published private(set) var browserLoginState: NotionBrowserLoginState = .idle
-    @Published private(set) var isTypingInPage = false
+    /// Not published: no view reads it, and publishing re-rendered the panel on every
+    /// typing start and stop.
+    private(set) var isTypingInPage = false
     private(set) var activePage: NotionPageReference?
     @Published private(set) var activeCustomURL: CustomPinnedURL?
     var onPageResolved: (@MainActor (NotionPageReference) -> Void)?

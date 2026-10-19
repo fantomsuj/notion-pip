@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Changed
+
+- Agent streaming no longer re-renders the whole panel on every chunk. Only the
+  stream card updates, at most about 10 times a second, and the Markdown
+  preview re-parses just the newest part of the text instead of all of it.
+  Appending a chunk no longer copies the whole response.
+- The stream preview now shows headings, bullet, numbered and task lists,
+  quotes, code blocks and dividers, and follows new text as it arrives unless
+  you have scrolled up.
+- Typing in Notion no longer re-renders the panel when it starts and stops.
+
 ### Removed
 
 - Context Suggestions (frontmost-app page matching and reveal-time exact-page

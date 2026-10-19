@@ -152,7 +152,9 @@ struct PiPChromeView: View {
     static let topControlsHoverOutset: CGFloat = 12
 
     @ObservedObject var webSession: NotionWebSession
-    @ObservedObject private var agentStreamController: AgentStreamController
+    /// Not observed: only the overlay reads stream state, so chunks re-render the
+    /// overlay alone and not the toolbar, banner or web view host.
+    private let agentStreamController: AgentStreamController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled

@@ -1,3 +1,5 @@
+import Combine
+import os
 import XCTest
 @testable import Perch
 
@@ -314,6 +316,109 @@ final class AgentStreamControllerTests: XCTestCase {
         XCTAssertEqual(controller.overlayPresentation, .hidden)
     }
 
+    func testReceivingOverlayRefreshesAtMostOncePerInterval() throws {
+        let harness = ThrottleHarness()
+        let controller = harness.makeController()
+        let id = try controller.create(
+            AgentStreamCreateRequest(client: "a", idempotencyKey: "1")
+        ).snapshot.id
+        XCTAssertEqual(controller.overlayPresentation, harness.receiving(""))
+
+        var publicationCount = 0
+        let observation = controller.objectWillChange.sink { _ in
+            publicationCount += 1
+        }
+        for sequence in 0..<5 {
+            _ = try controller.append(
+                streamID: id,
+                chunk: AgentStreamChunk(sequence: sequence, text: "x")
+            )
+        }
+
+        // API callers always see the full text; the overlay waits for the next refresh.
+        XCTAssertEqual(controller.snapshot?.assembledText, "xxxxx")
+        XCTAssertEqual(controller.overlayPresentation, harness.receiving(""))
+        XCTAssertEqual(publicationCount, 0)
+        XCTAssertEqual(harness.refreshes.count, 1)
+        XCTAssertEqual(
+            harness.refreshes.first?.delay,
+            AgentStreamController.overlayRefreshInterval
+        )
+
+        harness.advance(by: 0.1)
+        try XCTUnwrap(harness.refreshes.first).run()
+
+        XCTAssertEqual(controller.overlayPresentation, harness.receiving("xxxxx"))
+        XCTAssertEqual(publicationCount, 1)
+        withExtendedLifetime(observation) {}
+    }
+
+    func testAppendAfterQuietIntervalRefreshesOverlayAtOnce() throws {
+        let harness = ThrottleHarness()
+        let controller = harness.makeController()
+        let id = try controller.create(
+            AgentStreamCreateRequest(client: "a", idempotencyKey: "1")
+        ).snapshot.id
+
+        harness.advance(by: 0.25)
+        _ = try controller.append(
+            streamID: id,
+            chunk: AgentStreamChunk(sequence: 0, text: "# Hi")
+        )
+
+        XCTAssertEqual(controller.overlayPresentation, harness.receiving("# Hi"))
+        XCTAssertTrue(harness.refreshes.isEmpty)
+    }
+
+    func testCompleteShowsFullTextWithoutWaitingForThrottle() throws {
+        let harness = ThrottleHarness()
+        let controller = harness.makeController()
+        let id = try controller.create(
+            AgentStreamCreateRequest(client: "a", idempotencyKey: "1")
+        ).snapshot.id
+        _ = try controller.append(
+            streamID: id,
+            chunk: AgentStreamChunk(sequence: 0, text: "- one")
+        )
+        XCTAssertEqual(controller.overlayPresentation, harness.receiving(""))
+
+        _ = try controller.complete(streamID: id)
+        XCTAssertEqual(
+            controller.overlayPresentation,
+            .ready(label: "a", text: "- one", contentType: .markdown)
+        )
+
+        // A refresh that was already queued must not bring back the receiving state.
+        try XCTUnwrap(harness.refreshes.first).run()
+        XCTAssertEqual(
+            controller.overlayPresentation,
+            .ready(label: "a", text: "- one", contentType: .markdown)
+        )
+    }
+
+    func testRetriedChunkReturnsFullTextWhileReceiving() throws {
+        let controller = makeController()
+        let id = try controller.create(
+            AgentStreamCreateRequest(client: "a", idempotencyKey: "1")
+        ).snapshot.id
+        _ = try controller.append(
+            streamID: id,
+            chunk: AgentStreamChunk(sequence: 0, text: "one ")
+        )
+        _ = try controller.append(
+            streamID: id,
+            chunk: AgentStreamChunk(sequence: 1, text: "two")
+        )
+
+        let retry = try controller.append(
+            streamID: id,
+            chunk: AgentStreamChunk(sequence: 1, text: "two")
+        )
+
+        XCTAssertEqual(retry.assembledText, "one two")
+        XCTAssertEqual(try controller.stream(id: id).assembledText, "one two")
+    }
+
     private func makeController() -> AgentStreamController {
         AgentStreamController(
             target: AgentStreamTargetSpy(),
@@ -378,5 +483,43 @@ private final class AgentStreamNotifierSpy: AgentStreamNotifying {
 
     func clearStreamNotifications() {
         clearCount += 1
+    }
+}
+
+/// Drives the overlay throttle with a fixed clock and captured refreshes.
+@MainActor
+private final class ThrottleHarness {
+    struct Scheduled {
+        let delay: Duration
+        let run: @MainActor () -> Void
+    }
+
+    private let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 1_000))
+    private(set) var scheduled: [Scheduled] = []
+
+    /// Scheduled overlay refreshes; expiry timers use much longer delays.
+    var refreshes: [Scheduled] {
+        scheduled.filter { $0.delay <= AgentStreamController.overlayRefreshInterval }
+    }
+
+    func makeController() -> AgentStreamController {
+        let now = now
+        return AgentStreamController(
+            target: AgentStreamTargetSpy(),
+            notifier: AgentStreamNotifierSpy(),
+            clock: { now.withLock { $0 } },
+            receiptScheduler: { [weak self] delay, operation in
+                self?.scheduled.append(Scheduled(delay: delay, run: operation))
+                return {}
+            }
+        )
+    }
+
+    func advance(by seconds: TimeInterval) {
+        now.withLock { $0 = $0.addingTimeInterval(seconds) }
+    }
+
+    func receiving(_ text: String) -> AgentStreamOverlayPresentation {
+        .receiving(label: "a", text: text, contentType: .markdown, isStreaming: true)
     }
 }

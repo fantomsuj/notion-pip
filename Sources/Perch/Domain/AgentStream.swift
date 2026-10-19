@@ -214,6 +214,23 @@ struct AgentStreamSnapshot: Equatable, Sendable {
     var isActivelyReceiving: Bool {
         phase == .receiving
     }
+
+    /// The same snapshot carrying `text` as its assembled text.
+    func replacingAssembledText(_ text: String) -> AgentStreamSnapshot {
+        AgentStreamSnapshot(
+            id: id,
+            label: label,
+            client: client,
+            contentType: contentType,
+            phase: phase,
+            assembledText: text,
+            nextSequence: nextSequence,
+            opaquePageID: opaquePageID,
+            errorMessage: errorMessage,
+            canAccept: canAccept,
+            showsOverlay: showsOverlay
+        )
+    }
 }
 
 struct AgentStreamCreateResult: Equatable, Sendable {
