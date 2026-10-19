@@ -104,6 +104,90 @@ final class StorageRecoveryControllerTests: XCTestCase {
 }
 
 @MainActor
+final class StorageRecoveryRetryTests: XCTestCase {
+    func testSuccessfulRetryOffersQuitAndBlocksArchive() {
+        var retryCount = 0
+        var terminationCount = 0
+        let announcer = StorageRecoveryRetryAnnouncementSpy()
+        let controller = StorageRecoveryController(
+            context: PersistentStoreRecoveryContext(
+                archiveStore: {
+                    XCTFail("A store that opens must not be archived")
+                    throw PersistentStoreArchiveError.noRecoverableArtifacts
+                },
+                revealStore: {},
+                retryOpenStore: { retryCount += 1 }
+            ),
+            continueWithoutSaving: {},
+            requestTermination: { terminationCount += 1 },
+            accessibilityAnnouncementPoster: announcer
+        )
+
+        controller.retryOpeningStore()
+        controller.requestArchiveConfirmation()
+
+        XCTAssertEqual(retryCount, 1)
+        XCTAssertEqual(controller.phase, .storeAvailable)
+        XCTAssertEqual(announcer.messages, [StorageRecoveryPresentation.retrySucceededMessage])
+        XCTAssertEqual(terminationCount, 0)
+
+        controller.quitToReopen()
+        controller.quitToReopen()
+
+        XCTAssertEqual(terminationCount, 1)
+    }
+
+    func testFailedRetryShowsErrorCodeAndKeepsArchiveAvailable() {
+        let announcer = StorageRecoveryRetryAnnouncementSpy()
+        var terminationCount = 0
+        let controller = StorageRecoveryController(
+            context: PersistentStoreRecoveryContext(
+                archiveStore: {
+                    PersistentStoreArchiveReceipt(
+                        destinationDirectory: URL(fileURLWithPath: "/tmp/recovery"),
+                        artifactNames: ["Perch.store"]
+                    )
+                },
+                revealStore: {},
+                retryOpenStore: {
+                    throw NSError(domain: "PerchTestStoreDomain", code: 256)
+                },
+                openFailure: PersistentStoreOpenFailure(
+                    domain: "PerchTestStoreDomain",
+                    code: 256
+                )
+            ),
+            continueWithoutSaving: {},
+            requestTermination: { terminationCount += 1 },
+            accessibilityAnnouncementPoster: announcer
+        )
+
+        controller.retryOpeningStore()
+
+        guard case let .failed(message) = controller.phase else {
+            return XCTFail("Expected the retry failure to be shown")
+        }
+        XCTAssertTrue(message.contains("PerchTestStoreDomain 256"))
+        XCTAssertEqual(announcer.messages, [message])
+        XCTAssertEqual(controller.openFailureLabel, "PerchTestStoreDomain 256")
+        controller.quitToReopen()
+        XCTAssertEqual(terminationCount, 0)
+
+        controller.requestArchiveConfirmation()
+        XCTAssertEqual(controller.phase, .confirmingArchive)
+    }
+}
+
+@MainActor
+private final class StorageRecoveryRetryAnnouncementSpy: AccessibilityAnnouncementPosting {
+    private(set) var messages: [String] = []
+
+    func announce(_ message: String) {
+        messages.append(message)
+    }
+}
+
+@MainActor
 private final class StorageRecoveryAnnouncementSpy: AccessibilityAnnouncementPosting {
     private(set) var messages: [String] = []
 

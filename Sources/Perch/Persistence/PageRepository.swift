@@ -4,6 +4,17 @@ import SwiftData
 
 typealias PageRepositorySaveCheck = @Sendable () throws -> Void
 
+/// The page tables a repository read helper fetches. Tests use it to inject a
+/// read failure into one table and prove nothing is pruned afterwards.
+enum PageRepositoryReadScope: Sendable, Equatable {
+    case activePage
+    case pinnedPages
+    case recentPages
+    case restorations
+}
+
+typealias PageRepositoryReadCheck = @Sendable (PageRepositoryReadScope) throws -> Void
+
 struct StoredPageSnapshot: Equatable, Sendable {
     let pageID: String
     let canonicalURL: URL
@@ -34,12 +45,15 @@ actor PageRepository: NotionPageDropTitleProviding {
     )
     private var clock: any DateProviding = SystemDateProvider()
     private var beforeSave: PageRepositorySaveCheck = {}
+    private var beforeRead: PageRepositoryReadCheck = { _ in }
+    private var isStorePrepared = false
     private let policy = PageWorkingSetPolicy.standard
 
     init(
         container: ModelContainer,
         clock: any DateProviding = SystemDateProvider(),
-        beforeSave: @escaping PageRepositorySaveCheck = {}
+        beforeSave: @escaping PageRepositorySaveCheck = {},
+        beforeRead: @escaping PageRepositoryReadCheck = { _ in }
     ) {
         let context = ModelContext(container)
         context.autosaveEnabled = false
@@ -47,20 +61,36 @@ actor PageRepository: NotionPageDropTitleProviding {
         modelContainer = container
         self.clock = clock
         self.beforeSave = beforeSave
+        self.beforeRead = beforeRead
     }
 
-    func workingSet() throws -> PageWorkingSetSnapshot {
+    /// Runs the one-time store maintenance: the legacy active-page bootstrap
+    /// and pruning of restorations outside the working set.
+    ///
+    /// It runs once per opened store, before the first working-set read, and
+    /// never again on later reads. Any read error throws before anything is
+    /// deleted or saved, and leaves the maintenance pending for the next call.
+    func prepareStoreIfNeeded() throws {
+        guard !isStorePrepared else { return }
         try bootstrapActivePageIfNeeded()
-        let pins = policy.pinnedPages(from: validPinnedPages())
-        let recents = policy.recentPages(from: validRecentPages(), pinnedPages: pins)
+        try pruneRestorationsToCurrentUnion()
+        isStorePrepared = true
+    }
+
+    /// Reads the working set. After the one-time maintenance in
+    /// ``prepareStoreIfNeeded()``, this never deletes or saves anything.
+    func workingSet() throws -> PageWorkingSetSnapshot {
+        try prepareStoreIfNeeded()
+        let pins = policy.pinnedPages(from: try validPinnedPages())
+        let recents = policy.recentPages(from: try validRecentPages(), pinnedPages: pins)
         let workingSetIDs = policy.retainedRestorationIDs(
             pinnedPages: pins,
             recentPages: recents
         )
-        let restorations = try pruneAndReadRestorations(retaining: workingSetIDs)
+        let restorations = try readRestorations(retaining: workingSetIDs)
 
         return PageWorkingSetSnapshot(
-            activePage: validActivePage(),
+            activePage: try validActivePage(),
             pinnedPages: pins,
             recentPages: recents,
             restorations: restorations
@@ -71,7 +101,7 @@ actor PageRepository: NotionPageDropTitleProviding {
         let workingSet = try workingSet()
         return PiPRecentPagesSnapshot.assemble(
             activePage: workingSet.activePage,
-            recentHistory: validRecentPages(),
+            recentHistory: try validRecentPages(),
             restorations: workingSet.restorations,
             limit: limit,
             policy: policy
@@ -79,6 +109,18 @@ actor PageRepository: NotionPageDropTitleProviding {
     }
 
     func recordVisit(_ page: NotionPageReference) throws -> StoredPageSnapshot {
+        try rollingBackOnFailure { try applyVisit(page) }
+    }
+
+    func setPinned(_ isPinned: Bool, page: NotionPageReference) throws -> StoredPageSnapshot {
+        try rollingBackOnFailure { try applyPinned(isPinned, page: page) }
+    }
+
+    func recordRecent(_ page: NotionPageReference) throws -> StoredPageSnapshot {
+        try rollingBackOnFailure { try applyRecent(page) }
+    }
+
+    private func applyVisit(_ page: NotionPageReference) throws -> StoredPageSnapshot {
         let now = clock.now()
         let pageID = policy.canonicalID(page.pageID)
         let activeModels = try modelContext.fetch(FetchDescriptor<ActivePageModel>())
@@ -107,13 +149,16 @@ actor PageRepository: NotionPageDropTitleProviding {
         return try snapshot(recent)
     }
 
-    func setPinned(_ isPinned: Bool, page: NotionPageReference) throws -> StoredPageSnapshot {
+    private func applyPinned(
+        _ isPinned: Bool,
+        page: NotionPageReference
+    ) throws -> StoredPageSnapshot {
         let pageID = policy.canonicalID(page.pageID)
         let models = try modelContext.fetch(FetchDescriptor<PinnedPageModel>())
         let matching = models.filter { policy.canonicalID($0.stableID) == pageID }
 
         if isPinned {
-            let currentPins = policy.pinnedPages(from: validPinnedPages())
+            let currentPins = policy.pinnedPages(from: try validPinnedPages())
             guard policy.contains(currentPins, pageID: pageID)
                     || currentPins.count < policy.pinLimit else {
                 throw PageRepositoryError.pinLimitReached(maximum: policy.pinLimit)
@@ -170,7 +215,7 @@ actor PageRepository: NotionPageDropTitleProviding {
         let role = try PinnedPageRole.normalized(
             rawRole,
             for: canonicalPageID,
-            among: validPinnedPages()
+            among: try validPinnedPages()
         )
         model.role = role
         try saveOrRollback()
@@ -212,7 +257,7 @@ actor PageRepository: NotionPageDropTitleProviding {
         try setPinned(true, page: page)
     }
 
-    func recordRecent(_ page: NotionPageReference) throws -> StoredPageSnapshot {
+    private func applyRecent(_ page: NotionPageReference) throws -> StoredPageSnapshot {
         let recent = try upsertRecent(page, visitedAt: clock.now(), refreshTimestamp: true)
         try pruneRecentModels()
         try pruneRestorationsToCurrentUnion()
@@ -221,22 +266,32 @@ actor PageRepository: NotionPageDropTitleProviding {
     }
 
     func pinnedPages() throws -> [StoredPageSnapshot] {
-        policy.pinnedPages(from: validPinnedPages())
+        policy.pinnedPages(from: try validPinnedPages())
     }
 
     func recentPages() throws -> [StoredPageSnapshot] {
         policy.recentPages(
-            from: validRecentPages(),
-            pinnedPages: policy.pinnedPages(from: validPinnedPages())
+            from: try validRecentPages(),
+            pinnedPages: policy.pinnedPages(from: try validPinnedPages())
         )
     }
 
     func displayTitle(for pageID: String) -> String? {
         let canonicalPageID = policy.canonicalID(pageID)
-        let pinnedPages = policy.pinnedPages(from: validPinnedPages())
-        let candidates = [validActivePage()].compactMap { $0 }
-            + pinnedPages
-            + policy.recentPages(from: validRecentPages(), pinnedPages: pinnedPages)
+        let candidates: [StoredPageSnapshot]
+        do {
+            let activePage = try validActivePage()
+            let pinnedPages = policy.pinnedPages(from: try validPinnedPages())
+            let recentPages = policy.recentPages(
+                from: try validRecentPages(),
+                pinnedPages: pinnedPages
+            )
+            candidates = [activePage].compactMap { $0 } + pinnedPages + recentPages
+        } catch {
+            // The failed read is already logged; a missing title only falls
+            // back to the dropped link's own text.
+            return nil
+        }
 
         for candidate in candidates where policy.canonicalID(candidate.pageID) == canonicalPageID {
             guard let title = candidate.displayTitle?.trimmingCharacters(
@@ -250,8 +305,8 @@ actor PageRepository: NotionPageDropTitleProviding {
     }
 
     private func bootstrapActivePageIfNeeded() throws {
-        guard try modelContext.fetch(FetchDescriptor<ActivePageModel>()).isEmpty,
-              let legacyPin = policy.pinnedPages(from: validPinnedPages()).first
+        guard try fetch(ActivePageModel.self, scope: .activePage).isEmpty,
+              let legacyPin = policy.pinnedPages(from: try validPinnedPages()).first
         else {
             return
         }
@@ -266,8 +321,27 @@ actor PageRepository: NotionPageDropTitleProviding {
         try saveOrRollback()
     }
 
-    private func validActivePage() -> StoredPageSnapshot? {
-        guard let active = try? modelContext.fetch(FetchDescriptor<ActivePageModel>())
+    /// Fetches every row of one page table. A failed fetch is logged and
+    /// rethrown, never turned into an empty list: callers prune rows that look
+    /// unreferenced, so an empty read would delete saved pages.
+    private func fetch<Model: PersistentModel>(
+        _ type: Model.Type,
+        scope: PageRepositoryReadScope
+    ) throws -> [Model] {
+        do {
+            try beforeRead(scope)
+            return try modelContext.fetch(FetchDescriptor<Model>())
+        } catch {
+            let nsError = error as NSError
+            logger.error(
+                "Page read failed category=\(String(describing: scope), privacy: .public) domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)"
+            )
+            throw error
+        }
+    }
+
+    private func validActivePage() throws -> StoredPageSnapshot? {
+        guard let active = try fetch(ActivePageModel.self, scope: .activePage)
             .sorted(by: { $0.updatedAt > $1.updatedAt })
             .first
         else {
@@ -280,12 +354,8 @@ actor PageRepository: NotionPageDropTitleProviding {
         return snapshot
     }
 
-    private func validPinnedPages() -> [StoredPageSnapshot] {
-        guard let models = try? modelContext.fetch(FetchDescriptor<PinnedPageModel>()) else {
-            logger.error("Page read failed category=pins-fetch")
-            return []
-        }
-        return models.compactMap { model in
+    private func validPinnedPages() throws -> [StoredPageSnapshot] {
+        try fetch(PinnedPageModel.self, scope: .pinnedPages).compactMap { model in
             guard let value = snapshotIfValid(model) else {
                 logger.error("Skipped page row category=invalid-pin")
                 return nil
@@ -294,12 +364,8 @@ actor PageRepository: NotionPageDropTitleProviding {
         }
     }
 
-    private func validRecentPages() -> [StoredPageSnapshot] {
-        guard let models = try? modelContext.fetch(FetchDescriptor<RecentPageModel>()) else {
-            logger.error("Page read failed category=recents-fetch")
-            return []
-        }
-        return models.compactMap { model in
+    private func validRecentPages() throws -> [StoredPageSnapshot] {
+        try fetch(RecentPageModel.self, scope: .recentPages).compactMap { model in
             guard let value = snapshotIfValid(model) else {
                 logger.error("Skipped page row category=invalid-recent")
                 return nil
@@ -339,8 +405,8 @@ actor PageRepository: NotionPageDropTitleProviding {
     }
 
     private func pruneRecentModels() throws {
-        let models = try modelContext.fetch(FetchDescriptor<RecentPageModel>())
-        let pins = policy.pinnedPages(from: validPinnedPages())
+        let models = try fetch(RecentPageModel.self, scope: .recentPages)
+        let pins = policy.pinnedPages(from: try validPinnedPages())
         let pinnedIDs = policy.retainedRestorationIDs(pinnedPages: pins, recentPages: [])
         let sortedUnpinned = models
             .filter { !pinnedIDs.contains(policy.canonicalID($0.stableID)) }
@@ -353,37 +419,38 @@ actor PageRepository: NotionPageDropTitleProviding {
         }
     }
 
+    /// Deletes restorations outside the pinned and recent union. Every table is
+    /// read before anything is deleted, so a read error prunes nothing.
     private func pruneRestorationsToCurrentUnion() throws {
-        let pins = policy.pinnedPages(from: validPinnedPages())
-        let recents = policy.recentPages(from: validRecentPages(), pinnedPages: pins)
-        _ = try pruneAndReadRestorations(
-            retaining: policy.retainedRestorationIDs(pinnedPages: pins, recentPages: recents)
-        )
-    }
-
-    private func pruneAndReadRestorations(
-        retaining pageIDs: Set<String>
-    ) throws -> [DurablePageRestoration] {
-        let models = try modelContext.fetch(FetchDescriptor<PageRestorationModel>())
-        var values: [DurablePageRestoration] = []
+        let pins = policy.pinnedPages(from: try validPinnedPages())
+        let recents = policy.recentPages(from: try validRecentPages(), pinnedPages: pins)
+        let retainedIDs = policy.retainedRestorationIDs(pinnedPages: pins, recentPages: recents)
+        let models = try fetch(PageRestorationModel.self, scope: .restorations)
         var changed = false
-        for model in models {
-            let pageID = policy.canonicalID(model.stableID)
-            guard pageIDs.contains(pageID) else {
-                modelContext.delete(model)
-                changed = true
-                continue
-            }
-            guard let value = restorationIfValid(model) else {
-                logger.error("Skipped page row category=invalid-restoration")
-                modelContext.delete(model)
-                changed = true
-                continue
-            }
-            values.append(value)
+        for model in models where !retainedIDs.contains(policy.canonicalID(model.stableID))
+            || restorationIfValid(model) == nil {
+            modelContext.delete(model)
+            changed = true
         }
         if changed {
             try saveOrRollback()
+        }
+    }
+
+    /// Reads restorations for the given pages without deleting anything.
+    private func readRestorations(
+        retaining pageIDs: Set<String>
+    ) throws -> [DurablePageRestoration] {
+        let models = try fetch(PageRestorationModel.self, scope: .restorations)
+        let values = models.compactMap { model -> DurablePageRestoration? in
+            guard pageIDs.contains(policy.canonicalID(model.stableID)) else {
+                return nil
+            }
+            guard let value = restorationIfValid(model) else {
+                logger.error("Skipped page row category=invalid-restoration")
+                return nil
+            }
+            return value
         }
         return values.sorted {
             if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
@@ -469,6 +536,20 @@ actor PageRepository: NotionPageDropTitleProviding {
             role: role,
             timestamp: timestamp
         )
+    }
+
+    /// Discards unsaved changes when a write fails part way, for example when
+    /// a read fails after a row was inserted, so a later save can't commit a
+    /// half-applied change.
+    private func rollingBackOnFailure<Value>(
+        _ body: () throws -> Value
+    ) throws -> Value {
+        do {
+            return try body()
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
     }
 
     private func saveOrRollback() throws {

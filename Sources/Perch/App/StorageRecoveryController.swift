@@ -5,6 +5,9 @@ enum StorageRecoveryPhase: Equatable {
     case confirmingArchive
     case archiving
     case failed(String)
+    /// A retry opened the store. Perch must quit and reopen to use it, since
+    /// this session already started without local storage.
+    case storeAvailable
 }
 
 @MainActor
@@ -44,8 +47,37 @@ final class StorageRecoveryController: ObservableObject {
         continueWithoutSavingAction()
     }
 
+    /// Retries opening the store before anything is archived. A transient
+    /// failure, such as a locked or briefly unavailable file, can clear up.
+    func retryOpeningStore() {
+        guard !isBusy, phase != .storeAvailable else { return }
+        do {
+            try context.retryOpenStore()
+            phase = .storeAvailable
+            accessibilityAnnouncementPoster.announce(
+                StorageRecoveryPresentation.retrySucceededMessage
+            )
+        } catch {
+            let message = Self.retryFailureMessage(for: error)
+            phase = .failed(message)
+            accessibilityAnnouncementPoster.announce(message)
+        }
+    }
+
+    /// Quits after a successful retry so the next launch opens the store.
+    func quitToReopen() {
+        guard phase == .storeAvailable, !didRequestTermination else { return }
+        didRequestTermination = true
+        requestTermination()
+    }
+
+    /// The store-open error label, such as `NSCocoaErrorDomain 134110`.
+    var openFailureLabel: String? {
+        context.openFailure?.label
+    }
+
     func requestArchiveConfirmation() {
-        guard !isBusy else { return }
+        guard !isBusy, phase != .storeAvailable else { return }
         phase = .confirmingArchive
     }
 
@@ -74,6 +106,14 @@ final class StorageRecoveryController: ObservableObject {
             phase = .failed(message)
             accessibilityAnnouncementPoster.announce(message)
         }
+    }
+
+    private static func retryFailureMessage(for error: Error) -> String {
+        guard !(error is PersistentStoreRetryError) else {
+            return "Perch can’t retry opening its local store from here. Quit and reopen Perch to try again."
+        }
+        let failure = PersistentStoreOpenFailure(error)
+        return "Perch still can’t open its local store (\(failure.label)). Try again later, or use Reveal Store in Finder before archiving."
     }
 
     private static func failureMessage(for error: Error) -> String {

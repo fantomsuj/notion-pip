@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftData
 import XCTest
 @testable import Perch
@@ -500,6 +501,166 @@ final class PageRepositoryTests: XCTestCase {
         XCTAssertTrue(recents.isEmpty)
     }
 
+    func testPinReadFailurePrunesNothingAndLaterReadRecovers() async throws {
+        let container = try makeContainer()
+        let pinned = try page(number: 0)
+        let recent = try page(number: 1)
+        try seedPinnedAndRecentWithRestorations(pinned: pinned, recent: recent, in: container)
+        let failures = InjectedPageReadFailures()
+        let repository = PageRepository(container: container, beforeRead: failures.check)
+
+        failures.fail(.pinnedPages)
+        do {
+            _ = try await repository.workingSet()
+            XCTFail("Expected the injected pin read failure to throw")
+        } catch is InjectedPageReadFailures.ExpectedFailure {}
+
+        let afterFailure = ModelContext(container)
+        XCTAssertEqual(try afterFailure.fetch(FetchDescriptor<PageRestorationModel>()).count, 2)
+        XCTAssertEqual(try afterFailure.fetch(FetchDescriptor<RecentPageModel>()).count, 1)
+        XCTAssertEqual(try afterFailure.fetch(FetchDescriptor<PinnedPageModel>()).count, 1)
+        XCTAssertTrue(try afterFailure.fetch(FetchDescriptor<ActivePageModel>()).isEmpty)
+
+        failures.clear()
+        let workingSet = try await repository.workingSet()
+        XCTAssertEqual(workingSet.activePage?.pageID, pinned.pageID)
+        XCTAssertEqual(workingSet.pinnedPages.map(\.pageID), [pinned.pageID])
+        XCTAssertEqual(workingSet.recentPages.map(\.pageID), [recent.pageID])
+        XCTAssertEqual(
+            Set(workingSet.restorations.map(\.pageID)),
+            [pinned.pageID, recent.pageID]
+        )
+    }
+
+    func testRecentReadFailureDuringPreparationKeepsRestorations() async throws {
+        let container = try makeContainer()
+        let pinned = try page(number: 0)
+        let recent = try page(number: 1)
+        try seedPinnedAndRecentWithRestorations(pinned: pinned, recent: recent, in: container)
+        let failures = InjectedPageReadFailures()
+        failures.fail(.recentPages)
+        let repository = PageRepository(container: container, beforeRead: failures.check)
+
+        do {
+            try await repository.prepareStoreIfNeeded()
+            XCTFail("Expected the injected recent read failure to throw")
+        } catch is InjectedPageReadFailures.ExpectedFailure {}
+
+        let restorations = try ModelContext(container).fetch(
+            FetchDescriptor<PageRestorationModel>()
+        )
+        XCTAssertEqual(
+            Set(restorations.map(\.stableID)),
+            [pinned.pageID, recent.pageID]
+        )
+    }
+
+    func testReadFailureDuringVisitRollsBackAndPrunesNothing() async throws {
+        let container = try makeContainer()
+        let pinned = try page(number: 0)
+        let recent = try page(number: 1)
+        let visited = try page(number: 2)
+        try seedPinnedAndRecentWithRestorations(pinned: pinned, recent: recent, in: container)
+        let failures = InjectedPageReadFailures()
+        let repository = PageRepository(container: container, beforeRead: failures.check)
+        _ = try await repository.workingSet()
+
+        failures.fail(.pinnedPages)
+        do {
+            _ = try await repository.recordVisit(visited)
+            XCTFail("Expected the injected pin read failure to throw")
+        } catch is InjectedPageReadFailures.ExpectedFailure {}
+
+        failures.clear()
+        let workingSet = try await repository.workingSet()
+        XCTAssertEqual(workingSet.activePage?.pageID, pinned.pageID)
+        XCTAssertEqual(workingSet.recentPages.map(\.pageID), [recent.pageID])
+        XCTAssertEqual(workingSet.restorations.count, 2)
+
+        _ = try await repository.pin(try page(number: 3))
+        let recentsAfterNextSave = try ModelContext(container).fetch(
+            FetchDescriptor<RecentPageModel>()
+        )
+        XCTAssertFalse(recentsAfterNextSave.contains { $0.stableID == visited.pageID })
+    }
+
+    func testStoreOpenPrunesOrphanedRestorationsOnce() async throws {
+        let container = try makeContainer()
+        let pinned = try page(number: 0)
+        let orphan = try page(number: 1)
+        let lateOrphan = try page(number: 2)
+        let context = ModelContext(container)
+        context.insert(
+            PinnedPageModel(
+                stableID: pinned.pageID,
+                canonicalURL: pinned.canonicalURL.absoluteString,
+                displayTitle: pinned.displayTitle,
+                pinnedAt: Date(timeIntervalSince1970: 1_000)
+            )
+        )
+        context.insert(restorationModel(for: orphan, scrollY: 10))
+        try context.save()
+        let repository = PageRepository(container: container)
+
+        _ = try await repository.workingSet()
+        let afterOpen = try ModelContext(container).fetch(
+            FetchDescriptor<PageRestorationModel>()
+        )
+        XCTAssertTrue(afterOpen.isEmpty)
+
+        let laterContext = ModelContext(container)
+        laterContext.insert(restorationModel(for: lateOrphan, scrollY: 20))
+        try laterContext.save()
+
+        let workingSet = try await repository.workingSet()
+        let afterSecondRead = try ModelContext(container).fetch(
+            FetchDescriptor<PageRestorationModel>()
+        )
+        XCTAssertTrue(workingSet.restorations.isEmpty)
+        XCTAssertEqual(afterSecondRead.map(\.stableID), [lateOrphan.pageID])
+    }
+
+    private func seedPinnedAndRecentWithRestorations(
+        pinned: NotionPageReference,
+        recent: NotionPageReference,
+        in container: ModelContainer
+    ) throws {
+        let context = ModelContext(container)
+        context.insert(
+            PinnedPageModel(
+                stableID: pinned.pageID,
+                canonicalURL: pinned.canonicalURL.absoluteString,
+                displayTitle: pinned.displayTitle,
+                pinnedAt: Date(timeIntervalSince1970: 1_000)
+            )
+        )
+        context.insert(
+            RecentPageModel(
+                stableID: recent.pageID,
+                canonicalURL: recent.canonicalURL.absoluteString,
+                displayTitle: recent.displayTitle,
+                visitedAt: Date(timeIntervalSince1970: 2_000)
+            )
+        )
+        context.insert(restorationModel(for: pinned, scrollY: 40))
+        context.insert(restorationModel(for: recent, scrollY: 60))
+        try context.save()
+    }
+
+    private func restorationModel(
+        for page: NotionPageReference,
+        scrollY: Double
+    ) -> PageRestorationModel {
+        PageRestorationModel(
+            stableID: page.pageID,
+            lastURL: page.canonicalURL.absoluteString,
+            scrollX: 0,
+            scrollY: scrollY,
+            scrollProgress: 0.5,
+            updatedAt: Date(timeIntervalSince1970: 3_000)
+        )
+    }
+
     private func makeContainer() throws -> ModelContainer {
         try PerchPersistence.makeContainer(inMemory: true)
     }
@@ -550,5 +711,29 @@ private final class FailNextPageSave: @unchecked Sendable {
                 throw ExpectedFailure()
             }
         }
+    }
+}
+
+private final class InjectedPageReadFailures: Sendable {
+    struct ExpectedFailure: Error {}
+
+    private let failingScopes = OSAllocatedUnfairLock(
+        initialState: Set<PageRepositoryReadScope>()
+    )
+
+    var check: PageRepositoryReadCheck {
+        { [failingScopes] scope in
+            if failingScopes.withLock({ $0.contains(scope) }) {
+                throw ExpectedFailure()
+            }
+        }
+    }
+
+    func fail(_ scope: PageRepositoryReadScope) {
+        failingScopes.withLock { _ = $0.insert(scope) }
+    }
+
+    func clear() {
+        failingScopes.withLock { $0.removeAll() }
     }
 }

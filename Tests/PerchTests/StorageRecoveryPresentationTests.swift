@@ -5,12 +5,13 @@ final class StorageRecoveryPresentationTests: XCTestCase {
     func testActionsHaveDeterministicFocusOrderLabelsHelpAndDefault() {
         XCTAssertEqual(
             StorageRecoveryAction.allCases,
-            [.revealStore, .continueWithoutSaving, .archiveStoreAndQuit]
+            [.revealStore, .retryOpenStore, .continueWithoutSaving, .archiveStoreAndQuit]
         )
         XCTAssertEqual(
             StorageRecoveryAction.allCases.map(\.label),
             [
                 "Reveal Store in Finder",
+                "Try Again",
                 "Continue Without Saving",
                 "Archive Store and Quit…",
             ]

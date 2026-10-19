@@ -262,10 +262,14 @@ sequence.
 4. `NotionWebSession.onRestorationCaptured` sends a validated
    `DurablePageRestoration` to `saveRestoration`. The repository upserts by
    canonical page ID and saves URL, absolute scroll, progress, and update time.
-5. On launch, `workingSet()` bootstraps a legacy active row if necessary,
-   validates every URL/page-ID pair, skips corrupt page rows, deletes invalid or
-   unretained restorations, and returns snapshots. Runtime restores the active
-   page and passes its matching restoration back to WebKit.
+5. On launch, the first `workingSet()` call runs `prepareStoreIfNeeded()` once
+   for the opened store: it bootstraps a legacy active row if necessary and
+   deletes invalid or unretained restorations. Later `workingSet()` calls are
+   pure reads: they validate every URL/page-ID pair, skip corrupt rows, filter
+   restorations to the working set, and never delete or save. Every page read
+   throws on a fetch error instead of returning an empty list, so a failed read
+   can never make saved pages look unreferenced and get pruned. Runtime
+   restores the active page and passes its matching restoration back to WebKit.
 
 ### Trace 3: autosave a revisioned draft and enqueue it
 
@@ -383,9 +387,11 @@ still be constructed against its empty in-memory adapter, but a missing page
 repository means runtime activations are not recorded into a durable or
 populated working set.
 
-The health state is visible as `.persistentStoreUnavailable`. Its retry branch
-does not reopen the store in the running process; correcting the environment
-and relaunching is the recovery path. A later isolated page read/write failure
+The health state is visible as `.persistentStoreUnavailable`. The bootstrapper
+logs the open error's domain and code (never its description, which can carry
+private paths), and the recovery window shows that code and offers Try Again
+before the archive step. A successful retry does not swap the store into the
+running process; it asks the person to quit and reopen Perch. A later isolated page read/write failure
 uses `.pinnedPagePersistenceUnavailable`, which runtime can retry separately.
 
 ## Common misconceptions and failure modes
@@ -396,7 +402,7 @@ uses `.pinnedPagePersistenceUnavailable`, which runtime can retry separately.
 | “`@ModelActor` makes autosave safe.” | All three repositories explicitly disable autosave and choose save/rollback boundaries. | Repository initializers |
 | “V3 migration automatically picks the active page.” | The lightweight migration adds models; first `workingSet()` lazily bootstraps from a valid pin. | `SchemaMigrationTests.testV2PinnedPageBecomesV3ActivePageAndFirstFavorite` |
 | “Pinned and recent are mutually exclusive in storage.” | A recent row may remain; policy excludes pinned IDs from returned recents. | Page repository trace |
-| “A restoration row can preserve any URL.” | Rehydration requires a valid Notion page URL whose ID matches the row ID; invalid rows are deleted. | `DurablePageRestoration` and `pruneAndReadRestorations` |
+| “A restoration row can preserve any URL.” | Rehydration requires a valid Notion page URL whose ID matches the row ID; invalid rows are deleted when the store opens or on the next write. | `DurablePageRestoration` and `PageRepository.prepareStoreIfNeeded()` |
 | “Saving a new active draft deletes the old one.” | The prior active draft becomes stashed and may be reactivated through `returnDraftID`. | Capture repository tests |
 | “Queued means Notion received the capture.” | Queued means local enqueue committed. Remote delivery begins only after claim. | Capture lifecycle diagram |
 | “Any delivered row is safe to delete after 30 days.” | An unresolved operation journal protects both record and linked draft. | Retention tests |

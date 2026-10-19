@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Fixed
+
+- A failed read of saved pages can no longer delete them. Page reads now throw
+  instead of returning an empty list, pruning is skipped on any read error,
+  and a write that fails part way is rolled back. The legacy active-page
+  bootstrap and restoration pruning run once when the store opens instead of
+  on every working-set read, so hovering the stash handle no longer writes.
+- Each SwiftData model is now frozen per schema version, so a future model
+  change can't silently alter older schemas and break migration for people
+  upgrading. A test pins every version's entities and attributes, and new
+  migration tests cover active pages, recents, roles, and restorations.
+- When the local store fails to open, Perch logs the error domain and code,
+  shows the code in the recovery window, and offers Try Again before the
+  archive step.
+
 ### Removed
 
 - Context Suggestions (frontmost-app page matching and reveal-time exact-page
