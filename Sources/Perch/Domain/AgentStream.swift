@@ -21,6 +21,8 @@ enum AgentStreamErrorCode: String, Equatable, Sendable {
     case sequenceMismatch = "sequence_mismatch"
     case payloadTooLarge = "payload_too_large"
     case rateLimited = "rate_limited"
+    case requestTimeout = "request_timeout"
+    case serverBusy = "server_busy"
     case streamGone = "stream_gone"
     case invalidRequest = "invalid_request"
 }
@@ -97,6 +99,22 @@ struct AgentStreamError: Error, Equatable, Sendable {
             code: .rateLimited,
             message: "Too many requests.",
             httpStatus: 429
+        )
+    }
+
+    static func requestTimeout() -> AgentStreamError {
+        AgentStreamError(
+            code: .requestTimeout,
+            message: "The full request didn't arrive in time.",
+            httpStatus: 408
+        )
+    }
+
+    static func serverBusy() -> AgentStreamError {
+        AgentStreamError(
+            code: .serverBusy,
+            message: "Too many open connections. Retry shortly.",
+            httpStatus: 503
         )
     }
 

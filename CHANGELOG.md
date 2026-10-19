@@ -18,6 +18,20 @@
 - When the panel's web view is replaced while it is on screen (for example a
   page switch while Notion recovers from a web content crash), the panel shows
   the new view instead of possibly staying blank on the removed one.
+- Quitting Perch, or turning off Local Agents, no longer hangs when a local
+  process has opened an agent connection and sent nothing. Stopping the
+  listener now closes every open connection, and each connection gets a
+  5-second read and write timeout (idle clients receive `408
+  request_timeout`).
+- The local agent listener serves at most 8 connections at once and answers
+  extras with `503 server_busy` and `Retry-After`.
+- The bearer token is checked before the shared rate limit, so other local
+  processes without the token can no longer cause `429` responses for the real
+  agent. `429` responses now include `Retry-After`.
+- Oversized agent requests get a `413 payload_too_large` response instead of a
+  silent close.
+- Quickly turning Local Agents off and on no longer lets the old listener's
+  shutdown clear the new listener's state.
 
 ### Removed
 

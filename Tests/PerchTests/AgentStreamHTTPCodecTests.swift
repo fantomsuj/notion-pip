@@ -191,6 +191,30 @@ final class AgentStreamHTTPCodecTests: XCTestCase {
         XCTAssertTrue(text.contains("\"expectedSequence\":3"))
     }
 
+    func testEncodeBusyAndTimeoutErrors() {
+        let busy = String(
+            decoding: AgentStreamHTTPCodec.encodeErrorResponse(.serverBusy()),
+            as: UTF8.self
+        )
+        XCTAssertTrue(busy.hasPrefix("HTTP/1.1 503 Service Unavailable\r\n"))
+        XCTAssertTrue(busy.contains("Retry-After: 1\r\n"))
+        XCTAssertTrue(busy.contains("\"code\":\"server_busy\""))
+
+        let limited = String(
+            decoding: AgentStreamHTTPCodec.encodeErrorResponse(.rateLimited()),
+            as: UTF8.self
+        )
+        XCTAssertTrue(limited.contains("Retry-After: 1\r\n"))
+
+        let timeout = String(
+            decoding: AgentStreamHTTPCodec.encodeErrorResponse(.requestTimeout()),
+            as: UTF8.self
+        )
+        XCTAssertTrue(timeout.hasPrefix("HTTP/1.1 408 Request Timeout\r\n"))
+        XCTAssertTrue(timeout.contains("\"code\":\"request_timeout\""))
+        XCTAssertFalse(timeout.contains("Retry-After"))
+    }
+
     func testEncodeStreamAckOmitsContentAndPageIdentity() throws {
         let snapshot = AgentStreamSnapshot(
             id: UUID(),
