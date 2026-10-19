@@ -137,7 +137,8 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private let hiddenIdleEvictionDelay: TimeInterval
     private let scheduleHiddenIdleEviction: NotionWebEvictionScheduler
     private var hiddenIdleEvictionCancellable: AnyCancellable?
-    /// The page whose renderer died while the panel was hidden. It reloads on the next show.
+    /// The page or custom URL whose renderer died while the panel was hidden.
+    /// It reloads on the next show.
     private var deferredRendererRecoveryPageID: String?
     private var panelIsVisible: Bool {
         lifecycleController.isVisible
@@ -372,28 +373,19 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         invalidateURLObservation: @escaping NotionWebURLObservationInvalidator = {
             $0.invalidate()
         },
-        removeActivityBridge: @escaping NotionWebActivityBridgeRemover = {
-            $0.removeScriptMessageHandler(
-                forName: NotionEditorActivityBridge.handlerName,
-                contentWorld: .page
-            )
-            $0.removeScriptMessageHandler(
-                forName: NotionScrollBridge.handlerName,
-                contentWorld: .page
-            )
-            $0.removeScriptMessageHandler(
-                forName: NotionUsefulContentBridge.handlerName,
-                contentWorld: .page
-            )
-            $0.removeAllUserScripts()
-        },
+        removeActivityBridge: @escaping NotionWebActivityBridgeRemover =
+            NotionWebScriptMessageCoordinator.removeAllBridges(from:),
         usefulContentDocumentIdentifierReader:
             @escaping NotionUsefulContentDocumentIdentifierReader = { webView, completion in
+                // The ID lives in the bridge's isolated world, so read it there.
                 webView.evaluateJavaScript(
-                    NotionUsefulContentBridge.documentIdentifierExpression
-                ) { value, _ in
+                    NotionUsefulContentBridge.documentIdentifierExpression,
+                    in: nil,
+                    in: NotionBridgeContentWorld.world
+                ) { result in
                     MainActor.assumeIsolated {
-                        let documentID = (value as? String).flatMap(UUID.init(uuidString:))
+                        let documentID = (try? result.get() as? String)
+                            .flatMap(UUID.init(uuidString:))
                         completion(documentID)
                     }
                 }
@@ -614,12 +606,11 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
             hasActivePage: activePage != nil || activeCustomURL != nil
         )
         if let deferredPageID = deferredRendererRecoveryPageID,
-           let activePage,
-           activePage.pageID == deferredPageID,
-           activeCustomURL == nil,
+           let target = activeRecoveryTarget,
+           target.id == deferredPageID,
            let webView
         {
-            reloadAfterRendererTermination(webView, page: activePage)
+            reloadAfterRendererTermination(webView, target: target)
         } else if resumeCommand == .loadActivePage, let activeCustomURL {
             load(activeCustomURL.canonicalURL, pageID: activeCustomURL.id)
         } else if resumeCommand == .loadActivePage, let activePage {
@@ -1655,7 +1646,7 @@ extension NotionWebSession: WKNavigationDelegate {
         guard isCurrent(webView) else { return }
         switch webContentRecoveryState {
         case let .attempting(pageID):
-            guard pageID == activePage?.pageID, pageID == loadedPageID else { return }
+            guard pageID == activeRecoveryTarget?.id, pageID == loadedPageID else { return }
             webContentRecoveryState = .ready
         case .failed:
             return
@@ -1899,47 +1890,67 @@ extension NotionWebSession: WKNavigationDelegate {
             page: page,
             loadedPageID: loadedPageID
         )
-        guard let page else {
+        // Notion pages and custom pinned URLs both get one automatic reload.
+        guard let target = activeRecoveryTarget else {
             publishNavigationState(.failed("Notion couldn't reload after its web content stopped."))
             return
         }
 
         switch webContentRecoveryState {
-        case .attempting(pageID: page.pageID), .failed(pageID: page.pageID):
-            webContentRecoveryState = .failed(pageID: page.pageID)
+        case .attempting(pageID: target.id), .failed(pageID: target.id):
+            webContentRecoveryState = .failed(pageID: target.id)
             pageStateRestoration.discardPendingScrollRestoration()
-            publishNavigationState(.failed("Notion couldn't reload after its web content stopped."))
+            publishNavigationState(.failed(Self.rendererRecoveryFailureMessage(
+                isCustomURL: page == nil
+            )))
             return
         case .ready, .attempting, .failed:
-            webContentRecoveryState = .attempting(pageID: page.pageID)
+            webContentRecoveryState = .attempting(pageID: target.id)
         }
 
         guard panelIsVisible else {
-            // Don't rebuild Notion for a panel nobody can see. The page stays unloaded
+            // Don't rebuild the page for a panel nobody can see. It stays unloaded
             // and reloads once, with its scroll fallback, the next time the panel shows.
             loadedPageID = nil
             loadedRequestURL = nil
-            deferredRendererRecoveryPageID = page.pageID
+            deferredRendererRecoveryPageID = target.id
             publishNavigationState(.unloaded)
             suspendWebViewIfNeeded()
             return
         }
-        reloadAfterRendererTermination(webView, page: page)
+        reloadAfterRendererTermination(webView, target: target)
     }
 
     private func reloadAfterRendererTermination(
         _ webView: WKWebView,
-        page: NotionPageReference
+        target: (id: String, url: URL)
     ) {
         deferredRendererRecoveryPageID = nil
-        loadedPageID = page.pageID
-        loadedRequestURL = page.canonicalURL
+        loadedPageID = target.id
+        loadedRequestURL = target.url
         publishNavigationState(.loading)
         rendererRecoveryToUsefulContentToken = performanceSignposter?.begin(
             .rendererRecoveryToUsefulContent
         )
         beginNavigationRequestMeasurement(preservingUsefulContentContext: true)
-        loadRequest(webView, URLRequest(url: page.canonicalURL))
+        loadRequest(webView, URLRequest(url: target.url))
+    }
+
+    /// The page or custom URL a crashed renderer should come back to.
+    private var activeRecoveryTarget: (id: String, url: URL)? {
+        if let activePage {
+            return (activePage.pageID, activePage.canonicalURL)
+        }
+        if let activeCustomURL {
+            return (activeCustomURL.id, activeCustomURL.canonicalURL)
+        }
+        return nil
+    }
+
+    static func rendererRecoveryFailureMessage(isCustomURL: Bool) -> String {
+        isCustomURL
+            ? "This page couldn't reload after its web content stopped."
+            : "Notion couldn't reload after its web content stopped."
     }
 
     private func markWebContentRecoveryFailedIfNeeded() {

@@ -1787,7 +1787,8 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     private var stashAnimationGeneration = 0
     private var spaceTransitionGeneration = 0
     private var pendingStashOriginalFrame: CGRect?
-    private var frameAnimationTask: Task<Void, Never>?
+    private var frameAnimationGeneration = 0
+    private var pendingFrameAnimationCompletion: (@MainActor () -> Void)?
     private var spaceTransitionTask: Task<Void, Never>?
     private var spaceTransitionSavedIgnoresMouseEvents: Bool?
     private var locateHaloTask: Task<Void, Never>?
@@ -1917,10 +1918,11 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         PanelStashTransition.panelTargetFrame(from: frame, toward: placement)
     }
 
-    static func criticallyDampedSpringProgress(_ elapsedFraction: CGFloat) -> CGFloat {
-        let fraction = min(max(elapsedFraction, 0), 1)
-        let scaledTime = 7.2 * fraction
-        return min(1 - (1 + scaledTime) * exp(-scaledTime), 1)
+    /// A smooth ease-out that settles without overshoot, close to a critically
+    /// damped spring. AppKit drives it in step with the display, so it stays
+    /// smooth at 120 Hz.
+    static func springTimingFunction() -> CAMediaTimingFunction {
+        CAMediaTimingFunction(controlPoints: 0.2, 0.75, 0.3, 1)
     }
 
     func present() {
@@ -1991,7 +1993,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         restoredFrame: CGRect,
         completion: @escaping @MainActor () -> Void
     ) {
-        frameAnimationTask?.cancel()
+        cancelFrameAnimation()
         cancelSpaceTransition()
         stashAnimationGeneration &+= 1
         let generation = stashAnimationGeneration
@@ -2034,7 +2036,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     func presentForPullReveal(at frame: CGRect) {
         cancelSpaceTransition()
         cancelPendingStashDismissal()
-        frameAnimationTask?.cancel()
+        cancelFrameAnimation()
         setFrame(frame, display: false)
         alphaValue = 1
         orderFrontRegardless()
@@ -2105,8 +2107,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
 
     func cancelPendingStashDismissal() {
         stashAnimationGeneration &+= 1
-        frameAnimationTask?.cancel()
-        frameAnimationTask = nil
+        cancelFrameAnimation()
         cancelSpaceTransition()
         guard let pendingStashOriginalFrame else {
             alphaValue = 1
@@ -2127,7 +2128,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         animate: Bool,
         completion: @escaping @MainActor () -> Void
     ) {
-        frameAnimationTask?.cancel()
+        cancelFrameAnimation()
         guard animate,
             !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             frame != self.frame
@@ -2137,39 +2138,45 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
             return
         }
 
-        let startFrame = self.frame
-        let startTime = CACurrentMediaTime()
-        frameAnimationTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled {
-                let elapsed = CACurrentMediaTime() - startTime
-                let elapsedFraction = CGFloat(elapsed / Self.springAnimationDuration)
-                guard elapsedFraction < 1 else { break }
-                let progress = Self.criticallyDampedSpringProgress(elapsedFraction)
-                setFrame(
-                    Self.interpolatedFrame(from: startFrame, to: frame, progress: progress),
-                    display: display
-                )
-                try? await Task.sleep(for: .milliseconds(16))
+        frameAnimationGeneration &+= 1
+        let generation = frameAnimationGeneration
+        pendingFrameAnimationCompletion = completion
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.springAnimationDuration
+            context.timingFunction = Self.springTimingFunction()
+            animator().setFrame(frame, display: display)
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                    frameAnimationGeneration == generation,
+                    let completion = pendingFrameAnimationCompletion
+                else {
+                    return
+                }
+                pendingFrameAnimationCompletion = nil
+                setFrame(frame, display: display)
+                completion()
             }
-            guard !Task.isCancelled else { return }
-            setFrame(frame, display: display)
-            frameAnimationTask = nil
-            completion()
         }
     }
 
-    private static func interpolatedFrame(
-        from start: CGRect,
-        to end: CGRect,
-        progress: CGFloat
-    ) -> CGRect {
-        CGRect(
-            x: start.minX + (end.minX - start.minX) * progress,
-            y: start.minY + (end.minY - start.minY) * progress,
-            width: start.width + (end.width - start.width) * progress,
-            height: start.height + (end.height - start.height) * progress
-        )
+    /// Stops an in-flight frame animation where it is and always runs its
+    /// completion, so a caller is never left waiting on an animation that
+    /// ended early (for example, a programmatic-frame flag that would stay
+    /// set and make later user moves look programmatic).
+    func cancelFrameAnimation() {
+        guard let completion = pendingFrameAnimationCompletion else { return }
+        frameAnimationGeneration &+= 1
+        pendingFrameAnimationCompletion = nil
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            animator().setFrame(self.frame, display: false)
+        }
+        completion()
+    }
+
+    var isAnimatingFrame: Bool {
+        pendingFrameAnimationCompletion != nil
     }
 
     private func removeLocateHalo() {
@@ -2186,7 +2193,7 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
         restoring restoreFrame: CGRect,
         completion: @escaping @MainActor () -> Void
     ) {
-        frameAnimationTask?.cancel()
+        cancelFrameAnimation()
         cancelSpaceTransition()
         stashAnimationGeneration &+= 1
         let generation = stashAnimationGeneration

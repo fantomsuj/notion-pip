@@ -149,6 +149,13 @@ struct PiPChromeView: View {
     /// Tall enough to catch the pointer as it approaches the top edge without
     /// covering a large clickable region of the Notion page underneath.
     static let topControlsRevealHeight: CGFloat = 16
+    /// The hover strip only covers the top trailing corner, matching the
+    /// top-edge move band, so it doesn't sit over Notion's scrollbar or
+    /// catch clicks further down the right edge.
+    static let topControlsRevealSize = CGSize(
+        width: topControlsRevealHeight,
+        height: TopEdgeTrackpadMoveController.activeHeight
+    )
     static let topControlsHoverOutset: CGFloat = 12
 
     @ObservedObject var webSession: NotionWebSession
@@ -291,7 +298,10 @@ struct PiPChromeView: View {
         .overlay(alignment: .topTrailing) {
             ZStack(alignment: .topTrailing) {
                 Color.clear
-                    .frame(width: Self.topControlsRevealHeight)
+                    .frame(
+                        width: Self.topControlsRevealSize.width,
+                        height: Self.topControlsRevealSize.height
+                    )
                     .contentShape(Rectangle())
                     .onHover { isHovering in
                         topControlsHover.setHovering(isHovering)

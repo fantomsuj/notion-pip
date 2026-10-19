@@ -5,6 +5,14 @@ enum SpaceTransitionEvent: Equatable, Sendable {
     case activeSpaceDidChange(SpaceTransitionDirection?)
 }
 
+/// A direction hint read from a key or swipe event, before any task is spawned.
+struct SpaceTransitionHint: Equatable, Sendable {
+    var direction: SpaceTransitionDirection
+    /// Control-arrow hints start the departure animation right away; swipe
+    /// hints only supply direction for the Space change that follows.
+    var publishes: Bool
+}
+
 @MainActor
 protocol SpaceTransitionObserving: AnyObject {
     func start(_ handler: @escaping @MainActor (SpaceTransitionEvent) -> Void)
@@ -58,16 +66,21 @@ final class AppKitSpaceTransitionObserver: SpaceTransitionObserving {
         localEventMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.keyDown, .swipe]
         ) { [weak self] event in
-            Task { @MainActor [weak self] in
-                self?.recordHint(from: event)
+            // Filter before spawning a task so ordinary typing costs nothing.
+            if let hint = Self.hint(from: event) {
+                Task { @MainActor [weak self] in
+                    self?.recordHint(hint.direction, publishes: hint.publishes)
+                }
             }
             return event
         }
         globalEventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.swipe]
         ) { [weak self] event in
-            Task { @MainActor [weak self] in
-                self?.recordHint(from: event)
+            if let hint = Self.hint(from: event) {
+                Task { @MainActor [weak self] in
+                    self?.recordHint(hint.direction, publishes: hint.publishes)
+                }
             }
         }
     }
@@ -111,22 +124,34 @@ final class AppKitSpaceTransitionObserver: SpaceTransitionObserving {
         }
     }
 
-    private func recordHint(from event: NSEvent) {
-        if event.type == .keyDown {
-            guard event.modifierFlags.contains(.control),
-                !event.modifierFlags.contains(.command),
-                !event.modifierFlags.contains(.option),
-                let direction = SpaceTransitionMotionPolicy.direction(forKeyCode: event.keyCode)
-            else {
-                return
-            }
-            recordHint(direction)
-            return
+    nonisolated static func hint(from event: NSEvent) -> SpaceTransitionHint? {
+        switch event.type {
+        case .keyDown:
+            return keyHint(modifierFlags: event.modifierFlags, keyCode: event.keyCode)
+        case .swipe:
+            return swipeHint(deltaX: event.deltaX)
+        default:
+            return nil
         }
-        if event.type == .swipe,
-            let direction = SpaceTransitionMotionPolicy.direction(forSwipeDeltaX: event.deltaX)
-        {
-            recordHint(direction, publishes: false)
+    }
+
+    nonisolated static func keyHint(
+        modifierFlags: NSEvent.ModifierFlags,
+        keyCode: UInt16
+    ) -> SpaceTransitionHint? {
+        guard modifierFlags.contains(.control),
+            !modifierFlags.contains(.command),
+            !modifierFlags.contains(.option),
+            let direction = SpaceTransitionMotionPolicy.direction(forKeyCode: keyCode)
+        else {
+            return nil
+        }
+        return SpaceTransitionHint(direction: direction, publishes: true)
+    }
+
+    nonisolated static func swipeHint(deltaX: CGFloat) -> SpaceTransitionHint? {
+        SpaceTransitionMotionPolicy.direction(forSwipeDeltaX: deltaX).map {
+            SpaceTransitionHint(direction: $0, publishes: false)
         }
     }
 

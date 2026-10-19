@@ -9,19 +9,7 @@ final class NotionWebScriptMessageCoordinatorTests: XCTestCase {
         var removedControllers: [WKUserContentController] = []
         let coordinator = NotionWebScriptMessageCoordinator { controller in
             removedControllers.append(controller)
-            controller.removeScriptMessageHandler(
-                forName: NotionEditorActivityBridge.handlerName,
-                contentWorld: .page
-            )
-            controller.removeScriptMessageHandler(
-                forName: NotionScrollBridge.handlerName,
-                contentWorld: .page
-            )
-            controller.removeScriptMessageHandler(
-                forName: NotionUsefulContentBridge.handlerName,
-                contentWorld: .page
-            )
-            controller.removeAllUserScripts()
+            NotionWebScriptMessageCoordinator.removeAllBridges(from: controller)
         }
         let firstController = WKUserContentController()
         let secondController = WKUserContentController()
@@ -179,6 +167,111 @@ final class NotionWebScriptMessageCoordinatorTests: XCTestCase {
             forName: NotionUsefulContentBridge.handlerName,
             contentWorld: .page
         )
+    }
+
+    func testBridgesLiveInAnIsolatedWorldThatPageScriptsCannotReach() async throws {
+        let coordinator = NotionWebScriptMessageCoordinator()
+        let configuration = WKWebViewConfiguration()
+        coordinator.install(in: configuration.userContentController)
+        defer { coordinator.remove(from: configuration.userContentController) }
+        let webView = WKWebView(
+            frame: .init(x: 0, y: 0, width: 400, height: 300),
+            configuration: configuration
+        )
+        webView.loadHTMLString(
+            "<!doctype html><html><body><p>Page</p></body></html>",
+            baseURL: try XCTUnwrap(URL(string: "https://www.notion.so/page"))
+        )
+        let probe = """
+            return [
+              typeof window.webkit?.messageHandlers?.perchChromeActivity,
+              typeof window.webkit?.messageHandlers?.perchScroll,
+              typeof window.webkit?.messageHandlers?.perchUsefulContent,
+              typeof window.__perchUsefulContentDocumentID,
+            ].join(',');
+            """
+
+        try await waitUntil {
+            let value = try? await webView.callAsyncJavaScript(
+                probe,
+                arguments: [:],
+                in: nil,
+                contentWorld: NotionBridgeContentWorld.world
+            ) as? String
+            return value == "object,object,object,string"
+        }
+        let pageValue = try await webView.callAsyncJavaScript(
+            probe,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+
+        XCTAssertEqual(pageValue, "undefined,undefined,undefined,undefined")
+    }
+
+    func testNotionScriptsDoNothingOnCustomURLHosts() async throws {
+        let coordinator = NotionWebScriptMessageCoordinator()
+        let configuration = WKWebViewConfiguration()
+        coordinator.install(in: configuration.userContentController)
+        defer { coordinator.remove(from: configuration.userContentController) }
+        let webView = WKWebView(
+            frame: .init(x: 0, y: 0, width: 400, height: 300),
+            configuration: configuration
+        )
+        webView.loadHTMLString(
+            "<!doctype html><html><body><p>Course</p></body></html>",
+            baseURL: try XCTUnwrap(URL(string: "https://canvas.example.edu/courses/12"))
+        )
+        let probe = """
+            return [
+              typeof window.__perchChromeActivityInstalled,
+              typeof window.__perchScrollInstalled,
+              typeof window.__perchUsefulContentInstalled,
+              document.readyState,
+            ].join(',');
+            """
+
+        try await waitUntil {
+            let value = try? await webView.callAsyncJavaScript(
+                probe,
+                arguments: [:],
+                in: nil,
+                contentWorld: NotionBridgeContentWorld.world
+            ) as? String
+            return value?.hasSuffix(",complete") == true
+        }
+        let value = try await webView.callAsyncJavaScript(
+            probe,
+            arguments: [:],
+            in: nil,
+            contentWorld: NotionBridgeContentWorld.world
+        ) as? String
+
+        XCTAssertEqual(value, "undefined,undefined,undefined,complete")
+    }
+
+    func testHostGuardListsEveryTrustedNotionHost() {
+        let guarded = NotionWebScriptMessageCoordinator.notionHostsOnly("run();")
+
+        for host in NotionScriptMessageOrigin.trustedHosts {
+            XCTAssertTrue(guarded.contains("'\(host)'"))
+        }
+        XCTAssertTrue(guarded.contains("window.location.protocol === 'https:'"))
+        XCTAssertTrue(guarded.contains("run();"))
+    }
+
+    func testRemovingBridgesClearsTheIsolatedWorldSoTheyCanBeReinstalled() {
+        let coordinator = NotionWebScriptMessageCoordinator()
+        let controller = WKUserContentController()
+
+        coordinator.install(in: controller)
+        coordinator.remove(from: controller)
+        coordinator.install(in: controller)
+
+        XCTAssertEqual(controller.userScripts.count, 3)
+        coordinator.remove(from: controller)
+        XCTAssertTrue(controller.userScripts.isEmpty)
     }
 
     private func waitUntil(

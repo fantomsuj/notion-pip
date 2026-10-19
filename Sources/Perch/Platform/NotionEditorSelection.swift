@@ -286,6 +286,40 @@ enum NotionEditorSelectionEvaluation: Equatable {
                 editable.focus({ preventScroll: true });
                 const selection = window.getSelection();
                 selection.setBaseAndExtent(anchor, snapshot.anchorOffset, focus, snapshot.focusOffset);
+                // Prefer the browser's own editing command: it fires real
+                // beforeinput and input events that Notion's editor handles.
+                // Fall back to a direct DOM insert only when the command did
+                // nothing, so the text is never inserted twice.
+                const insertPlainText = (fallbackInputType) => {
+                  const before = editable.textContent;
+                  let handled = false;
+                  // An editor that cancels beforeinput has taken the text
+                  // itself, even if it applies it after this script returns.
+                  let editorTookInput = false;
+                  const noteBeforeInput = (event) => {
+                    if (event.defaultPrevented) editorTookInput = true;
+                  };
+                  window.addEventListener('beforeinput', noteBeforeInput);
+                  try {
+                    handled = document.execCommand('insertText', false, payload.text);
+                  } catch (_) {
+                    handled = false;
+                  } finally {
+                    window.removeEventListener('beforeinput', noteBeforeInput);
+                  }
+                  if (handled || editorTookInput || editable.textContent !== before) return;
+                  const range = selection.getRangeAt(0);
+                  range.deleteContents();
+                  const inserted = document.createTextNode(payload.text);
+                  range.insertNode(inserted);
+                  range.setStartAfter(inserted);
+                  range.collapse(true);
+                  selection.removeAllRanges();
+                  selection.addRange(range);
+                  editable.dispatchEvent(new InputEvent('input', {
+                    bubbles: true, inputType: fallbackInputType, data: payload.text,
+                  }));
+                };
                 if (payload.mode === 'pasteMarkdown') {
                   const data = new DataTransfer();
                   data.setData('text/plain', payload.text);
@@ -296,31 +330,9 @@ enum NotionEditorSelectionEvaluation: Equatable {
                     clipboardData: data,
                   });
                   const pasteHandled = !editable.dispatchEvent(pasteEvent) || pasteEvent.defaultPrevented;
-                  if (!pasteHandled) {
-                    const range = selection.getRangeAt(0);
-                    range.deleteContents();
-                    const inserted = document.createTextNode(payload.text);
-                    range.insertNode(inserted);
-                    range.setStartAfter(inserted);
-                    range.collapse(true);
-                    selection.removeAllRanges();
-                    selection.addRange(range);
-                    editable.dispatchEvent(new InputEvent('input', {
-                      bubbles: true, inputType: 'insertFromPaste', data: payload.text,
-                    }));
-                  }
+                  if (!pasteHandled) insertPlainText('insertFromPaste');
                 } else {
-                  const range = selection.getRangeAt(0);
-                  range.deleteContents();
-                  const inserted = document.createTextNode(payload.text);
-                  range.insertNode(inserted);
-                  range.setStartAfter(inserted);
-                  range.collapse(true);
-                  selection.removeAllRanges();
-                  selection.addRange(range);
-                  editable.dispatchEvent(new InputEvent('input', {
-                    bubbles: true, inputType: 'insertText', data: payload.text,
-                  }));
+                  insertPlainText('insertText');
                 }
                 delete editable.__perchSelectionToken;
 

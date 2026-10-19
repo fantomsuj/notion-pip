@@ -3,13 +3,21 @@ import WebKit
 
 typealias NotionWebActivityBridgeRemover = @MainActor (WKUserContentController) -> Void
 
+/// The isolated JavaScript world Perch's bridge scripts and message handlers
+/// live in. Page scripts share the DOM but can't see these handlers, so they
+/// can't fake typing, scroll or content-ready messages.
+enum NotionBridgeContentWorld {
+    @MainActor
+    static let world = WKContentWorld.world(name: "com.fantomsuj.Perch.notion-bridge")
+}
+
 enum NotionEditorActivity: String, Equatable {
     case typingStarted
     case editingEnded
 }
 
-private enum NotionScriptMessageOrigin {
-    private static let trustedHosts: Set<String> = [
+enum NotionScriptMessageOrigin {
+    static let trustedHosts: Set<String> = [
         "app.notion.com",
         "notion.com",
         "www.notion.com",
@@ -262,24 +270,28 @@ final class NotionWebScriptMessageCoordinator {
     private var usefulContentHandler: WeakNotionUsefulContentMessageHandler?
 
     init(
-        removeBridges: @escaping NotionWebActivityBridgeRemover = { controller in
-            controller.removeScriptMessageHandler(
-                forName: NotionEditorActivityBridge.handlerName,
-                contentWorld: .page
-            )
-            controller.removeScriptMessageHandler(
-                forName: NotionScrollBridge.handlerName,
-                contentWorld: .page
-            )
-            controller.removeScriptMessageHandler(
-                forName: NotionUsefulContentBridge.handlerName,
-                contentWorld: .page
-            )
-            controller.removeAllUserScripts()
-        }
+        removeBridges: @escaping NotionWebActivityBridgeRemover =
+            NotionWebScriptMessageCoordinator.removeAllBridges(from:)
     ) {
         self.removeBridges = removeBridges
     }
+
+    /// Removes every bridge handler and user script Perch installs.
+    static func removeAllBridges(from controller: WKUserContentController) {
+        for name in Self.handlerNames {
+            controller.removeScriptMessageHandler(
+                forName: name,
+                contentWorld: NotionBridgeContentWorld.world
+            )
+        }
+        controller.removeAllUserScripts()
+    }
+
+    static let handlerNames = [
+        NotionEditorActivityBridge.handlerName,
+        NotionScrollBridge.handlerName,
+        NotionUsefulContentBridge.handlerName,
+    ]
 
     @discardableResult
     func install(in controller: WKUserContentController) -> UInt {
@@ -298,41 +310,59 @@ final class NotionWebScriptMessageCoordinator {
 
         controller.addUserScript(
             WKUserScript(
-                source: Self.editorActivityScript,
+                source: Self.notionHostsOnly(Self.editorActivityScript),
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
+                forMainFrameOnly: true,
+                in: NotionBridgeContentWorld.world
             )
         )
         controller.add(
             activityHandler,
-            contentWorld: .page,
+            contentWorld: NotionBridgeContentWorld.world,
             name: NotionEditorActivityBridge.handlerName
         )
         controller.addUserScript(
             WKUserScript(
-                source: Self.scrollScript,
+                source: Self.notionHostsOnly(Self.scrollScript),
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
+                forMainFrameOnly: true,
+                in: NotionBridgeContentWorld.world
             )
         )
         controller.add(
             scrollHandler,
-            contentWorld: .page,
+            contentWorld: NotionBridgeContentWorld.world,
             name: NotionScrollBridge.handlerName
         )
         controller.addUserScript(
             WKUserScript(
-                source: Self.usefulContentScript(),
+                source: Self.notionHostsOnly(Self.usefulContentScript()),
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
+                forMainFrameOnly: true,
+                in: NotionBridgeContentWorld.world
             )
         )
         controller.add(
             usefulContentHandler,
-            contentWorld: .page,
+            contentWorld: NotionBridgeContentWorld.world,
             name: NotionUsefulContentBridge.handlerName
         )
         return generation
+    }
+
+    /// Wraps a bridge script so it only runs on Notion's own hosts. Custom
+    /// pinned URLs share the web view, and the Notion scripts (including a
+    /// whole-document MutationObserver) have no work to do on other sites.
+    static func notionHostsOnly(_ script: String) -> String {
+        let hosts = NotionScriptMessageOrigin.trustedHosts.sorted()
+            .map { "'\($0)'" }
+            .joined(separator: ", ")
+        return """
+            if (window.location.protocol === 'https:' &&
+                [\(hosts)].includes(window.location.hostname.toLowerCase())) {
+            \(script)
+            }
+            """
     }
 
     func remove(from controller: WKUserContentController) {

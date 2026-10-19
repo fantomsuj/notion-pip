@@ -1612,6 +1612,33 @@ final class NotionWebSessionTests: XCTestCase {
         }
     }
 
+    func testCustomPinnedURLGetsOneAutomaticReloadAfterRendererTermination() throws {
+        var loadedURLs: [URL?] = []
+        let session = NotionWebSession(
+            loadRequest: { _, request in loadedURLs.append(request.url) }
+        )
+        let pin = try CustomPinnedURL(validatingString: "https://canvas.example.edu/courses/12")
+        session.activate(customURL: pin)
+        let webView = try XCTUnwrap(session.webView)
+
+        session.webViewWebContentProcessDidTerminate(webView)
+
+        XCTAssertEqual(loadedURLs, [pin.canonicalURL, pin.canonicalURL])
+        XCTAssertEqual(session.state, .loading)
+        XCTAssertEqual(session.activeCustomURL, pin)
+
+        session.webViewWebContentProcessDidTerminate(webView)
+
+        XCTAssertEqual(loadedURLs, [pin.canonicalURL, pin.canonicalURL])
+        guard case let .failed(message) = session.state else {
+            return XCTFail("Expected a second termination to stop automatic reloads")
+        }
+        XCTAssertEqual(
+            message,
+            NotionWebSession.rendererRecoveryFailureMessage(isCustomURL: true)
+        )
+    }
+
     func testSuccessfulRecoveryRestoresSamePageScrollButNeverDOMSelection() throws {
         let page = try makePage(id: firstPageID, title: "Roadmap")
         let webView = TrustedURLWebView(url: page.canonicalURL)
@@ -1755,19 +1782,7 @@ final class NotionWebSessionTests: XCTestCase {
             },
             removeActivityBridge: { controller in
                 bridgeRemovalCount += 1
-                controller.removeScriptMessageHandler(
-                    forName: NotionEditorActivityBridge.handlerName,
-                    contentWorld: .page
-                )
-                controller.removeScriptMessageHandler(
-                    forName: NotionScrollBridge.handlerName,
-                    contentWorld: .page
-                )
-                controller.removeScriptMessageHandler(
-                    forName: NotionUsefulContentBridge.handlerName,
-                    contentWorld: .page
-                )
-                controller.removeAllUserScripts()
+                NotionWebScriptMessageCoordinator.removeAllBridges(from: controller)
             }
         )
         try session.activate(page: makePage(id: firstPageID, title: "Roadmap"))

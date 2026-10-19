@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import XCTest
 @testable import Perch
@@ -67,6 +68,79 @@ final class SpaceTransitionCoordinatorTests: XCTestCase {
         harness.observer.recordHint(.toLeading, at: 2, publishes: true)
 
         XCTAssertTrue(harness.events.isEmpty)
+    }
+
+    func testOrdinaryTypingIsFilteredOutBeforeAnyHintIsRecorded() {
+        XCTAssertNil(AppKitSpaceTransitionObserver.keyHint(modifierFlags: [], keyCode: 0))
+        XCTAssertNil(AppKitSpaceTransitionObserver.keyHint(modifierFlags: [], keyCode: 123))
+        XCTAssertNil(
+            AppKitSpaceTransitionObserver.keyHint(modifierFlags: [.control], keyCode: 0)
+        )
+        XCTAssertNil(
+            AppKitSpaceTransitionObserver.keyHint(
+                modifierFlags: [.control, .command],
+                keyCode: 123
+            )
+        )
+        XCTAssertNil(
+            AppKitSpaceTransitionObserver.keyHint(
+                modifierFlags: [.control, .option],
+                keyCode: 124
+            )
+        )
+    }
+
+    func testControlArrowAndSwipeProduceHints() {
+        XCTAssertEqual(
+            AppKitSpaceTransitionObserver.keyHint(modifierFlags: [.control], keyCode: 123),
+            SpaceTransitionHint(direction: .toLeading, publishes: true)
+        )
+        XCTAssertEqual(
+            AppKitSpaceTransitionObserver.keyHint(modifierFlags: [.control], keyCode: 124),
+            SpaceTransitionHint(direction: .toTrailing, publishes: true)
+        )
+        XCTAssertEqual(
+            AppKitSpaceTransitionObserver.swipeHint(deltaX: -1),
+            SpaceTransitionHint(direction: .toTrailing, publishes: false)
+        )
+        XCTAssertNil(AppKitSpaceTransitionObserver.swipeHint(deltaX: 0))
+    }
+
+    func testKeyEventsAreFilteredFromTheEventItself() throws {
+        let letter = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "a",
+                charactersIgnoringModifiers: "a",
+                isARepeat: false,
+                keyCode: 0
+            )
+        )
+        let controlLeft = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.control],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "",
+                charactersIgnoringModifiers: "",
+                isARepeat: false,
+                keyCode: 123
+            )
+        )
+
+        XCTAssertNil(AppKitSpaceTransitionObserver.hint(from: letter))
+        XCTAssertEqual(
+            AppKitSpaceTransitionObserver.hint(from: controlLeft),
+            SpaceTransitionHint(direction: .toLeading, publishes: true)
+        )
     }
 
     private func makeHarness() -> SpaceTransitionObserverHarness {
