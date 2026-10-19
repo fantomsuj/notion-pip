@@ -100,8 +100,10 @@ unloaded | loading | active | suspended | offline | failed(message)
 
 [`NotionWebLifecycleController.swift`](../../Sources/Perch/Platform/NotionWebLifecycleController.swift)
 owns visibility, suspension, and eviction eligibility without retaining WebKit
-objects. A detached view remains warm for the app session unless critical
-memory pressure or an explicit policy decision evicts it. `NotionWebSession`
+objects. A detached view stays warm for 10 minutes
+(`NotionWebSession.hiddenIdleEvictionDelay`) and is then evicted. A memory
+pressure warning evicts it sooner unless the page is protected by typing, and
+critical pressure evicts it even then. `NotionWebSession`
 executes lifecycle commands by detaching, configuring, or retiring the view.
 
 ```mermaid
@@ -120,9 +122,9 @@ stateDiagram-v2
     suspended --> loading: show after eviction or changed page
     suspended --> offline: show retained offline result
     suspended --> failed: show retained failure result
-    suspended --> unloaded: warm or memory-pressure eviction
+    suspended --> unloaded: idle timer or memory-pressure eviction
     active --> loading: renderer termination; canonical reload
-    suspended --> suspended: hidden renderer termination; canonical reload
+    suspended --> suspended: hidden renderer termination; reload on next show
 ```
 
 While suspended, navigation callbacks update a saved “state before suspension”
@@ -212,7 +214,8 @@ small helper methods while retaining ownership and failure behavior.
 2. Completion is accepted only if the capture generation, visibility, view,
    active page, and loaded page are still unchanged.
 3. The session ends editing, pauses media, detaches the view, enters
-   `suspended`, and schedules warm eviction.
+   `suspended`, and starts a 10-minute idle timer. When it fires, the view is
+   evicted unless typing protects it, in which case the timer starts again.
 4. A show during the warm period cancels eviction, reuses the same view,
    focuses it after attachment, and restores selection only when the page and
    DOM token still match.
@@ -225,7 +228,11 @@ small helper methods while retaining ownership and failure behavior.
    `captureAndTearDown` ends editing and reads WebKit's opaque interaction
    state.
 2. It creates a `DurablePageRestoration` only if the URL validates to the same
-   page ID, using the latest strict scroll snapshot or zero defaults.
+   page ID, using the latest strict scroll snapshot or zero defaults. Notion
+   scrolls inside `.notion-frame .notion-scroller`, not the window, so the scroll
+   bridge listens for scroll events in the capture phase and reads that element.
+   Quitting does not switch pages, so the app also captures and saves the active
+   page from `captureActivePageRestoration()` while terminating.
 3. The current view is retired. The next page gets a newly ensured view, so
    there is still only one live view.
 4. Returning to a page first tries the one-shot opaque interaction state. If it
@@ -238,10 +245,11 @@ small helper methods while retaining ownership and failure behavior.
 
 ### Flow 6: evict or recover a renderer
 
-1. Critical memory pressure or an explicit eviction request asks the lifecycle
-   policy whether the session is hidden and suspended. A warning alone keeps
-   the single detached view warm; critical pressure overrides editing
-   protection so reclamation is immediate.
+1. The hidden idle timer, memory pressure, or an explicit eviction request asks
+   the lifecycle policy whether the session is hidden and suspended. The timer
+   and a pressure warning respect typing protection and leave a visible panel
+   alone; critical pressure overrides editing protection so reclamation is
+   immediate.
 2. Eligible eviction captures current interaction and durable state, retires
    the view, and leaves the session `unloaded`. Memory-pressure eviction then
    removes opaque interaction snapshots, leaving durable fallback.
@@ -252,8 +260,10 @@ small helper methods while retaining ownership and failure behavior.
    bridges and selection, discards opaque restoration, and keeps only a numeric
    scroll fallback captured for the same selected page.
 5. The session keeps the same `WKWebView`, advances its callback generation,
-   and reloads only the current validated canonical URL once. This attempt also
-   runs while stashed, while lifecycle publication remains suspended.
+   and reloads only the current validated canonical URL once. While stashed it
+   does not reload: it marks the page unloaded and makes that one attempt the
+   next time the panel shows, so a hidden Perch never rebuilds Notion in the
+   background.
 6. A successful finish activates the recovered document. A validated redirect
    can adopt a different Notion page, but it discards the old page's scroll
    fallback. A failed reload or repeated termination stops automatic reloads

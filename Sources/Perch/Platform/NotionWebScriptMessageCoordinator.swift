@@ -56,6 +56,29 @@ struct NotionScrollSnapshot: Equatable, Sendable {
 enum NotionScrollBridge {
     static let handlerName = "perchScroll"
 
+    /// JavaScript that defines `perchNotionScroller()` and `perchScrollSnapshot()`.
+    ///
+    /// Notion scrolls a page inside `.notion-frame .notion-scroller`, not the window, so
+    /// `window.scrollY` stays 0. The first match in document order is the page scroller,
+    /// because the horizontal scrollers inside tables and boards are its descendants. Pages
+    /// that don't use Notion's layout fall back to the document's own scrolling element.
+    static let scrollerHelpers = #"""
+        const perchNotionScroller = () =>
+          document.querySelector('.notion-frame .notion-scroller')
+            || document.scrollingElement
+            || document.documentElement;
+        const perchScrollSnapshot = () => {
+          const scroller = perchNotionScroller();
+          const y = scroller.scrollTop;
+          const maximum = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+          return {
+            x: scroller.scrollLeft,
+            y,
+            progress: maximum > 0 ? Math.min(1, Math.max(0, y / maximum)) : 0,
+          };
+        };
+        """#
+
     static func snapshot(
         from body: Any,
         isMainFrame: Bool,
@@ -387,24 +410,26 @@ final class NotionWebScriptMessageCoordinator {
         (() => {
           if (window.__perchScrollInstalled) return;
           window.__perchScrollInstalled = true;
+          \#(NotionScrollBridge.scrollerHelpers)
           let timer = null;
 
           const publish = () => {
             timer = null;
-            const root = document.scrollingElement || document.documentElement;
-            const maximum = Math.max(0, root.scrollHeight - window.innerHeight);
-            const y = window.scrollY;
-            window.webkit?.messageHandlers?.perchScroll?.postMessage({
-              x: window.scrollX,
-              y,
-              progress: maximum > 0 ? Math.min(1, Math.max(0, y / maximum)) : 0,
-            });
+            window.webkit?.messageHandlers?.perchScroll?.postMessage(perchScrollSnapshot());
           };
 
-          window.addEventListener('scroll', () => {
+          // Scroll events from an element don't bubble, so listen in the capture phase.
+          // Only the page scroller (or the document itself) counts, not tables or sidebars.
+          document.addEventListener('scroll', (event) => {
+            const scroller = perchNotionScroller();
+            const isPageScroll = event.target === scroller
+              || (event.target === document
+                && (scroller === document.scrollingElement
+                  || scroller === document.documentElement));
+            if (!isPageScroll) return;
             if (timer !== null) window.clearTimeout(timer);
             timer = window.setTimeout(publish, 120);
-          }, { passive: true });
+          }, { capture: true, passive: true });
           window.addEventListener('pagehide', publish, { capture: true });
         })();
         """#

@@ -63,8 +63,11 @@ URL and makes a best-effort, two-second attempt to restore scroll position. If
 that fallback cannot load, it returns to the page’s canonical URL and natural
 scroll position. If WebKit's live content process exits, the app keeps the
 surviving view, invalidates DOM-bound state, and makes one canonical reload with
-a same-page scroll fallback. A repeated termination or failed reload stops the
-automatic cycle and presents a native retry action.
+a same-page scroll fallback; while the panel is hidden, that reload waits until
+it is shown again. A repeated termination or failed reload stops the
+automatic cycle and presents a native retry action. A hidden panel releases its
+web view after 10 minutes, or sooner under memory pressure, and rebuilds it
+from the saved state the next time it is shown.
 
 ## Why I love building with Notion
 
