@@ -9,6 +9,10 @@ enum InteractionPolicy: Sendable {
     static let pressedScale: CGFloat = 0.96
     /// Interruptible press timing; name the changing property at the call site.
     static let pressDuration: TimeInterval = 0.2
+    /// Toolbar corner selection and press fills share one highlight treatment.
+    static let toolbarButtonHighlightOpacity: Double = 0.14
+    static let toolbarButtonShadowOpacity: Double = 0.10
+    static let toolbarButtonShadowOffsetY: CGFloat = 1
     static let iconCrossfadeDuration: TimeInterval = 0.2
     static let enteringIconScale: CGFloat = 0.25
     static let enteringIconBlur: CGFloat = 4
@@ -36,6 +40,10 @@ enum InteractionPolicy: Sendable {
     static func pressScale(isPressed: Bool, reducesMotion: Bool) -> CGFloat {
         guard isPressed, !reducesMotion else { return 1 }
         return pressedScale
+    }
+
+    static func showsToolbarButtonHighlight(isPressed: Bool) -> Bool {
+        isPressed
     }
 
     static func concentricRadius(outer: CGFloat, inset: CGFloat) -> CGFloat {
