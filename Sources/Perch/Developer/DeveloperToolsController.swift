@@ -193,9 +193,9 @@ final class DeveloperToolsController: NSObject, NSWindowDelegate {
 
     private func startSampling() {
         guard timer == nil else { return }
-        let timer = Timer(timeInterval: Self.sampleInterval, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: Self.sampleInterval, repeats: true) { [weak self] (_: Timer) in
             MainActor.assumeIsolated {
-                self?.refresh()
+                _ = self?.refresh()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
