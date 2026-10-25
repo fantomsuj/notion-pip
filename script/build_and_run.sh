@@ -28,7 +28,6 @@ APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_FRAMEWORKS="$APP_CONTENTS/Frameworks"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
-ENTITLEMENTS="$ROOT_DIR/Support/Perch.entitlements"
 LOCAL_ENTITLEMENTS="$ROOT_DIR/Support/Perch.local.entitlements"
 SPARKLE_CONFIG="$ROOT_DIR/Support/Sparkle.env"
 SIGN_SCRIPT="$ROOT_DIR/script/sign_app.sh"
@@ -190,7 +189,6 @@ open_app() {
 }
 
 terminate_existing_instances() {
-    local attempt
     local process_name
     local processes_remain
 
@@ -198,7 +196,7 @@ terminate_existing_instances() {
         "$PKILL_TOOL" -x "$process_name" >/dev/null 2>&1 || true
     done
 
-    for attempt in {1..50}; do
+    for _ in {1..50}; do
         processes_remain=false
         for process_name in "$APP_NAME" NotionPiP; do
             if "$PGREP_TOOL" -x "$process_name" >/dev/null 2>&1; then
@@ -216,9 +214,8 @@ terminate_existing_instances() {
 }
 
 wait_for_process() {
-    local attempt
     local process_id
-    for attempt in {1..50}; do
+    for _ in {1..50}; do
         process_id="$("$PGREP_TOOL" -x "$APP_NAME" | /usr/bin/head -n 1 || true)"
         if [[ -n "$process_id" ]]; then
             echo "$process_id"
@@ -308,14 +305,12 @@ cleanup_verification_log() {
 }
 
 start_verification_log() {
-    local attempt
-
     VERIFICATION_LOG_FILE="$(/usr/bin/mktemp /tmp/perch-verify.XXXXXX)"
     "$LOG_TOOL" stream --style compact --predicate "process == \"$APP_NAME\"" \
         >"$VERIFICATION_LOG_FILE" 2>&1 &
     VERIFICATION_LOG_PID=$!
 
-    for attempt in {1..50}; do
+    for _ in {1..50}; do
         if ! /bin/kill -0 "$VERIFICATION_LOG_PID" >/dev/null 2>&1; then
             wait "$VERIFICATION_LOG_PID" 2>/dev/null || true
             VERIFICATION_LOG_PID=""

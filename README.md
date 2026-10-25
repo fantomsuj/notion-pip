@@ -95,7 +95,7 @@ testing a Developer ID-signed and notarized beta installed at a stable path.
 Run the tests with:
 
 ```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer script/test.sh
 ```
 
 The default test target is headless: it must not present windows, activate the

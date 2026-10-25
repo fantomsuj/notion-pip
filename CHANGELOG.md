@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### CI
+
+- `script/test.sh` runs the same test sequence as CI (all shell script tests,
+  the shared Swift pass, then the WebKit and AppKit suites one process at a
+  time). CI, the release workflow, `AGENTS.md`, and the README now use it, so
+  the agent client and build-and-run script tests run on every PR.
+- A new Shell lint job runs `shellcheck` on every tracked shell script.
+- The SwiftPM build cache now saves a fresh copy after each run instead of
+  reusing the first one forever for a given `Package.resolved`.
+
 ### Removed
 
 - Deleted the unused Quick Copy prototype (the Accessibility selection

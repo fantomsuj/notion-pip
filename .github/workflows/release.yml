@@ -49,25 +49,7 @@ jobs:
           swift --version
 
       - name: Run release gates
-        run: |
-          bash Tests/ScriptTests/sign_app_tests.sh
-          bash Tests/ScriptTests/package_release_tests.sh
-          bash Tests/ScriptTests/sparkle_key_tests.sh
-          swift test \
-            --skip \
-            '(ExternalDropActivatingWebViewTests|NotionEditorSelectionTests|NotionWebSessionTests|PiPChromeViewTests|PiPPanelGeometryTests|WebNavigationDestinationTests)'
-
-          suites=(
-            ExternalDropActivatingWebViewTests
-            NotionEditorSelectionTests
-            NotionWebSessionTests
-            PiPChromeViewTests
-            PiPPanelGeometryTests
-            WebNavigationDestinationTests
-          )
-          for suite in "${suites[@]}"; do
-            swift test --skip-build --filter "$suite"
-          done
+        run: script/test.sh
 
       - name: Install Developer ID certificate
         env:
