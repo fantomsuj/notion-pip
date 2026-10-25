@@ -83,7 +83,27 @@ Full Xcode 26.2 or newer is required. The project-local script builds the SwiftP
 ./script/build_and_run.sh
 ```
 
-Optional modes are `--debug`, `--logs`, `--telemetry`, and `--verify`.
+Optional modes are `--debug`, `--logs`, `--telemetry`, `--diagnostics`, and `--verify`.
+
+### Developer builds
+
+Every debug build (`swift build`, `swift test`, and this script) is a developer
+build. Release builds, including the notarized DMG, compile none of this:
+
+- The Notion web view is inspectable. Open Safari's Develop menu, find your Mac,
+  and pick the Perch page to get the Web Inspector (console, network, memory,
+  timelines).
+- A **Developer** menu adds a live diagnostics HUD (Control-Option-Command-D)
+  showing Perch's and the web content process's memory and CPU, the web view's
+  state, memory-pressure and renderer-exit counts, the latest signpost timings,
+  and recent events. `--diagnostics` opens it at launch.
+- **Copy Diagnostics Report** (Control-Option-Command-C) puts a plain-text
+  snapshot on the clipboard. It shortens page IDs and holds no titles or URLs.
+- The same menu can simulate memory pressure, evict a hidden web view, or kill
+  the web content process to exercise crash recovery.
+
+See [`docs/DEVELOPER_BUILD.md`](docs/DEVELOPER_BUILD.md) for how it works and
+the research behind it.
 
 Launch at Login must be exercised from the staged `dist/Perch.app`. Running
 the SwiftPM executable directly does not provide the signed app-bundle identity

@@ -16,6 +16,8 @@ orientation or rationale, but they do not override the current implementation.
   and validation rules.
 - [Local agent streaming](AGENT_STREAMING.md) — loopback discovery, auth,
   routes, accept-to-paste Markdown UX, limits, and reference client examples.
+- [Developer build](DEVELOPER_BUILD.md) — debug-only Web Inspector, live
+  diagnostics HUD, diagnostics report, and fault-injection tools.
 - [Manual test matrix](MANUAL_TEST_MATRIX.md) — current manual verification for
   windowing, Spaces, shortcuts, login items, and other macOS integrations.
 - [External beta readiness](BETA_READINESS.md) — the current release gate and

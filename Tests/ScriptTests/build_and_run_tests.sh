@@ -224,4 +224,13 @@ if ! grep -Fq 'does not use the staged executable' "$TEST_DIR/wrong-executable.l
     exit 1
 fi
 
+# Diagnostics mode launches the staged app with the HUD launch argument.
+: >"$CALL_LOG"
+: >"$PROCESS_STATE"
+run_launcher --diagnostics >/dev/null
+if ! grep -Fq "open $FIXTURE_ROOT/dist/Perch.app --args -PerchShowDiagnosticsHUD YES" "$CALL_LOG"; then
+    echo "expected --diagnostics to open the staged app with the HUD launch argument" >&2
+    exit 1
+fi
+
 echo "build_and_run tests passed"

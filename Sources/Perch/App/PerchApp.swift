@@ -22,6 +22,9 @@ enum PerchApp {
                     let application = NSApplication.shared
                     application.delegate = appDelegate
                     application.mainMenu = AppMainMenuFactory.make()
+                    #if PERCH_DEVELOPER
+                    composition.developerTools.install(in: application.mainMenu)
+                    #endif
                     AppStartup.start(
                         runtime: composition.runtime,
                         appDelegate: appDelegate,
@@ -88,11 +91,17 @@ private final class AppComposition {
     private let agentStreamNotificationDelegate: AgentStreamNotificationDelegate
     private let saveActivePageRestoration: @MainActor () async -> Void
     private var statusItemAppearanceCancellable: AnyCancellable?
+    #if PERCH_DEVELOPER
+    let developerTools: DeveloperToolsController
+    #endif
 
     func applicationDidFinishLaunching() {
         updaterController.start()
         agentStreamingService.startIfPreferred()
         startupRecoveryCoordinator.applicationDidFinishLaunching()
+        #if PERCH_DEVELOPER
+        developerTools.showHUDIfRequestedAtLaunch()
+        #endif
     }
 
     func prepareForTermination() async {
@@ -104,6 +113,9 @@ private final class AppComposition {
         let actionRelay = AppCommandActionRelay()
         let onboardingPreferenceStore = OnboardingPreferenceStore()
         let webSession = NotionWebSession()
+        #if PERCH_DEVELOPER
+        developerTools = DeveloperToolsController(webSession: webSession)
+        #endif
         let agentStreamController = AgentStreamController(
             target: webSession,
             notifier: AgentStreamUserNotifier()

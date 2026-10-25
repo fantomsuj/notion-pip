@@ -76,10 +76,10 @@ if [[ ! "${PERCH_BUILD_NUMBER:-}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 case "$MODE" in
-    run|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify)
+    run|--debug|debug|--logs|logs|--telemetry|telemetry|--diagnostics|diagnostics|--verify|verify)
         ;;
     *)
-        echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+        echo "usage: $0 [run|--debug|--logs|--telemetry|--diagnostics|--verify]" >&2
         exit 2
         ;;
 esac
@@ -186,7 +186,7 @@ PLIST
 
 open_app() {
     terminate_existing_instances
-    "$OPEN_TOOL" "$APP_BUNDLE"
+    "$OPEN_TOOL" "$APP_BUNDLE" "$@"
 }
 
 terminate_existing_instances() {
@@ -439,6 +439,11 @@ case "$MODE" in
         open_app
         wait_for_process >/dev/null
         /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
+        ;;
+    --diagnostics|diagnostics)
+        # Opens the developer diagnostics HUD at launch. Its Developer menu
+        # (Control-Option-Command-D) toggles it later.
+        open_app --args -PerchShowDiagnosticsHUD YES
         ;;
     --verify|verify)
         start_verification_log
