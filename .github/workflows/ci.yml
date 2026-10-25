@@ -15,6 +15,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  shellcheck:
+    name: Shell lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run shellcheck
+        run: |
+          shellcheck --version
+          git ls-files -z '*.sh' | xargs -0 shellcheck
+
   swift:
     name: Swift tests
     runs-on: macos-26
@@ -34,37 +47,13 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
-          key: perch-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.resolved') }}
+          key: perch-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
           restore-keys: |
-            perch-build-v1-${{ runner.os }}-${{ runner.arch }}-
+            perch-build-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.resolved') }}-
+            perch-build-v2-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Test build scripts
-        run: |
-          bash Tests/ScriptTests/sign_app_tests.sh
-          bash Tests/ScriptTests/package_release_tests.sh
-          bash Tests/ScriptTests/sparkle_key_tests.sh
-
-      - name: Run Swift tests without WebKit process state
-        run: >-
-          swift test
-          --skip
-          '(ExternalDropActivatingWebViewTests|NotionEditorSelectionTests|NotionWebSessionTests|PiPChromeViewTests|PiPPanelGeometryTests|WebNavigationDestinationTests)'
-
-      - name: Run WebKit-dependent suites in isolated processes
-        run: |
-          suites=(
-            ExternalDropActivatingWebViewTests
-            NotionEditorSelectionTests
-            NotionWebSessionTests
-            PiPChromeViewTests
-            PiPPanelGeometryTests
-            WebNavigationDestinationTests
-          )
-          for suite in "${suites[@]}"; do
-            echo "::group::${suite}"
-            swift test --skip-build --filter "${suite}"
-            echo "::endgroup::"
-          done
+      - name: Run script and Swift tests
+        run: script/test.sh
 
       - name: Build release configuration
         if: github.event_name == 'push' || github.event_name == 'pull_request'

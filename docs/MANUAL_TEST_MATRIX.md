@@ -116,13 +116,3 @@ For storage-failure cases, never damage the real Application Support store. Firs
 | One stream already `receiving` or `ready` | Start a second agent create | Second client receives `409 stream_active`; first stream continues; only one overlay remains |  |  |  |
 | Local Agents Ready | Choose Install Agent Skill → For Claude Code, For Codex, and For Cursor in turn | Each writes the identical skill to `~/.claude/skills/stream-to-perch/SKILL.md`, `~/.codex/skills/stream-to-perch/SKILL.md`, and `~/.cursor/skills/stream-to-perch/SKILL.md` respectively, with accept_to_paste and text/markdown instructions; Settings shows the install path for the chosen agent |  |  | Compare with `agent-skills/stream-to-perch/SKILL.md` |
 | Local Agents Ready; Markdown with headings, lists, and a fenced code block | Complete a stream, click in Notion, Accept | Pasted content preserves recognizable Markdown structure Notion can convert; overlay rendered the same source before Accept |  |  | Avoid secrets in the fixture Markdown |
-
-## Deferred Quick Copy prototype regression suite
-
-These cases are retained for future development but are not part of Perch 0.1,
-which does not expose or start Quick Copy's selection monitor.
-
-| Start state | Action | Expected result | Build | Owner/date | Notes |
-|---|---|---|---|---|---|
-| Quick Copy armed with a saved Notion cursor; insertion deliberately slowed under a debugger or WebKit pause | Select text in more than eight distinct external-app interactions before the first insertion finishes, then resume WebKit | Previously accepted selections insert once in source order; later overflow selections are not inserted; after the backlog drains, the control says “Quick Copy is busy. This selection wasn’t added; try again shortly.” and a new selection can be inserted normally |  |  | Do not use passwords or sensitive text for this test |
-| Quick Copy has one insertion in flight and at least one queued selection | Turn Quick Copy off before the insertion callback completes, then turn it on again and select fresh text | The stale completion has no effect, queued text from the prior session never appears, and only fresh text from the new session is inserted |  |  | Confirm the clipboard remains unchanged |

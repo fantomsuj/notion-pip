@@ -19,11 +19,16 @@ behavior is intentional and should not be reported as an `NSPanel` defect.
   `nonisolated(unsafe)`, or detached tasks without a documented reason.
 - Add regression tests for behavior changes. Keep tests independent because
   Swift tests may run in parallel.
-- Validate Swift changes with:
+- Validate changes with the same sequence CI runs (script tests, the shared
+  Swift pass, then the WebKit/AppKit suites one process at a time):
 
   ```sh
-  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer script/test.sh
   ```
+
+  Use `--scripts` or `--swift` to run only one half. Plain `swift test` runs
+  the WebKit suites together, which is flaky. Shell scripts must pass
+  `shellcheck`.
 
   Report the command result and anything not verified.
 
@@ -125,7 +130,7 @@ prints `Verified .../dist/Perch.app` with a process ID.
 - For a clean source validation, run:
 
   ```sh
-  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer script/test.sh
   ```
 
 Keep setup fixes minimal and explain any remaining manual action clearly.
