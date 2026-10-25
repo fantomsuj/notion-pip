@@ -82,7 +82,7 @@ enum NotionMemoryPressureLevel: Equatable {
 
 @MainActor
 final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
-    NotionWebScriptMessageHandling, QuickCopyInsertionTarget, AgentStreamTarget
+    NotionWebScriptMessageHandling, AgentStreamTarget
 {
     private enum WebContentRecoveryState: Equatable {
         case ready
@@ -173,7 +173,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private var browserLoginTimeoutCancellable: AnyCancellable?
     private var browserHandoffRedemptionCancellable: AnyCancellable?
     var onRestorationCaptured: (@MainActor (DurablePageRestoration) -> Void)?
-    var onQuickCopyTargetInvalidated: (@MainActor () -> Void)?
     private var selectionCaptureGeneration = 0
     private var savedEditorSelection: (
         pageID: String,
@@ -1276,7 +1275,6 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     private func invalidateEditorSelection() {
         selectionCaptureGeneration &+= 1
         savedEditorSelection = nil
-        onQuickCopyTargetInvalidated?()
     }
 
     private func invalidateEditorSelectionAndSuspendIfHidden() {

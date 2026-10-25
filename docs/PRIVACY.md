@@ -15,9 +15,7 @@ Perch is a small macOS app that displays the real Notion website in a native flo
 
 ## Quick Copy
 
-Quick Copy is deferred from Perch 0.1. The app has no Quick Copy control and does not start its Accessibility selection monitor.
-
-The source repository retains an isolated experimental implementation for possible future testing. If a later release introduces it, the feature will require a new first-use explanation and an updated policy before release. The prototype observes selected text only while visibly armed, rejects secure fields, keeps accepted text in memory long enough to insert it at the saved Notion cursor, and does not change the clipboard or persist captured text. Accessibility access can be revoked in System Settings → Privacy & Security → Accessibility.
+Quick Copy is not part of Perch. The app has no Quick Copy control and contains no Accessibility selection monitor. The earlier experimental prototype was removed from the source tree; if a later release brings it back, it will need a first-use explanation and an updated policy before release.
 
 ## Retention and deletion
 
