@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Developer builds (any debug build) make the Notion web view inspectable from
+  Safari's Develop menu and add a Developer menu with a live diagnostics HUD,
+  a copyable diagnostics report, and tools to simulate memory pressure and
+  renderer crashes. `script/build_and_run.sh --diagnostics` opens the HUD at
+  launch. Release builds are unchanged.
+
 ### CI
 
 - `script/test.sh` runs the same test sequence as CI (all shell script tests,

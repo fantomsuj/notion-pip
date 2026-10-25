@@ -26,6 +26,13 @@ let package = Package(
             resources: [
                 .copy("Resources/stream-to-perch"),
             ],
+            swiftSettings: [
+                // Debug builds (`swift build`, `swift test`, and
+                // `script/build_and_run.sh`) are developer builds: they turn on the
+                // Web Inspector and the live diagnostics HUD. Release builds never
+                // compile that code.
+                .define("PERCH_DEVELOPER", .when(configuration: .debug)),
+            ],
             linkerSettings: [
                 .unsafeFlags([
                     "-Xlinker", "-rpath",
@@ -36,7 +43,10 @@ let package = Package(
         .testTarget(
             name: "PerchTests",
             dependencies: ["Perch"],
-            path: "Tests/PerchTests"
+            path: "Tests/PerchTests",
+            swiftSettings: [
+                .define("PERCH_DEVELOPER", .when(configuration: .debug)),
+            ]
         ),
     ]
 )

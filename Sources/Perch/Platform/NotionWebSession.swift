@@ -275,6 +275,22 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         webView == nil ? .evicted : .warm
     }
 
+    #if PERCH_DEVELOPER
+    /// What the diagnostics HUD shows about the live web view.
+    var developerDiagnosticsSnapshot: NotionWebDiagnosticsSnapshot {
+        NotionWebDiagnosticsSnapshot(
+            state: state,
+            retention: webViewRetention,
+            panelIsVisible: panelIsVisible,
+            isTypingInPage: isTypingInPage,
+            activePageID: activePage?.pageID,
+            isShowingCustomURL: isShowingCustomURL,
+            interactionStateCount: pageStateRestoration.interactionStateCount,
+            webContentProcessID: webView.flatMap(WebContentProcessIdentifier.read(from:))
+        )
+    }
+    #endif
+
     init(
         webView: WKWebView? = nil,
         openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.open($0) },
@@ -1162,6 +1178,9 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
     }
 
     func handleMemoryPressure(_ level: NotionMemoryPressureLevel) {
+        #if PERCH_DEVELOPER
+        DeveloperDiagnosticsLog.shared.recordMemoryPressure(level)
+        #endif
         switch level {
         case .warning:
             // A hidden panel gives its renderer back unless someone is still typing in it.
@@ -1502,7 +1521,12 @@ final class NotionWebSession: NSObject, NotionPageLoading, ObservableObject,
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = WKWebsiteDataStore.default()
         configuration.preferences.inactiveSchedulingPolicy = .suspend
-        return ExternalDropActivatingWebView(frame: .zero, configuration: configuration)
+        let webView = ExternalDropActivatingWebView(frame: .zero, configuration: configuration)
+        #if PERCH_DEVELOPER
+        // Developer builds can be inspected from Safari's Develop menu.
+        webView.isInspectable = true
+        #endif
+        return webView
     }
 
     static func restoreScroll(
@@ -1802,6 +1826,7 @@ extension NotionWebSession: WKNavigationDelegate {
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(navigationFailureState(for: error))
+        recordDeveloperNavigationFailure(error)
         finishNavigationRequestMeasurement(outcome: .failure)
         finishUsefulContentMeasurements(outcome: .failure)
         if restorationToken != nil {
@@ -1839,6 +1864,7 @@ extension NotionWebSession: WKNavigationDelegate {
         revealTopControls()
         invalidateEditorSelection()
         publishNavigationState(navigationFailureState(for: error))
+        recordDeveloperNavigationFailure(error)
         finishNavigationRequestMeasurement(outcome: .failure)
         finishUsefulContentMeasurements(outcome: .failure)
         if restorationToken != nil {
@@ -1848,6 +1874,15 @@ extension NotionWebSession: WKNavigationDelegate {
         if !panelIsVisible {
             suspendWebViewIfNeeded()
         }
+    }
+
+    private func recordDeveloperNavigationFailure(_ error: Error) {
+        #if PERCH_DEVELOPER
+        let error = error as NSError
+        DeveloperDiagnosticsLog.shared.recordNavigationFailure(
+            "\(error.domain) \(error.code)"
+        )
+        #endif
     }
 
     private func isCancellation(_ error: Error) -> Bool {
@@ -1871,6 +1906,9 @@ extension NotionWebSession: WKNavigationDelegate {
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         guard isCurrent(webView) else { return }
+        #if PERCH_DEVELOPER
+        DeveloperDiagnosticsLog.shared.recordRendererTermination()
+        #endif
         popupCoordinator.close()
         finishNavigationRequestMeasurement(outcome: .failure)
         finishUsefulContentMeasurements(outcome: .failure)

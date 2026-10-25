@@ -91,6 +91,9 @@ final class AppPerformanceSignposter: PerformanceSignposting {
     private struct ActiveInterval {
         let operation: PerformanceOperation
         let state: OSSignpostIntervalState
+        #if PERCH_DEVELOPER
+        let startedAt = ContinuousClock.now
+        #endif
     }
 
     private let lifecycleSignposter = OSSignposter(
@@ -157,6 +160,13 @@ final class AppPerformanceSignposter: PerformanceSignposting {
         guard let token, let interval = activeIntervals.removeValue(forKey: token) else {
             return
         }
+        #if PERCH_DEVELOPER
+        DeveloperDiagnosticsLog.shared.recordInterval(
+            interval.operation,
+            duration: ContinuousClock.now - interval.startedAt,
+            outcome: outcome
+        )
+        #endif
         let retention = metadata.webViewRetention?.rawValue
             ?? WebViewRetention.unknown.rawValue
 
