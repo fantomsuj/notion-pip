@@ -129,8 +129,7 @@ Codex will check the Mac and Xcode prerequisites, build and verify the app, and 
 
 Perch accepts HTTPS page URLs on `app.notion.com`, `notion.com`, and `www.notion.com` with a canonical 32-character hexadecimal page ID. Legacy `notion.so` and `www.notion.so` links remain accepted; all non-app hosts canonicalize to `www.notion.com`. Every accepted host retains its percent-encoded path, while credentials, query strings, and fragments are removed. The `perch` handoff contract is documented in [the handoff protocol](docs/HANDOFF_PROTOCOL.md).
 
-Quick Copy remains deferred and its separate selection monitor is not started. Perch does
-not ask for, store, or send a personal integration token;
+Perch does not ask for, store, or send a personal integration token;
 the signed-in Notion session remains in WebKit's website data store.
 Local builds use an available Apple Development or Perch local-development
 signing identity, falling back to ad-hoc signing when neither exists. Run

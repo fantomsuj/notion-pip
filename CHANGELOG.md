@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Removed
+
+- Deleted the unused Quick Copy prototype (the Accessibility selection
+  monitor, its controller, button, and tests). Nothing in the app started it,
+  and it is still in git history if it is ever needed again.
+
 ## 0.1.4 - 2026-10-22
 
 ### Added

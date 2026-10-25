@@ -1173,12 +1173,11 @@ final class NotionWebSessionTests: XCTestCase {
         XCTAssertEqual(secondSnapshot.token, "after-alpha")
     }
 
-    func testPendingQuickCopyCursorCaptureCannotArmAfterInvalidation() throws {
+    func testPendingCursorCaptureCannotArmAfterInvalidation() throws {
         let page = try makePage(id: firstPageID, title: "Roadmap")
         let webView = TrustedURLWebView(url: page.canonicalURL)
         var captureCompletion: NotionEditorSelectionEvaluationCompletion?
         var results: [Bool] = []
-        var invalidationCount = 0
         let session = NotionWebSession(
             webView: webView,
             loadRequest: { _, _ in },
@@ -1196,14 +1195,12 @@ final class NotionWebSessionTests: XCTestCase {
             }
         )
         session.activate(page: page)
-        session.onQuickCopyTargetInvalidated = { invalidationCount += 1 }
 
         session.rememberCurrentEditorCursor { results.append($0) }
         session.reloadPinnedPage(page)
         captureCompletion?(.success(validSelectionSnapshotValue(token: "stale")))
         session.insertAtSavedEditorCursor("must not insert") { results.append($0) }
 
-        XCTAssertGreaterThan(invalidationCount, 0)
         XCTAssertEqual(results, [false, false])
     }
 
