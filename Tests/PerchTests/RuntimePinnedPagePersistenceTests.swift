@@ -30,6 +30,49 @@ final class RuntimePinnedPagePersistenceTests: XCTestCase {
         XCTAssertEqual(panel.currentPage, drop.page)
     }
 
+    func testNotionRenamesOfOpenPageUpdateInPlaceAndSaveOnce() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        runtime.renamePersistenceDelay = .milliseconds(20)
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        runtime.activate(page: page, source: .typedURL)
+        try await repository.waitUntilSaveCount(1)
+
+        // Notion renames the page on each keystroke in its title.
+        let firstRename = try makePage(id: firstPageID, title: "Roadmap-Q")
+        let secondRename = try makePage(id: firstPageID, title: "Roadmap-Q4")
+        runtime.activate(page: firstRename, source: .notionWebSession)
+        runtime.activate(page: secondRename, source: .notionWebSession)
+
+        XCTAssertEqual(runtime.activePage, secondRename)
+        XCTAssertEqual(runtime.lastActivationSource, .notionWebSession)
+        XCTAssertEqual(panel.shownPages, [page])
+        XCTAssertTrue(panel.replacedPages.isEmpty)
+
+        try await repository.waitUntilSaveCount(2)
+        try await Task.sleep(for: .milliseconds(60))
+        let savedPages = await repository.savedPages()
+        XCTAssertEqual(savedPages, [page, secondRename])
+    }
+
+    func testPendingRenameIsSavedBeforeTermination() async throws {
+        let panel = RuntimePanelCoordinator()
+        let repository = RuntimePinnedPageRepository()
+        let runtime = makeRuntime(panel: panel, pageRepository: repository)
+        runtime.renamePersistenceDelay = .seconds(60)
+        let page = try makePage(id: firstPageID, title: "Roadmap")
+        runtime.activate(page: page, source: .typedURL)
+        try await repository.waitUntilSaveCount(1)
+        let renamed = try makePage(id: firstPageID, title: "Roadmap-Q4")
+        runtime.activate(page: renamed, source: .notionWebSession)
+
+        await runtime.prepareForTermination()
+        let savedPages = await repository.savedPages()
+
+        XCTAssertEqual(savedPages, [page, renamed])
+    }
+
     func testReloadSavedPinReusesActivePageWithoutPersistingItAgain() async throws {
         let panel = RuntimePanelCoordinator()
         let repository = RuntimePinnedPageRepository()

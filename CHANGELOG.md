@@ -9,6 +9,17 @@
   a copyable diagnostics report, and tools to simulate memory pressure and
   renderer crashes. `script/build_and_run.sh --diagnostics` opens the HUD at
   launch. Release builds are unchanged.
+- The developer diagnostics HUD shows key delay while typing, split into time
+  spent waiting on Perch and time spent inside the Notion page, and logs every
+  key that takes 50 ms or more.
+
+### Fixed
+
+- Typing in a Notion page's title no longer stutters. Notion renames the page
+  on every keystroke in its title, and Perch used to treat each rename as a
+  new page: it re-activated the app, re-fronted the panel and saved to its
+  store per keystroke. A rename now only updates the title, and saves it once
+  typing stops.
 
 ### CI
 

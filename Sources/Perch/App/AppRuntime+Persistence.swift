@@ -4,6 +4,12 @@ import OSLog
 extension AppRuntime {
     func prepareForTermination() async {
         cancelShortcutGesture(restashTransientPanel: true)
+        if renamePersistenceTask != nil, let activePage {
+            // Save a rename that was still waiting for typing to stop.
+            renamePersistenceTask?.cancel()
+            renamePersistenceTask = nil
+            enqueuePersistence(of: activePage)
+        }
         while let persistenceTask = persistPinnedPageTask {
             let expectedGeneration = persistenceGeneration
             await persistenceTask.value

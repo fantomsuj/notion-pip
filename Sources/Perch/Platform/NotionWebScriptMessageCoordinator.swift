@@ -152,6 +152,75 @@ enum NotionUsefulContentBridge {
     }
 }
 
+#if PERCH_DEVELOPER
+/// Measures, in developer builds, how long each key takes inside the Notion page:
+/// from the key event's timestamp to the first frame after Notion handled it.
+enum NotionKeyDelayBridge {
+    static let handlerName = "perchKeyDelay"
+
+    static func milliseconds(
+        from body: Any,
+        isMainFrame: Bool,
+        scheme: String,
+        host: String
+    ) -> Double? {
+        guard NotionScriptMessageOrigin.isTrusted(
+            isMainFrame: isMainFrame,
+            scheme: scheme,
+            host: host
+        ),
+              let value = (body as? NSNumber)?.doubleValue,
+              value.isFinite,
+              (0 ... 60_000).contains(value)
+        else {
+            return nil
+        }
+        return value
+    }
+
+    /// Runs `setTimeout` from inside `requestAnimationFrame`, so the reading is
+    /// taken just after the frame that shows the key has been produced.
+    static let script = #"""
+        (() => {
+          if (window.__perchKeyDelayInstalled) return;
+          window.__perchKeyDelayInstalled = true;
+          document.addEventListener('keydown', (event) => {
+            if (event.repeat) return;
+            const start = event.timeStamp;
+            window.requestAnimationFrame(() => {
+              window.setTimeout(() => {
+                window.webkit?.messageHandlers?.perchKeyDelay?.postMessage(
+                  performance.now() - start
+                );
+              }, 0);
+            });
+          }, true);
+        })();
+        """#
+}
+
+@MainActor
+private final class NotionKeyDelayMessageHandler: NSObject, WKScriptMessageHandler {
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard let milliseconds = NotionKeyDelayBridge.milliseconds(
+            from: message.body,
+            isMainFrame: message.frameInfo.isMainFrame,
+            scheme: message.frameInfo.securityOrigin.protocol,
+            host: message.frameInfo.securityOrigin.host
+        ) else {
+            return
+        }
+        DeveloperDiagnosticsLog.shared.recordKeyDelay(
+            .milliseconds(milliseconds),
+            stage: .page
+        )
+    }
+}
+#endif
+
 @MainActor
 protocol NotionWebScriptMessageHandling: AnyObject {
     func handleEditorActivity(
@@ -287,11 +356,28 @@ final class NotionWebScriptMessageCoordinator {
         controller.removeAllUserScripts()
     }
 
-    static let handlerNames = [
-        NotionEditorActivityBridge.handlerName,
-        NotionScrollBridge.handlerName,
-        NotionUsefulContentBridge.handlerName,
-    ]
+    static var handlerNames: [String] {
+        var names = [
+            NotionEditorActivityBridge.handlerName,
+            NotionScrollBridge.handlerName,
+            NotionUsefulContentBridge.handlerName,
+        ]
+        #if PERCH_DEVELOPER
+        names.append(NotionKeyDelayBridge.handlerName)
+        #endif
+        return names
+    }
+
+    /// The editor script plus, in developer builds, the key delay probe. The probe
+    /// rides along in the same user script so release and developer builds install
+    /// the same scripts.
+    static var editorScript: String {
+        #if PERCH_DEVELOPER
+        return editorActivityScript + "\n" + NotionKeyDelayBridge.script
+        #else
+        return editorActivityScript
+        #endif
+    }
 
     @discardableResult
     func install(in controller: WKUserContentController) -> UInt {
@@ -310,7 +396,7 @@ final class NotionWebScriptMessageCoordinator {
 
         controller.addUserScript(
             WKUserScript(
-                source: Self.notionHostsOnly(Self.editorActivityScript),
+                source: Self.notionHostsOnly(Self.editorScript),
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true,
                 in: NotionBridgeContentWorld.world
@@ -321,6 +407,13 @@ final class NotionWebScriptMessageCoordinator {
             contentWorld: NotionBridgeContentWorld.world,
             name: NotionEditorActivityBridge.handlerName
         )
+        #if PERCH_DEVELOPER
+        controller.add(
+            NotionKeyDelayMessageHandler(),
+            contentWorld: NotionBridgeContentWorld.world,
+            name: NotionKeyDelayBridge.handlerName
+        )
+        #endif
         controller.addUserScript(
             WKUserScript(
                 source: Self.notionHostsOnly(Self.scrollScript),

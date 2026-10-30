@@ -1814,6 +1814,20 @@ final class KeyCapablePiPPanel: NSPanel, PiPPanelWindow {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        #if PERCH_DEVELOPER
+        if event.type == .keyDown {
+            super.sendEvent(event)
+            // Measured after Perch has passed the key on, so it covers both the
+            // wait for the main thread and Perch's own handling.
+            if !event.isARepeat {
+                DeveloperDiagnosticsLog.shared.recordKeyDelay(
+                    eventTimestamp: event.timestamp,
+                    stage: .perch
+                )
+            }
+            return
+        }
+        #endif
         guard event.type == .scrollWheel,
             let contentView
         else {
