@@ -32,6 +32,7 @@ struct PiPAppCommandMenu: View {
                     height: PanelCornerControls.minimumHitTarget
                 )
         }
+        .chromePressStyle()
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
