@@ -138,15 +138,7 @@ extension AppRuntime {
         else {
             return false
         }
-        if activePage != page {
-            activePage = page
-        }
-        if pendingPage != page {
-            pendingPage = page
-        }
-        if lastActivationSource != .notionWebSession {
-            lastActivationSource = .notionWebSession
-        }
+        publishRename(of: page)
         schedulePersistenceAfterRename(of: page)
         return true
     }

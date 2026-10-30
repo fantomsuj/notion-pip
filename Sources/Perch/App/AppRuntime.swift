@@ -220,6 +220,20 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         }
     }
 
+    /// Publishes a new title or URL for the active page. Only changed values are
+    /// assigned, so a rename doesn't wake observers of the other properties.
+    func publishRename(of page: NotionPageReference) {
+        if activePage != page {
+            activePage = page
+        }
+        if pendingPage != page {
+            pendingPage = page
+        }
+        if lastActivationSource != .notionWebSession {
+            lastActivationSource = .notionWebSession
+        }
+    }
+
     func publishCustomPinnedURLsEnabled(_ enabled: Bool) {
         customPinnedURLsEnabled = enabled
     }
