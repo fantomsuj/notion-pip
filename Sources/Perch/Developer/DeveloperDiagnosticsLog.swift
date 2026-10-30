@@ -13,6 +13,24 @@ final class DeveloperDiagnosticsLog: ObservableObject {
         case webView = "webview"
         case navigation = "nav"
         case developer = "dev"
+        case typing = "typing"
+    }
+
+    /// Where a key's time was spent.
+    enum KeyDelayStage: String, Sendable {
+        /// From the key press until Perch's main thread finished passing it on.
+        /// Large values mean Perch itself was busy.
+        case perch
+        /// From the key event inside the page until the next frame after Notion
+        /// handled it. Large values mean Notion or WebKit was busy.
+        case page
+    }
+
+    struct KeyDelayStats: Equatable, Sendable {
+        var count = 0
+        var slowCount = 0
+        var worst: Duration = .zero
+        var last: Duration?
     }
 
     struct Event: Equatable, Identifiable, Sendable {
@@ -39,7 +57,15 @@ final class DeveloperDiagnosticsLog: ObservableObject {
         var navigationFailures = 0
     }
 
+    /// A key slower than this misses about three frames at 60 Hz, which is
+    /// when a pause starts to be noticeable.
+    static let slowKeyDelay: Duration = .milliseconds(50)
+
     let capacity: Int
+    /// Not published: keys arrive faster than the HUD needs, and the HUD
+    /// samples once a second anyway.
+    private(set) var perchKeyDelay = KeyDelayStats()
+    private(set) var pageKeyDelay = KeyDelayStats()
     @Published private(set) var events: [Event] = []
     @Published private(set) var intervals: [Interval] = []
     @Published private(set) var counters = Counters()
@@ -100,6 +126,42 @@ final class DeveloperDiagnosticsLog: ObservableObject {
         trim(&intervals)
     }
 
+    func recordKeyDelay(_ duration: Duration, stage: KeyDelayStage) {
+        let duration = max(duration, .zero)
+        var stats = keyDelayStats(for: stage)
+        stats.count += 1
+        stats.last = duration
+        stats.worst = max(stats.worst, duration)
+        let isSlow = duration >= Self.slowKeyDelay
+        if isSlow {
+            stats.slowCount += 1
+        }
+        switch stage {
+        case .perch: perchKeyDelay = stats
+        case .page: pageKeyDelay = stats
+        }
+        if isSlow {
+            record(.typing, "Slow key (\(stage.rawValue)): \(duration.diagnosticsMilliseconds) ms")
+        }
+    }
+
+    /// Records the delay for an AppKit key event, whose timestamp counts from
+    /// system start like `ProcessInfo.systemUptime`.
+    func recordKeyDelay(
+        eventTimestamp: TimeInterval,
+        stage: KeyDelayStage,
+        uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
+        recordKeyDelay(.seconds(uptime - eventTimestamp), stage: stage)
+    }
+
+    func keyDelayStats(for stage: KeyDelayStage) -> KeyDelayStats {
+        switch stage {
+        case .perch: perchKeyDelay
+        case .page: pageKeyDelay
+        }
+    }
+
     /// The most recent interval for each operation, newest first.
     var latestIntervalPerOperation: [Interval] {
         var seen: Set<PerformanceOperation> = []
@@ -110,6 +172,8 @@ final class DeveloperDiagnosticsLog: ObservableObject {
         events = []
         intervals = []
         counters = Counters()
+        perchKeyDelay = KeyDelayStats()
+        pageKeyDelay = KeyDelayStats()
     }
 
     private func takeID() -> Int {

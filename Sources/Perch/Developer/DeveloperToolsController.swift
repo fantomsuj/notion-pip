@@ -90,7 +90,9 @@ final class DeveloperToolsController: NSObject, NSWindowDelegate {
             web: web,
             counters: log.counters,
             latestIntervals: log.latestIntervalPerOperation,
-            recentEvents: log.events
+            recentEvents: log.events,
+            perchKeyDelay: log.perchKeyDelay,
+            pageKeyDelay: log.pageKeyDelay
         )
         model.snapshot = snapshot
         return snapshot

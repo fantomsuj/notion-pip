@@ -116,7 +116,50 @@ extension AppRuntime {
     }
 
     func activate(page: NotionPageReference, source: PageActivationSource) {
+        if source == .notionWebSession, refreshActivePageInPlace(page) {
+            return
+        }
         activate(page: page, source: source, restoration: nil)
+    }
+
+    /// Updates the open page's title and URL without activating it again.
+    ///
+    /// Notion renames the open page, both its document title and its URL slug, on
+    /// every keystroke in the page title. Running the full activation for each one
+    /// re-activated the app, re-fronted the panel and wrote to the store per
+    /// keystroke, which made typing in the title stutter. A rename is still the
+    /// same page, so it only refreshes the published page and saves the new title
+    /// once the renaming stops.
+    private func refreshActivePageInPlace(_ page: NotionPageReference) -> Bool {
+        guard activeCustomURL == nil,
+              let currentPage = activePage,
+              currentPage.pageID == page.pageID,
+              pinCoordinator.currentPage?.pageID == page.pageID
+        else {
+            return false
+        }
+        if activePage != page {
+            activePage = page
+        }
+        if pendingPage != page {
+            pendingPage = page
+        }
+        if lastActivationSource != .notionWebSession {
+            lastActivationSource = .notionWebSession
+        }
+        schedulePersistenceAfterRename(of: page)
+        return true
+    }
+
+    private func schedulePersistenceAfterRename(of page: NotionPageReference) {
+        renamePersistenceTask?.cancel()
+        let delay = renamePersistenceDelay
+        renamePersistenceTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self, activePage == page else { return }
+            renamePersistenceTask = nil
+            enqueuePersistence(of: page)
+        }
     }
 
     func activate(
@@ -171,6 +214,8 @@ extension AppRuntime {
     ) {
         cancelShortcutGesture(restashTransientPanel: false)
         pageSelectionGeneration &+= 1
+        renamePersistenceTask?.cancel()
+        renamePersistenceTask = nil
         if persist {
             restorePinnedPageTask?.cancel()
             restorePinnedPageTask = nil

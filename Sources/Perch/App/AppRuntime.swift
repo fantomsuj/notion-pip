@@ -55,6 +55,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     var persistentStoreRecoveryAction: @MainActor () -> Void = {}
     var restorePinnedPageTask: Task<Void, Never>?
     var persistPinnedPageTask: Task<Void, Never>?
+    /// Saves a renamed page once the renaming stops. See `refreshActivePageInPlace(_:)`.
+    var renamePersistenceTask: Task<Void, Never>?
+    var renamePersistenceDelay: Duration = .milliseconds(750)
     var suppressesAutomaticCurrentPageSetup = false
     var persistenceGeneration = 0
     var pageSelectionGeneration = 0

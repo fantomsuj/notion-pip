@@ -49,6 +49,10 @@ struct DiagnosticsHUDView: View {
             )
             row("Saved states", "\(snapshot.web.interactionStateCount)")
         }
+        section("Key delay") {
+            keyDelayRow("Waiting on Perch", snapshot.perchKeyDelay)
+            keyDelayRow("Notion page", snapshot.pageKeyDelay)
+        }
         section("Counters") {
             row("Pressure", "warn \(snapshot.counters.memoryPressureWarnings) · crit \(snapshot.counters.memoryPressureCriticals)")
             row("Renderer exits", "\(snapshot.counters.rendererTerminations)",
@@ -104,6 +108,20 @@ struct DiagnosticsHUDView: View {
                 .foregroundStyle(warning ? Color.orange : Color.primary)
                 .lineLimit(1)
         }
+    }
+
+    private func keyDelayRow(
+        _ label: String,
+        _ stats: DeveloperDiagnosticsLog.KeyDelayStats
+    ) -> some View {
+        row(
+            label,
+            stats.last == nil
+                ? "no keys yet"
+                : "\(stats.last?.diagnosticsMilliseconds ?? 0) ms · worst "
+                    + "\(stats.worst.diagnosticsMilliseconds) · slow \(stats.slowCount)/\(stats.count)",
+            warning: stats.slowCount > 0
+        )
     }
 
     private func isProblem(_ state: NotionWebSessionState) -> Bool {

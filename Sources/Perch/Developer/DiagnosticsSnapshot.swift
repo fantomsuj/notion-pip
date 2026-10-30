@@ -25,6 +25,8 @@ struct DiagnosticsSnapshot {
     var counters: DeveloperDiagnosticsLog.Counters
     var latestIntervals: [DeveloperDiagnosticsLog.Interval]
     var recentEvents: [DeveloperDiagnosticsLog.Event]
+    var perchKeyDelay = DeveloperDiagnosticsLog.KeyDelayStats()
+    var pageKeyDelay = DeveloperDiagnosticsLog.KeyDelayStats()
 
     /// Plain text for the clipboard, so a report can be pasted into an issue
     /// or a chat. It holds no page titles or URLs; page IDs are shortened.
@@ -53,6 +55,9 @@ struct DiagnosticsSnapshot {
                 + "nav failures \(counters.navigationFailures)"
         )
         lines.append("")
+        lines.append("Key delay, waiting on Perch: \(Self.describe(perchKeyDelay))")
+        lines.append("Key delay, Notion page: \(Self.describe(pageKeyDelay))")
+        lines.append("")
         lines.append("Latest timings:")
         if latestIntervals.isEmpty {
             lines.append("  none yet")
@@ -80,6 +85,14 @@ struct DiagnosticsSnapshot {
         let memory = formatBytes(sample.footprintBytes)
         guard let cpu = sample.cpuPercent else { return "\(memory), CPU …" }
         return "\(memory), CPU \(String(format: "%.1f", cpu))%"
+    }
+
+    /// For example "last 12 ms, worst 180 ms, slow 3 of 240".
+    static func describe(_ stats: DeveloperDiagnosticsLog.KeyDelayStats) -> String {
+        guard let last = stats.last else { return "no keys yet" }
+        return "last \(last.diagnosticsMilliseconds) ms, "
+            + "worst \(stats.worst.diagnosticsMilliseconds) ms, "
+            + "slow \(stats.slowCount) of \(stats.count)"
     }
 
     static func describe(_ state: NotionWebSessionState) -> String {
