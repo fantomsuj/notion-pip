@@ -1,5 +1,6 @@
 #if PERCH_DEVELOPER
 import Darwin
+import WebKit
 import XCTest
 @testable import Perch
 
@@ -131,6 +132,78 @@ final class DeveloperDiagnosticsTests: XCTestCase {
         XCTAssertFalse(report.contains("0123456789abcdef0123456789abcdef"), report)
         XCTAssertTrue(report.contains("WebViewConstruction: 42 ms (success)"), report)
         XCTAssertTrue(report.contains("renderer exits 1"), report)
+    }
+
+    func testKeyDelaysAreTrackedPerStageAndSlowKeysAreLogged() {
+        let log = DeveloperDiagnosticsLog()
+
+        log.recordKeyDelay(.milliseconds(8), stage: .perch)
+        log.recordKeyDelay(.milliseconds(120), stage: .perch)
+        log.recordKeyDelay(.milliseconds(30), stage: .perch)
+        log.recordKeyDelay(eventTimestamp: 10.0, stage: .page, uptime: 10.25)
+
+        XCTAssertEqual(log.perchKeyDelay.count, 3)
+        XCTAssertEqual(log.perchKeyDelay.slowCount, 1)
+        XCTAssertEqual(log.perchKeyDelay.worst, .milliseconds(120))
+        XCTAssertEqual(log.perchKeyDelay.last, .milliseconds(30))
+        XCTAssertEqual(log.pageKeyDelay.count, 1)
+        XCTAssertEqual(log.pageKeyDelay.slowCount, 1)
+        XCTAssertEqual(log.pageKeyDelay.worst, .milliseconds(250))
+        XCTAssertEqual(
+            log.events.map(\.message),
+            ["Slow key (perch): 120 ms", "Slow key (page): 250 ms"]
+        )
+        XCTAssertEqual(
+            DiagnosticsSnapshot.describe(log.perchKeyDelay),
+            "last 30 ms, worst 120 ms, slow 1 of 3"
+        )
+
+        log.reset()
+        XCTAssertEqual(log.perchKeyDelay, DeveloperDiagnosticsLog.KeyDelayStats())
+        XCTAssertEqual(log.pageKeyDelay, DeveloperDiagnosticsLog.KeyDelayStats())
+        XCTAssertEqual(DiagnosticsSnapshot.describe(log.pageKeyDelay), "no keys yet")
+    }
+
+    func testKeyDelayClockGoingBackwardsCountsAsZero() {
+        let log = DeveloperDiagnosticsLog()
+
+        log.recordKeyDelay(eventTimestamp: 12, stage: .perch, uptime: 11)
+
+        XCTAssertEqual(log.perchKeyDelay.last, .zero)
+        XCTAssertEqual(log.perchKeyDelay.slowCount, 0)
+    }
+
+    func testKeyDelayBridgeAcceptsOnlyTrustedFiniteReadings() {
+        func reading(_ body: Any, host: String = "www.notion.so", isMainFrame: Bool = true) -> Double? {
+            NotionKeyDelayBridge.milliseconds(
+                from: body,
+                isMainFrame: isMainFrame,
+                scheme: "https",
+                host: host
+            )
+        }
+
+        XCTAssertEqual(reading(NSNumber(value: 42.5)), 42.5)
+        XCTAssertNil(reading(NSNumber(value: 42.5), host: "evil.example"))
+        XCTAssertNil(reading(NSNumber(value: 42.5), isMainFrame: false))
+        XCTAssertNil(reading(NSNumber(value: -1)))
+        XCTAssertNil(reading(NSNumber(value: Double.nan)))
+        XCTAssertNil(reading(NSNumber(value: 120_000)))
+        XCTAssertNil(reading("42"))
+    }
+
+    func testDeveloperBuildsShipTheKeyDelayProbeInsideTheEditorScript() {
+        let controller = WKUserContentController()
+        let coordinator = NotionWebScriptMessageCoordinator()
+
+        coordinator.install(in: controller)
+        defer { coordinator.remove(from: controller) }
+
+        XCTAssertEqual(controller.userScripts.count, 3)
+        XCTAssertTrue(controller.userScripts[0].source.contains("perchKeyDelay"))
+        XCTAssertTrue(
+            NotionWebScriptMessageCoordinator.handlerNames.contains(NotionKeyDelayBridge.handlerName)
+        )
     }
 
     func testFormatsLargeFootprintsInGigabytes() {

@@ -24,7 +24,7 @@ code, the Web Inspector flag, or the WebKit SPI call described below.
 | Tool | Where | What it is for |
 | --- | --- | --- |
 | Web Inspector | Safari → Develop → *your Mac* → Perch | Notion's console errors, network, JS memory, layout and timelines. |
-| Diagnostics HUD | Developer → Toggle Diagnostics HUD (⌃⌥⌘D), or `build_and_run.sh --diagnostics` | Live memory and CPU for Perch and the web content process, web view state, counters, latest signpost timings, recent events. |
+| Diagnostics HUD | Developer → Toggle Diagnostics HUD (⌃⌥⌘D), or `build_and_run.sh --diagnostics` | Live memory and CPU for Perch and the web content process, web view state, key delay while typing, counters, latest signpost timings, recent events. |
 | Diagnostics report | Developer → Copy Diagnostics Report (⌃⌥⌘C) | A plain-text snapshot for an issue or a chat. Page IDs are shortened; no titles or URLs. |
 | Simulate memory pressure | Developer menu | Runs Perch's real warning or critical handler, so eviction can be tested without starving the Mac. |
 | Evict web view | Developer menu | Asks for the normal eviction, which only happens while the panel is hidden. |
@@ -51,6 +51,29 @@ developer build does no extra work beyond recording a few events in memory.
   developer builds each finished interval is also recorded with its duration.
 - **Counters and events** come from the memory-pressure handler, renderer
   termination, navigation failures, and web view construction and eviction.
+
+### Finding typing pauses
+
+The HUD's **Key delay** section times every key press in two places:
+
+- **Waiting on Perch**: from the moment macOS stamped the key event until
+  Perch's main thread had passed it to the web view. If this is high, Perch
+  itself was busy (look for the work in Instruments' Time Profiler or in the
+  recent events).
+- **Notion page**: from the key event inside the page until the frame after
+  Notion handled it. If this is high and the Perch number is low, Notion's
+  JavaScript, a garbage collection, or WebKit layout was the cause. Record a
+  timeline in Web Inspector (Timelines → JavaScript & Events and Rendering
+  Frames) while typing to see which.
+
+Each value shows the last key, the worst key, and how many keys took 50 ms or
+more. Every slow key is also added to the recent events, so a pause can be
+matched to whatever else happened at the same moment. Reset the counters
+before a test, type until a pause happens, then copy the report. The page
+probe is only installed in developer builds.
+
+A debug build runs Perch's own Swift code unoptimized, so judge Perch's
+numbers against a release build before treating a small delay as a bug.
 
 ## Research summary
 

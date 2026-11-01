@@ -210,7 +210,11 @@ private final class AppComposition {
             runtime?.createNewNotionPage()
         }
         webSession.onPageResolved = { [weak runtime, weak webSession] page in
+            // A rename of the open page (Notion does one per keystroke in the
+            // title) leaves the working set as it was.
+            let changesPage = runtime?.activePage?.pageID != page.pageID
             runtime?.activate(page: page, source: .notionWebSession)
+            guard changesPage else { return }
             Self.retainWorkingSetSnapshots(
                 in: webSession,
                 from: pageRepository

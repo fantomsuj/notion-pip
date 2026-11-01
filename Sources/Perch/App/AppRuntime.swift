@@ -55,6 +55,9 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
     var persistentStoreRecoveryAction: @MainActor () -> Void = {}
     var restorePinnedPageTask: Task<Void, Never>?
     var persistPinnedPageTask: Task<Void, Never>?
+    /// Saves a renamed page once the renaming stops. See `refreshActivePageInPlace(_:)`.
+    var renamePersistenceTask: Task<Void, Never>?
+    var renamePersistenceDelay: Duration = .milliseconds(750)
     var suppressesAutomaticCurrentPageSetup = false
     var persistenceGeneration = 0
     var pageSelectionGeneration = 0
@@ -214,6 +217,20 @@ final class AppRuntime: ObservableObject, ApplicationURLHandling {
         lastActivationSource = source
         if activeCustomURL != nil {
             clearActiveCustomURL(persistDestination: true)
+        }
+    }
+
+    /// Publishes a new title or URL for the active page. Only changed values are
+    /// assigned, so a rename doesn't wake observers of the other properties.
+    func publishRename(of page: NotionPageReference) {
+        if activePage != page {
+            activePage = page
+        }
+        if pendingPage != page {
+            pendingPage = page
+        }
+        if lastActivationSource != .notionWebSession {
+            lastActivationSource = .notionWebSession
         }
     }
 
