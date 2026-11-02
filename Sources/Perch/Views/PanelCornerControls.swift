@@ -67,7 +67,11 @@ struct PanelCornerControls: View {
                 .background {
                     if controller.selectedCorner == corner {
                         RoundedRectangle(cornerRadius: Self.selectedBackgroundRadius)
-                            .fill(DesignTokens.Colors.action.opacity(0.14))
+                            .fill(
+                                DesignTokens.Colors.action.opacity(
+                                    InteractionPolicy.toolbarButtonHighlightOpacity
+                                )
+                            )
                             .matchedGeometryEffect(id: "corner-pill", in: selectionPill)
                     }
                 }
