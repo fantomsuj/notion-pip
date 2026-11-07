@@ -13,6 +13,7 @@ struct SettingsView: View {
     @ObservedObject var panelSizeController: PanelSizeController
     @ObservedObject var launchAtLoginService: LaunchAtLoginService
     @ObservedObject var agentStreamingService: AgentStreamingService
+    var cursorTools: CursorToolsController?
 
     var body: some View {
         ScrollView {
@@ -146,6 +147,10 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(DesignTokens.Colors.secondaryText)
                     }
+                }
+
+                if let cursorTools {
+                    CursorToolsSettingsView(controller: cursorTools)
                 }
 
                 Section("Launch at Login") {

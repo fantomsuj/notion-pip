@@ -4,6 +4,12 @@
 
 ### Added
 
+- Cursor tools (off by default, Settings → Cursor Tools). Control-Option-Command-S
+  carries a screenshot on the pointer: double-click anywhere to drop it (into the
+  Perch page or any app), shake the pointer to toss it. Control-Option-Command-N
+  jots a margin note at the pointer in any app; it lands at your cursor in the
+  Perch page as one bullet with the time and the app and window it came from,
+  or waits until it can. See `docs/CURSOR_TOOLS.md`.
 - Developer builds (any debug build) make the Notion web view inspectable from
   Safari's Develop menu and add a Developer menu with a live diagnostics HUD,
   a copyable diagnostics report, and tools to simulate memory pressure and

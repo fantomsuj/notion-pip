@@ -89,6 +89,7 @@ private final class AppComposition {
     private let launchAtLoginService: LaunchAtLoginService
     private let agentStreamingService: AgentStreamingService
     private let agentStreamNotificationDelegate: AgentStreamNotificationDelegate
+    private let cursorTools: CursorToolsController
     private let saveActivePageRestoration: @MainActor () async -> Void
     private var statusItemAppearanceCancellable: AnyCancellable?
     #if PERCH_DEVELOPER
@@ -98,6 +99,7 @@ private final class AppComposition {
     func applicationDidFinishLaunching() {
         updaterController.start()
         agentStreamingService.startIfPreferred()
+        cursorTools.startIfPreferred()
         startupRecoveryCoordinator.applicationDidFinishLaunching()
         #if PERCH_DEVELOPER
         developerTools.showHUDIfRequestedAtLaunch()
@@ -105,6 +107,7 @@ private final class AppComposition {
     }
 
     func prepareForTermination() async {
+        cursorTools.prepareForTermination()
         await saveActivePageRestoration()
         await agentStreamingService.prepareForTermination()
     }
@@ -129,6 +132,7 @@ private final class AppComposition {
         AgentStreamUserNotifier.installNotificationCenterDelegate(
             agentStreamNotificationDelegate
         )
+        let cursorTools = CursorToolsController(target: webSession)
 
         do {
             try LegacyPersonalTokenCleanup().runIfNeeded()
@@ -241,6 +245,7 @@ private final class AppComposition {
                 panelSizeController: panelSizeController,
                 launchAtLoginService: launchAtLoginService,
                 agentStreamingService: agentStreamingService,
+                cursorTools: cursorTools,
                 closeRequestHandler: closeHandler
             )
         }
@@ -337,6 +342,7 @@ private final class AppComposition {
         self.launchAtLoginService = launchAtLoginService
         self.agentStreamingService = agentStreamingService
         self.agentStreamNotificationDelegate = agentStreamNotificationDelegate
+        self.cursorTools = cursorTools
         // Page switches save the outgoing page's scroll position; quitting has to save the
         // active page itself so the next launch opens at the same spot.
         saveActivePageRestoration = { [weak webSession] in

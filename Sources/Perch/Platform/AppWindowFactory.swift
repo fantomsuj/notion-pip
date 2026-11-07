@@ -48,6 +48,7 @@ enum AppWindowFactory {
         panelSizeController: PanelSizeController,
         launchAtLoginService: LaunchAtLoginService,
         agentStreamingService: AgentStreamingService,
+        cursorTools: CursorToolsController? = nil,
         closeRequestHandler: @escaping @MainActor () -> Void
     ) -> AppWindowPresenter {
         AppWindowPresenter(
@@ -59,7 +60,8 @@ enum AppWindowFactory {
                         runtime: runtime,
                         panelSizeController: panelSizeController,
                         launchAtLoginService: launchAtLoginService,
-                        agentStreamingService: agentStreamingService
+                        agentStreamingService: agentStreamingService,
+                        cursorTools: cursorTools
                     )
                 )
             ),
