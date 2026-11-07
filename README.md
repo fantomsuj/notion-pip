@@ -43,6 +43,11 @@ Pin the Notion page you are living in and keep it close without turning it into 
   press **Accept** to paste. Perch never asks for a Notion integration token.
   The wire contract, discovery file, and reference client are documented in
   [`docs/AGENT_STREAMING.md`](docs/AGENT_STREAMING.md).
+- Optionally turn on **Cursor Tools** to use the pointer across apps: carry a
+  screenshot (`Control-Option-Command-S`, double-click to drop, shake to toss)
+  and jot a margin note from any app (`Control-Option-Command-N`) that lands in
+  your Perch page with its time and source. See
+  [`docs/CURSOR_TOOLS.md`](docs/CURSOR_TOOLS.md).
 Hover over the edge handle to see up to five pages you recently opened in Perch. Click a recent page to restore it where you left off, click the handle itself to restore the current page, or drag the handle to move it to another edge or display.
 
 You can also drop a valid Notion page link onto the stashed handle to open that page; hovering a link over the handle only previews it and never switches pages.
